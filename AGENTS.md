@@ -24,15 +24,18 @@
   - 削除操作は確認モーダルが必須。削除後はスナックバーで 5 秒間 Undo を表示し復元を許可（Undo 期限まではソフトデリートで DB に退避）。
   - 入力エリアはすべて Markdown 文法（基本記法 + チェックボックス）を受け付ける。エディタとプレビューを縦に並べて同時表示。
   - 編集中は 3 秒間入力が止まると差分のみドラフト保存（`isDraft=true` のまま DB 反映）。連続ドラフト保存は最短 6 秒間隔。楽観ロックで `updatedAt` が古い保存は 409 を返し、再読込を促す。
+  - 409 競合時の UI：ドラフト保存（オートセーブ）はバナーで通知＋再読み込みボタン（自動保存は一時停止、編集は継続可）。確定保存（Cmd+S）はモーダルで再読み込み/後でを提示（自動保存は再読み込みまで停止）。
   - 「保存」ボタンで最終確定し `isDraft=false` へ更新。同時にドラフトステータスバッジを消す。ドラフト自体は 1 レコードを使い回し、同一ノートで 10 件以上 `isDraft=true` が残らないよう週次でクリーンアップバッチを走らせる。
-  - 自動保存に失敗した場合はバナーで警告し、再試行ボタンを表示。タイトル/概要/サマリーはフォーカスアウト時と保存時にバリデーションを行う。
+  - 自動保存に失敗した場合はバナーで警告し、手動「再試行」ボタンのみ（自動リトライなし）。バナー表示中は自動保存送信を停止するが入力は継続可能。オフライン時も同様の運用。
   - キーボードショートカット：`Cmd+S` 保存、`Cmd+Z` 取り消し、`Cmd+Shift+Z` やり直し。`Cmd+N` はフォーカスしている欄に応じてカードを追加（キーワード欄ならキーワードカード、ノート欄ならノートカード）。どちらにもフォーカスがない場合は無効。
+  - ショートカットは Cmd 系に加え Ctrl 系でも動作させる（例：Cmd+S / Ctrl+S）。
 
 - **タイトルエリア**
 
   - タイトル、概要、日付フィールドを配置。概要は複数行スクロール可。
   - 日付選択はカレンダー UI で入力。手入力も許可する場合はフォーマットを YYYY-MM-DD に統一。
   - タグ入力欄を設置。既存タグのオートコンプリート + 新規追加に対応し、Notebook と Tag を中間テーブルで関連付ける。候補に存在しないタグはその場で `Tag` レコードを自動作成する。各ノートにつき最大 12 個までで、重複は UI/ロジックで弾く。
+  - タグ仕様：長さ 1〜30 文字。使用可文字はひらがな・カタカナ・英数字・記号 `!"#$%&'()0=~|-^¥@[\`{;:]+\*},./<>?\_`のみ、空白はトリムし絵文字不可。色は任意入力可（デフォルト`#f59e0b`）。削除は確認付きでノート紐付けも同時解除。名称変更は既存ノートへ即時反映。
 
 - **ノートエリア**
 
@@ -53,11 +56,12 @@
   - プレビューのチェックボックスは表示専用 (`react-markdown` + `remark-gfm` + `rehype-sanitize`) とし、クリック時は `preventDefault` でエディタ側のみ変更可能に保つ（キーワード/ノート欄と同仕様）。`react-markdown` の `components.input` を override して tailwind の design token（例: `accent-primary`, `border-muted`, `bg-surface`）に統一したスタイルを適用する。
 
 - **一覧画面**
+
   - タイトル・日付（From/To 範囲）フィルタに加え、タグはトークナイザー型入力（フリーワード + サジェスト）で OR 条件絞り込み。候補リストは名前順で表示し、検索/オートコンプリート可能。最大 12 個まで追加（重複は自動で弾く）。タグの右クリックメニューから名称変更・削除を行える管理 UI を提供する。
   - 日付範囲は `react-day-picker` の range mode で開始・終了を設定。片側のみ指定した場合は「開始日以降」または「終了日以前」として扱い、ブランクは制限なしとみなす。From > To や無効日付はフォーカスアウト時と検索実行時にバリデーションしてエラー表示。クイックセレクトとして「今日」「過去 7 日」「過去 30 日」をボタンで提供。
   - 並び順は日付ソート（昇順/降順切替）に限定。
   - 新規ノート作成ボタンからテンプレ初期値で詳細画面へ遷移。
-  - 期間指定エクスポート：日付フィルタ群の右隣に開始日/終了日ピッカーと「HTML 出力」ボタンを配置し、指定期間内のノートを画面レイアウトそのままの HTML へシリアライズする。`学習記録-YYYYMMDD(開始日)-YYYYMMDD(終了日).html` というファイル名でブラウザの既定ダウンロードフォルダへ保存する。期間未指定・範囲不正時はボタンを無効化し、実行後は進行中インジケータと完了トーストを表示する。
+  - 期間指定エクスポート：日付フィルタ群の右隣に開始日/終了日ピッカーと「PDF 出力」ボタンを配置し、指定期間内のノートをプリント専用の 1 ノート 1 ページ SSR レイアウトで組み立て、Playwright で PDF 化する（将来 HTML へ戻す可能性あり）。`GET /api/notes/export?from&to` で取得し、`学習記録-YYYYMMDD(開始日)-YYYYMMDD(終了日).pdf` として保存。カード単位で改ページしフッターにノート日付のみ表示。リクエストごとに Chromium を起動して生成。期間未指定・範囲不正時はボタンを無効化し、実行後は進行中インジケータと完了トーストを表示する。
 
 - **復習タスク画面**
   - `/tasks/review`（仮）に専用画面を設け、タブで「1 日後（作成 1 日以上 7 日未満、`reviewStatus=0`）」と「1 週間後（作成 7 日以上、`reviewStatus=1`）」を切り替えて表示する。
@@ -72,6 +76,7 @@
 - Markdown エディタは `@uiw/react-md-editor` を採用し、エディタ＋プレビューの縦並び表示をカスタマイズ。`react-markdown` を組み合わせ、XSS 対策（`rehype-sanitize`）とチェックボックス拡張を有効化する。
 - Prisma + SQLite（ローカルファイル）でデータ永続化。`prisma migrate` でスキーマ管理。
 - 外部 API との連携なし。ネットワーク接続不要。
+- PDF 出力は Playwright（Chromium）を利用し、エクスポート API でリクエストごとに起動する。
 
 ## 4. 状態遷移 / ルーティング
 
@@ -89,18 +94,18 @@
 
 ## 5. データモデル / API
 
-| テーブル                | 主キー                             | 主な列                                                                                                           | 備考                                                                                         |
-| ----------------------- | ---------------------------------- | ---------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
-| `notebooks`             | `id` (cuid)                        | `title`, `overview`, `summary`, `note_date`, `created_at`, `updated_at`, `deleted_at`                             | Prisma モデル名は `Notebook` だが、テーブル/カラムは snake_case で管理（日時は `DATETIME`）   |
-| `notebook_draft_states` | `notebook_id` (PK=FK)              | `is_draft`, `draft_updated_at`, `hidden_notes`, `version` (int), `autosave_version` (int)                         | Notebook と 1:1 の最新ドラフト専用テーブル。Notebook 作成時に必ず初期レコードを生成          |
-| `notebook_review_progresses`| `notebook_id` (PK=FK)         | `review_status` (0=未レビュー,1=1日後済,2=1週間後済), `first_review_at`, `second_review_at`, `first_review_completed_at`, `second_review_completed_at` | Notebook 作成時に必ず初期レコードを生成する spaced repetition 用メタデータ                  |
-| `tags`                  | `id`                               | `name` (unique), `color` (任意), `created_at`                                                                     | タグ候補のマスタ                                                                         |
-| `notebook_tags`         | `notebook_id`, `tag_id` (複合主キー) | -                                                                                                                | Notebook と Tag の多対多中間                                                                 |
-| `cue_cards`             | `id`                               | `notebook_id` FK, `marker`, `content`, `order`, `deleted_at`                                                     | Markdown: `content`                                                                          |
-| `note_cards`            | `id`                               | `notebook_id` FK, `title`, `content`, `order`, `is_hidden`, `deleted_at`                                         | Markdown: `content`                                                                          |
-| `note_cue_links`        | `note_card_id`, `cue_card_id`      | `order` (任意)                                                                                                   | CueCard と NoteCard の多対多中間。DB が参照整合性を担保する                                  |
-| `soft_delete_buffers`   | `id`                               | `entity_type` (`notebook`/`cue`/`note`), `entity_id`, `undo_expires_at`, `created_at`, `purged_at`               | Undo 用のソフトデリート領域。ID と種別のみ保持し、実データは各テーブルの `deleted_at` で管理  |
-| `backup_logs`           | `id`                               | `executed_at`, `status` (`success`/`failure`), `error_message`                                                   | 自動/手動バックアップのログ。`/notes/backup` で最新順に表示                                  |
+| テーブル                     | 主キー                               | 主な列                                                                                                                                                   | 備考                                                                                         |
+| ---------------------------- | ------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| `notebooks`                  | `id` (cuid)                          | `title`, `overview`, `summary`, `note_date`, `created_at`, `updated_at`, `deleted_at`                                                                    | Prisma モデル名は `Notebook` だが、テーブル/カラムは snake_case で管理（日時は `DATETIME`）  |
+| `notebook_draft_states`      | `notebook_id` (PK=FK)                | `is_draft`, `draft_updated_at`, `hidden_notes`, `version` (int), `autosave_version` (int)                                                                | Notebook と 1:1 の最新ドラフト専用テーブル。Notebook 作成時に必ず初期レコードを生成          |
+| `notebook_review_progresses` | `notebook_id` (PK=FK)                | `review_status` (0=未レビュー,1=1 日後済,2=1 週間後済), `first_review_at`, `second_review_at`, `first_review_completed_at`, `second_review_completed_at` | Notebook 作成時に必ず初期レコードを生成する spaced repetition 用メタデータ                   |
+| `tags`                       | `id`                                 | `name` (unique), `color` (任意), `created_at`                                                                                                            | タグ候補のマスタ                                                                             |
+| `notebook_tags`              | `notebook_id`, `tag_id` (複合主キー) | -                                                                                                                                                        | Notebook と Tag の多対多中間                                                                 |
+| `cue_cards`                  | `id`                                 | `notebook_id` FK, `marker`, `content`, `order`, `deleted_at`                                                                                             | Markdown: `content`                                                                          |
+| `note_cards`                 | `id`                                 | `notebook_id` FK, `title`, `content`, `order`, `is_hidden`, `deleted_at`                                                                                 | Markdown: `content`                                                                          |
+| `note_cue_links`             | `note_card_id`, `cue_card_id`        | `order` (任意)                                                                                                                                           | CueCard と NoteCard の多対多中間。DB が参照整合性を担保する                                  |
+| `soft_delete_buffers`        | `id`                                 | `entity_type` (`notebook`/`cue`/`note`), `entity_id`, `undo_expires_at`, `created_at`, `purged_at`                                                       | Undo 用のソフトデリート領域。ID と種別のみ保持し、実データは各テーブルの `deleted_at` で管理 |
+| `backup_logs`                | `id`                                 | `executed_at`, `status` (`success`/`failure`), `error_message`                                                                                           | 自動/手動バックアップのログ。`/notes/backup` で最新順に表示                                  |
 
 - Notebook は確定版の永続化のみを担い、ドラフトや復習、Undo 等の周辺責務はそれぞれ `NotebookDraftState`、`NotebookReviewProgress`、`SoftDeleteBuffer` が担当する。Notebook 作成時に `NotebookDraftState` / `NotebookReviewProgress` の初期レコードも同時生成し、以降は 1:1 リレーションを維持する。Notebook 保存時は関連テーブルを Prisma のトランザクションで一括更新する（スロークエリが問題になる場合のみ分割を検討）。
 - 復習タスクはノート作成時に `first_review_at = note_date + 1 day`, `second_review_at = note_date + 7 days` を算出して `notebook_review_progresses` に保存し、`review_status` に応じて「1 日後」「1 週間後」タブに振り分ける。
@@ -109,6 +114,7 @@
 - Draft のバージョニングは `version`（確定保存時に +1）と `autosave_version`（自動保存時に +1）を分離し、比較時は `version.autosave_version` を文字列連結して扱う。確定保存時は `version` をインクリメントして `autosave_version` を 0 にリセット、自動保存時は `autosave_version` のみ増やす。
 
 - クリーンアップ方針
+
   - アプリ起動時に Prisma 経由で `draftUpdatedAt` から 30 日以上経過した `NotebookDraftState` を削除し、同時に `soft_delete_buffers` の `undo_expires_at < now()` を物理削除する（ログ保持なし）。
   - 同タイミングで `deleted_at` が 30 日以上前の Notebook/CueCard/NoteCard を完全削除し、復元不可にする。
 
@@ -135,14 +141,15 @@
   - タイトル: 1〜120 文字
   - 概要: 0〜400 文字（Markdown）
   - カード数: 制限なし（パフォーマンス上の注意のみ）
-  - 日付: 過去〜今日、未来日は警告表示のみ
+  - 日付: 過去〜今日、未来日は入力をブロックする（無効日付や From>To はインラインエラー＋枠ハイライト）
 
 ## 6. 非機能要件
 
 - **パフォーマンス**: ローカル環境で主要操作（カード追加/削除/保存）が 200ms 以内に反映。
 - **アクセシビリティ**: キーボード操作で全要素にアクセス可能。ARIA ランドマークと適切なラベルを付与。
 - **テスト**: `npm run lint` 必須。可能であれば Playwright/E2E で主要フロー（作成 → 保存 → 閲覧）を自動化。
-- **バックアップ**: アプリ起動時のみ SQLite DB ファイルを `backup/` 配下へ `YYYY-MM-DDTHH-mm-ss` フォーマットのタイムスタンプ付きで自動コピー。直近 3 世代を保持し、4 世代目以降は最古を削除。コピー対象は DB ファイルのみ（ログ等は除外）。コピー処理は Node スクリプト化し、UI からの再試行も `npm run backup:copy`（同一コマンド）で実行する。コピー失敗時はトースト＋再試行ボタンで即リトライし、詳細は `/notes/backup` で確認できる。README には手動コピー手順も記載。エクスポート/インポートや印刷/PDF 機能は現時点では不要。
+- **バックアップ**: アプリ起動時のみ SQLite DB ファイルを `backup/` 配下へ `YYYY-MM-DDTHH-mm-ss` フォーマットのタイムスタンプ付きで自動コピー。直近 3 世代を保持し、4 世代目以降は最古を削除。コピー対象は DB ファイルのみ（ログ等は除外）。コピー処理は Node スクリプト化し、UI からの再試行も `npm run backup:copy`（同一コマンド）で実行する。コピー失敗時はトースト＋再試行ボタンで即リトライし、詳細は `/notes/backup` で確認できる。README には手動コピー手順も記載。エクスポートは Playwright による PDF 出力を採用（`GET /api/notes/export?from&to`）、印刷 UI は不要（PDF で代替）。将来の HTML 出力復帰は運用後に検討。
+- **アクセシビリティ補足**: 現時点では D&D 並び替えのキーボード操作は未実装（必要になれば上下移動ボタン等を追加）。モーダルのフォーカス制御も省略しており、後から追加可能。
 
 ## 7. 制約 / 前提
 
