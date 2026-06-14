@@ -1,4 +1,32 @@
-# AGENT SPEC TEMPLATE
+# Repository Instructions
+
+このリポジトリは、ローカル個人利用向けの Cornell Method Notebook アプリです。
+
+## Primary References
+
+- 仕様の正本: `AGENTS.md`
+- 実装状況: `doc/IMPLEMENTATION_STATUS.md`
+- テスト観点: `doc/TEST_SCENARIOS.md`
+- Manager / Worker 運用: `codex-queue/README.md`
+
+## Development Policy
+
+- 既存の Next.js App Router、React、Prisma、SQLite 構成を前提に進める。
+- 作業前に `git status --short` を確認し、ユーザーの未コミット変更を戻さない。
+- 依存関係、DB、UI、API の不整合を見つけた場合は、推測で隠さず明示する。
+- 実装は小さく分割し、対象外のリファクタリングを避ける。
+- 検証可能な作業では `npm run lint`、`npm run build`、Prisma コマンドなど、適切な確認を行う。
+- 検証できない場合は、実行したコマンドと失敗理由を報告する。
+
+## Manager / Worker Policy
+
+- Manager はユーザーと相談してタスクを具体化し、`codex-queue` に投入する。
+- Worker は投入された 1 タスクだけを実行し、完了後に変更内容と検証結果を報告する。
+- UI タスクは `codex-queue/tasks-ui`、API タスクは `codex-queue/tasks-api`、横断タスクは `codex-queue/tasks` を使う。
+
+---
+
+# Application Specification
 
 この仕様書は、コーネルメソッドノート記録アプリを開発する際にエージェントへ抜け漏れなく依頼するためのテンプレートです。以下の項目を埋め、必要に応じて詳細を更新してください。
 

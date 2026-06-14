@@ -1,0 +1,6 @@
+tasks/**/*.task.md
+tasks-ui/**/*.task.md
+tasks-api/**/*.task.md
+!tasks/**/.gitkeep
+!tasks-ui/**/.gitkeep
+!tasks-api/**/.gitkeep
