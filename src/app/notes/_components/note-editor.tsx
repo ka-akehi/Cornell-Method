@@ -1,409 +1,527 @@
-/* eslint-disable @next/next/no-img-element */
 "use client";
 
-import dynamic from "next/dynamic";
-import { useEffect, useMemo, useState } from "react";
-import { format } from "date-fns";
-import { DndContext, closestCenter, PointerSensor, useSensor, useSensors } from "@dnd-kit/core";
-import { SortableContext, arrayMove, verticalListSortingStrategy } from "@dnd-kit/sortable";
-import { restrictToVerticalAxis } from "@dnd-kit/modifiers";
-import { NoteCard, CueCard, Tag } from "../types";
-import "@uiw/react-md-editor/markdown-editor.css";
-import "@uiw/react-markdown-preview/markdown.css";
+import { useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import { MarkdownField } from "./markdown-field";
+import type { ApiErrorBody, ApiFieldError, NotebookInput } from "@/lib/validation";
 
-const MDEditor = dynamic(() => import("@uiw/react-md-editor"), { ssr: false });
+type SourceType = NonNullable<NotebookInput["sourceType"]>;
 
-type NotebookForm = {
+type NoteEditorCue = {
+  id?: string;
+  text: string;
+  order: number;
+};
+
+type NoteEditorTag = {
+  id?: string;
+  name: string;
+  color?: string | null;
+};
+
+type NoteEditorInitial = Partial<
+  Omit<NotebookInput, "sourceType" | "cues" | "tags"> & {
+    id: string;
+    sourceType: SourceType | null | "";
+    cues: Array<Partial<NoteEditorCue> & { content?: string; marker?: string }>;
+    tags: NoteEditorTag[];
+    notes: Array<{ content?: string }>;
+  }
+>;
+
+type NoteEditorProps = {
+  mode: "create" | "edit";
+  initial?: NoteEditorInitial;
+  draft?: unknown;
+  onCancel?: () => void;
+};
+
+type FormState = {
   id?: string;
   title: string;
-  overview: string;
-  summary: string;
   noteDate: string;
-  tags: Tag[];
-  cues: CueCard[];
-  notes: NoteCard[];
+  sourceType: SourceType | "";
+  sourceTitle: string;
+  overview: string;
+  tags: NoteEditorTag[];
+  cues: NoteEditorCue[];
+  body: string;
+  summary: string;
+  nextReviewDate: string;
 };
 
-type DraftMeta = {
-  isDraft: boolean;
-  version: number;
-  autosaveVersion: number;
-  hiddenNotes?: unknown;
-};
+const sourceTypeOptions: Array<{ value: SourceType; label: string }> = [
+  { value: "book", label: "書籍" },
+  { value: "lecture", label: "講義" },
+  { value: "video", label: "動画" },
+  { value: "article", label: "記事" },
+  { value: "other", label: "その他" },
+];
 
-type Props = {
-  initial?: Partial<NotebookForm>;
-  draft?: Partial<DraftMeta>;
-  mode: "create" | "edit";
-};
+function todayDateString() {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
 
-const emptyForm: NotebookForm = {
-  title: "",
-  overview: "",
-  summary: "",
-  noteDate: format(new Date(), "yyyy-MM-dd"),
-  tags: [],
-  cues: [],
-  notes: [],
-};
+function normalizeCues(initial?: NoteEditorInitial): NoteEditorCue[] {
+  return (initial?.cues ?? []).map((cue, index) => ({
+    id: cue.id,
+    text: cue.text ?? cue.content ?? "",
+    order: cue.order ?? index,
+  }));
+}
 
-export function NoteEditor({ initial, draft, mode }: Props) {
-  const [form, setForm] = useState<NotebookForm>({ ...emptyForm, ...initial });
-  const [draftMeta, setDraftMeta] = useState<DraftMeta>({
-    isDraft: true,
-    version: draft?.version ?? 0,
-    autosaveVersion: draft?.autosaveVersion ?? 0,
-    hiddenNotes: draft?.hiddenNotes ?? [],
-  });
-  const [saving, setSaving] = useState(false);
-  const [autosaveError, setAutosaveError] = useState<string | null>(null);
-  const [conflict, setConflict] = useState(false);
+function createInitialForm(initial?: NoteEditorInitial): FormState {
+  return {
+    id: initial?.id,
+    title: initial?.title ?? "",
+    noteDate: initial?.noteDate ?? todayDateString(),
+    sourceType: initial?.sourceType ?? "",
+    sourceTitle: initial?.sourceTitle ?? "",
+    overview: initial?.overview ?? "",
+    tags: initial?.tags ?? [],
+    cues: normalizeCues(initial),
+    body: initial?.body ?? initial?.notes?.[0]?.content ?? "",
+    summary: initial?.summary ?? "",
+    nextReviewDate: initial?.nextReviewDate ?? "",
+  };
+}
 
-  const sensors = useSensors(useSensor(PointerSensor));
+function fieldError(errors: ApiFieldError[], field: string) {
+  return errors.find((error) => error.field === field)?.message;
+}
 
-  const payload = useMemo(
-    () => ({
-      notebook: form,
-      draft: draftMeta,
-    }),
-    [form, draftMeta],
+function indexedFieldError(errors: ApiFieldError[], field: string, index: number) {
+  return (
+    fieldError(errors, `${field}.${index}.text`) ??
+    fieldError(errors, `${field}.${index}.name`)
   );
+}
 
-  useEffect(() => {
-    if (saving || conflict) return;
-    const handle = setTimeout(() => {
-      void autosave();
-    }, 3000);
-    return () => clearTimeout(handle);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [payload]);
+function toPayload(form: FormState): NotebookInput {
+  return {
+    title: form.title,
+    noteDate: form.noteDate,
+    sourceType: form.sourceType || undefined,
+    sourceTitle: form.sourceTitle,
+    overview: form.overview,
+    body: form.body,
+    summary: form.summary,
+    nextReviewDate: form.nextReviewDate || null,
+    cues: form.cues
+      .map((cue, index) => ({
+        id: cue.id,
+        text: cue.text.trim(),
+        order: index,
+      }))
+      .filter((cue) => cue.text.length > 0),
+    tags: form.tags.map((tag) => ({
+      id: tag.id,
+      name: tag.name.trim(),
+      color: tag.color ?? null,
+    })),
+  };
+}
 
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "s") {
-        e.preventDefault();
-        void save();
-      }
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [form, draftMeta]);
+export function NoteEditor({ initial, mode, onCancel }: NoteEditorProps) {
+  const router = useRouter();
+  const [form, setForm] = useState<FormState>(() => createInitialForm(initial));
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<ApiFieldError[]>([]);
+  const today = useMemo(() => todayDateString(), []);
 
-  async function autosave() {
-    if (mode === "create") return;
-    setAutosaveError(null);
-    try {
-      const res = await fetch(`/api/notes/${form.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          notebook: form,
-          draft: draftMeta,
-          draftOnly: true,
-        }),
-      });
-      if (res.status === 409) {
-        setConflict(true);
-        return;
-      }
-      if (!res.ok) {
-        setAutosaveError("自動保存に失敗しました");
-        return;
-      }
-      const data = await res.json();
-      setDraftMeta((prev) => ({
-        ...prev,
-        autosaveVersion: prev.autosaveVersion + 1,
-        draftUpdatedAt: new Date(),
-        isDraft: true,
-      }));
-    } catch (e) {
-      setAutosaveError("自動保存に失敗しました");
-    }
+  function updateForm(next: Partial<FormState>) {
+    setForm((current) => ({ ...current, ...next }));
+  }
+
+  function addCue() {
+    setForm((current) => ({
+      ...current,
+      cues: [
+        ...current.cues,
+        {
+          text: "",
+          order: current.cues.length,
+        },
+      ],
+    }));
+  }
+
+  function updateCue(index: number, text: string) {
+    setForm((current) => ({
+      ...current,
+      cues: current.cues.map((cue, cueIndex) =>
+        cueIndex === index ? { ...cue, text } : cue,
+      ),
+    }));
+  }
+
+  function removeCue(index: number) {
+    setForm((current) => ({
+      ...current,
+      cues: current.cues
+        .filter((_, cueIndex) => cueIndex !== index)
+        .map((cue, cueIndex) => ({ ...cue, order: cueIndex })),
+    }));
   }
 
   async function save() {
+    if (mode === "edit" && !form.id) {
+      setMessage("更新対象のノートIDがありません。");
+      return;
+    }
+
     setSaving(true);
-    setAutosaveError(null);
-    setConflict(false);
+    setMessage(null);
+    setFieldErrors([]);
+
     const endpoint = mode === "create" ? "/api/notes" : `/api/notes/${form.id}`;
     const method = mode === "create" ? "POST" : "PATCH";
-    const body = {
-      notebook: form,
-      draft: draftMeta,
-      draftOnly: false,
-    };
+
     try {
-      const res = await fetch(endpoint, {
+      const response = await fetch(endpoint, {
         method,
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
+        body: JSON.stringify(toPayload(form)),
       });
-      if (res.status === 409) {
-        setConflict(true);
+
+      const data = response.status === 204 ? null : await response.json().catch(() => null);
+
+      if (!response.ok) {
+        const errorBody = data as Partial<ApiErrorBody> | null;
+        setMessage(errorBody?.message ?? "保存に失敗しました。");
+        setFieldErrors(errorBody?.errors ?? []);
         return;
       }
-      if (!res.ok) {
-        const text = await res.text();
-        setAutosaveError(text || "保存に失敗しました");
-        return;
+
+      const savedId = typeof data?.id === "string" ? data.id : form.id;
+      if (savedId) {
+        router.push(`/notes/${savedId}`);
+        router.refresh();
       }
-      const data = await res.json();
-      setForm((prev) => ({ ...prev, id: data.id ?? prev.id }));
-      setDraftMeta({
-        isDraft: false,
-        version: draftMeta.version + 1,
-        autosaveVersion: 0,
-      });
+    } catch {
+      setMessage("保存に失敗しました。通信状態またはAPIを確認してください。");
     } finally {
       setSaving(false);
     }
   }
 
-  function reorderCues(ids: string[]) {
-    const sorted = ids
-      .map((id) => form.cues.find((c) => c.id === id)!)
-      .filter(Boolean)
-      .map((cue, index) => ({ ...cue, order: index }));
-    setForm((prev) => ({ ...prev, cues: sorted }));
-  }
-
-  function reorderNotes(ids: string[]) {
-    const sorted = ids
-      .map((id) => form.notes.find((n) => n.id === id)!)
-      .filter(Boolean)
-      .map((note, index) => ({ ...note, order: index }));
-    setForm((prev) => ({ ...prev, notes: sorted }));
-  }
-
   return (
-    <div className="space-y-6">
-      <div className="rounded-2xl bg-white p-6 shadow-sm">
-        <div className="flex flex-col gap-4">
-          <div className="flex flex-col gap-2">
-            <label className="text-sm text-stone-500">タイトル</label>
-            <input
-              className="rounded-lg border border-stone-200 px-3 py-2 focus:border-amber-400 focus:outline-none"
-              value={form.title}
-              onChange={(e) => setForm({ ...form, title: e.target.value })}
-            />
-          </div>
-          <div className="grid gap-4 md:grid-cols-[1fr_200px]">
-            <div className="flex flex-col gap-2">
-              <label className="text-sm text-stone-500">概要</label>
-              <textarea
-                className="min-h-[80px] rounded-lg border border-stone-200 px-3 py-2 focus:border-amber-400 focus:outline-none"
-                value={form.overview}
-                onChange={(e) => setForm({ ...form, overview: e.target.value })}
-              />
-            </div>
-            <div className="flex flex-col gap-2">
-              <label className="text-sm text-stone-500">日付</label>
-              <input
-                type="date"
-                className="rounded-lg border border-stone-200 px-3 py-2 focus:border-amber-400 focus:outline-none"
-                value={form.noteDate}
-                max={format(new Date(), "yyyy-MM-dd")}
-                onChange={(e) => setForm({ ...form, noteDate: e.target.value })}
-              />
-            </div>
-          </div>
-          <TagInput
-            tags={form.tags}
-            onChange={(tags) => setForm({ ...form, tags })}
+    <form
+      className="space-y-6"
+      onSubmit={(event) => {
+        event.preventDefault();
+        void save();
+      }}
+    >
+      {message && (
+        <div
+          role="alert"
+          className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm leading-6 text-red-700"
+        >
+          {message}
+        </div>
+      )}
+
+      <section className="space-y-4 rounded-lg border border-stone-200 bg-white p-5 shadow-sm">
+        <div>
+          <h2 className="text-base font-semibold text-stone-900">基本情報</h2>
+          <p className="mt-1 text-sm leading-6 text-stone-500">
+            タイトル、学習日、学習元を記録します。
+          </p>
+        </div>
+
+        <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_180px]">
+          <TextInput
+            id="note-title"
+            label="タイトル"
+            value={form.title}
+            onChange={(title) => updateForm({ title })}
+            error={fieldError(fieldErrors, "title")}
+            required
+          />
+          <TextInput
+            id="note-date"
+            label="学習日"
+            type="date"
+            value={form.noteDate}
+            max={today}
+            onChange={(noteDate) => updateForm({ noteDate })}
+            error={fieldError(fieldErrors, "noteDate")}
+            required
           />
         </div>
-      </div>
 
-      <div className="rounded-2xl bg-white p-6 shadow-sm">
-        <div className="grid gap-4 md:grid-cols-[0.32fr_0.68fr]">
-          <div>
-            <div className="flex items-center justify-between">
-              <h2 className="text-sm font-semibold text-stone-600">
-                キーワード / 質問
-              </h2>
+        <div className="grid gap-4 md:grid-cols-[220px_minmax(0,1fr)]">
+          <div className="min-w-0 space-y-2">
+            <label htmlFor="source-type" className="block text-sm font-medium text-stone-700">
+              学習元タイプ
+            </label>
+            <select
+              id="source-type"
+              value={form.sourceType}
+              onChange={(event) =>
+                updateForm({ sourceType: event.target.value as SourceType | "" })
+              }
+              aria-invalid={Boolean(fieldError(fieldErrors, "sourceType"))}
+              className="w-full min-w-0 rounded-lg border border-stone-200 bg-white px-3 py-2 text-sm text-stone-900 shadow-sm outline-none transition focus:border-amber-500 focus:ring-2 focus:ring-amber-100"
+            >
+              <option value="">未選択</option>
+              {sourceTypeOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+            {fieldError(fieldErrors, "sourceType") && (
+              <p className="text-xs leading-5 text-red-600">
+                {fieldError(fieldErrors, "sourceType")}
+              </p>
+            )}
+          </div>
+          <TextInput
+            id="source-title"
+            label="学習元タイトル"
+            value={form.sourceTitle}
+            onChange={(sourceTitle) => updateForm({ sourceTitle })}
+            error={fieldError(fieldErrors, "sourceTitle")}
+          />
+        </div>
+
+        <TextArea
+          id="overview"
+          label="概要"
+          value={form.overview}
+          rows={3}
+          onChange={(overview) => updateForm({ overview })}
+          error={fieldError(fieldErrors, "overview")}
+        />
+
+        <TagInput
+          tags={form.tags}
+          error={fieldError(fieldErrors, "tags")}
+          fieldErrors={fieldErrors}
+          onChange={(tags) => updateForm({ tags })}
+        />
+      </section>
+
+      <section className="space-y-4 rounded-lg border border-stone-200 bg-white p-5 shadow-sm">
+        <div>
+          <h2 className="text-base font-semibold text-stone-900">Cornell ノート</h2>
+          <p className="mt-1 text-sm leading-6 text-stone-500">
+            Cue は必要な分だけ追加し、本文は Markdown で記録します。
+          </p>
+        </div>
+
+        <div className="grid gap-5 lg:grid-cols-[minmax(220px,0.32fr)_minmax(0,0.68fr)]">
+          <div className="min-w-0 space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h3 className="text-sm font-semibold text-stone-800">キーワード / 質問</h3>
               <button
-                className="rounded-lg bg-stone-900 px-3 py-1 text-sm text-white"
-                onClick={() =>
-                  setForm((prev) => ({
-                    ...prev,
-                    cues: [
-                      ...prev.cues,
-                      {
-                        id: crypto.randomUUID(),
-                        marker: `Q${prev.cues.length + 1}`,
-                        content: "",
-                        order: prev.cues.length,
-                      },
-                    ],
-                  }))
-                }
+                type="button"
+                onClick={addCue}
+                className="rounded-lg border border-stone-300 px-3 py-1.5 text-sm font-medium text-stone-700 transition hover:bg-stone-50"
               >
-                追加
+                Cue 追加
               </button>
             </div>
-            <DndContext
-              sensors={sensors}
-              collisionDetection={closestCenter}
-              modifiers={[restrictToVerticalAxis]}
-              onDragEnd={(event) => {
-                const { active, over } = event;
-                if (!over || active.id === over.id) return;
-                const oldIndex = form.cues.findIndex((c) => c.id === active.id);
-                const newIndex = form.cues.findIndex((c) => c.id === over.id);
-                const reordered = arrayMove(form.cues, oldIndex, newIndex).map(
-                  (cue, idx) => ({ ...cue, order: idx }),
-                );
-                setForm((prev) => ({ ...prev, cues: reordered }));
-              }}
-            >
-              <SortableContext
-                items={form.cues.map((c) => c.id!)}
-                strategy={verticalListSortingStrategy}
-              >
-                <ul className="mt-3 space-y-3">
-                  {form.cues.map((cue) => (
-                    <CueCardItem
-                      key={cue.id}
-                      cue={cue}
-                      onChange={(next) =>
-                        setForm((prev) => ({
-                          ...prev,
-                          cues: prev.cues.map((c) =>
-                            c.id === cue.id ? { ...c, ...next } : c,
-                          ),
-                        }))
-                      }
-                      onRemove={() =>
-                        setForm((prev) => ({
-                          ...prev,
-                          cues: prev.cues.filter((c) => c.id !== cue.id),
-                        }))
-                      }
+
+            {form.cues.length === 0 ? (
+              <p className="rounded-lg border border-dashed border-stone-200 bg-stone-50 px-3 py-3 text-sm leading-6 text-stone-500">
+                Cue は未追加です。
+              </p>
+            ) : (
+              <ul className="space-y-3">
+                {form.cues.map((cue, index) => (
+                  <li key={`${cue.id ?? "new"}-${index}`} className="space-y-2 rounded-lg border border-stone-200 p-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <label
+                        htmlFor={`cue-${index}`}
+                        className="min-w-0 text-sm font-medium text-stone-700"
+                      >
+                        Cue {index + 1}
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => removeCue(index)}
+                        className="shrink-0 rounded-md px-2 py-1 text-sm text-red-600 transition hover:bg-red-50"
+                      >
+                        削除
+                      </button>
+                    </div>
+                    <textarea
+                      id={`cue-${index}`}
+                      value={cue.text}
+                      rows={3}
+                      onChange={(event) => updateCue(index, event.target.value)}
+                      aria-invalid={Boolean(indexedFieldError(fieldErrors, "cues", index))}
+                      className="w-full min-w-0 resize-y rounded-lg border border-stone-200 bg-white px-3 py-2 text-sm leading-6 text-stone-900 shadow-sm outline-none transition placeholder:text-stone-400 focus:border-amber-500 focus:ring-2 focus:ring-amber-100"
+                      placeholder="例: この章の主張は何か"
                     />
-                  ))}
-                </ul>
-              </SortableContext>
-            </DndContext>
+                    {indexedFieldError(fieldErrors, "cues", index) && (
+                      <p className="text-xs leading-5 text-red-600">
+                        {indexedFieldError(fieldErrors, "cues", index)}
+                      </p>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
 
-          <div>
-            <div className="flex items-center justify-between">
-              <h2 className="text-sm font-semibold text-stone-600">ノート</h2>
-              <button
-                className="rounded-lg bg-amber-500 px-3 py-1 text-sm text-white"
-                onClick={() =>
-                  setForm((prev) => ({
-                    ...prev,
-                    notes: [
-                      ...prev.notes,
-                      {
-                        id: crypto.randomUUID(),
-                        content: "",
-                        order: prev.notes.length,
-                        isHidden: false,
-                        cueIds: [],
-                      },
-                    ],
-                  }))
+          <MarkdownField
+            id="body"
+            label="ノート本文"
+            value={form.body}
+            onChange={(body) => updateForm({ body })}
+            rows={12}
+            error={fieldError(fieldErrors, "body")}
+            placeholder="本文を Markdown で入力"
+            previewEmptyLabel="本文のプレビューはまだありません。"
+          />
+        </div>
+      </section>
+
+      <section className="space-y-4 rounded-lg border border-stone-200 bg-white p-5 shadow-sm">
+        <MarkdownField
+          id="summary"
+          label="サマリー"
+          value={form.summary}
+          onChange={(summary) => updateForm({ summary })}
+          rows={7}
+          error={fieldError(fieldErrors, "summary")}
+          placeholder="要点や次のアクションを Markdown で入力"
+          previewEmptyLabel="サマリーのプレビューはまだありません。"
+        />
+
+        <div className="grid gap-4 md:grid-cols-[220px_minmax(0,1fr)] md:items-end">
+          <TextInput
+            id="next-review-date"
+            label="次回復習日"
+            type="date"
+            value={form.nextReviewDate}
+            onChange={(nextReviewDate) => updateForm({ nextReviewDate })}
+            error={fieldError(fieldErrors, "nextReviewDate")}
+          />
+          <div className="flex flex-wrap justify-end gap-3">
+            <button
+              type="button"
+              onClick={() => {
+                if (onCancel) {
+                  onCancel();
+                  return;
                 }
-              >
-                追加
-              </button>
-            </div>
-            <DndContext
-              sensors={sensors}
-              collisionDetection={closestCenter}
-              modifiers={[restrictToVerticalAxis]}
-              onDragEnd={(event) => {
-                const { active, over } = event;
-                if (!over || active.id === over.id) return;
-                const oldIndex = form.notes.findIndex((c) => c.id === active.id);
-                const newIndex = form.notes.findIndex((c) => c.id === over.id);
-                const reordered = arrayMove(form.notes, oldIndex, newIndex).map(
-                  (note, idx) => ({ ...note, order: idx }),
-                );
-                setForm((prev) => ({ ...prev, notes: reordered }));
+                router.push("/notes");
               }}
+              className="rounded-lg border border-stone-300 px-4 py-2 text-sm font-medium text-stone-700 transition hover:bg-stone-50"
             >
-              <SortableContext
-                items={form.notes.map((n) => n.id!)}
-                strategy={verticalListSortingStrategy}
-              >
-                <ul className="mt-3 space-y-3">
-                  {form.notes.map((note) => (
-                    <NoteCardItem
-                      key={note.id}
-                      note={note}
-                      cues={form.cues}
-                      onChange={(next) =>
-                        setForm((prev) => ({
-                          ...prev,
-                          notes: prev.notes.map((n) =>
-                            n.id === note.id ? { ...n, ...next } : n,
-                          ),
-                        }))
-                      }
-                      onRemove={() =>
-                        setForm((prev) => ({
-                          ...prev,
-                          notes: prev.notes.filter((n) => n.id !== note.id),
-                        }))
-                      }
-                    />
-                  ))}
-                </ul>
-              </SortableContext>
-            </DndContext>
+              キャンセル
+            </button>
+            <button
+              type="submit"
+              disabled={saving}
+              className="rounded-lg bg-stone-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-stone-700 disabled:cursor-not-allowed disabled:bg-stone-400"
+            >
+              {saving ? "保存中..." : "保存"}
+            </button>
           </div>
         </div>
-      </div>
+      </section>
+    </form>
+  );
+}
 
-      <div className="rounded-2xl bg-white p-6 shadow-sm">
-        <div className="flex items-center justify-between">
-          <h2 className="text-sm font-semibold text-stone-600">
-            サマリー & 次のアクション
-          </h2>
-        </div>
-        <div className="mt-3">
-          <div data-color-mode="light">
-            <MDEditor
-              value={form.summary}
-              preview="edit"
-              height={240}
-              onChange={(v) => setForm({ ...form, summary: v ?? "" })}
-            />
-          </div>
-        </div>
-      </div>
-
-      {conflict && (
-        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-          最新の内容と競合しました。再読み込みしてください。
-        </div>
+function TextInput({
+  id,
+  label,
+  value,
+  onChange,
+  error,
+  type = "text",
+  max,
+  required = false,
+}: {
+  id: string;
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  error?: string;
+  type?: "text" | "date";
+  max?: string;
+  required?: boolean;
+}) {
+  return (
+    <div className="min-w-0 space-y-2">
+      <label htmlFor={id} className="block text-sm font-medium text-stone-700">
+        {label}
+        {required && <span className="ml-1 text-red-600">*</span>}
+      </label>
+      <input
+        id={id}
+        type={type}
+        value={value}
+        max={max}
+        required={required}
+        onChange={(event) => onChange(event.target.value)}
+        aria-invalid={Boolean(error)}
+        aria-describedby={error ? `${id}-error` : undefined}
+        className={`w-full min-w-0 rounded-lg border bg-white px-3 py-2 text-sm text-stone-900 shadow-sm outline-none transition placeholder:text-stone-400 ${
+          error
+            ? "border-red-300 focus:border-red-500 focus:ring-2 focus:ring-red-100"
+            : "border-stone-200 focus:border-amber-500 focus:ring-2 focus:ring-amber-100"
+        }`}
+      />
+      {error && (
+        <p id={`${id}-error`} className="text-xs leading-5 text-red-600">
+          {error}
+        </p>
       )}
-      {autosaveError && (
-        <div className="flex items-center justify-between rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-          <span>{autosaveError}</span>
-          <button
-            className="rounded border border-amber-300 px-3 py-1 text-amber-700"
-            onClick={() => autosave()}
-          >
-            再試行
-          </button>
-        </div>
-      )}
+    </div>
+  );
+}
 
-      <div className="flex gap-3">
-        <button
-          onClick={() => save()}
-          className="rounded-lg bg-stone-900 px-4 py-2 text-white"
-          disabled={saving}
-        >
-          {saving ? "保存中..." : "保存"}
-        </button>
-      </div>
+function TextArea({
+  id,
+  label,
+  value,
+  onChange,
+  error,
+  rows,
+}: {
+  id: string;
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  error?: string;
+  rows: number;
+}) {
+  return (
+    <div className="min-w-0 space-y-2">
+      <label htmlFor={id} className="block text-sm font-medium text-stone-700">
+        {label}
+      </label>
+      <textarea
+        id={id}
+        value={value}
+        rows={rows}
+        onChange={(event) => onChange(event.target.value)}
+        aria-invalid={Boolean(error)}
+        aria-describedby={error ? `${id}-error` : undefined}
+        className={`w-full min-w-0 resize-y rounded-lg border bg-white px-3 py-2 text-sm leading-6 text-stone-900 shadow-sm outline-none transition placeholder:text-stone-400 ${
+          error
+            ? "border-red-300 focus:border-red-500 focus:ring-2 focus:ring-red-100"
+            : "border-stone-200 focus:border-amber-500 focus:ring-2 focus:ring-amber-100"
+        }`}
+      />
+      {error && (
+        <p id={`${id}-error`} className="text-xs leading-5 text-red-600">
+          {error}
+        </p>
+      )}
     </div>
   );
 }
@@ -411,157 +529,94 @@ export function NoteEditor({ initial, draft, mode }: Props) {
 function TagInput({
   tags,
   onChange,
+  error,
+  fieldErrors,
 }: {
-  tags: Tag[];
-  onChange: (tags: Tag[]) => void;
+  tags: NoteEditorTag[];
+  onChange: (tags: NoteEditorTag[]) => void;
+  error?: string;
+  fieldErrors: ApiFieldError[];
 }) {
   const [input, setInput] = useState("");
+  const [localError, setLocalError] = useState<string | null>(null);
 
   function addTag() {
     const name = input.trim();
-    if (!name || tags.some((t) => t.name === name) || tags.length >= 12) return;
-    onChange([...tags, { id: crypto.randomUUID(), name, color: "#f59e0b" }]);
+    setLocalError(null);
+
+    if (!name) return;
+    if (tags.length >= 12) {
+      setLocalError("タグは12件以内で入力してください。");
+      return;
+    }
+    if (tags.some((tag) => tag.name === name)) {
+      setLocalError("同じタグは追加できません。");
+      return;
+    }
+
+    onChange([...tags, { name, color: null }]);
     setInput("");
   }
 
   return (
-    <div className="flex flex-col gap-2">
-      <label className="text-sm text-stone-500">タグ（最大12件）</label>
-      <div className="flex flex-wrap gap-2">
-        {tags.map((tag) => (
-          <span
-            key={tag.id ?? tag.name}
-            className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-3 py-1 text-xs text-amber-800"
-          >
-            {tag.name}
-            <button
-              onClick={() => onChange(tags.filter((t) => t !== tag))}
-              className="text-amber-600"
-              aria-label={`${tag.name}を削除`}
+    <div className="min-w-0 space-y-2">
+      <label htmlFor="tag-input" className="block text-sm font-medium text-stone-700">
+        タグ
+      </label>
+      {tags.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          {tags.map((tag, index) => (
+            <span
+              key={`${tag.id ?? tag.name}-${index}`}
+              className="inline-flex max-w-full items-center gap-2 rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-sm text-amber-900"
             >
-              ×
-            </button>
-          </span>
-        ))}
-      </div>
-      <div className="flex gap-2">
+              <span className="min-w-0 break-all">{tag.name}</span>
+              <button
+                type="button"
+                onClick={() => onChange(tags.filter((_, tagIndex) => tagIndex !== index))}
+                className="shrink-0 text-amber-700 hover:text-red-600"
+                aria-label={`${tag.name}を削除`}
+              >
+                ×
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+      <div className="flex flex-col gap-2 sm:flex-row">
         <input
-          className="flex-1 rounded-lg border border-stone-200 px-3 py-2 focus:border-amber-400 focus:outline-none"
+          id="tag-input"
           value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") {
-              e.preventDefault();
+          onChange={(event) => setInput(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              event.preventDefault();
               addTag();
             }
           }}
+          className="min-w-0 flex-1 rounded-lg border border-stone-200 bg-white px-3 py-2 text-sm text-stone-900 shadow-sm outline-none transition placeholder:text-stone-400 focus:border-amber-500 focus:ring-2 focus:ring-amber-100"
+          placeholder="タグ名を入力"
         />
         <button
-          className="rounded-lg border border-stone-300 px-3 py-2 text-sm text-stone-700"
+          type="button"
           onClick={addTag}
+          className="rounded-lg border border-stone-300 px-3 py-2 text-sm font-medium text-stone-700 transition hover:bg-stone-50"
         >
           追加
         </button>
       </div>
+      <p className="text-xs leading-5 text-stone-500">最大12件。Enter でも追加できます。</p>
+      {(error || localError) && (
+        <p className="text-xs leading-5 text-red-600">{localError ?? error}</p>
+      )}
+      {tags.map((_, index) => {
+        const itemError = indexedFieldError(fieldErrors, "tags", index);
+        return itemError ? (
+          <p key={index} className="text-xs leading-5 text-red-600">
+            タグ {index + 1}: {itemError}
+          </p>
+        ) : null;
+      })}
     </div>
-  );
-}
-
-function CueCardItem({
-  cue,
-  onChange,
-  onRemove,
-}: {
-  cue: CueCard;
-  onChange: (next: Partial<CueCard>) => void;
-  onRemove: () => void;
-}) {
-  return (
-    <li className="rounded-xl border border-stone-200 bg-white p-3 shadow-sm">
-      <div className="flex items-center justify-between">
-        <input
-          className="w-24 rounded border border-stone-200 px-2 py-1 text-sm"
-          value={cue.marker}
-          onChange={(e) => onChange({ marker: e.target.value })}
-        />
-        <button
-          className="text-sm text-red-500"
-          onClick={onRemove}
-          aria-label="削除"
-        >
-          削除
-        </button>
-      </div>
-      <textarea
-        className="mt-2 w-full rounded border border-stone-200 px-3 py-2 text-sm focus:border-amber-400 focus:outline-none"
-        value={cue.content}
-        onChange={(e) => onChange({ content: e.target.value })}
-        placeholder="キーワード / 質問"
-      />
-    </li>
-  );
-}
-
-function NoteCardItem({
-  note,
-  cues,
-  onChange,
-  onRemove,
-}: {
-  note: NoteCard;
-  cues: CueCard[];
-  onChange: (next: Partial<NoteCard>) => void;
-  onRemove: () => void;
-}) {
-  return (
-    <li className="rounded-xl border border-stone-200 bg-white p-3 shadow-sm">
-      <div className="flex items-center justify-between text-sm text-stone-600">
-        <span>ノートカード</span>
-        <button className="text-red-500" onClick={onRemove} aria-label="削除">
-          削除
-        </button>
-      </div>
-      <div className="mt-2 space-y-2">
-        <div className="flex flex-wrap gap-2">
-          {cues.map((cue) => {
-            const checked = note.cueIds?.includes(cue.id!);
-            return (
-              <label
-                key={cue.id}
-                className="inline-flex items-center gap-1 rounded-full border border-stone-200 px-2 py-1 text-xs"
-              >
-                <input
-                  type="checkbox"
-                  checked={checked}
-                  onChange={(e) => {
-                    const next = e.target.checked
-                      ? [...(note.cueIds ?? []), cue.id!]
-                      : (note.cueIds ?? []).filter((id) => id !== cue.id);
-                    onChange({ cueIds: next });
-                  }}
-                />
-                {cue.marker}
-              </label>
-            );
-          })}
-        </div>
-        <div data-color-mode="light">
-          <MDEditor
-            value={note.content}
-            preview="edit"
-            height={180}
-            onChange={(v) => onChange({ content: v ?? "" })}
-          />
-        </div>
-        <label className="flex items-center gap-2 text-xs text-stone-600">
-          <input
-            type="checkbox"
-            checked={note.isHidden}
-            onChange={(e) => onChange({ isHidden: e.target.checked })}
-          />
-          閲覧モードで非表示
-        </label>
-      </div>
-    </li>
   );
 }

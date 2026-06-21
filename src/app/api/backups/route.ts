@@ -1,22 +1,26 @@
 import { NextResponse } from "next/server";
-import fs from "fs";
-import path from "path";
+import { createBackup, listBackups } from "@/lib/backup";
+import { apiErrorStatus, createServerError } from "@/lib/validation";
 
 export async function GET() {
-  const backupDir = path.join(process.cwd(), "backup");
-  if (!fs.existsSync(backupDir)) {
-    return NextResponse.json({ backups: [] });
+  try {
+    return NextResponse.json({ backups: listBackups() });
+  } catch (error) {
+    const body = createServerError(
+      error instanceof Error ? error.message : undefined,
+    );
+    return NextResponse.json(body, { status: apiErrorStatus[body.code] });
   }
-  const backups = fs
-    .readdirSync(backupDir)
-    .filter((f) => f.endsWith(".db"))
-    .sort()
-    .reverse()
-    .slice(0, 3)
-    .map((file) => ({
-      file,
-      path: path.join("backup", file),
-    }));
+}
 
-  return NextResponse.json({ backups });
+export async function POST() {
+  try {
+    const backup = createBackup();
+    return NextResponse.json({ ok: true, backup });
+  } catch (error) {
+    const body = createServerError(
+      error instanceof Error ? error.message : undefined,
+    );
+    return NextResponse.json(body, { status: apiErrorStatus[body.code] });
+  }
 }

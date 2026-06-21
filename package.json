@@ -4,40 +4,99 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "next build --webpack",
     "start": "next start",
     "lint": "eslint",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:studio": "prisma studio",
-    "backup:copy": "node scripts/backup-copy.js"
+    "backup:copy": "node scripts/backup-copy.js",
+    "diagrams:extract": "node scripts/extract-mermaid-diagrams.js",
+    "diagrams:svg": "node scripts/render-mermaid-diagrams.js",
+    "diagrams:build": "npm run diagrams:extract && npm run diagrams:svg"
   },
   "dependencies": {
-    "next": "16.0.3",
-    "react": "19.2.0",
-    "react-dom": "19.2.0",
-    "@dnd-kit/core": "^6.0.8",
-    "@dnd-kit/modifiers": "^6.0.1",
-    "@dnd-kit/sortable": "^8.0.1",
-    "@prisma/client": "^6.1.0",
-    "@uiw/react-md-editor": "^3.26.3",
+    "@dnd-kit/core": "6.3.1",
+    "@dnd-kit/modifiers": "9.0.0",
+    "@dnd-kit/sortable": "10.0.0",
+    "@prisma/adapter-better-sqlite3": "7.8.0",
+    "@prisma/client": "7.8.0",
+    "@uiw/react-md-editor": "4.1.1",
+    "better-sqlite3": "12.11.1",
     "date-fns": "^3.6.0",
+    "next": "16.2.9",
     "playwright": "^1.49.0",
-    "react-day-picker": "^9.5.0",
+    "react": "19.2.0",
+    "react-day-picker": "10.0.1",
+    "react-dom": "19.2.0",
     "react-markdown": "^9.0.1",
     "rehype-sanitize": "^6.0.0",
     "remark-gfm": "^4.0.0",
-    "zod": "^3.23.8"
+    "zod": "4.4.3"
   },
   "devDependencies": {
+    "@mermaid-js/mermaid-cli": "11.15.0",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",
-    "eslint-config-next": "16.0.3",
-    "prisma": "^6.1.0",
+    "eslint-config-next": "16.2.9",
+    "prisma": "7.8.0",
+    "puppeteer": "24.33.0",
     "tailwindcss": "^4",
     "typescript": "^5"
+  },
+  "overrides": {
+    "@babel/core": "7.29.7",
+    "@eslint/config-array": {
+      "minimatch": "3.1.5"
+    },
+    "@eslint/eslintrc": {
+      "ajv": "6.15.0",
+      "js-yaml": "5.0.0",
+      "minimatch": "3.1.5"
+    },
+    "@prisma/dev": {
+      "@hono/node-server": "1.19.13"
+    },
+    "@tailwindcss/postcss": {
+      "postcss": "8.5.15"
+    },
+    "@typescript-eslint/typescript-estree": {
+      "minimatch": "9.0.9"
+    },
+    "eslint": {
+      "ajv": "6.15.0",
+      "minimatch": "3.1.5"
+    },
+    "eslint-plugin-import": {
+      "minimatch": "3.1.5"
+    },
+    "eslint-plugin-jsx-a11y": {
+      "minimatch": "3.1.5"
+    },
+    "eslint-plugin-react": {
+      "minimatch": "3.1.5"
+    },
+    "flat-cache": {
+      "flatted": "3.4.2"
+    },
+    "micromatch": {
+      "picomatch": "2.3.2"
+    },
+    "minimatch@3.1.5": {
+      "brace-expansion": "1.1.15"
+    },
+    "minimatch@9.0.9": {
+      "brace-expansion": "2.1.1"
+    },
+    "next": {
+      "postcss": "8.5.15"
+    },
+    "postcss": "8.5.15",
+    "tinyglobby": {
+      "picomatch": "4.0.4"
+    }
   }
 }

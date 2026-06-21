@@ -4,59 +4,36 @@ generator client {
 
 datasource db {
   provider = "sqlite"
-  url      = env("DATABASE_URL")
 }
 
 model Notebook {
-  id         String    @id @default(cuid()) @map("id")
-  title      String    @map("title")
-  overview   String    @default("") @map("overview")
-  summary    String    @default("") @map("summary")
-  noteDate   DateTime  @map("note_date")
-  createdAt  DateTime  @default(now()) @map("created_at")
-  updatedAt  DateTime  @updatedAt @map("updated_at")
-  deletedAt  DateTime? @map("deleted_at")
+  id             String    @id @default(cuid()) @map("id")
+  title          String    @map("title")
+  noteDate       DateTime  @map("note_date")
+  sourceType     String?   @map("source_type")
+  sourceTitle    String    @default("") @map("source_title")
+  overview       String    @default("") @map("overview")
+  body           String    @default("") @map("body")
+  summary        String    @default("") @map("summary")
+  nextReviewDate DateTime? @map("next_review_date")
+  reviewedAt     DateTime? @map("reviewed_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+  deletedAt      DateTime? @map("deleted_at")
 
-  draftState NotebookDraftState?
-  review     NotebookReviewProgress?
-  cueCards   CueCard[]
-  noteCards  NoteCard[]
-  tags       NotebookTag[]
+  cues Cue[]
+  tags NotebookTag[]
 
+  @@index([noteDate])
+  @@index([nextReviewDate])
   @@map("notebooks")
 }
 
-model NotebookDraftState {
-  notebookId      String   @id @map("notebook_id")
-  isDraft         Boolean  @default(true) @map("is_draft")
-  draftUpdatedAt  DateTime @default(now()) @map("draft_updated_at")
-  hiddenNotes     Json?    @map("hidden_notes")
-  version         Int      @default(0) @map("version")
-  autosaveVersion Int      @default(0) @map("autosave_version")
-
-  notebook Notebook @relation(fields: [notebookId], references: [id], onDelete: Cascade)
-
-  @@map("notebook_draft_states")
-}
-
-model NotebookReviewProgress {
-  notebookId               String    @id @map("notebook_id")
-  reviewStatus             Int       @default(0) @map("review_status")
-  firstReviewAt            DateTime  @map("first_review_at")
-  secondReviewAt           DateTime  @map("second_review_at")
-  firstReviewCompletedAt   DateTime? @map("first_review_completed_at")
-  secondReviewCompletedAt  DateTime? @map("second_review_completed_at")
-
-  notebook Notebook @relation(fields: [notebookId], references: [id], onDelete: Cascade)
-
-  @@map("notebook_review_progresses")
-}
-
 model Tag {
-  id        String         @id @default(cuid()) @map("id")
-  name      String         @unique @map("name")
-  color     String?        @map("color")
-  createdAt DateTime       @default(now()) @map("created_at")
+  id        String        @id @default(cuid()) @map("id")
+  name      String        @unique @map("name")
+  color     String?       @map("color")
+  createdAt DateTime      @default(now()) @map("created_at")
   notebooks NotebookTag[]
 
   @@map("tags")
@@ -73,62 +50,16 @@ model NotebookTag {
   @@map("notebook_tags")
 }
 
-model CueCard {
-  id         String    @id @default(cuid()) @map("id")
-  notebookId String    @map("notebook_id")
-  marker     String    @map("marker")
-  content    String    @map("content")
-  order      Int       @default(0) @map("order")
-  deletedAt  DateTime? @map("deleted_at")
+model Cue {
+  id         String   @id @default(cuid()) @map("id")
+  notebookId String   @map("notebook_id")
+  text       String   @map("text")
+  order      Int      @default(0) @map("order")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
 
-  notebook Notebook   @relation(fields: [notebookId], references: [id], onDelete: Cascade)
-  links    NoteCueLink[]
+  notebook Notebook @relation(fields: [notebookId], references: [id], onDelete: Cascade)
 
-  @@map("cue_cards")
-}
-
-model NoteCard {
-  id         String    @id @default(cuid()) @map("id")
-  notebookId String    @map("notebook_id")
-  content    String    @map("content")
-  order      Int       @default(0) @map("order")
-  isHidden   Boolean   @default(false) @map("is_hidden")
-  deletedAt  DateTime? @map("deleted_at")
-
-  notebook Notebook     @relation(fields: [notebookId], references: [id], onDelete: Cascade)
-  links    NoteCueLink[]
-
-  @@map("note_cards")
-}
-
-model NoteCueLink {
-  noteCardId String @map("note_card_id")
-  cueCardId  String @map("cue_card_id")
-  order      Int?   @map("order")
-
-  noteCard NoteCard @relation(fields: [noteCardId], references: [id], onDelete: Cascade)
-  cueCard  CueCard  @relation(fields: [cueCardId], references: [id], onDelete: Cascade)
-
-  @@id([noteCardId, cueCardId])
-  @@map("note_cue_links")
-}
-
-model SoftDeleteBuffer {
-  id            String    @id @default(cuid()) @map("id")
-  entityType    String    @map("entity_type")
-  entityId      String    @map("entity_id")
-  undoExpiresAt DateTime  @map("undo_expires_at")
-  createdAt     DateTime  @default(now()) @map("created_at")
-  purgedAt      DateTime? @map("purged_at")
-
-  @@map("soft_delete_buffers")
-}
-
-model BackupLog {
-  id           String    @id @default(cuid()) @map("id")
-  executedAt   DateTime  @map("executed_at")
-  status       String    @map("status")
-  errorMessage String?   @map("error_message")
-
-  @@map("backup_logs")
+  @@index([notebookId, order])
+  @@map("cues")
 }
