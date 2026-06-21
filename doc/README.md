@@ -1,0 +1,38 @@
+# Documentation Index
+
+このディレクトリは、Cornell Method Notebook の設計書、仕様書、テスト観点、設計運用資料を分類して管理します。
+
+## Categories
+
+| ディレクトリ | 用途 | 主なファイル |
+| --- | --- | --- |
+| `requirements/` | 要件、MVP スコープ、仕様レビュー、分類判断 | `MVP_SYSTEM_SPEC.md`, `CORNELL_METHOD_SPEC_REVIEW.md`, `MVP_CLASSIFICATION_DRAFT.md` |
+| `workflows/` | 業務フロー、利用者操作、運用ルール | `MVP_WORKFLOW_DESIGN.md` |
+| `screens/` | 画面設計、画面棚卸し、Action / Data | `MVP_SCREEN_DESIGN.md`, `MVP_SCREEN_INVENTORY.md` |
+| `api/` | API 仕様、request / response、エラー仕様 | `MVP_API_DESIGN.md` |
+| `data/` | データモデル、エンティティ、検索要件 | `MVP_DATA_DESIGN.md` |
+| `technical/` | 技術設計、設計ツール運用、非機能に近い技術方針 | `MVP_TECHNICAL_DESIGN.md`, `MVP_DESIGN_TOOLING_GUIDE.md` |
+| `diagrams/` | UML / Mermaid 図、画面遷移、ER、状態遷移、シーケンス、SVG 表示成果物 | `MVP_UML_DESIGN.md`, `MVP_*_DIAGRAM*.md`, `assets/mmd/`, `assets/svg/` |
+| `testing/` | テスト観点、受け入れ条件、手動確認観点 | `TEST_SCENARIOS.md` |
+| `implementation/` | 実装状況、実装タスク分割 | `IMPLEMENTATION_STATUS.md`, `MVP_IMPLEMENTATION_TASKS.md` |
+| `review/` | As-Is 棚卸し、設計レビュー計画、移行判断資料 | `AS_IS_DESIGN_INVENTORY.md`, `DESIGN_REVIEW_PLAN.md` |
+| `design-studio/` | Google Stitch / Claude Design 風の設計運用、テンプレート | `README.md`, `templates/` |
+
+## Primary Entry Points
+
+- MVP 仕様: `requirements/MVP_SYSTEM_SPEC.md`
+- 業務フロー: `workflows/MVP_WORKFLOW_DESIGN.md`
+- 画面設計: `screens/MVP_SCREEN_DESIGN.md`
+- 画面棚卸し: `screens/MVP_SCREEN_INVENTORY.md`
+- API 設計: `api/MVP_API_DESIGN.md`
+- データ設計: `data/MVP_DATA_DESIGN.md`
+- 図の入口: `diagrams/MVP_UML_DESIGN.md`
+- テスト観点: `testing/TEST_SCENARIOS.md`
+- 実装状況: `implementation/IMPLEMENTATION_STATUS.md`
+
+## Rules
+
+- 新しい設計書は、目的に近いカテゴリへ追加します。
+- UML、ER、状態遷移、シーケンスなどの図は `diagrams/`、業務フローは `workflows/`、画面設計は `screens/` など、目的に近いカテゴリへ Markdown / Mermaid を置きます。
+- Mermaid 図は、該当カテゴリ配下の `assets/mmd/` と `assets/svg/` を生成し、視覚確認できる状態にします。
+- `AGENTS.md` はアプリ全体仕様の正本です。MVP 実装判断は `requirements/MVP_SYSTEM_SPEC.md` と関連 MVP 設計書を起点にします。

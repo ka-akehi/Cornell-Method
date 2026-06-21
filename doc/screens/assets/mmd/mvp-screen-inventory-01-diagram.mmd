@@ -1,0 +1,14 @@
+flowchart TD
+  Home["/"] --> Notes["SCR-001 /notes"]
+  Common["SCR-COMMON Navigation"] --> Notes
+  Common --> NewEdit["SCR-003 /notes/new"]
+  Common --> Backup["SCR-005 /backup"]
+  Notes --> NewEdit
+  Notes --> Detail["SCR-002 /notes/[id]"]
+  NewEdit -- "作成保存" --> Detail
+  Detail -- "編集" --> EditMode["SCR-003 編集モード"]
+  EditMode -- "保存 / キャンセル" --> Detail
+  Detail -- "復習" --> Review["SCR-004 復習モード"]
+  Review -- "閲覧へ戻る / 復習済み" --> Detail
+  Detail -- "削除成功" --> Notes
+  Notes --> Backup

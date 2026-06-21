@@ -1,0 +1,16 @@
+stateDiagram-v2
+  state "復習予定なし" as no_schedule
+  state "復習期限到来" as due
+  state "復習予定あり" as rescheduled
+  state "復習済み" as reviewed
+
+  [*] --> no_schedule: 予定なし
+  [*] --> due: 期限到来
+  [*] --> rescheduled: 予定あり
+
+  no_schedule --> rescheduled: 設定
+  rescheduled --> due: 日付到来
+  due --> reviewed: 復習済み
+  reviewed --> no_schedule: 予定なしで保存
+  reviewed --> rescheduled: 設定
+  rescheduled --> no_schedule: クリア

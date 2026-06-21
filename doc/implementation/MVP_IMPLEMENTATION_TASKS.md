@@ -8,10 +8,20 @@
 
 設計済みドキュメント:
 
-- `doc/MVP_DATA_DESIGN.md`
-- `doc/MVP_SCREEN_DESIGN.md`
-- `doc/MVP_API_DESIGN.md`
-- `doc/MVP_TECHNICAL_DESIGN.md`
+- `doc/requirements/MVP_SYSTEM_SPEC.md`
+- `doc/data/MVP_DATA_DESIGN.md`
+- `doc/screens/MVP_SCREEN_DESIGN.md`
+- `doc/api/MVP_API_DESIGN.md`
+- `doc/workflows/MVP_WORKFLOW_DESIGN.md`
+- `doc/screens/MVP_SCREEN_INVENTORY.md`
+- `doc/diagrams/MVP_UML_DESIGN.md`
+- `doc/diagrams/MVP_BUSINESS_FLOW_DIAGRAMS.md`
+- `doc/diagrams/MVP_SEQUENCE_DIAGRAMS.md`
+- `doc/diagrams/MVP_STATE_DIAGRAMS.md`
+- `doc/diagrams/MVP_ER_DIAGRAM.md`
+- `doc/diagrams/MVP_SCREEN_TRANSITION_DIAGRAM.md`
+- `doc/technical/MVP_TECHNICAL_DESIGN.md`
+- `doc/technical/MVP_DESIGN_TOOLING_GUIDE.md`
 
 ## 分割方針
 
@@ -80,7 +90,7 @@
 
 目的:
 
-- `doc/MVP_DATA_DESIGN.md` に合わせて Prisma schema を再設計する。
+- `doc/data/MVP_DATA_DESIGN.md` に合わせて Prisma schema を再設計する。
 
 対象:
 
@@ -128,7 +138,7 @@
 
 目的:
 
-- `doc/MVP_API_DESIGN.md` のノートAPIを実装する。
+- `doc/api/MVP_API_DESIGN.md` のノートAPIを実装する。
 
 対象:
 
@@ -345,11 +355,11 @@
 
 目的:
 
-- `doc/TEST_SCENARIOS.md` をMVP仕様に合わせる。
+- `doc/testing/TEST_SCENARIOS.md` をMVP仕様に合わせる。
 
 対象:
 
-- `doc/TEST_SCENARIOS.md`
+- `doc/testing/TEST_SCENARIOS.md`
 
 作業内容:
 
@@ -401,6 +411,26 @@
 完了条件:
 
 - ノート作成、閲覧、編集、復習、検索、バックアップが確認できる。
+
+実施メモ（2026-06-21）:
+
+- MVP 外の旧 Phase 2 route/page を削除した。
+  - `src/app/api/notes/export/route.ts`
+  - `src/app/api/review-tasks/route.ts`
+  - `src/app/api/undo/route.ts`
+  - `src/app/notes/backup/page.tsx`
+  - `src/app/tasks/review/page.tsx`
+- `next/font/google` を外し、system font stack へ変更した。
+- `npm run prisma:generate`: 成功。
+- `npx prisma validate`: 成功。
+- `npm run lint`: 成功。
+- `npx tsc --noEmit --pretty false`: 成功。
+- `npm run build`: 成功。Turbopack は sandbox の port bind 制限で失敗したため、`next build --webpack` を採用。
+- `npm audit signatures`: 成功。
+- `npm audit --audit-level=moderate`: moderate 3 件で失敗。`brace-expansion` と Next.js 経由の `postcss` が対象。依存更新は別判断とする。
+- `node scripts/backup-copy.js`: 成功。
+- dev server 起動: `listen EPERM 127.0.0.1:3000` により未確認。sandbox の port bind 制限が理由。
+- 主要 route/API は build route 一覧で生成確認済み: `/`, `/notes`, `/notes/new`, `/notes/[id]`, `/backup`, `/api/notes`, `/api/notes/[id]`, `/api/notes/[id]/review`, `/api/tags`, `/api/backups`。
 
 ## 次に決めること
 

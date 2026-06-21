@@ -187,4 +187,4 @@ MVP の詳細画面は、以下の状態を持つとよいです。
 
 ## 次に決めること
 
-発注者確認後、`doc/MVP_CLASSIFICATION_DRAFT.md` を「コーネルメソッド学習サイクル中心」の MVP に更新する。
+発注者確認後、`doc/requirements/MVP_CLASSIFICATION_DRAFT.md` を「コーネルメソッド学習サイクル中心」の MVP に更新する。

@@ -1,0 +1,14 @@
+flowchart TD
+  Start["復習作業を開始"] --> Notes["/notes を開く"]
+  Notes --> Filter["復習対象フィルタを有効化"]
+  Filter --> Exists{"対象ノートがあるか"}
+  Exists -- "ない" --> Done["復習対象なしで終了"]
+  Exists -- "ある" --> Detail["対象ノートを開く"]
+  Detail --> ReviewMode["復習モードへ切替"]
+  ReviewMode --> Recall["Cue とサマリーで想起"]
+  Recall --> ShowBody["本文を表示して確認"]
+  ShowBody --> DecideNext{"次回復習日を設定するか"}
+  DecideNext -- "はい" --> SetNext["次回復習日を入力"]
+  DecideNext -- "いいえ" --> Mark["復習済みにする"]
+  SetNext --> Mark
+  Mark --> Updated["reviewedAt と nextReviewDate を更新"]

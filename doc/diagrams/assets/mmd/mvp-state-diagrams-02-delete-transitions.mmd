@@ -1,0 +1,15 @@
+stateDiagram-v2
+  state "閲覧" as viewing
+  state "削除確認" as deleting
+  state "エラー" as error
+  state "削除済み" as deleted
+
+  [*] --> viewing: 取得成功
+
+  viewing --> deleting: 削除
+
+  deleting --> viewing: キャンセル
+  deleting --> deleted: 削除成功
+  deleting --> error: 削除失敗
+
+  deleted --> [*]

@@ -1,0 +1,15 @@
+stateDiagram-v2
+  state "閲覧" as viewing
+  state "編集" as editing
+  state "復習" as reviewing
+
+  [*] --> viewing: 取得成功
+
+  viewing --> editing: 編集
+  viewing --> reviewing: 復習
+
+  editing --> viewing: 保存成功
+  editing --> viewing: キャンセル
+
+  reviewing --> viewing: 戻る
+  reviewing --> viewing: 更新成功

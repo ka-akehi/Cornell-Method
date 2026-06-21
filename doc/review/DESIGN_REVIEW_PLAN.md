@@ -20,16 +20,16 @@
 ## 参照するファイル
 
 - `AGENTS.md`: 現在の仕様の正本
-- `doc/AS_IS_DESIGN_INVENTORY.md`: 現行コードから確認できる As-Is 設計棚卸し
-- `doc/CORNELL_METHOD_SPEC_REVIEW.md`: コーネルメソッド観点の仕様レビュー
-- `doc/MVP_CLASSIFICATION_DRAFT.md`: MVP / Phase 2 分類案
-- `doc/MVP_DATA_DESIGN.md`: MVP データ設計案
-- `doc/MVP_SCREEN_DESIGN.md`: MVP 画面設計案
-- `doc/MVP_API_DESIGN.md`: MVP API 設計案
-- `doc/MVP_TECHNICAL_DESIGN.md`: MVP 技術選定・実装方針
-- `doc/MVP_IMPLEMENTATION_TASKS.md`: MVP Worker タスク分割案
-- `doc/IMPLEMENTATION_STATUS.md`: 実装済み・未実装の確認
-- `doc/TEST_SCENARIOS.md`: 仕様確認と受け入れ観点
+- `doc/review/AS_IS_DESIGN_INVENTORY.md`: 現行コードから確認できる As-Is 設計棚卸し
+- `doc/requirements/CORNELL_METHOD_SPEC_REVIEW.md`: コーネルメソッド観点の仕様レビュー
+- `doc/requirements/MVP_CLASSIFICATION_DRAFT.md`: MVP / Phase 2 分類案
+- `doc/data/MVP_DATA_DESIGN.md`: MVP データ設計案
+- `doc/screens/MVP_SCREEN_DESIGN.md`: MVP 画面設計案
+- `doc/api/MVP_API_DESIGN.md`: MVP API 設計案
+- `doc/technical/MVP_TECHNICAL_DESIGN.md`: MVP 技術選定・実装方針
+- `doc/implementation/MVP_IMPLEMENTATION_TASKS.md`: MVP Worker タスク分割案
+- `doc/implementation/IMPLEMENTATION_STATUS.md`: 実装済み・未実装の確認
+- `doc/testing/TEST_SCENARIOS.md`: 仕様確認と受け入れ観点
 - `codex-queue/README.md`: Manager / Worker 運用
 - `/Users/kazuya/Downloads/prompts/docs`: 設計知識ベース
 - `learning-notes/DESIGN_LEARNING_NOTES.md`: 設計判断の理由・判断基準に関する個人学習メモ
@@ -62,7 +62,7 @@
 
 この時点では実装可否を判断せず、まず仕様として存在するものを抜き出します。
 
-現行コードから確認できる事実は `doc/AS_IS_DESIGN_INVENTORY.md` を参照します。ただし、現行実装は新設計の制約ではなく、移行時に捨てるもの・残す概念・見直す論点を抽出するための資料として扱います。
+現行コードから確認できる事実は `doc/review/AS_IS_DESIGN_INVENTORY.md` を参照します。ただし、現行実装は新設計の制約ではなく、移行時に捨てるもの・残す概念・見直す論点を抽出するための資料として扱います。
 
 ## Step 2: 機能を分類する
 
@@ -175,7 +175,7 @@ MVP の画面構成を決めます。
 
 ## Step 7: テスト観点を更新する
 
-`doc/TEST_SCENARIOS.md` を MVP 用に整理します。
+`doc/testing/TEST_SCENARIOS.md` を MVP 用に整理します。
 
 まず確認したい流れ:
 

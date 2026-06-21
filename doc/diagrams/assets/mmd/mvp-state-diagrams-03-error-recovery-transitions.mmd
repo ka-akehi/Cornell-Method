@@ -1,0 +1,16 @@
+stateDiagram-v2
+  state "閲覧" as viewing
+  state "編集" as editing
+  state "復習" as reviewing
+  state "削除確認" as deleting
+  state "エラー" as error
+
+  [*] --> viewing: 取得成功
+  [*] --> error: 取得失敗
+
+  viewing --> error: API エラー
+  editing --> error: 保存失敗
+  reviewing --> error: 更新失敗
+  deleting --> error: 削除失敗
+
+  error --> viewing: 再取得

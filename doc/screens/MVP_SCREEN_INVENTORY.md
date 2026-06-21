@@ -1,0 +1,245 @@
+# MVP 画面棚卸し
+
+作成日: 2026-06-21
+
+## 位置づけ
+
+このドキュメントは、Cornell Method Notebook の MVP 画面を、実装・テスト・タスク分割で参照しやすい粒度に棚卸ししたものです。
+
+MVP の正は既存の `doc/MVP_*` 文書です。特に MVP では、ノート本文は 1 つの Markdown 本文として扱い、復習は専用タスク画面ではなく `/notes` の復習対象フィルタと `/notes/[id]` の復習モードで扱います。
+
+## 参照資料
+
+| 種別 | パス | 参照内容 |
+| --- | --- | --- |
+| 必須 | `doc/screens/MVP_SCREEN_DESIGN.md` | 画面一覧、表示要素、主要アクション、遷移、MVP/Phase 2 境界 |
+| 必須 | `doc/api/MVP_API_DESIGN.md` | API 一覧、リクエスト/レスポンス、エラー、MVP 外 API |
+| 必須 | `doc/data/MVP_DATA_DESIGN.md` | MVP エンティティ、画面で扱うデータ、Phase 2 データ |
+| 必須 | `doc/implementation/MVP_IMPLEMENTATION_TASKS.md` | 実装順序、UI/API タスク境界 |
+| 必須 | `doc/diagrams/MVP_UML_DESIGN.md` | 図別設計書への index / 目次 |
+| 必須 | `doc/diagrams/MVP_SCREEN_TRANSITION_DIAGRAM.md` | 画面遷移図 |
+| 必須 | `doc/diagrams/MVP_STATE_DIAGRAMS.md` | 詳細画面モード、ノート復習状態の状態遷移図 |
+| 必須 | `doc/diagrams/MVP_SEQUENCE_DIAGRAMS.md` | 画面操作に関わる主要シーケンス図 |
+| 必須 | `doc/diagrams/MVP_ER_DIAGRAM.md` | 画面で扱う主要データの関係図 |
+| 可能なら | `/Users/kazuya/Downloads/prompts/docs/miscellaneous/画面棚卸し注意点.md` | Action と Data の分離、共通レイアウト・画面外要素の捕捉 |
+
+### 参照できなかった資料
+
+なし。
+
+## 画面 ID 対応
+
+| 棚卸しID | MVP 画面設計ID | パス / 形式 | 画面名 | 備考 |
+| --- | --- | --- | --- | --- |
+| `SCR-COMMON` | `COM-001` | 全画面 / 共通部品 | 共通レイアウト / ナビゲーション | 画面外に見落としやすいナビを独立管理する |
+| `SCR-001` | `NTE-010` | `/notes` / ページ | Notes List | ノート検索、復習対象確認、新規作成入口 |
+| `SCR-002` | `NTE-030` | `/notes/[id]` / ページ | Note Detail | 閲覧モードの詳細画面 |
+| `SCR-003` | `NTE-020` + `NTE-030` 編集モード | `/notes/new`, `/notes/[id]` 編集モード / ページまたはモード | Note New/Edit | 作成・編集共通フォーム |
+| `SCR-004` | `NTE-030` 復習モード | `/notes/[id]` 復習モード / モード | Review | MVP では独立した `/tasks/review` 画面を作らない |
+| `SCR-005` | `BAK-010` | `/backup` / ページ | Backup | DB バックアップ作成・一覧確認 |
+
+## 画面別棚卸し
+
+### SCR-COMMON Common Layout / Navigation
+
+| 項目 | 内容 |
+| --- | --- |
+| 画面ID | `SCR-COMMON` |
+| 画面名 | 共通レイアウト / ナビゲーション |
+| 目的 | MVP の主要画面へ迷わず移動できる共通導線を提供する。 |
+| 利用者 | ローカル環境で利用する個人ユーザー |
+| 表示データ | アプリ名、ナビゲーション項目（ノート一覧、新規作成、バックアップ）、メイン表示領域 |
+| 入力データ | なし |
+| 主要アクション | ノート一覧へ移動、新規作成へ移動、バックアップへ移動 |
+| 副作用のある操作 | なし。ナビゲーションは表示状態と URL の変更のみ。 |
+| 遷移元 / 遷移先 | 全画面から `/notes`, `/notes/new`, `/backup` へ遷移可能。`/` は `/notes` へ誘導する想定。 |
+| 利用 API | なし |
+| エラー / 空状態 / ローディング | 共通レイアウト自体ではなし。各ページの状態表示に委譲する。 |
+| MVP 範囲 | アプリ名、ノート一覧、新規作成、バックアップへのナビ。認証なし。 |
+| Phase 2 送り | 復習タスク専用ナビ、未完タスクバッジ、ユーザーアイコン、認証・ログアウト導線、権限別メニュー。 |
+
+### SCR-001 Notes List
+
+| 項目 | 内容 |
+| --- | --- |
+| 画面ID | `SCR-001` |
+| 画面名 | Notes List |
+| 目的 | 保存済みノートを検索・絞り込みし、閲覧・復習・新規作成へ進む入口にする。 |
+| 利用者 | ローカル環境で利用する個人ユーザー |
+| 表示データ | ノート一覧、タイトル、学習日、学習元、タグ、Cue 件数、要約状態、復習予定日、復習状態、ページ情報 |
+| 入力データ | フリーワード検索、日付 From、日付 To、タグフィルタ、復習対象フィルタ、ページ番号 |
+| 主要アクション | 新規作成へ移動、検索条件を適用、復習対象のみ表示、ノート詳細へ移動、タグ候補を参照 |
+| 副作用のある操作 | なし。検索・絞り込み・ページ移動は DB を更新しない。 |
+| 遷移元 / 遷移先 | `SCR-COMMON` または `/` から `/notes` へ。新規作成で `/notes/new`、ノート選択で `/notes/[id]`、バックアップ導線で `/backup` へ。 |
+| 利用 API | `GET /api/notes`, `GET /api/tags` |
+| エラー / 空状態 / ローディング | 一覧取得中、タグ候補取得中、検索結果 0 件、復習対象 0 件、API エラー、入力不正（無効日付、From > To）。 |
+| MVP 範囲 | フリーワード、日付、タグ OR 条件、復習対象フィルタ。並び順は `noteDate desc, updatedAt desc` 固定。要約未作成と復習状態の表示。 |
+| Phase 2 送り | 一覧からの直接編集、一覧からの直接削除、PDF 出力、一括操作、右クリックメニュー、タグ管理 UI、ソート切替、専用復習タスク画面。 |
+
+#### SCR-001 Action / Data
+
+| 区分 | 内容 |
+| --- | --- |
+| Action | `GET /api/notes` で一覧取得、検索条件変更、復習対象フィルタ適用、ノート詳細へ遷移、新規作成へ遷移 |
+| Data | `query`, `tag`, `from`, `to`, `reviewDue`, `page`, `id`, `title`, `noteDate`, `sourceType`, `sourceTitle`, `overview`, `summary`, `cueCount`, `hasSummary`, `nextReviewDate`, `reviewedAt`, `tags` |
+
+### SCR-002 Note Detail
+
+| 項目 | 内容 |
+| --- | --- |
+| 画面ID | `SCR-002` |
+| 画面名 | Note Detail |
+| 目的 | 保存済みノートを Cornell レイアウトで閲覧し、編集・復習・削除へ進める。 |
+| 利用者 | ローカル環境で利用する個人ユーザー |
+| 表示データ | タイトル、学習日、学習元、タグ、概要、Cue リスト、Markdown 表示された本文、Markdown 表示されたサマリー、次回復習日、最終復習日時、要約状態 |
+| 入力データ | 閲覧モードではなし。削除時は確認ダイアログの確認操作。 |
+| 主要アクション | 編集モードへ切替、復習モードへ切替、削除確認を開く、削除実行、一覧へ戻る |
+| 副作用のある操作 | 削除実行で `DELETE /api/notes/:id` を呼び出し、ノートを物理削除する。 |
+| 遷移元 / 遷移先 | `/notes` または `/notes/new` 保存後から `/notes/[id]` へ。編集は同一ページの編集モード、復習は同一ページの復習モード。削除成功後は `/notes` へ。 |
+| 利用 API | `GET /api/notes/:id`, `DELETE /api/notes/:id` |
+| エラー / 空状態 / ローディング | 詳細取得中、404 ノートなし、API エラー、Markdown 表示エラー時のフォールバック、削除失敗、削除確認キャンセル。 |
+| MVP 範囲 | 閲覧、編集モード切替、復習モード切替、確認ダイアログ付き削除、Markdown 表示、sanitize。 |
+| Phase 2 送り | Undo Snackbar、ソフトデリート、ドラフト状態、楽観ロック、本文カード分割、Cue と本文範囲の厳密リンク、閲覧モードでのノートカード単位非表示。 |
+
+#### SCR-002 Action / Data
+
+| 区分 | 内容 |
+| --- | --- |
+| Action | 詳細取得、編集モードへ切替、復習モードへ切替、削除確認、削除、一覧へ戻る |
+| Data | `id`, `title`, `noteDate`, `sourceType`, `sourceTitle`, `overview`, `body`, `summary`, `nextReviewDate`, `reviewedAt`, `cues`, `tags` |
+
+### SCR-003 Note New/Edit
+
+| 項目 | 内容 |
+| --- | --- |
+| 画面ID | `SCR-003` |
+| 画面名 | Note New/Edit |
+| 目的 | Cornell 形式のノートを作成・更新する。作成と編集で共通フォームを使う。 |
+| 利用者 | ローカル環境で利用する個人ユーザー |
+| 表示データ | 作成時は初期値、編集時は既存ノート。タグ候補。バリデーションエラー。保存中状態。 |
+| 入力データ | タイトル、学習日、学習元タイプ、学習元タイトル、概要、タグ、Cue リスト、本文 Markdown、サマリー Markdown、次回復習日 |
+| 主要アクション | Cue 追加、Cue 削除、タグ入力、Markdown 入力、プレビュー確認、保存、キャンセル |
+| 副作用のある操作 | 作成保存で `POST /api/notes` を呼び出し Notebook / Cue / Tag / NotebookTag を作成する。編集保存で `PATCH /api/notes/:id` を呼び出し Notebook を更新し Cue / Tag 関連を全置換する。未登録タグは保存時に自動作成される。 |
+| 遷移元 / 遷移先 | `/notes` または共通ナビから `/notes/new` へ。作成成功後は `/notes/[id]` へ。詳細閲覧モードから編集モードへ切替。編集保存後は閲覧モードへ。キャンセルは作成時 `/notes`、編集時は閲覧モードへ戻る。 |
+| 利用 API | 作成時 `POST /api/notes`, 編集時 `GET /api/notes/:id`, `PATCH /api/notes/:id`, タグ候補 `GET /api/tags` |
+| エラー / 空状態 / ローディング | 初期表示中、保存中、入力不正、保存失敗、タグ候補取得失敗、編集対象 404、キャンセル確認の要否は実装時確認。 |
+| MVP 範囲 | 明示的な保存、textarea + Markdown preview、Cue 追加・削除、タグ最大 12 件、タイトル・日付等のバリデーション、Cue / Tag は更新時全置換。 |
+| Phase 2 送り | 自動保存、下書き保存、楽観ロック、D&D 並び替え、Cue と本文範囲のリンク、NoteCard 分割、高機能 Markdown エディタ、リッチな Markdown ツールバー、Cue / Tag 差分更新 API。 |
+
+#### SCR-003 Action / Data
+
+| 区分 | 内容 |
+| --- | --- |
+| Action | 入力、Cue 追加、Cue 削除、タグ候補参照、未登録タグの保存時自動作成、作成保存、更新保存、キャンセル |
+| Data | `title`, `noteDate`, `sourceType`, `sourceTitle`, `overview`, `body`, `summary`, `nextReviewDate`, `cues[].text`, `cues[].order`, `tags[].name` |
+
+### SCR-004 Review
+
+| 項目 | 内容 |
+| --- | --- |
+| 画面ID | `SCR-004` |
+| 画面名 | Review |
+| 目的 | Cue とサマリーを手がかりに本文を思い出し、復習済み状態を記録する。 |
+| 利用者 | ローカル環境で利用する個人ユーザー |
+| 表示データ | タイトル、学習日、タグ、Cue リスト、サマリー、本文表示状態、次回復習日、最終復習日時 |
+| 入力データ | 本文表示/非表示の UI 操作、復習済み操作時の任意の次回復習日 |
+| 主要アクション | 本文を表示、本文を隠す、復習済みにする、閲覧モードへ戻る |
+| 副作用のある操作 | 復習済みにする操作で `POST /api/notes/:id/review` を呼び出し、`reviewedAt` と `nextReviewDate` を更新する。本文表示/非表示は UI 状態のみで保存しない。 |
+| 遷移元 / 遷移先 | `/notes` の復習対象フィルタから `/notes/[id]` へ移動後、詳細画面内で復習モードへ切替。復習完了または戻る操作で詳細閲覧モードへ。 |
+| 利用 API | `GET /api/notes/:id`, `POST /api/notes/:id/review` |
+| エラー / 空状態 / ローディング | 詳細取得中、復習済み更新中、更新失敗、404 ノートなし、Cue なし、サマリーなし、本文なしまたは空文字。 |
+| MVP 範囲 | 本文初期非表示、本文表示/非表示切替、復習済み更新、次回復習日の手動設定またはクリア。採点や正誤判定なし。 |
+| Phase 2 送り | `/tasks/review` 専用画面、1 日後 / 1 週間後タブ、未完タスクバッジ、自動での次回復習日計算、`NotebookReviewProgress`、復習進捗履歴、本文表示状態の永続化。 |
+
+#### SCR-004 Action / Data
+
+| 区分 | 内容 |
+| --- | --- |
+| Action | 復習対象ノートを開く、本文を表示、本文を隠す、復習済みにする、任意の次回復習日を保存、閲覧モードへ戻る |
+| Data | `id`, `title`, `noteDate`, `tags`, `cues`, `summary`, `body`, `reviewedAt`, `nextReviewDate` |
+
+### SCR-005 Backup
+
+| 項目 | 内容 |
+| --- | --- |
+| 画面ID | `SCR-005` |
+| 画面名 | Backup |
+| 目的 | SQLite DB ファイルのバックアップを作成し、最新バックアップを確認できるようにする。 |
+| 利用者 | ローカル環境で利用する個人ユーザー |
+| 表示データ | 最新バックアップ一覧、バックアップファイル名、作成日時、保存先パス、失敗時のエラーメッセージ |
+| 入力データ | バックアップ作成操作、一覧更新操作 |
+| 主要アクション | バックアップ作成、バックアップ一覧更新 |
+| 副作用のある操作 | バックアップ作成で `POST /api/backups` を呼び出し、SQLite DB ファイルを `backup/` 配下へコピーする。最新 3 世代を保持し、4 世代目以降は古いものから削除する。 |
+| 遷移元 / 遷移先 | 共通ナビまたは `/notes` から `/backup` へ。必要に応じて `/notes` に戻る。削除前の任意バックアップ導線としても利用可能。 |
+| 利用 API | `GET /api/backups`, `POST /api/backups` |
+| エラー / 空状態 / ローディング | 一覧取得中、バックアップ作成中、バックアップ 0 件、一覧取得失敗、作成失敗、DB ファイル未検出、保存先権限エラー。 |
+| MVP 範囲 | バックアップ一覧表示、手動バックアップ作成、最新 3 世代保持、成功/失敗メッセージ。 |
+| Phase 2 送り | バックアップログ DB 管理、バックアップからの自動復元、スケジュール実行 UI、`POST /api/backups/retry`、ログ詳細画面。 |
+
+#### SCR-005 Action / Data
+
+| 区分 | 内容 |
+| --- | --- |
+| Action | バックアップ一覧取得、バックアップ作成、作成後の一覧再取得、エラー表示 |
+| Data | `backups[].file`, `backups[].createdAt`, `backups[].path`, `ok`, `backup.file`, `backup.path`, エラー `{ code, message, errors? }` |
+
+## API と画面の対応表
+
+| API | 利用画面 | 用途 | 副作用 | MVP / Phase 2 |
+| --- | --- | --- | --- | --- |
+| `GET /api/notes` | `SCR-001` | ノート一覧、検索、復習対象フィルタ、ページング | なし | MVP |
+| `POST /api/notes` | `SCR-003` | ノート作成 | Notebook / Cue / Tag / NotebookTag 作成 | MVP |
+| `GET /api/notes/:id` | `SCR-002`, `SCR-003`, `SCR-004` | 詳細表示、編集初期値、復習表示 | なし | MVP |
+| `PATCH /api/notes/:id` | `SCR-003` | ノート更新 | Notebook 更新、Cue / Tag 関連全置換 | MVP |
+| `DELETE /api/notes/:id` | `SCR-002` | ノート削除 | 物理削除 | MVP |
+| `POST /api/notes/:id/review` | `SCR-004` | 復習済み更新 | `reviewedAt`, `nextReviewDate` 更新 | MVP |
+| `GET /api/tags` | `SCR-001`, `SCR-003` | タグ候補一覧 | なし | MVP |
+| `GET /api/backups` | `SCR-005` | バックアップ一覧 | なし | MVP |
+| `POST /api/backups` | `SCR-005` | バックアップ作成 | DB ファイルコピー、世代整理 | MVP |
+| `/api/undo` | なし | 削除 Undo | ソフトデリート復元 | Phase 2 |
+| `/api/review-tasks` | なし | 専用復習タスク取得・更新 | 復習進捗更新 | Phase 2 |
+| `/api/notes/export` | なし | PDF 出力 | PDF 生成 | Phase 2 |
+| `/api/tags/:id` | なし | タグ編集・削除 | Tag 更新・削除 | Phase 2 |
+| `/api/backups/retry` | なし | バックアップ再試行 | DB ファイルコピー | Phase 2 |
+
+## 画面遷移
+
+画面遷移の詳細図は `doc/diagrams/MVP_SCREEN_TRANSITION_DIAGRAM.md`、詳細画面モードなどの状態遷移は `doc/diagrams/MVP_STATE_DIAGRAMS.md` も参照してください。
+
+```mermaid
+flowchart TD
+  Home["/"] --> Notes["SCR-001 /notes"]
+  Common["SCR-COMMON Navigation"] --> Notes
+  Common --> NewEdit["SCR-003 /notes/new"]
+  Common --> Backup["SCR-005 /backup"]
+  Notes --> NewEdit
+  Notes --> Detail["SCR-002 /notes/[id]"]
+  NewEdit -- "作成保存" --> Detail
+  Detail -- "編集" --> EditMode["SCR-003 編集モード"]
+  EditMode -- "保存 / キャンセル" --> Detail
+  Detail -- "復習" --> Review["SCR-004 復習モード"]
+  Review -- "閲覧へ戻る / 復習済み" --> Detail
+  Detail -- "削除成功" --> Notes
+  Notes --> Backup
+```
+
+## MVP / Phase 2 境界サマリー
+
+| 領域 | MVP | Phase 2 送り |
+| --- | --- | --- |
+| ノート構造 | 本文は 1 つの Markdown、Cue はリスト | NoteCard 分割、NoteCueLink、本文カード単位の非表示 |
+| 保存 | 明示的な作成・更新保存 | 自動保存、下書き、楽観ロック、409 競合 UI |
+| 削除 | 確認ダイアログ + 物理削除 | ソフトデリート、Undo Snackbar、SoftDeleteBuffer |
+| 復習 | `nextReviewDate` と `reviewedAt`、詳細内復習モード | `/tasks/review`、1 日後 / 1 週間後タスク、未完バッジ、自動間隔反復 |
+| タグ | ノート保存時の自動作成、候補一覧、一覧フィルタ | タグ管理 UI、名称変更、削除、右クリックメニュー |
+| Markdown | textarea + preview、表示時 sanitize | 高機能エディタ、ツールバー、ショートカット拡張 |
+| 一覧 | 検索、日付、タグ OR、復習対象 | PDF 出力、一括操作、ソート切替 |
+| バックアップ | 一覧、手動作成、最新 3 世代保持 | ログ DB 管理、自動復元、再試行 API、スケジュール UI |
+
+## 未決事項 / 実装時確認
+
+| ID | 内容 | 影響 |
+| --- | --- | --- |
+| U-001 | 作成・編集キャンセル時に未保存変更がある場合、確認ダイアログを出すか。 | UI タスク `mvp-note-form` の操作仕様。MVP 文書では明示なし。 |
+| U-002 | バリデーションエラー文言の最終表現。 | UI 表示とテスト期待値。ルール自体は `doc/api/MVP_API_DESIGN.md` に従う。 |
+| U-003 | `/` から `/notes` への誘導方法を redirect にするかリンク表示にするか。 | 共通レイアウト実装。画面遷移上は `/notes` を起点にする。 |

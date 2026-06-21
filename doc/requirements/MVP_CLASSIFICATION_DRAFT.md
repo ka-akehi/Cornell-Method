@@ -4,7 +4,7 @@
 
 ## 位置づけ
 
-このドキュメントは、`AGENTS.md` の現行仕様と `doc/AS_IS_DESIGN_INVENTORY.md` の As-Is 棚卸しを元にした、設計見直しの分類案です。
+このドキュメントは、`AGENTS.md` の現行仕様と `doc/review/AS_IS_DESIGN_INVENTORY.md` の As-Is 棚卸しを元にした、設計見直しの分類案です。
 
 これは決定版ではありません。発注者確認後、確定した内容を `AGENTS.md` に反映します。
 
