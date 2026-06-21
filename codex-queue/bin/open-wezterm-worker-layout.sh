@@ -9,6 +9,13 @@ send_command() {
   printf '%s\n' "$*" | wezterm cli send-text --pane-id "$pane_id" --no-paste
 }
 
+send_file() {
+  pane_id="$1"
+  file="$2"
+  wezterm cli send-text --pane-id "$pane_id" --no-paste -- "$(cat "$file")"
+  printf '\n' | wezterm cli send-text --pane-id "$pane_id" --no-paste
+}
+
 open_window() {
   wezterm cli spawn --new-window --cwd "$project_dir"
 }
@@ -29,9 +36,11 @@ main_1="$(open_window)"
 right_1="$(split_right "$main_1" 50)"
 left_bottom_1="$(split_bottom "$main_1" 50)"
 
-send_command "$main_1" "codex-queue/bin/notify-worker-run.sh"
-send_command "$left_bottom_1" "codex"
+send_command "$main_1" "codex"
+send_command "$left_bottom_1" "WORKER_NOTIFY_TARGET_PANE_ID=$right_1 codex-queue/bin/notify-worker-run.sh"
 send_command "$right_1" "codex"
+sleep 1
+send_file "$right_1" "$project_dir/codex-queue/prompts/manager-codex.md"
 
 main_2="$(open_window)"
 right_2="$(split_right "$main_2" 50)"
@@ -40,3 +49,11 @@ right_bottom_2="$(split_bottom "$right_2" 50)"
 send_command "$main_2" "codex-queue/bin/worker-run.sh"
 send_command "$right_2" "codex-queue/bin/worker-ui-run.sh"
 send_command "$right_bottom_2" "codex-queue/bin/worker-api-run.sh"
+
+main_3="$(open_window)"
+right_3="$(split_right "$main_3" 50)"
+right_bottom_3="$(split_bottom "$right_3" 50)"
+
+send_command "$main_3" "codex-queue/bin/worker-run.sh"
+send_command "$right_3" "codex-queue/bin/worker-ui-run.sh"
+send_command "$right_bottom_3" "codex-queue/bin/worker-api-run.sh"

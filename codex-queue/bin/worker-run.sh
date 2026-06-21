@@ -63,13 +63,21 @@ while true; do
 
     if codex exec --skip-git-repo-check < "$running"; then
       report_changed_files_since "$changed_since"
-      rm -f "$changed_since"
       mv "$running" "$root/done/$base"
+      summary_file="$("$script_dir/write-task-summary.sh" --status done --task "$root/done/$base" --changed-since "$changed_since" --watch-root "$watch_root" --worker "$worker_name" --kind worker-task || true)"
+      rm -f "$changed_since"
+      if [ -n "$summary_file" ]; then
+        status_log "Summary: $summary_file"
+      fi
       status_log "Done: $root/done/$base"
     else
       report_changed_files_since "$changed_since"
-      rm -f "$changed_since"
       mv "$running" "$root/failed/$base"
+      summary_file="$("$script_dir/write-task-summary.sh" --status failed --task "$root/failed/$base" --changed-since "$changed_since" --watch-root "$watch_root" --worker "$worker_name" --kind worker-task || true)"
+      rm -f "$changed_since"
+      if [ -n "$summary_file" ]; then
+        status_log "Summary: $summary_file"
+      fi
       status_log "Failed: $root/failed/$base"
     fi
   fi

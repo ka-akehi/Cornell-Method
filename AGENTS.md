@@ -5,9 +5,12 @@
 ## Primary References
 
 - 仕様の正本: `AGENTS.md`
-- 実装状況: `doc/IMPLEMENTATION_STATUS.md`
-- テスト観点: `doc/TEST_SCENARIOS.md`
+- 実装状況: `doc/implementation/IMPLEMENTATION_STATUS.md`
+- テスト観点: `doc/testing/TEST_SCENARIOS.md`
+- 設計書一覧: `doc/README.md`
 - Manager / Worker 運用: `codex-queue/README.md`
+- Task Summary 運用: `summary/README.md`
+- 最新引き継ぎ: `HANDOFF_2026-06-22.md`
 
 ## Development Policy
 
@@ -17,12 +20,17 @@
 - 実装は小さく分割し、対象外のリファクタリングを避ける。
 - 検証可能な作業では `npm run lint`、`npm run build`、Prisma コマンドなど、適切な確認を行う。
 - 検証できない場合は、実行したコマンドと失敗理由を報告する。
+- 長い調査、Worker task、`codex exec` の完了要約は `summary/` 配下へ残し、raw log や長い command output をメイン会話へ戻さない。
+- 再開時は関連 summary を先に読み、`Next Read` に記載された最小ファイルだけを確認する。
+- 作業再開時は、最新の `HANDOFF_YYYY-MM-DD.md` を確認してから続きの作業を判断する。
+- 新しい `HANDOFF_YYYY-MM-DD.md` を作成した場合は、`AGENTS.md` の「最新引き継ぎ」を新しいファイルへ更新し、古い `HANDOFF_YYYY-MM-DD.md` は削除する。
 
 ## Manager / Worker Policy
 
 - ユーザーは発注者として、仕様判断・優先順位・方針決定を行う。
 - Manager はユーザーと相談してタスクを具体化し、`codex-queue` に投入する。
 - Worker は投入された 1 タスクだけを実行し、完了後に変更内容と検証結果を報告する。
+- Worker / Manager は、必要に応じて `summary/task-summary-template.md` の粒度で完了要約を残す。`codex-queue/bin/worker-run.sh` 経由の task は完了/失敗時に最小 summary を自動作成する。
 - UI タスクは `codex-queue/tasks-ui`、API タスクは `codex-queue/tasks-api`、横断タスクは `codex-queue/tasks` を使う。
 - Manager / Worker は、仕様が不明な場合や方針判断が必要な場合に推測で進めず、発注者へ随時質問する。
 - 技術的に不整合、過剰設計、実装リスクがある場合は、作業者側から論点として提示する。
