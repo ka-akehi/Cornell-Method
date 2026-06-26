@@ -9,6 +9,7 @@ root="${CODEX_QUEUE_ROOT:-$queue_dir/tasks}"
 watch_root="${CODEX_QUEUE_WATCH_ROOT:-$project_root}"
 worker_name="${WORKER_NAME:-Worker-common}"
 interval="${CODEX_WORKER_INTERVAL:-2}"
+coding_worker_model="${CODEX_CODING_WORKER_MODEL:-GPT-5.3-Codex-Spark}"
 
 mkdir -p "$root/queued" "$root/running" "$root/done" "$root/failed"
 
@@ -45,6 +46,30 @@ report_changed_files_since() {
   done
 }
 
+is_coding_task() {
+  grep -Eq '^[[:space:]]*CODEX_TASK_KIND:[[:space:]]*coding[[:space:]]*$' "$1"
+}
+
+run_codex_task() {
+  task_file="$1"
+
+  if [ "${CODEX_WORKER_MODEL+x}" = "x" ]; then
+    if [ -z "${CODEX_WORKER_MODEL}" ] || [ "${CODEX_WORKER_MODEL}" = "none" ]; then
+      codex exec --skip-git-repo-check < "$task_file"
+    else
+      codex exec --skip-git-repo-check --model "$CODEX_WORKER_MODEL" < "$task_file"
+    fi
+  elif is_coding_task "$task_file"; then
+    if [ -z "$coding_worker_model" ] || [ "$coding_worker_model" = "none" ]; then
+      codex exec --skip-git-repo-check < "$task_file"
+    else
+      codex exec --skip-git-repo-check --model "$coding_worker_model" < "$task_file"
+    fi
+  else
+    codex exec --skip-git-repo-check < "$task_file"
+  fi
+}
+
 while true; do
   task="$(find "$root/queued" -type f -name '*.task.md' | sort | head -n 1 || true)"
 
@@ -61,7 +86,7 @@ while true; do
     status_log "Running: $running"
     changed_since="$(mktemp "${TMPDIR:-/tmp}/codex-worker.XXXXXX")"
 
-    if codex exec --skip-git-repo-check < "$running"; then
+    if run_codex_task "$running"; then
       report_changed_files_since "$changed_since"
       mv "$running" "$root/done/$base"
       summary_file="$("$script_dir/write-task-summary.sh" --status done --task "$root/done/$base" --changed-since "$changed_since" --watch-root "$watch_root" --worker "$worker_name" --kind worker-task || true)"

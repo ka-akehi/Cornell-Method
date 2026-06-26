@@ -42,6 +42,15 @@
 - 1 task は 1 目的を基本とし、対象ファイルや対象領域が分離できる場合は別 task に分ける
 - 並行投入時も、各 task file には目的、対象、完了条件、制約、検証方法を個別に書く
 
+## Coding Task Policy
+
+- Worker は `codex-queue/bin/worker-run.sh` 経由で実行し、通常 task は model を指定せずに実行する
+- コーディング task だけ task file に `CODEX_TASK_KIND: coding` を明記し、既定で `GPT-5.3-Codex-Spark` を使う
+- 仕様詰め、棚卸し、調査、設計レビューの task ではコーディングをさせない
+- 仕様詰め、棚卸し、調査、設計レビューの task には、制約として「コード・設定・依存関係・生成物を変更しない」を明記する
+- コーディングが必要になった場合は、仕様詰めや棚卸し task の完了 summary を確認してから、別の Worker task として切る
+- 仕様/調査 task と実装 task を 1 つの task file に同居させない
+
 ## Queue Selection
 
 - UI タスクは `CODEX_QUEUE_ROOT=codex-queue/tasks-ui`
@@ -60,6 +69,9 @@
   - 横断調査
 
 ## Task Format
+
+コーディング task の場合だけ、`# Worker Task` の直下に `CODEX_TASK_KIND: coding` を追加する。
+仕様詰め、棚卸し、調査、設計レビューの task には追加しない。
 
 ```md
 # Worker Task
@@ -96,6 +108,7 @@
 - 検証できなかった場合は理由を報告する
 - 完了後、変更ファイル、変更内容、検証結果を簡潔に報告する
 - Worker 実行後の自動 summary がある場合は、次回作業では summary の `Next Read` を起点にする
+- 仕様詰め、棚卸し、調査、設計レビューの task ではコード・設定・依存関係・生成物を変更しない
 ```
 
 ## Enqueue Commands

@@ -108,6 +108,25 @@ TASK
 codex-queue/bin/worker-run.sh
 ```
 
+Worker は通常 task では model を指定せずに `codex exec` を実行します。
+コーディング task は、task file に次のマーカーがある場合だけ、既定で `GPT-5.3-Codex-Spark` を使います。
+
+```md
+CODEX_TASK_KIND: coding
+```
+
+Spark が使えない場合は、次のようにコーディング task も model 指定なしで実行できます。
+
+```sh
+CODEX_CODING_WORKER_MODEL=none codex-queue/bin/worker-run.sh
+```
+
+全 task の model を一時的に上書きする場合のみ、次のように `CODEX_WORKER_MODEL` を指定します。
+
+```sh
+CODEX_WORKER_MODEL=<model-id> codex-queue/bin/worker-run.sh
+```
+
 UI タスク Worker:
 
 ```sh
@@ -150,6 +169,9 @@ summary は raw log を含めず、変更ファイル、確認結果、次に読
 - Manager は `running` / `done` / `failed` を直接編集しません。
 - 1 タスク 1 目的を基本にします。
 - 1 タスク 1 ファイルを原則とし、1 つの task file に複数 task を同居させません。
+- 仕様詰め、棚卸し、調査、設計レビューの task では、Worker にコーディングをさせません。
+- コーディングが必要になった場合は、仕様詰めや棚卸し task の完了後に別 task として作成し、task file に `CODEX_TASK_KIND: coding` を明記します。
+- 仕様/調査 task と実装 task を 1 つの task file に同居させません。
 - 互いに依存せず並行実行できる作業は、Manager が一度に複数の task file として作成して投入します。
 - 依存関係がある作業は、先行 task の summary または変更結果を確認してから次を投入します。
 - Worker がユーザーへ追加質問しなくても着手できる粒度まで、Manager がタスクを具体化します。
