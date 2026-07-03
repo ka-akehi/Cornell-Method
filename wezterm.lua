@@ -8,6 +8,8 @@ config.font = wezterm.font_with_fallback {
   { family = 'Menlo', weight = 'Bold' },
   'JetBrains Mono',
   'Symbols Nerd Font Mono',
+  'Hiragino Sans',
+  'Hiragino Kaku Gothic ProN',
 }
 config.font_size = 13.0
 config.line_height = 0.95

@@ -1,6 +1,5 @@
 flowchart TD
-  Start["復習作業を開始"] --> Notes["/notes を開く"]
-  Notes --> Filter["復習対象フィルタを有効化"]
+  Start["/notes を開く"] --> Filter["復習対象フィルタを有効化"]
   Filter --> Exists{"対象ノートがあるか"}
   Exists -- "ない" --> Done["復習対象なしで終了"]
   Exists -- "ある" --> Detail["対象ノートを開く"]
