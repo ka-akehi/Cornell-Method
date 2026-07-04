@@ -83,6 +83,19 @@ MVP の正は既存の `doc/MVP_*` 文書です。特に MVP では、ノート�
 | Action | `GET /api/notes` で一覧取得、検索条件変更、復習対象フィルタ適用、ノート詳細へ遷移、新規作成へ遷移 |
 | Data | `query`, `tag`, `from`, `to`, `reviewDue`, `page`, `id`, `title`, `noteDate`, `sourceType`, `sourceTitle`, `overview`, `summary`, `cueCount`, `hasSummary`, `nextReviewDate`, `reviewedAt`, `tags` |
 
+#### SCR-001 UI State / Conditions
+
+| 区分 | 内容 |
+| --- | --- |
+| 主な表示項目 | 画面タイトル、新規作成ボタン、フリーワード、From/To、タグ OR 条件、復習対象のみ、検索結果件数、ノートカード、ページャ |
+| validation 表示 | From > To は From/To の blur 時と検索実行時に検索フォーム下へ `開始日は終了日以前の日付を指定してください。` を表示する。API query validation は検索結果上の error alert に API `message` を表示する。 |
+| disabled | 検索は一覧取得中。タグ select はタグ取得中または追加可能候補 0 件。タグ追加は未選択または重複。前へは 1 ページ目。次へは最終ページ。 |
+| loading | 一覧取得中は検索結果欄に `読み込み中...`。タグ取得中は select に `タグ読み込み中`。 |
+| error | 一覧取得失敗またはタグ取得失敗は赤系 alert。field 別 query error が必要な場合は対象入力近くへ表示する。 |
+| empty | 検索結果 0 件、復習対象 0 件とも `条件に一致するノートはありません。` を表示する。タグ 0 件はタグ select を追加不可状態にする。 |
+| 成功時挙動 | 一覧取得成功で検索結果、総件数、ページャを更新する。検索・ページ移動は DB を更新しないため成功 toast は出さない。 |
+| MVP 外 | 日付 range picker、今日/過去 7 日/過去 30 日、ソート切替、PDF export、一覧直接編集・削除、右クリックメニュー。 |
+
 ### SCR-002 Note Detail
 
 | 項目 | 内容 |
@@ -107,6 +120,18 @@ MVP の正は既存の `doc/MVP_*` 文書です。特に MVP では、ノート�
 | --- | --- |
 | Action | 詳細取得、編集モードへ切替、復習モードへ切替、削除確認、削除、一覧へ戻る |
 | Data | `id`, `title`, `noteDate`, `sourceType`, `sourceTitle`, `overview`, `body`, `summary`, `nextReviewDate`, `reviewedAt`, `cues`, `tags` |
+
+#### SCR-002 UI State / Conditions
+
+| 区分 | 内容 |
+| --- | --- |
+| 主な表示項目 | タイトル、タグ、学習日、学習元、次回復習日、最終復習日時、概要、Cue、本文 Markdown、サマリー Markdown、一覧へ戻る、編集、復習、削除 |
+| loading | 詳細取得中は App Router / Server Component の loading に委譲する。MVP ではページ専用 skeleton は必須にしない。 |
+| error | 404 または取得失敗は `ノートが見つかりません` と `一覧へ戻る` を表示する。削除失敗は詳細ヘッダー下に赤系 alert を表示する。 |
+| empty | 概要なし、タグなし、Cue なし、本文なし、サマリーなし、次回復習日なし、最終復習日時なしをそれぞれ明示する。 |
+| disabled | 削除ボタンは削除中のみ disabled。編集、復習、一覧へ戻るは通常 disabled にしない。 |
+| 削除成功時挙動 | 確認 UI で確定後に `DELETE /api/notes/:id` を呼び、成功したら `/notes` へ遷移して一覧を再取得する。 |
+| MVP 外 | Undo Snackbar、ソフトデリート、ドラフト、409 競合 UI、NoteCard 単位の非表示。 |
 
 ### SCR-003 Note New/Edit
 
@@ -133,6 +158,20 @@ MVP の正は既存の `doc/MVP_*` 文書です。特に MVP では、ノート�
 | Action | 入力、Cue 追加、Cue 削除、タグ候補参照、未登録タグの保存時自動作成、作成保存、更新保存、キャンセル |
 | Data | `title`, `noteDate`, `sourceType`, `sourceTitle`, `overview`, `body`, `summary`, `nextReviewDate`, `cues[].text`, `cues[].order`, `tags[].name` |
 
+#### SCR-003 UI State / Conditions
+
+| 区分 | 内容 |
+| --- | --- |
+| 主な表示項目 | 基本情報、タイトル、学習日、学習元タイプ、学習元タイトル、概要、タグ、Cue リスト、本文 textarea + preview、サマリー textarea + preview、次回復習日、保存、キャンセル |
+| validation 表示 | 保存 API の field 別 error を対象入力直下へ表示し、API 全体の `message` をフォーム上部の alert に表示する。タグ 12 件超と重複はタグ追加時にも local error を表示する。 |
+| disabled | 保存は保存中のみ disabled。キャンセル、Cue 追加、Cue 削除、タグ削除は通常 disabled にしない。タグ追加は空入力なら何もしない。 |
+| loading | 保存中は保存ボタンを `保存中...` に変更する。編集初期値の詳細取得は親画面に委譲する。 |
+| error | 保存失敗はフォーム上部の赤系 alert。field error は `aria-invalid` と入力欄直下の赤系テキストで表示する。 |
+| empty | Cue 0 件は `Cue は未追加です。`。本文 preview 空は `本文のプレビューはまだありません。`。サマリー preview 空は `サマリーのプレビューはまだありません。`。 |
+| 保存成功時挙動 | 作成成功は `/notes/[id]` へ遷移する。編集成功は閲覧モードへ戻り、表示データを更新する。未登録タグは保存時に自動作成する。 |
+| キャンセル | 作成時は `/notes` へ戻る。編集時は保存せず閲覧モードへ戻る。MVP では未保存変更確認は必須にしない。 |
+| MVP 外 | 自動保存、下書き、楽観ロック、D&D、NoteCard 分割、高機能 Markdown editor、Markdown ツールバー、Cmd/Ctrl ショートカット。 |
+
 ### SCR-004 Review
 
 | 項目 | 内容 |
@@ -158,6 +197,19 @@ MVP の正は既存の `doc/MVP_*` 文書です。特に MVP では、ノート�
 | Action | 復習対象ノートを開く、本文を表示、本文を隠す、復習済みにする、任意の次回復習日を保存、閲覧モードへ戻る |
 | Data | `id`, `title`, `noteDate`, `tags`, `cues`, `summary`, `body`, `reviewedAt`, `nextReviewDate` |
 
+#### SCR-004 UI State / Conditions
+
+| 区分 | 内容 |
+| --- | --- |
+| 主な表示項目 | タイトル、学習日、タグ、Cue、サマリー、本文非表示メッセージ、本文表示/非表示ボタン、次回復習日、復習済みにする、閲覧へ戻る |
+| validation 表示 | `nextReviewDate` 不正時は API `message` を復習モード内の error alert に表示する。MVP では復習フォーム内の field 別表示は任意。 |
+| disabled | 復習済みにするボタンは更新中のみ disabled。本文表示/非表示、閲覧へ戻るは通常 disabled にしない。 |
+| loading | 復習済み更新中はボタンを `更新中...` に変更する。 |
+| error | 復習済み更新失敗は詳細ヘッダー下の赤系 alert に表示する。 |
+| empty | Cue なし、サマリーなし、本文なしを各セクションで明示する。本文は初期状態では必ず非表示にする。 |
+| 成功時挙動 | `reviewedAt` と `nextReviewDate` を画面に反映し、本文表示を閉じ、閲覧モードへ戻る。 |
+| MVP 外 | `/tasks/review`、1 日後 / 1 週間後タブ、未完バッジ、自動次回復習日計算、採点、正誤判定。 |
+
 ### SCR-005 Backup
 
 | 項目 | 内容 |
@@ -182,6 +234,18 @@ MVP の正は既存の `doc/MVP_*` 文書です。特に MVP では、ノート�
 | --- | --- |
 | Action | バックアップ一覧取得、バックアップ作成、作成後の一覧再取得、エラー表示 |
 | Data | `backups[].file`, `backups[].createdAt`, `backups[].path`, `ok`, `backup.file`, `backup.path`, エラー `{ code, message, errors? }` |
+
+#### SCR-005 UI State / Conditions
+
+| 区分 | 内容 |
+| --- | --- |
+| 主な表示項目 | 画面タイトル、説明、ノート一覧へ、バックアップ作成、最新バックアップ一覧、ファイル名、作成日時、保存先パス、一覧更新 |
+| disabled | バックアップ作成は作成中。一覧更新は一覧取得中または作成中。ノート一覧へは通常 disabled にしない。 |
+| loading | 初期表示と一覧更新中は `バックアップ一覧を読み込み中...`。作成中は作成ボタンを `作成中...` に変更する。 |
+| error | 一覧取得失敗と作成失敗は赤系 alert に API `message`、または画面既定の失敗文言を表示する。 |
+| empty | バックアップ 0 件は `バックアップはまだありません。` と `バックアップ作成から現在の SQLite DB を保存できます。` を表示する。 |
+| 成功時挙動 | 作成成功後は `ファイル名 を作成しました。` を表示し、一覧を再取得する。最新 3 世代だけを表示対象にする。 |
+| MVP 外 | バックアップログ DB 管理、自動復元、スケジュール UI、`POST /api/backups/retry`、ログ詳細画面。 |
 
 ## API と画面の対応表
 
@@ -209,18 +273,23 @@ MVP の正は既存の `doc/MVP_*` 文書です。特に MVP では、ノート�
 ```mermaid
 flowchart TD
   Home["/"] --> Notes["SCR-001 /notes"]
-  Common["SCR-COMMON Navigation"] --> Notes
-  Common --> NewEdit["SCR-003 /notes/new"]
-  Common --> Backup["SCR-005 /backup"]
-  Notes --> NewEdit
-  Notes --> Detail["SCR-002 /notes/[id]"]
+  Notes --> NewEdit["SCR-003 /notes/new"]
   NewEdit -- "作成保存" --> Detail
-  Detail -- "編集" --> EditMode["SCR-003 編集モード"]
-  EditMode -- "保存 / キャンセル" --> Detail
-  Detail -- "復習" --> Review["SCR-004 復習モード"]
-  Review -- "閲覧へ戻る / 復習済み" --> Detail
+  Notes --> Detail["SCR-002 /notes/[id]"]
+  Notes --> Backup["SCR-005 /backup"]
   Detail -- "削除成功" --> Notes
-  Notes --> Backup
+
+  Common["SCR-COMMON Navigation: /notes / /notes/new / /backup"] -.-> Notes
+
+  subgraph DetailModes["SCR-002 /notes/[id] 詳細画面内モード"]
+    direction LR
+    ViewMode["閲覧モード"] --> EditMode["SCR-003 編集モード"]
+    EditMode -- "保存 / キャンセル" --> ViewMode
+    ViewMode --> Review["SCR-004 復習モード"]
+    Review -- "戻る / 復習済み" --> ViewMode
+  end
+
+  Detail -- "モード切替" --> ViewMode
 ```
 
 ## MVP / Phase 2 境界サマリー

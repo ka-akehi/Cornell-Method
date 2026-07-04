@@ -1,16 +1,14 @@
-stateDiagram-v2
-  state "復習予定なし" as no_schedule
-  state "復習期限到来" as due
-  state "復習予定あり" as rescheduled
-  state "復習済み" as reviewed
+flowchart TD
+  Start((開始)) --> initial{初期状態}
+  initial -->|予定なし| no_schedule[復習予定なし]
+  initial -->|予定あり| scheduled[復習予定あり]
+  initial -->|期限到来| due[復習期限到来]
 
-  [*] --> no_schedule: 予定なし
-  [*] --> due: 期限到来
-  [*] --> rescheduled: 予定あり
+  no_schedule -->|設定| scheduled
+  scheduled -->|日付到来| due
+  scheduled -->|クリア| cleared[復習予定なしへ戻る]
 
-  no_schedule --> rescheduled: 設定
-  rescheduled --> due: 日付到来
-  due --> reviewed: 復習済み
-  reviewed --> no_schedule: 予定なしで保存
-  reviewed --> rescheduled: 設定
-  rescheduled --> no_schedule: クリア
+  due -->|復習済み| reviewed[復習済み]
+  reviewed --> next_plan{保存後の予定}
+  next_plan -->|予定なしで保存| saved_no_schedule[復習予定なしへ戻る]
+  next_plan -->|設定| saved_scheduled[復習予定ありへ戻る]

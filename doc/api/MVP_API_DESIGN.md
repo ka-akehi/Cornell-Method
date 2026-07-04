@@ -1,17 +1,19 @@
 # MVP API 設計案
 
-確認日: 2026-06-14
+確認日: 2026-07-04
 
 ## 位置づけ
 
 このドキュメントは、フルリニューアル版 Cornell Method Notebook の MVP API 設計案です。
 
-MVP API は、ノート作成・検索・閲覧・編集・削除・復習済み更新・バックアップに絞ります。自動保存、Undo、PDF 出力、高度な復習タスクは Phase 2 とします。
+MVP API は、ノート作成・検索・閲覧・編集・削除・復習済み更新・タグ候補取得・バックアップに絞ります。自動保存、Undo、PDF 出力、高度な復習タスクは Phase 2 とします。
+
+現コードは `Notebook`, `Cue`, `Tag`, `NotebookTag` を中心にした MVP 構成です。この文書の request / response / error は、現行の `src/app/api/**`, `src/lib/validation.ts`, `prisma/schema.prisma` に寄せた実装・テスト期待値として扱います。
 
 ## API 設計方針
 
 - 認証は行わない。ローカル個人利用を前提にする。
-- API は JSON を返す。
+- API は JSON を返す。ただし `DELETE /api/notes/:id` の成功時だけ HTTP 204 No Content とし、body を返さない。
 - エラー形式は `{ code, message, errors? }` に統一する。
 - ノート作成・更新では、Notebook、Cue、Tag を 1 リクエストで保存する。
 - ノート更新時、Cue と Tag 関連はリクエスト内容で全置換する（発注者承認済み）。
@@ -19,6 +21,7 @@ MVP API は、ノート作成・検索・閲覧・編集・削除・復習済み
 - Cue と本文の厳密リンクは扱わない。
 - 復習モードの本文表示/非表示は UI 状態のため API に保存しない。
 - 復習済み更新だけは専用 API に分ける。
+- MVP では楽観ロックを行わないため、409 conflict は返さない。
 
 ## 共通エラー形式
 
@@ -31,6 +34,21 @@ MVP API は、ノート作成・検索・閲覧・編集・削除・復習済み
   ]
 }
 ```
+
+### 共通エラーコード
+
+| code | HTTP | message | 用途 |
+| --- | ---: | --- | --- |
+| `invalid_query` | 400 | `検索条件に誤りがあります` | query string の validation error |
+| `invalid_body` | 400 | `入力内容に誤りがあります` | request body の validation error |
+| `not_found` | 404 | `対象が見つかりません` または endpoint 固有文言 | 対象データなし |
+| `server_error` | 500 | `予期しないエラーが発生しました` または内部エラー文言 | 予期しない例外 |
+
+### `errors[].field` の表記
+
+- ネストは dot notation とする。例: `tags.12.name`, `cues.0.text`
+- request body が JSON として読めない、または object ではない場合は、root field として空文字 `""` が入る場合がある。
+- 型不一致や enum 不一致など Zod 標準エラーになる項目は、現コードでは Zod の標準 `message` を返す。実装・テストで固定すべきプロダクト独自メッセージは、本書の validation 表に明記する。
 
 ## 共通ステータス
 
@@ -57,22 +75,91 @@ MVP API は、ノート作成・検索・閲覧・編集・削除・復習済み
 | GET | `/api/backups` | バックアップ一覧 |
 | POST | `/api/backups` | バックアップ作成 |
 
+## 共通スキーマ
+
+### Note detail
+
+```json
+{
+  "id": "note_1",
+  "title": "読書メモ",
+  "noteDate": "2026-06-14",
+  "sourceType": "book",
+  "sourceTitle": "Sample Book",
+  "overview": "第1章の整理",
+  "body": "本文 Markdown",
+  "summary": "要約 Markdown",
+  "nextReviewDate": "2026-06-15",
+  "reviewedAt": null,
+  "cues": [
+    { "id": "cue_1", "text": "重要語句", "order": 0 }
+  ],
+  "tags": [
+    { "id": "tag_1", "name": "読書", "color": null }
+  ]
+}
+```
+
+### Note input
+
+`POST /api/notes` と `PATCH /api/notes/:id` は同じ body を受け取る。
+
+```json
+{
+  "title": "読書メモ",
+  "noteDate": "2026-06-14",
+  "sourceType": "book",
+  "sourceTitle": "Sample Book",
+  "overview": "第1章の整理",
+  "body": "本文 Markdown",
+  "summary": "要約 Markdown",
+  "nextReviewDate": "2026-06-15",
+  "cues": [
+    { "text": "重要語句", "order": 0 }
+  ],
+  "tags": [
+    { "name": "読書", "color": null }
+  ]
+}
+```
+
+| field | 必須 | 型 | 仕様 |
+| --- | --- | --- | --- |
+| `title` | 必須 | string | trim 後 1〜120 文字 |
+| `noteDate` | 必須 | string | `YYYY-MM-DD`。今日以前 |
+| `sourceType` | 任意 | string | `book`, `lecture`, `video`, `article`, `other` のいずれか |
+| `sourceTitle` | 任意 | string | 未指定時 `""`。0〜120 文字 |
+| `overview` | 任意 | string | 未指定時 `""`。0〜400 文字 |
+| `body` | 任意 | string | 未指定時 `""` |
+| `summary` | 任意 | string | 未指定時 `""` |
+| `nextReviewDate` | 任意 | string \| null | `YYYY-MM-DD`、`noteDate` 以降、または `null` / 空文字 / 未指定 |
+| `cues` | 任意 | array | 未指定時 `[]` |
+| `cues[].text` | 必須 | string | trim 後 1〜120 文字 |
+| `cues[].order` | 任意 | integer | 0 以上。未指定時は配列 index |
+| `tags` | 任意 | array | 未指定時 `[]`。最大 12 件。同一ノート内で重複不可 |
+| `tags[].name` | 必須 | string | trim 後 1〜30 文字。使用可能文字は validation 表を参照 |
+| `tags[].color` | 任意 | string \| null | 空文字 / 未指定は `null` |
+
 ## GET `/api/notes`
 
 ノート一覧を取得します。
 
 ### Query
 
-| パラメータ | 必須 | 説明 |
+| パラメータ | 必須 | 仕様 |
 | --- | --- | --- |
-| `query` | 任意 | title, overview, body, summary, cue.text を検索 |
-| `tag` | 任意 | タグ名。複数指定時はカンマ区切り |
-| `from` | 任意 | noteDate の開始日 |
-| `to` | 任意 | noteDate の終了日 |
-| `reviewDue` | 任意 | `true` の場合、nextReviewDate が今日以前のノートのみ |
-| `page` | 任意 | 1始まり |
+| `query` | 任意 | title, overview, body, summary, cue.text を部分一致検索 |
+| `tag` | 任意 | タグ名。複数指定時はカンマ区切り。重複と空要素は除外 |
+| `from` | 任意 | `noteDate` の開始日。`YYYY-MM-DD` |
+| `to` | 任意 | `noteDate` の終了日。`YYYY-MM-DD` |
+| `reviewDue` | 任意 | `true` の場合、`nextReviewDate` が今日以前のノートのみ。未指定 / 空文字 / `false` は false |
+| `page` | 任意 | 1 始まりの整数。未指定時 1 |
 
-### Response
+`tags` ではなく `tag` を使う。MVP 現コードでは `tag=読書,英語` の形を正とする。
+
+### Success Response
+
+HTTP 200
 
 ```json
 {
@@ -100,75 +187,153 @@ MVP API は、ノート作成・検索・閲覧・編集・削除・復習済み
 }
 ```
 
-### 並び順
+### 並び順・ページング
 
-MVP では `noteDate desc, updatedAt desc` 固定とします。
+- 並び順は `noteDate desc, updatedAt desc` 固定。
+- 1 ページ 50 件固定。
+- `totalPages` は 0 件でも `1`。
+- `page` が `totalPages` を超えた場合、`data: []` を返す。validation error にはしない。
+
+### Validation Error
+
+HTTP 400
+
+```json
+{
+  "code": "invalid_query",
+  "message": "検索条件に誤りがあります",
+  "errors": [
+    { "field": "from", "message": "開始日は終了日以前の日付を入力してください" }
+  ]
+}
+```
+
+| 条件 | field | message |
+| --- | --- | --- |
+| `from` が `YYYY-MM-DD` ではない、または存在しない日付 | `from` | `YYYY-MM-DD形式で入力してください` |
+| `to` が `YYYY-MM-DD` ではない、または存在しない日付 | `to` | `YYYY-MM-DD形式で入力してください` |
+| `from > to` | `from` | `開始日は終了日以前の日付を入力してください` |
+| `page` が 1 未満 | `page` | `pageは1以上で指定してください` |
+| `page` が整数ではない | `page` | `pageは整数で指定してください` または Zod 標準メッセージ |
+| `reviewDue` が `true` / `false` / 空文字以外 | `reviewDue` | Zod 標準メッセージ |
+
+### Not Found
+
+一覧取得 API は、条件に一致するノートが 0 件でも 404 にしない。HTTP 200 で `data: []` を返す。
+
+### Unexpected Error
+
+HTTP 500
+
+```json
+{
+  "code": "server_error",
+  "message": "予期しないエラーが発生しました"
+}
+```
 
 ## POST `/api/notes`
 
 ノートを作成します。
 
-### Request
+### Request Body
 
-```json
-{
-  "title": "読書メモ",
-  "noteDate": "2026-06-14",
-  "sourceType": "book",
-  "sourceTitle": "Sample Book",
-  "overview": "第1章の整理",
-  "body": "本文 Markdown",
-  "summary": "要約 Markdown",
-  "nextReviewDate": "2026-06-15",
-  "cues": [
-    { "text": "重要語句", "order": 0 }
-  ],
-  "tags": [
-    { "name": "読書" }
-  ]
-}
-```
+`Note input` と同じ。
 
-### Response
+### Success Response
 
-作成したノート詳細を返します。
-
-```json
-{
-  "id": "note_1",
-  "title": "読書メモ",
-  "noteDate": "2026-06-14",
-  "sourceType": "book",
-  "sourceTitle": "Sample Book",
-  "overview": "第1章の整理",
-  "body": "本文 Markdown",
-  "summary": "要約 Markdown",
-  "nextReviewDate": "2026-06-15",
-  "reviewedAt": null,
-  "cues": [
-    { "id": "cue_1", "text": "重要語句", "order": 0 }
-  ],
-  "tags": [
-    { "id": "tag_1", "name": "読書", "color": null }
-  ]
-}
-```
+HTTP 201。作成した `Note detail` を返す。
 
 ### 保存仕様
 
 - Notebook、Cue、Tag、NotebookTag をトランザクションで保存する。
 - タグ名が存在しない場合は自動作成する。
-- Cue は request の配列順または `order` 順で保存する。
+- 既存タグの `color` は更新しない。新規作成時のみ `tags[].color ?? null` を保存する。
+- Cue は `order` 指定があればその値、未指定なら配列 index で保存する。
+- `noteDate` / `nextReviewDate` は date-only string を UTC 00:00:00 として保存し、response では `YYYY-MM-DD` に戻す。
+
+### Validation Error
+
+HTTP 400
+
+```json
+{
+  "code": "invalid_body",
+  "message": "入力内容に誤りがあります",
+  "errors": [
+    { "field": "title", "message": "タイトルは必須です" }
+  ]
+}
+```
+
+`PATCH /api/notes/:id` も同じ validation を使う。
+
+| 条件 | field | message |
+| --- | --- | --- |
+| body が JSON として読めない、または object ではない | `""` | Zod 標準メッセージ |
+| `title` が空、または trim 後に空 | `title` | `タイトルは必須です` |
+| `title` が 120 文字超 | `title` | `タイトルは120文字以内で入力してください` |
+| `noteDate` が `YYYY-MM-DD` ではない、または存在しない日付 | `noteDate` | `YYYY-MM-DD形式で入力してください` |
+| `noteDate` が未来日 | `noteDate` | `未来日は入力できません` |
+| `sourceType` が許可値以外 | `sourceType` | Zod 標準メッセージ |
+| `sourceTitle` が 120 文字超 | `sourceTitle` | `出典タイトルは120文字以内で入力してください` |
+| `overview` が 400 文字超 | `overview` | `概要は400文字以内で入力してください` |
+| `nextReviewDate` が `YYYY-MM-DD` ではない、または存在しない日付 | `nextReviewDate` | `YYYY-MM-DD形式で入力してください` |
+| `nextReviewDate < noteDate` | `nextReviewDate` | `次回復習日は記載日以降の日付を入力してください` |
+| `cues[].text` が空、または trim 後に空 | `cues.{index}.text` | `キューは必須です` |
+| `cues[].text` が 120 文字超 | `cues.{index}.text` | `キューは120文字以内で入力してください` |
+| `cues[].order` が整数ではない | `cues.{index}.order` | `表示順は整数で入力してください` または Zod 標準メッセージ |
+| `cues[].order` が 0 未満 | `cues.{index}.order` | `表示順は0以上で入力してください` |
+| `tags` が 13 件以上 | `tags` | `タグは12件以内で入力してください` |
+| `tags[].name` が空、または trim 後に空 | `tags.{index}.name` | `タグ名は必須です` |
+| `tags[].name` が 30 文字超 | `tags.{index}.name` | `タグ名は30文字以内で入力してください` |
+| `tags[].name` に使用不可文字が含まれる | `tags.{index}.name` | `タグ名に使用できない文字が含まれています` |
+| `tags[].name` が同一ノート内で重複 | `tags.{index}.name` | `タグが重複しています` |
+
+### タグ名の使用可能文字
+
+`tags[].name` は、ひらがな、カタカナ、漢字、英数字、次の記号のみ許可する。
+
+```text
+!"#$%&'()0=~|-^¥@[]`{;:+*},./<>?_\
+```
+
+空白は trim されるが、trim 後のタグ名内部に空白を含めることはできない。絵文字も不可。
+
+### Not Found
+
+作成 API では対象 ID がないため not found は発生しない。
+
+### Unexpected Error
+
+HTTP 500
+
+```json
+{
+  "code": "server_error",
+  "message": "予期しないエラーが発生しました"
+}
+```
 
 ## GET `/api/notes/:id`
 
 ノート詳細を取得します。
 
-### Response
+### Request
 
-`POST /api/notes` の Response と同じ形を返します。
+query / body は受け取らない。
+
+### Success Response
+
+HTTP 200。`Note detail` を返す。
+
+### Validation Error
+
+MVP 現コードでは `id` の形式 validation は行わない。任意の path segment を ID として検索する。
 
 ### Not Found
+
+HTTP 404。ID が存在しない、または `deletedAt` が `null` ではない場合。
 
 ```json
 {
@@ -177,45 +342,116 @@ MVP では `noteDate desc, updatedAt desc` 固定とします。
 }
 ```
 
+### Unexpected Error
+
+HTTP 500
+
+```json
+{
+  "code": "server_error",
+  "message": "予期しないエラーが発生しました"
+}
+```
+
 ## PATCH `/api/notes/:id`
 
 ノートを更新します。
 
-### Request
+### Request Body
 
-`POST /api/notes` と同じ形です。
+`Note input` と同じ。
 
 ### 更新仕様
 
+- `id` の Notebook が存在し、`deletedAt` が `null` の場合だけ更新する。
 - Notebook を更新する。
 - Cue はリクエスト内容で全置換する。
 - Tag 関連もリクエスト内容で全置換する。
 - タグ名が存在しない場合は自動作成する。
 - MVP では楽観ロックを行わない。
 
-### Response
+### Success Response
 
-更新後のノート詳細を返します。
+HTTP 200。更新後の `Note detail` を返す。
+
+### Validation Error
+
+HTTP 400。`POST /api/notes` と同じ。
+
+validation は not found 確認より先に行う。したがって、存在しない `id` でも body が不正なら 404 ではなく 400 を返す。
+
+### Not Found
+
+HTTP 404。ID が存在しない、または `deletedAt` が `null` ではない場合。
+
+```json
+{
+  "code": "not_found",
+  "message": "ノートが見つかりません"
+}
+```
+
+### Unexpected Error
+
+HTTP 500
+
+```json
+{
+  "code": "server_error",
+  "message": "予期しないエラーが発生しました"
+}
+```
 
 ## DELETE `/api/notes/:id`
 
 ノートを削除します。
 
+### Request
+
+query / body は受け取らない。
+
 ### 仕様
 
 - MVP では確認ダイアログを UI 側で出した上で削除する。
 - API は物理削除を行う。
+- Notebook 削除により、Prisma relation の cascade で Cue / NotebookTag も削除される。
 - Undo は Phase 2 とする。
 
-### Response
+### Success Response
 
-HTTP 204 No Content
+HTTP 204 No Content。body なし。
+
+### Validation Error
+
+MVP 現コードでは `id` の形式 validation は行わない。任意の path segment を ID として検索する。
+
+### Not Found
+
+HTTP 404。ID が存在しない、または `deletedAt` が `null` ではない場合。
+
+```json
+{
+  "code": "not_found",
+  "message": "ノートが見つかりません"
+}
+```
+
+### Unexpected Error
+
+HTTP 500
+
+```json
+{
+  "code": "server_error",
+  "message": "予期しないエラーが発生しました"
+}
+```
 
 ## POST `/api/notes/:id/review`
 
 復習済みにします。
 
-### Request
+### Request Body
 
 ```json
 {
@@ -223,14 +459,21 @@ HTTP 204 No Content
 }
 ```
 
-`nextReviewDate` は任意です。未指定の場合、次回復習日は空にします。
+| field | 必須 | 型 | 仕様 |
+| --- | --- | --- | --- |
+| `nextReviewDate` | 任意 | string \| null | `YYYY-MM-DD`、または `null` / 空文字 / 未指定 |
+
+`nextReviewDate` は任意です。未指定、空文字、`null` の場合、次回復習日は `null` になります。現コードでは `noteDate` 以降かどうかは検証しません。
 
 ### 更新仕様
 
+- `id` の Notebook が存在し、`deletedAt` が `null` の場合だけ更新する。
 - `reviewedAt = now`
 - `nextReviewDate = request.nextReviewDate ?? null`
 
-### Response
+### Success Response
+
+HTTP 200
 
 ```json
 {
@@ -240,16 +483,84 @@ HTTP 204 No Content
 }
 ```
 
+### Validation Error
+
+HTTP 400
+
+```json
+{
+  "code": "invalid_body",
+  "message": "入力内容に誤りがあります",
+  "errors": [
+    { "field": "nextReviewDate", "message": "YYYY-MM-DD形式で入力してください" }
+  ]
+}
+```
+
+| 条件 | field | message |
+| --- | --- | --- |
+| body が JSON として読めない、または object ではない | `""` | Zod 標準メッセージ |
+| `nextReviewDate` が `YYYY-MM-DD` ではない、または存在しない日付 | `nextReviewDate` | `YYYY-MM-DD形式で入力してください` |
+
+validation は not found 確認より先に行う。したがって、存在しない `id` でも body が不正なら 404 ではなく 400 を返す。
+
+### Not Found
+
+HTTP 404。ID が存在しない、または `deletedAt` が `null` ではない場合。
+
+```json
+{
+  "code": "not_found",
+  "message": "ノートが見つかりません"
+}
+```
+
+### Unexpected Error
+
+HTTP 500
+
+```json
+{
+  "code": "server_error",
+  "message": "予期しないエラーが発生しました"
+}
+```
+
 ## GET `/api/tags`
 
 タグ候補一覧を取得します。
 
-### Response
+### Request
+
+query / body は受け取らない。
+
+### Success Response
+
+HTTP 200。タグ名昇順で返す。
 
 ```json
 [
   { "id": "tag_1", "name": "読書", "color": null }
 ]
+```
+
+### Validation Error
+
+なし。MVP 現コードでは query validation を行わない。
+
+### Not Found
+
+タグが 0 件でも 404 にしない。HTTP 200 で `[]` を返す。
+
+### Unexpected Error
+
+HTTP 500
+
+```json
+{
+  "code": "server_error",
+  "message": "予期しないエラーが発生しました"
+}
 ```
 
 ### MVP では作らないタグ API
@@ -264,7 +575,13 @@ HTTP 204 No Content
 
 バックアップ一覧を取得します。
 
-### Response
+### Request
+
+query / body は受け取らない。
+
+### Success Response
+
+HTTP 200。最新 3 世代までを新しい順で返す。
 
 ```json
 {
@@ -278,17 +595,55 @@ HTTP 204 No Content
 }
 ```
 
+バックアップが 0 件の場合は HTTP 200 で `{ "backups": [] }` を返す。
+
+### Validation Error
+
+なし。MVP 現コードでは query validation を行わない。
+
+### Not Found
+
+なし。`backup/` ディレクトリが存在しない場合も 404 にせず、HTTP 200 で `{ "backups": [] }` を返す。
+
+### Unexpected Error
+
+HTTP 500。バックアップ一覧取得中の filesystem 例外など。
+
+```json
+{
+  "code": "server_error",
+  "message": "予期しないエラーが発生しました"
+}
+```
+
+現コードでは、内部例外が `Error` の場合、その `error.message` が `message` に入る場合がある。例:
+
+```json
+{
+  "code": "server_error",
+  "message": "EACCES: permission denied, scandir 'backup'"
+}
+```
+
 ## POST `/api/backups`
 
 バックアップを作成します。
 
+### Request
+
+query / body は受け取らない。
+
 ### 仕様
 
 - SQLite DB ファイルを `backup/` 配下へコピーする。
-- 最新3世代を保持する。
-- 4世代目以降は古いものから削除する。
+- `DATABASE_URL` は `file:` 形式の SQLite path を対象にする。
+- backup file name は `YYYY-MM-DDTHH-mm-ss.db`。
+- 最新 3 世代を保持する。
+- 4 世代目以降は古いものから削除する。
 
-### Response
+### Success Response
+
+HTTP 200
 
 ```json
 {
@@ -300,31 +655,70 @@ HTTP 204 No Content
 }
 ```
 
-## バリデーション
+### Validation Error
 
-| field | ルール |
-| --- | --- |
-| `title` | 1〜120文字 |
-| `noteDate` | 今日以前 |
-| `sourceType` | book, lecture, video, article, other, 未指定 |
-| `sourceTitle` | 0〜120文字 |
-| `overview` | 0〜400文字 |
-| `body` | 文字列 |
-| `summary` | 文字列 |
-| `nextReviewDate` | noteDate 以降の日付、または未指定 |
-| `cues[].text` | 1〜120文字 |
-| `tags[].name` | 1〜30文字 |
-| `tags` | 最大12件、重複不可 |
+なし。MVP 現コードでは body / query validation を行わない。
+
+### Not Found
+
+DB ファイルが存在しない場合も 404 ではなく、HTTP 500 `server_error` を返す。
+
+### Unexpected Error
+
+HTTP 500。DB ファイル不在、`DATABASE_URL` 不正、コピー失敗、削除失敗など。
+
+```json
+{
+  "code": "server_error",
+  "message": "SQLite DB file not found: /path/to/dev.db"
+}
+```
+
+代表例:
+
+| 条件 | code | message |
+| --- | --- | --- |
+| `DATABASE_URL` が `file:` 形式ではない | `server_error` | `DATABASE_URL は file: 形式の SQLite パスを指定してください` |
+| SQLite path が空 | `server_error` | `DATABASE_URL の SQLite ファイルパスが空です` |
+| SQLite DB file が存在しない | `server_error` | `SQLite DB file not found: {path}` |
+| SQLite DB path が file ではない | `server_error` | `SQLite DB path is not a file: {path}` |
+| filesystem の copy / unlink に失敗 | `server_error` | Node.js の filesystem error message |
+
+## バリデーション一覧
+
+MVP の固定 validation message は次を正とする。
+
+| field | ルール | message |
+| --- | --- | --- |
+| `title` | 1〜120 文字 | `タイトルは必須です` / `タイトルは120文字以内で入力してください` |
+| `noteDate` | `YYYY-MM-DD`、今日以前 | `YYYY-MM-DD形式で入力してください` / `未来日は入力できません` |
+| `sourceType` | `book`, `lecture`, `video`, `article`, `other`, 未指定 | Zod 標準メッセージ |
+| `sourceTitle` | 0〜120 文字 | `出典タイトルは120文字以内で入力してください` |
+| `overview` | 0〜400 文字 | `概要は400文字以内で入力してください` |
+| `body` | 文字列 | Zod 標準メッセージ |
+| `summary` | 文字列 | Zod 標準メッセージ |
+| `nextReviewDate` | `YYYY-MM-DD`、ノート保存時は `noteDate` 以降、または未指定 / 空文字 / null | `YYYY-MM-DD形式で入力してください` / `次回復習日は記載日以降の日付を入力してください` |
+| `cues[].text` | 1〜120 文字 | `キューは必須です` / `キューは120文字以内で入力してください` |
+| `cues[].order` | 0 以上の整数 | `表示順は整数で入力してください` / `表示順は0以上で入力してください` |
+| `tags[].name` | 1〜30 文字、使用可能文字のみ | `タグ名は必須です` / `タグ名は30文字以内で入力してください` / `タグ名に使用できない文字が含まれています` |
+| `tags` | 最大 12 件、重複不可 | `タグは12件以内で入力してください` / `タグが重複しています` |
+| `from` | `YYYY-MM-DD` | `YYYY-MM-DD形式で入力してください` |
+| `to` | `YYYY-MM-DD` | `YYYY-MM-DD形式で入力してください` |
+| `from` + `to` | `from <= to` | `開始日は終了日以前の日付を入力してください` |
+| `page` | 1 以上の整数 | `pageは整数で指定してください` / `pageは1以上で指定してください` |
 
 ## MVP から外す API
+
+次の API は MVP 外です。MVP API の実装・テスト期待値に混ぜない。
 
 | API | 理由 |
 | --- | --- |
 | `/api/undo` | Undo は Phase 2 |
 | `/api/review-tasks` | 復習専用画面を MVP では作らない |
+| `/api/backups/retry` | MVP は `POST /api/backups` に統一 |
+| `/api/backups/logs` | バックアップログは Phase 2 |
 | `/api/notes/export` | PDF 出力は Phase 2 |
 | `/api/tags/:id` | タグ管理 UI は Phase 2 |
-| `/api/backups/retry` | MVP は `POST /api/backups` に統一 |
 | Cue / Tag 差分更新 API | MVP では全置換。必要になった場合に Phase 2 で検討 |
 
 ## Open Question

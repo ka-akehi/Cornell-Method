@@ -38,6 +38,8 @@ MVP では、明示保存、物理削除、手動復習予定、`textarea + Mark
 - [ ] `/notes/new` で未登録タグを入力すると保存時に自動作成される
 - [ ] `/notes/new` の本文 Markdown preview に入力内容が反映される
 - [ ] `/notes/new` のサマリー Markdown preview に入力内容が反映される
+- [ ] `/notes/new` で保存中は保存ボタンが disabled になり `保存中...` が表示される
+- [ ] `/notes/new` で保存 API が失敗した場合、フォーム上部に error alert が表示される
 - [ ] `/notes/new` で有効な入力を保存すると `POST /api/notes` が成功する
 - [ ] `/notes/new` の保存成功後に作成したノートの `/notes/[id]` へ遷移する
 
@@ -59,12 +61,15 @@ MVP では、明示保存、物理削除、手動復習予定、`textarea + Mark
 - [ ] `/notes` で From > To の場合に validation error が表示される
 - [ ] `/notes` でタグフィルタが OR 条件で効く
 - [ ] `/notes` でタグフィルタの重複追加が防止される
+- [ ] `/notes` でタグ候補取得中、タグ select が追加不可状態になる
 - [ ] `/notes` で復習対象フィルタを有効にすると `nextReviewDate` が今日以前のノートだけが表示される
 - [ ] `/notes` で検索結果が 0 件の場合に空状態が表示される
 - [ ] `/notes` で一覧取得中に loading 状態が表示される
+- [ ] `/notes` で一覧取得中は検索ボタンが disabled になる
 - [ ] `/notes` で一覧取得に失敗した場合に error 状態が表示される
 - [ ] `/notes` でページ情報が表示される
 - [ ] `/notes` でページ移動ができる
+- [ ] `/notes` で 1 ページ目の前へ、最終ページの次へが disabled になる
 
 ### 4. ノート詳細
 
@@ -79,6 +84,8 @@ MVP では、明示保存、物理削除、手動復習予定、`textarea + Mark
 - [ ] `/notes/[id]` の閲覧モードから編集モードへ切り替えられる
 - [ ] `/notes/[id]` の編集モードで既存ノートの値がフォームに反映される
 - [ ] `/notes/[id]` の編集モードで保存すると `PATCH /api/notes/:id` が成功する
+- [ ] `/notes/[id]` の編集モードで保存中は保存ボタンが disabled になり `保存中...` が表示される
+- [ ] `/notes/[id]` の編集モードで保存 API が失敗した場合、フォーム上部に error alert が表示される
 - [ ] `/notes/[id]` の編集保存後に閲覧モードへ戻る
 - [ ] `/notes/[id]` の編集モードでキャンセルすると保存せず閲覧モードへ戻る
 - [ ] `/notes/[id]` の閲覧モードから復習モードへ切り替えられる
@@ -86,12 +93,16 @@ MVP では、明示保存、物理削除、手動復習予定、`textarea + Mark
 - [ ] `/notes/[id]` の復習モードで本文を表示できる
 - [ ] `/notes/[id]` の復習モードで表示した本文を再度非表示にできる
 - [ ] `/notes/[id]` の復習モードで復習済みにすると `POST /api/notes/:id/review` が成功する
+- [ ] `/notes/[id]` の復習済み更新中はボタンが disabled になり `更新中...` が表示される
+- [ ] `/notes/[id]` の復習済み更新に失敗した場合に error 状態が表示される
 - [ ] `/notes/[id]` の復習済み更新で `reviewedAt` が更新される
 - [ ] `/notes/[id]` の復習済み更新で任意の `nextReviewDate` が保存される
 - [ ] `/notes/[id]` の復習済み更新で `nextReviewDate` を空にできる
 - [ ] `/notes/[id]` で削除操作を選ぶと確認 UI が表示される
 - [ ] `/notes/[id]` の削除確認をキャンセルすると削除されない
 - [ ] `/notes/[id]` の削除確認を確定すると `DELETE /api/notes/:id` が成功する
+- [ ] `/notes/[id]` の削除中は削除ボタンが disabled になり `削除中...` が表示される
+- [ ] `/notes/[id]` の削除に失敗した場合に error 状態が表示される
 - [ ] `/notes/[id]` の削除成功後に `/notes` へ戻る
 - [ ] 存在しない `/notes/[id]` を開くと 404 またはノートなし状態が表示される
 
@@ -103,7 +114,10 @@ MVP では、明示保存、物理削除、手動復習予定、`textarea + Mark
 - [ ] `/backup` でバックアップ保存先パスが表示される
 - [ ] `/backup` でバックアップが 0 件の場合に空状態が表示される
 - [ ] `/backup` でバックアップ作成を実行すると `POST /api/backups` が成功する
+- [ ] `/backup` でバックアップ作成中は作成ボタンが disabled になり `作成中...` が表示される
+- [ ] `/backup` で一覧取得中または作成中は一覧更新ボタンが disabled になる
 - [ ] `/backup` でバックアップ作成成功後に一覧が更新される
+- [ ] `/backup` でバックアップ作成成功後に成功メッセージが表示される
 - [ ] `/backup` でバックアップは最新 3 世代だけが保持される
 - [ ] `/backup` で一覧取得中に loading 状態が表示される
 - [ ] `/backup` で一覧取得に失敗した場合に error 状態が表示される
@@ -135,6 +149,16 @@ MVP では、明示保存、物理削除、手動復習予定、`textarea + Mark
 - [ ] API の validation error が `{ code, message, errors? }` 形式で返る
 - [ ] API の not found error が `{ code, message, errors? }` 形式で返る
 - [ ] API の unexpected error が `{ code, message, errors? }` 形式で返る
+- [ ] `GET /api/notes` で不正な `from` / `to` / `page` が `invalid_query` と field 別 error を返す
+- [ ] `GET /api/notes` で From > To が `field: "from"` / `message: "開始日は終了日以前の日付を入力してください"` を返す
+- [ ] `POST /api/notes` でタイトル未入力、タイトル 120 文字超、未来日の `noteDate` が `invalid_body` と field 別 error を返す
+- [ ] `POST /api/notes` で 13 件以上のタグ、重複タグ、使用不可文字を含むタグが `invalid_body` と field 別 error を返す
+- [ ] `PATCH /api/notes/:id` で不正 body は not found 確認より先に 400 `invalid_body` を返す
+- [ ] `GET /api/notes/:id` / `PATCH /api/notes/:id` / `DELETE /api/notes/:id` / `POST /api/notes/:id/review` が存在しない ID に 404 `not_found` / `message: "ノートが見つかりません"` を返す
+- [ ] `POST /api/notes/:id/review` で不正な `nextReviewDate` が `invalid_body` と `field: "nextReviewDate"` を返す
+- [ ] `GET /api/tags` でタグ 0 件の場合も 200 と `[]` を返す
+- [ ] `GET /api/backups` でバックアップ 0 件の場合も 200 と `{ backups: [] }` を返す
+- [ ] `POST /api/backups` で DB ファイル不在や `DATABASE_URL` 不正の場合は 500 `server_error` を返す
 
 ### 7. Markdown / Security
 

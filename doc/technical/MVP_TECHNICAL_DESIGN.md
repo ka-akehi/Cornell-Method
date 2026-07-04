@@ -1,6 +1,6 @@
 # MVP 技術選定・実装方針
 
-確認日: 2026-06-15
+確認日: 2026-07-04
 
 ## 位置づけ
 
@@ -249,6 +249,176 @@ MVP は画面数が少なく、フォーム、タブ、ボタン、一覧、確�
 
 Prisma は型安全な DB アクセスと migration 管理に使います。
 
+## MVP DB / Prisma 運用設計
+
+### 対象 schema
+
+MVP の Prisma schema 対象は `doc/data/MVP_DATA_DESIGN.md` の 4 モデルに限定します。
+
+| Model | MVP での扱い |
+| --- | --- |
+| `Notebook` | ノート本体。`body` は 1 つの Markdown 本文として保存する |
+| `Cue` | 左欄の Cue / キーワード / 質問。`Notebook` に従属する |
+| `Tag` | タグ候補マスタ。`name` は unique |
+| `NotebookTag` | Notebook と Tag の中間テーブル |
+
+MVP 外として schema に混ぜないもの:
+
+- `NotebookDraftState`
+- `NotebookReviewProgress`
+- `SoftDeleteBuffer`
+- `BackupLog`
+- `CueCard`
+- `NoteCard`
+- `NoteCueLink`
+
+### SQLite DB ファイルと環境変数
+
+MVP は SQLite file URL だけをサポートします。
+
+| 項目 | 方針 |
+| --- | --- |
+| 環境変数 | `DATABASE_URL` |
+| URL 形式 | `file:` で始まる SQLite path |
+| `.env.example` | `DATABASE_URL="file:./prisma/dev.db"` |
+| 実行時 fallback | `src/lib/prisma.ts` と `src/lib/backup/index.js` は未指定時に `file:./dev.db` を使う |
+| Prisma CLI fallback | `prisma.config.ts` は未指定時に `file:./dev.db` を使う |
+
+README 化時の推奨:
+
+- 新規環境では `.env.example` を元に `.env` を作り、`DATABASE_URL="file:./prisma/dev.db"` を明示する。
+- `.env` を作らない場合は `file:./dev.db` fallback で動くが、DB ファイル位置が README と実行時で誤解されやすいため、MVP 手順では `.env` 明示を推奨する。
+- `DATABASE_URL` に `postgres://` など SQLite 以外を指定しない。Supabase / Postgres は Phase 2 の移行検討事項とする。
+
+### Prisma migrate / generate 手順
+
+初回セットアップ:
+
+```bash
+npm install
+cp .env.example .env
+npm run prisma:generate
+npm run prisma:migrate
+```
+
+schema 変更時:
+
+```bash
+npm run prisma:migrate
+npm run prisma:generate
+```
+
+検証:
+
+```bash
+npx prisma validate
+npm run prisma:generate
+npm run prisma:migrate
+```
+
+運用メモ:
+
+- `npm run prisma:migrate` は `prisma migrate dev` を実行し、migration 適用と必要な生成処理を行う。
+- Worker タスクで schema を変更した場合は、migration SQL を確認し、MVP 外テーブルが混入していないことを確認する。
+- schema を変更していないドキュメント作業では Prisma コマンドの実行は必須ではない。
+
+### Seed 方針
+
+MVP では seed を必須にしません。
+
+理由:
+
+- 固定マスタがない。
+- `Tag` はノート保存時に upsert できる。
+- サンプルデータなしでも、作成、検索、復習、バックアップの主要フローを確認できる。
+
+README には seed 手順を書かないか、「MVP では seed なし」と明記します。開発用サンプルデータが必要になった場合は、任意実行の `prisma/seed.*` として別タスクで追加し、通常セットアップ手順からは分離します。
+
+### 削除と `deletedAt`
+
+MVP は物理削除です。
+
+- `DELETE /api/notes/:id` は `Notebook` を物理削除する。
+- `Cue` と `NotebookTag` は外部キー cascade で削除する。
+- `Notebook.deletedAt` は現 schema に存在するが、MVP では使用しない。
+- `SoftDeleteBuffer`、Undo、期限切れ purge は Phase 2 とする。
+
+## MVP Backup 運用設計
+
+### 対象と保存先
+
+バックアップは SQLite DB ファイルだけを対象にします。
+
+| 項目 | 方針 |
+| --- | --- |
+| コピー元 | `DATABASE_URL` が指す SQLite DB ファイル |
+| 保存先 | プロジェクトルートの `backup/` |
+| ファイル名 | `YYYY-MM-DDTHH-mm-ss.db` |
+| 保持数 | 最新 3 世代 |
+| 4 世代目以降 | 古いものから削除 |
+| ログ DB | MVP では作らない |
+| 復元 | MVP では自動復元なし。必要時は手動で DB ファイルを戻す |
+
+### 実装単位
+
+現行のバックアップ処理は CommonJS helper と Node script に分けます。
+
+| ファイル | 役割 |
+| --- | --- |
+| `src/lib/backup/index.js` | `DATABASE_URL` 解決、コピー、一覧、3 世代 prune |
+| `scripts/backup-copy.js` | CLI から `createBackup` を実行する wrapper |
+| `package.json` | `npm run backup:copy` で CLI 実行 |
+
+`src/lib/backup/index.js` は `DATABASE_URL` が `file:` 形式でない場合や DB ファイルが存在しない場合に `BackupError` を投げます。API はこの失敗を `{ code, message, errors? }` 形式の server error として返します。
+
+### 実行手順
+
+CLI:
+
+```bash
+npm run backup:copy
+```
+
+画面 / API:
+
+- `/backup` から手動作成する。
+- API は `POST /api/backups` で同じ helper を呼ぶ。
+- 一覧は `GET /api/backups` で `backup/` 配下の最新 3 世代を返す。
+
+### 失敗時の扱い
+
+MVP では、失敗を永続ログへ保存しません。
+
+| 失敗 | MVP の扱い |
+| --- | --- |
+| DB ファイル不在 | 画面/API/CLI にエラーを返す |
+| `DATABASE_URL` が `file:` 形式ではない | エラーを返す |
+| コピー失敗 | エラーを返す |
+| prune 失敗 | エラーを返す |
+
+Phase 2 で扱うもの:
+
+- `BackupLog`
+- `/api/backups/retry`
+- `/api/backups/logs`
+- `/notes/backup` ルートへの統合
+- アプリ起動時の自動バックアップ
+
+### README へ後で書く材料
+
+README 更新タスクでは、少なくとも以下を記載します。
+
+1. `.env.example` から `.env` を作る。
+2. `DATABASE_URL="file:./prisma/dev.db"` を使う。
+3. `npm install` を実行する。
+4. `npm run prisma:generate` を実行する。
+5. `npm run prisma:migrate` を実行する。
+6. seed は MVP では不要と明記する。
+7. `npm run dev` で起動する。
+8. `/notes` で作成、検索、閲覧、編集、復習を確認する。
+9. `/backup` または `npm run backup:copy` で DB バックアップを作成する。
+10. `backup/` は最新 3 世代のみ保持し、復元は手動運用であることを明記する。
+
 ### Server Actions はMVPでは必須にしない
 
 API 設計を明示しているため、MVP では Route Handler ベースの API を採用します。
@@ -287,7 +457,7 @@ src/
 prisma/
   schema.prisma
 scripts/
-  backup-copy.ts
+  backup-copy.js
 ```
 
 ## MVP で追加しない依存

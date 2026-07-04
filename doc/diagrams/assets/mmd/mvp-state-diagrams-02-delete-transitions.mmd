@@ -1,15 +1,11 @@
-stateDiagram-v2
-  state "閲覧" as viewing
-  state "削除確認" as deleting
-  state "エラー" as error
-  state "削除済み" as deleted
+flowchart LR
+  Start((開始)) -->|取得成功| viewing[閲覧]
+  viewing -->|削除| deleting[削除確認]
 
-  [*] --> viewing: 取得成功
+  deleting -->|キャンセル| cancel[削除をやめる]
+  cancel --> return_viewing[閲覧へ戻る]
 
-  viewing --> deleting: 削除
+  deleting -->|削除成功| deleted[削除済み]
+  deleted --> End((終了))
 
-  deleting --> viewing: キャンセル
-  deleting --> deleted: 削除成功
-  deleting --> error: 削除失敗
-
-  deleted --> [*]
+  deleting -->|削除失敗| error[エラー]

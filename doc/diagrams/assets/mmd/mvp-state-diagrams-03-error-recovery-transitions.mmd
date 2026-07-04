@@ -1,16 +1,19 @@
-stateDiagram-v2
-  state "閲覧" as viewing
-  state "編集" as editing
-  state "復習" as reviewing
-  state "削除確認" as deleting
-  state "エラー" as error
+flowchart LR
+  Start((開始)) --> load{初期取得}
+  load -->|取得失敗| error[エラー]
+  load -->|取得成功| viewing[閲覧]
 
-  [*] --> viewing: 取得成功
-  [*] --> error: 取得失敗
+  viewing --> operation{失敗した操作}
 
-  viewing --> error: API エラー
-  editing --> error: 保存失敗
-  reviewing --> error: 更新失敗
-  deleting --> error: 削除失敗
+  operation --> view_error[閲覧 API エラー]
+  operation --> edit_error[編集 保存失敗]
+  operation --> review_error[復習 更新失敗]
+  operation --> delete_error[削除確認 削除失敗]
 
-  error --> viewing: 再取得
+  view_error --> error
+  edit_error --> error
+  review_error --> error
+  delete_error --> error
+
+  error -->|再取得| retry[再取得]
+  retry --> return_viewing[閲覧へ戻る]

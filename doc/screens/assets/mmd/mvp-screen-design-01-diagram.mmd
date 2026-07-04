@@ -1,11 +1,16 @@
 flowchart TD
   Home["/"] --> Notes["/notes"]
   Notes --> NewNote["/notes/new"]
-  Notes --> Detail["/notes/[id]"]
   NewNote --> Detail
-  Detail --> ViewMode["閲覧モード"]
-  ViewMode --> EditMode["編集モード"]
-  EditMode --> ViewMode
-  ViewMode --> ReviewMode["復習モード"]
-  ReviewMode --> ViewMode
+  Notes --> Detail["/notes/[id]"]
   Notes --> Backup["/backup"]
+
+  subgraph DetailModes["/notes/[id] 詳細画面内モード"]
+    direction LR
+    ViewMode["閲覧モード"] --> EditMode["編集モード"]
+    EditMode --> ViewMode
+    ViewMode --> ReviewMode["復習モード"]
+    ReviewMode --> ViewMode
+  end
+
+  Detail --> ViewMode

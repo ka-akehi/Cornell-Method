@@ -99,13 +99,17 @@
 作業内容:
 
 - `Notebook`, `Cue`, `Tag`, `NotebookTag` を定義する。
-- MVP外の `NoteCard`, `NoteCueLink`, `NotebookDraftState`, `NotebookReviewProgress`, `SoftDeleteBuffer`, `BackupLog` は削除または未採用にする。
+- MVP外の `CueCard`, `NoteCard`, `NoteCueLink`, `NotebookDraftState`, `NotebookReviewProgress`, `SoftDeleteBuffer`, `BackupLog` は削除または未採用にする。
 - SQLite / Prisma の migration 前提で整える。
+- `Notebook.deletedAt` は現 schema に残す場合でも MVP API では使用しない。MVP の削除は物理削除とする。
+- migration SQL に MVP 外テーブルが混入していないことを確認する。
+- `DATABASE_URL` は `file:` 形式の SQLite path を前提にする。
 
 完了条件:
 
 - `npm run prisma:generate` が成功する。
 - 必要なら `npm run prisma:migrate` が成功する。
+- `npx prisma validate` が成功する。
 
 ### 2. `mvp-validation-schemas`
 
@@ -191,7 +195,7 @@
 対象:
 
 - `src/app/api/backups/route.ts`
-- `scripts/backup-copy.js` または `scripts/backup-copy.ts`
+- `scripts/backup-copy.js`
 - 必要に応じて `src/lib/backup/*`
 
 作業内容:
@@ -199,12 +203,17 @@
 - `GET /api/backups` を実装する。
 - `POST /api/backups` を実装する。
 - 最新3世代保持を実装する。
+- コピー対象は `DATABASE_URL` が指す SQLite DB ファイルのみとする。
+- 保存先はプロジェクトルートの `backup/` とする。
+- `DATABASE_URL` 不正、DB ファイル不在、コピー失敗、prune 失敗は 500 `server_error` として返す。
+- `BackupLog`, retry API, logs API, アプリ起動時自動バックアップは MVP 外とする。
 
 完了条件:
 
 - `npm run lint` が成功する。
 - `npm run build` が成功する。
 - バックアップファイル作成が確認できる。
+- 4 世代目作成時に古いバックアップが削除されることを確認できる。
 
 ### 6. `mvp-layout-navigation`
 
@@ -387,10 +396,16 @@
 - セットアップ手順を更新する。
 - Prisma migrate / generate を記載する。
 - バックアップ手順を記載する。
+- `.env.example` から `.env` を作り、`DATABASE_URL="file:./prisma/dev.db"` を明示する手順を記載する。
+- `DATABASE_URL` 未指定時は `file:./dev.db` fallback があるが、README の推奨手順では `.env` 明示に寄せる。
+- seed は MVP では不要であることを記載する。
+- SQLite DB ファイルの場所と、`backup/` 配下に最新 3 世代だけ保持することを記載する。
+- 復元は MVP の自動機能ではなく、必要時は手動で DB ファイルを戻す運用であることを記載する。
 
 完了条件:
 
 - 新規環境で起動手順が追える。
+- DB 作成、Prisma Client 生成、seed 不要判断、バックアップ作成まで追える。
 
 ### 14. `mvp-final-verification`
 
@@ -406,11 +421,16 @@
 - `npm run build`
 - `npm run prisma:generate`
 - `npm run prisma:migrate`
+- `npx prisma validate`
+- `npm run backup:copy`
 - 主要フローの手動確認
+- seed なしで主要フローを開始できることの確認
+- `backup/` が最新 3 世代保持になることの確認
 
 完了条件:
 
 - ノート作成、閲覧、編集、復習、検索、バックアップが確認できる。
+- MVP 外 DB schema が追加されていないことを確認できる。
 
 実施メモ（2026-06-21）:
 

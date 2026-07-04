@@ -43,10 +43,10 @@
 | diagrams | `doc/diagrams/MVP_SEQUENCE_DIAGRAMS.md` | `doc/diagrams/assets/svg/mvp-sequence-diagrams-03-diagram.svg` | Minor fix | `PATCH /api/notes/:id` の参加者見出しが枠に詰まっていた。 | 正本Markdownで参加者名を `Notes API` に短縮し、`PATCH /api/notes/:id` はメッセージ側へ移動。SVG再生成済み。 |
 | diagrams | `doc/diagrams/MVP_SEQUENCE_DIAGRAMS.md` | `doc/diagrams/assets/svg/mvp-sequence-diagrams-04-diagram.svg` | Minor fix | `POST /api/notes/:id/review` の参加者見出しが長く、枠内余白が不足していた。 | 正本Markdownで参加者名を `Review API` に短縮し、エンドポイントはメッセージ側へ移動。SVG再生成済み。 |
 | diagrams | `doc/diagrams/MVP_SEQUENCE_DIAGRAMS.md` | `doc/diagrams/assets/svg/mvp-sequence-diagrams-05-diagram.svg` | Minor fix | API参加者名がHTTP操作名になっており、他の修正後シーケンス図と表記粒度が揃っていなかった。 | 正本Markdownで参加者名を `Backup API` に短縮し、`POST /api/backups` はメッセージ側へ移動。SVG再生成済み。 |
-| diagrams | `doc/diagrams/MVP_STATE_DIAGRAMS.md` | `doc/diagrams/assets/svg/mvp-state-diagrams-01-normal-mode-transitions.svg` | OK | 通常モード遷移だけに分割され、閲覧、編集、復習の関係を小さい図で追える。 | 正本Markdownを `詳細画面モード normal mode transitions` として分割。SVG再生成済み。 |
-| diagrams | `doc/diagrams/MVP_STATE_DIAGRAMS.md` | `doc/diagrams/assets/svg/mvp-state-diagrams-02-delete-transitions.svg` | OK | 削除確認、キャンセル、削除成功、削除失敗だけに絞られ、旧1枚図の中央集中が解消されている。 | 正本Markdownを `詳細画面モード delete transitions` として分割。SVG再生成済み。 |
-| diagrams | `doc/diagrams/MVP_STATE_DIAGRAMS.md` | `doc/diagrams/assets/svg/mvp-state-diagrams-03-error-recovery-transitions.svg` | OK | 失敗系はエラー状態へ集約されるが、通常成功系と削除成功系を分離したためラベル密度は下がっている。 | 正本Markdownを `詳細画面モード error recovery transitions` として分割。SVG再生成済み。 |
-| diagrams | `doc/diagrams/MVP_STATE_DIAGRAMS.md` | `doc/diagrams/assets/svg/mvp-state-diagrams-04-diagram.svg` | OK | 復習状態は縦長だが、状態数が少なくラベルは判読可能。 | 修正なし。未修正理由: 分割するほどの過密ではない。 |
+| diagrams | `doc/diagrams/MVP_STATE_DIAGRAMS.md` | `doc/diagrams/assets/svg/mvp-state-diagrams-01-normal-mode-transitions.svg` | OK | 通常モード遷移は flowchart 化され、編集終了、復習終了、閲覧へ戻るの操作ノードで戻り線とラベル密集が整理されている。 | 正本Markdownを更新し、SVG再生成済み。 |
+| diagrams | `doc/diagrams/MVP_STATE_DIAGRAMS.md` | `doc/diagrams/assets/svg/mvp-state-diagrams-02-delete-transitions.svg` | OK | 削除遷移は左から右に読み進められ、キャンセル、削除成功、削除失敗の分岐が削除確認から明確に分かれる。 | 正本Markdownを更新し、SVG再生成済み。 |
+| diagrams | `doc/diagrams/MVP_STATE_DIAGRAMS.md` | `doc/diagrams/assets/svg/mvp-state-diagrams-03-error-recovery-transitions.svg` | OK | エラー復帰遷移は正常ロード、操作中、エラー、再取得の流れに整理され、失敗元ラベルは操作中ノードから集約されている。 | 正本Markdownを更新し、SVG再生成済み。 |
+| diagrams | `doc/diagrams/MVP_STATE_DIAGRAMS.md` | `doc/diagrams/assets/svg/mvp-state-diagrams-04-diagram.svg` | OK | 復習状態は左から右に、復習予定なし、復習予定あり、復習期限到来、復習済みの関係を追える。 | 正本Markdownを flowchart 化し、SVG再生成済み。 |
 | workflows | `doc/workflows/MVP_WORKFLOW_DESIGN.md` | `doc/workflows/assets/svg/mvp-workflow-design-01-diagram.svg` | OK | 縦長だが、作成から保存までの流れは上から下へ追える。 | 修正なし。 |
 | workflows | `doc/workflows/MVP_WORKFLOW_DESIGN.md` | `doc/workflows/assets/svg/mvp-workflow-design-02-diagram.svg` | OK | 対象確認から復習済み更新までの縦方向フローは長いが、分岐ラベルとノードは読める。 | 修正なし。 |
 | workflows | `doc/workflows/MVP_WORKFLOW_DESIGN.md` | `doc/workflows/assets/svg/mvp-workflow-design-03-diagram.svg` | OK | 削除前確認フローは分岐が明確で読める。 | 修正なし。 |
@@ -66,6 +66,7 @@
   - バックアップ作成シーケンス: `POST /api/backups` を参加者名からメッセージへ移動し、参加者名を `Backup API` に短縮。
 - `doc/diagrams/MVP_STATE_DIAGRAMS.md`
   - 詳細画面モードを「通常モード遷移」「削除遷移」「エラー復帰遷移」の3図へ分割。
+  - 状態遷移図4件を flowchart 化し、戻り操作と失敗元を中間ノードで整理。
 - `npm run diagrams:build` により `.mmd` / `.svg` / `DIAGRAM_ASSETS.md` を再生成済み。
 
 ## Unfixed Items And Reasons
