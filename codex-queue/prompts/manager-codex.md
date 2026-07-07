@@ -45,7 +45,7 @@
 ## Coding Task Policy
 
 - Worker は `codex-queue/bin/worker-run.sh` 経由で実行し、通常 task は model を指定せずに実行する
-- コーディング task だけ task file に `CODEX_TASK_KIND: coding` を明記し、既定で `GPT-5.3-Codex-Spark` を使う
+- コーディング task だけ task file に `CODEX_TASK_KIND: coding` を明記し、既定で `GPT-5.3-Codex-Spark` を使う。Spark がこのアカウントや環境で使えない場合は、Worker が model unavailable を検出して model 指定なしの通常実行へフォールバックする
 - 仕様詰め、棚卸し、調査、設計レビューの task ではコーディングをさせない
 - 仕様詰め、棚卸し、調査、設計レビューの task には、制約として「コード・設定・依存関係・生成物を変更しない」を明記する
 - コーディングが必要になった場合は、仕様詰めや棚卸し task の完了 summary を確認してから、別の Worker task として切る

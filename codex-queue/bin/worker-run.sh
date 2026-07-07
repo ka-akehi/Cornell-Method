@@ -50,23 +50,60 @@ is_coding_task() {
   grep -Eq '^[[:space:]]*CODEX_TASK_KIND:[[:space:]]*coding[[:space:]]*$' "$1"
 }
 
+run_codex_default() {
+  task_file="$1"
+  codex exec --skip-git-repo-check < "$task_file"
+}
+
+is_model_unavailable_output() {
+  output_file="$1"
+  grep -Eiq 'model.*not supported|unsupported.*model|invalid_request_error.*model|Model metadata for .* not found' "$output_file"
+}
+
+run_codex_with_model_fallback() {
+  task_file="$1"
+  model="$2"
+
+  if [ -z "$model" ] || [ "$model" = "none" ]; then
+    run_codex_default "$task_file"
+    return $?
+  fi
+
+  output_file="$(mktemp "${TMPDIR:-/tmp}/codex-worker-model.XXXXXX")"
+  if codex exec --skip-git-repo-check --model "$model" < "$task_file" > "$output_file" 2>&1; then
+    cat "$output_file"
+    rm -f "$output_file"
+    return 0
+  else
+    status="$?"
+  fi
+
+  cat "$output_file"
+
+  if is_model_unavailable_output "$output_file"; then
+    rm -f "$output_file"
+    status_log "Model unavailable for coding task; retrying with default model: $model"
+    run_codex_default "$task_file"
+    return $?
+  fi
+
+  rm -f "$output_file"
+  return "$status"
+}
+
 run_codex_task() {
   task_file="$1"
 
   if [ "${CODEX_WORKER_MODEL+x}" = "x" ]; then
     if [ -z "${CODEX_WORKER_MODEL}" ] || [ "${CODEX_WORKER_MODEL}" = "none" ]; then
-      codex exec --skip-git-repo-check < "$task_file"
+      run_codex_default "$task_file"
     else
       codex exec --skip-git-repo-check --model "$CODEX_WORKER_MODEL" < "$task_file"
     fi
   elif is_coding_task "$task_file"; then
-    if [ -z "$coding_worker_model" ] || [ "$coding_worker_model" = "none" ]; then
-      codex exec --skip-git-repo-check < "$task_file"
-    else
-      codex exec --skip-git-repo-check --model "$coding_worker_model" < "$task_file"
-    fi
+    run_codex_with_model_fallback "$task_file" "$coding_worker_model"
   else
-    codex exec --skip-git-repo-check < "$task_file"
+    run_codex_default "$task_file"
   fi
 }
 
@@ -85,21 +122,26 @@ while true; do
   if mv "$task" "$running" 2>/dev/null; then
     status_log "Running: $running"
     changed_since="$(mktemp "${TMPDIR:-/tmp}/codex-worker.XXXXXX")"
+    run_output="$(mktemp "${TMPDIR:-/tmp}/codex-worker-output.XXXXXX")"
 
-    if run_codex_task "$running"; then
+    if run_codex_task "$running" > "$run_output" 2>&1; then
+      cat "$run_output"
       report_changed_files_since "$changed_since"
       mv "$running" "$root/done/$base"
       summary_file="$("$script_dir/write-task-summary.sh" --status done --task "$root/done/$base" --changed-since "$changed_since" --watch-root "$watch_root" --worker "$worker_name" --kind worker-task || true)"
       rm -f "$changed_since"
+      rm -f "$run_output"
       if [ -n "$summary_file" ]; then
         status_log "Summary: $summary_file"
       fi
       status_log "Done: $root/done/$base"
     else
+      cat "$run_output"
       report_changed_files_since "$changed_since"
       mv "$running" "$root/failed/$base"
-      summary_file="$("$script_dir/write-task-summary.sh" --status failed --task "$root/failed/$base" --changed-since "$changed_since" --watch-root "$watch_root" --worker "$worker_name" --kind worker-task || true)"
+      summary_file="$("$script_dir/write-task-summary.sh" --status failed --task "$root/failed/$base" --changed-since "$changed_since" --watch-root "$watch_root" --worker "$worker_name" --kind worker-task --failure-output "$run_output" || true)"
       rm -f "$changed_since"
+      rm -f "$run_output"
       if [ -n "$summary_file" ]; then
         status_log "Summary: $summary_file"
       fi

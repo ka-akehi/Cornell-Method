@@ -2,101 +2,18 @@
 
 import Link from "next/link";
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
-
-type Tag = {
-  id: string;
-  name: string;
-  color: string | null;
-};
-
-type NotebookListItem = {
-  id: string;
-  title: string;
-  noteDate: string | null;
-  sourceType: string | null;
-  sourceTitle: string;
-  overview: string;
-  summary: string;
-  cueCount: number;
-  hasSummary: boolean;
-  nextReviewDate: string | null;
-  reviewedAt: string | null;
-  tags: Tag[];
-};
-
-type NotesResponse = {
-  page: number;
-  totalPages: number;
-  totalCount: number;
-  data: NotebookListItem[];
-};
-
-type ApiError = {
-  message?: string;
-};
-
-const sourceTypeLabels: Record<string, string> = {
-  book: "書籍",
-  lecture: "講義",
-  video: "動画",
-  article: "記事",
-  other: "その他",
-};
-
-function todayDateString() {
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = String(now.getMonth() + 1).padStart(2, "0");
-  const day = String(now.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
-}
-
-function isDateRangeInvalid(from: string, to: string) {
-  return Boolean(from && to && from > to);
-}
-
-function formatDate(value: string | null) {
-  if (!value) return "未設定";
-  return value.slice(0, 10);
-}
-
-function formatSource(type: string | null, title: string) {
-  const typeLabel = type ? (sourceTypeLabels[type] ?? type) : "学習元未設定";
-  return title.trim() ? `${typeLabel}: ${title}` : typeLabel;
-}
-
-function getReviewStatus(note: NotebookListItem) {
-  if (note.reviewedAt && !note.nextReviewDate) {
-    return {
-      label: "復習済み",
-      className: "border-emerald-200 bg-emerald-50 text-emerald-700",
-    };
-  }
-
-  if (!note.nextReviewDate) {
-    return {
-      label: "復習予定なし",
-      className: "border-stone-200 bg-stone-50 text-stone-600",
-    };
-  }
-
-  if (note.nextReviewDate <= todayDateString()) {
-    return {
-      label: `復習期限到来: ${formatDate(note.nextReviewDate)}`,
-      className: "border-red-200 bg-red-50 text-red-700",
-    };
-  }
-
-  return {
-    label: `復習予定日: ${formatDate(note.nextReviewDate)}`,
-    className: "border-blue-200 bg-blue-50 text-blue-700",
-  };
-}
-
-async function readErrorMessage(response: globalThis.Response) {
-  const json = (await response.json().catch(() => null)) as ApiError | null;
-  return json?.message ?? "読み込みに失敗しました";
-}
+import {
+  fetchNotesList,
+  fetchTagOptions,
+  type NoteTag,
+  type NotesListResponse,
+} from "@/modules/notes/remote";
+import {
+  formatDate,
+  formatSource,
+  getReviewStatus,
+  isDateRangeInvalid,
+} from "@/modules/notes/model";
 
 export default function NotesList() {
   const [query, setQuery] = useState("");
@@ -105,8 +22,8 @@ export default function NotesList() {
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [tagToAdd, setTagToAdd] = useState("");
   const [reviewDue, setReviewDue] = useState(false);
-  const [notes, setNotes] = useState<NotesResponse | null>(null);
-  const [tagOptions, setTagOptions] = useState<Tag[]>([]);
+  const [notes, setNotes] = useState<NotesListResponse | null>(null);
+  const [tagOptions, setTagOptions] = useState<NoteTag[]>([]);
   const [notesLoading, setNotesLoading] = useState(false);
   const [tagsLoading, setTagsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -130,20 +47,19 @@ export default function NotesList() {
       setError(null);
       setDateError(null);
 
-      const params = new URLSearchParams();
       const trimmedQuery = query.trim();
-      if (trimmedQuery) params.set("query", trimmedQuery);
-      if (from) params.set("from", from);
-      if (to) params.set("to", to);
-      if (selectedTags.length > 0) params.set("tag", selectedTags.join(","));
-      if (reviewDue) params.set("reviewDue", "true");
-      params.set("page", String(page));
 
       try {
-        const response = await fetch(`/api/notes?${params.toString()}`);
-        if (!response.ok) throw new Error(await readErrorMessage(response));
-        const json = (await response.json()) as NotesResponse;
-        setNotes(json);
+        setNotes(
+          await fetchNotesList({
+            query: trimmedQuery || undefined,
+            from: from || undefined,
+            to: to || undefined,
+            tag: selectedTags,
+            reviewDue,
+            page,
+          }),
+        );
       } catch (caught) {
         setError(
           caught instanceof Error ? caught.message : "読み込みに失敗しました",
@@ -159,10 +75,7 @@ export default function NotesList() {
     async function loadTags() {
       setTagsLoading(true);
       try {
-        const response = await fetch("/api/tags");
-        if (!response.ok) throw new Error(await readErrorMessage(response));
-        const json = (await response.json()) as Tag[];
-        setTagOptions(json);
+        setTagOptions(await fetchTagOptions());
       } catch (caught) {
         setError(
           caught instanceof Error
@@ -434,14 +347,17 @@ export default function NotesList() {
                       <div className="shrink-0 text-right text-sm text-stone-500">
                         <div>学習日</div>
                         <div className="font-medium text-stone-800">
-                          {formatDate(note.noteDate)}
+                          {formatDate(note.noteDate, { dateOnly: true })}
                         </div>
                       </div>
                     </div>
 
                     <div className="grid gap-2 text-sm text-stone-600 md:grid-cols-[minmax(0,1fr)_auto_auto]">
                       <p className="min-w-0 truncate">
-                        学習元: {formatSource(note.sourceType, note.sourceTitle)}
+                        学習元:{" "}
+                        {formatSource(note.sourceType, note.sourceTitle, {
+                          trimTitle: true,
+                        })}
                       </p>
                       <p>Cue {note.cueCount}件</p>
                       <p>{note.hasSummary ? "要約あり" : "要約未作成"}</p>

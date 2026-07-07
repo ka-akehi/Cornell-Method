@@ -3,21 +3,17 @@ import {
   NoteDetailModes,
   type NoteDetail,
 } from "../_components/note-detail-modes";
+import { fetchNoteDetail } from "@/modules/notes/remote";
 
 async function getNotebook(id: string): Promise<NoteDetail | null> {
   const base =
     process.env.NEXT_PUBLIC_BASE_URL ??
     process.env.VERCEL_URL ??
     "http://localhost:3000";
-  const url = base.startsWith("http") ? base : `https://${base}`;
-
-  const res = await fetch(`${url}/api/notes/${id}`, {
+  return fetchNoteDetail(id, {
+    baseUrl: base,
     cache: "no-store",
   });
-
-  if (!res.ok) return null;
-
-  return res.json();
 }
 
 export default async function NoteDetailPage({

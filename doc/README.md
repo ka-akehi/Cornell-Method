@@ -11,7 +11,7 @@
 | `screens/` | 画面設計、画面棚卸し、Action / Data | `MVP_SCREEN_DESIGN.md`, `MVP_SCREEN_INVENTORY.md` |
 | `api/` | API 仕様、request / response、エラー仕様 | `MVP_API_DESIGN.md` |
 | `data/` | データモデル、エンティティ、検索要件 | `MVP_DATA_DESIGN.md` |
-| `technical/` | 技術設計、設計ツール運用、非機能に近い技術方針 | `MVP_TECHNICAL_DESIGN.md`, `MVP_DESIGN_TOOLING_GUIDE.md` |
+| `technical/` | 技術設計、設計ツール運用、非機能に近い技術方針 | `MVP_TECHNICAL_DESIGN.md`, `TARGET_ARCHITECTURE.md`, `MVP_DESIGN_TOOLING_GUIDE.md` |
 | `diagrams/` | UML / Mermaid 図、画面遷移、ER、状態遷移、シーケンス、SVG 表示成果物 | `MVP_UML_DESIGN.md`, `MVP_*_DIAGRAM*.md`, `assets/mmd/`, `assets/svg/` |
 | `testing/` | テスト観点、受け入れ条件、手動確認観点 | `TEST_SCENARIOS.md` |
 | `implementation/` | 実装状況、実装タスク分割 | `IMPLEMENTATION_STATUS.md`, `MVP_IMPLEMENTATION_TASKS.md` |
@@ -26,6 +26,7 @@
 - 画面棚卸し: `screens/MVP_SCREEN_INVENTORY.md`
 - API 設計: `api/MVP_API_DESIGN.md`
 - データ設計: `data/MVP_DATA_DESIGN.md`
+- ターゲットアーキテクチャ: `technical/TARGET_ARCHITECTURE.md`
 - 図の入口: `diagrams/MVP_UML_DESIGN.md`
 - テスト観点: `testing/TEST_SCENARIOS.md`
 - 実装状況: `implementation/IMPLEMENTATION_STATUS.md`

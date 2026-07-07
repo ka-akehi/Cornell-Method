@@ -109,16 +109,16 @@ codex-queue/bin/worker-run.sh
 ```
 
 Worker は通常 task では model を指定せずに `codex exec` を実行します。
-コーディング task は、task file に次のマーカーがある場合だけ、既定で `GPT-5.3-Codex-Spark` を使います。
+コーディング task は、task file に次のマーカーがある場合だけ、既定で `GPT-5.3-Codex-Spark` を使います。Spark がこのアカウントや環境で使えない場合は、Worker が model unavailable を検出して model 指定なしの通常実行へフォールバックします。
 
 ```md
 CODEX_TASK_KIND: coding
 ```
 
-Spark が使えない場合は、次のようにコーディング task も model 指定なしで実行できます。
+コーディング task の専用モデルを明示的に変えたい場合は、次のように `CODEX_CODING_WORKER_MODEL` を指定します。`none` を指定すると最初から model 指定なしで実行します。
 
 ```sh
-CODEX_CODING_WORKER_MODEL=none codex-queue/bin/worker-run.sh
+CODEX_CODING_WORKER_MODEL=<model-id> codex-queue/bin/worker-run.sh
 ```
 
 全 task の model を一時的に上書きする場合のみ、次のように `CODEX_WORKER_MODEL` を指定します。
@@ -155,6 +155,7 @@ Worker は `queued` から `running` に移動できた `*.task.md` だけを実
 
 Worker task の完了/失敗時には、`codex-queue/bin/write-task-summary.sh` が `summary/YYYYMMDD/HHMM-*-summary.md` を自動作成します。
 summary は raw log を含めず、変更ファイル、確認結果、次に読む最小ファイルだけを残します。
+失敗時は raw log 全文ではなく、Worker が取得した実行出力から推定原因と短い抜粋を `Failure Reason` に残します。
 `open-wezterm-worker-layout.sh` で起動した場合、通知 Worker は完了/失敗メッセージを Manager Codex pane へ転送します。
 `WORKER_NOTIFY_AUTO_SUBMIT=0` を指定すると、メッセージ入力だけ行い自動送信を止められます。
 

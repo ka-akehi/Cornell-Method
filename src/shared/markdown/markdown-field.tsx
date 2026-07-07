@@ -6,13 +6,13 @@ import remarkGfm from "remark-gfm";
 
 type PreviewMode = "hidden" | "visible";
 
-type MarkdownPreviewProps = {
+export type MarkdownPreviewProps = {
   value: string;
   emptyLabel?: string;
   className?: string;
 };
 
-type MarkdownFieldProps = {
+export type MarkdownFieldProps = {
   id: string;
   label: string;
   value: string;

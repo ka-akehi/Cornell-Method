@@ -1,10 +1,6 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
-import { apiErrorStatus, createServerError } from "@/lib/validation";
-
-function apiErrorResponse(body: ReturnType<typeof createServerError>) {
-  return NextResponse.json(body, { status: apiErrorStatus[body.code] });
-}
+import { prisma } from "@/server/infrastructure/prisma";
+import { apiErrorResponse, createServerError } from "@/shared/http";
 
 export async function GET() {
   try {

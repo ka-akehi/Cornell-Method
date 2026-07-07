@@ -2,35 +2,8 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-
-type BackupEntry = {
-  file: string;
-  createdAt: string;
-  path: string;
-};
-
-type BackupsResponse = {
-  backups: BackupEntry[];
-};
-
-type CreateBackupResponse = {
-  ok: true;
-  backup: {
-    file: string;
-    path: string;
-  };
-};
-
-type ApiError = {
-  code?: string;
-  message?: string;
-  errors?: { field?: string; message: string }[];
-};
-
-async function readErrorMessage(response: Response) {
-  const json = (await response.json().catch(() => null)) as ApiError | null;
-  return json?.message ?? "バックアップ処理に失敗しました。";
-}
+import type { BackupEntryDto } from "@/modules/backup/contracts";
+import { createBackup, fetchBackups } from "@/modules/backup/remote";
 
 function formatCreatedAt(value: string) {
   const date = new Date(value);
@@ -43,7 +16,7 @@ function formatCreatedAt(value: string) {
 }
 
 export default function BackupPage() {
-  const [backups, setBackups] = useState<BackupEntry[]>([]);
+  const [backups, setBackups] = useState<BackupEntryDto[]>([]);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -54,11 +27,7 @@ export default function BackupPage() {
     setError(null);
 
     try {
-      const response = await fetch("/api/backups", { cache: "no-store" });
-      if (!response.ok) throw new Error(await readErrorMessage(response));
-
-      const json = (await response.json()) as BackupsResponse;
-      setBackups(json.backups ?? []);
+      setBackups(await fetchBackups());
     } catch (caught) {
       setError(
         caught instanceof Error
@@ -80,12 +49,7 @@ export default function BackupPage() {
     setSuccess(null);
 
     try {
-      const response = await fetch("/api/backups", {
-        method: "POST",
-      });
-      if (!response.ok) throw new Error(await readErrorMessage(response));
-
-      const json = (await response.json()) as CreateBackupResponse;
+      const json = await createBackup();
       setSuccess(`${json.backup.file} を作成しました。`);
       await loadBackups();
     } catch (caught) {

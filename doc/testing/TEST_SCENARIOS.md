@@ -6,6 +6,8 @@
 
 MVP では、明示保存、物理削除、手動復習予定、`textarea + Markdown preview`、`/notes` の復習対象フィルタ、`/backup` の手動バックアップを確認対象とします。
 
+MVP の初期データに seed は使いません。検証用データは `/notes/new` または `POST /api/notes` で作成します。
+
 `AGENTS.md` に含まれる将来仕様のうち、自動保存、Undo、PDF、専用復習タスク画面、D&D、NoteCard などは、このドキュメント末尾の「Phase 2 / 将来確認」に分離します。
 
 ## MVP 受け入れ確認
@@ -171,6 +173,16 @@ MVP では、明示保存、物理削除、手動復習予定、`textarea + Mark
 - [ ] Markdown preview に危険な HTML を入力しても sanitize される
 - [ ] 閲覧モードの Markdown 表示にも sanitize が効く
 - [ ] 復習モードの Markdown 表示にも sanitize が効く
+
+## 検証記録
+
+| 日付 | 範囲 | 結果 | 参照 |
+| --- | --- | --- | --- |
+| 2026-07-05 | MVP 主要 UI フロー: `/` redirect、一覧、新規作成、既存タグ候補選択、自由入力タグ追加、詳細編集保存、復習、検索/日付/タグ filter、削除、バックアップ作成 | PASS | `summary/20260705/mvp-ui-flow-reverification-report.md` |
+| 2026-07-05 | API CRUD / review / search / tags / validation / not_found / backup prune | PASS | `summary/20260705/manager-mvp-api-crud-validation-backup-reverification-report.md` |
+| 2026-07-05 | Markdown sanitize / checkbox: GFM checkbox 表示、preview checkbox click 後の textarea 値不変、閲覧/復習モードの sanitize | PASS | `summary/20260705/manager-markdown-sanitize-checkbox-verification-report.md` |
+| 2026-07-05 | `npm run backup:copy`: 実 DB コピーと最新 3 世代保持 | PASS | `summary/20260705/backup-copy-command-verification-report.md` |
+| 2026-07-04〜2026-07-05 | Prisma validate/generate、`npm run lint`、`npm run build` | PASS | `HANDOFF_2026-07-06.md`、`summary/20260705/manager-fix-ui009-note-editor-tag-candidates-summary.md`、`summary/20260705/manager-fix-ui014-edit-save-state-summary.md` |
 
 ## Phase 2 / 将来確認
 

@@ -1,140 +1,58 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { MarkdownField } from "./markdown-field";
-import type { ApiErrorBody, ApiFieldError, NotebookInput } from "@/lib/validation";
+import type { ApiFieldError } from "@/shared/http";
+import { todayDateString } from "@/shared/date";
+import { MarkdownField } from "@/shared/markdown";
+import type { NotebookInput } from "@/modules/notes/contracts";
+import {
+  createInitialNoteEditorForm,
+  fieldError,
+  indexedFieldError,
+  noteEditorFormToPayload,
+  sourceTypeOptions,
+  type NoteEditorFormState,
+  type NoteEditorInitial,
+  type NoteEditorTag,
+  type SourceType,
+} from "@/modules/notes/model";
+import {
+  createNote,
+  fetchTagOptions,
+  NotesRemoteError,
+  updateNote,
+  type NoteDetailResponse,
+} from "@/modules/notes/remote";
 
-type SourceType = NonNullable<NotebookInput["sourceType"]>;
-
-type NoteEditorCue = {
-  id?: string;
-  text: string;
-  order: number;
-};
-
-type NoteEditorTag = {
-  id?: string;
-  name: string;
-  color?: string | null;
-};
-
-type NoteEditorInitial = Partial<
-  Omit<NotebookInput, "sourceType" | "cues" | "tags"> & {
-    id: string;
-    sourceType: SourceType | null | "";
-    cues: Array<Partial<NoteEditorCue> & { content?: string; marker?: string }>;
-    tags: NoteEditorTag[];
-    notes: Array<{ content?: string }>;
-  }
->;
+export type NoteEditorSavedNote = NoteDetailResponse;
 
 type NoteEditorProps = {
   mode: "create" | "edit";
   initial?: NoteEditorInitial;
   draft?: unknown;
   onCancel?: () => void;
+  onSaved?: (note: NoteEditorSavedNote) => void;
 };
 
-type FormState = {
-  id?: string;
-  title: string;
-  noteDate: string;
-  sourceType: SourceType | "";
-  sourceTitle: string;
-  overview: string;
-  tags: NoteEditorTag[];
-  cues: NoteEditorCue[];
-  body: string;
-  summary: string;
-  nextReviewDate: string;
-};
-
-const sourceTypeOptions: Array<{ value: SourceType; label: string }> = [
-  { value: "book", label: "書籍" },
-  { value: "lecture", label: "講義" },
-  { value: "video", label: "動画" },
-  { value: "article", label: "記事" },
-  { value: "other", label: "その他" },
-];
-
-function todayDateString() {
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = String(now.getMonth() + 1).padStart(2, "0");
-  const day = String(now.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
+async function updateExistingNote(id: string | undefined, input: NotebookInput) {
+  if (!id) {
+    throw new Error("更新対象のノートIDがありません。");
+  }
+  return updateNote(id, input);
 }
 
-function normalizeCues(initial?: NoteEditorInitial): NoteEditorCue[] {
-  return (initial?.cues ?? []).map((cue, index) => ({
-    id: cue.id,
-    text: cue.text ?? cue.content ?? "",
-    order: cue.order ?? index,
-  }));
-}
-
-function createInitialForm(initial?: NoteEditorInitial): FormState {
-  return {
-    id: initial?.id,
-    title: initial?.title ?? "",
-    noteDate: initial?.noteDate ?? todayDateString(),
-    sourceType: initial?.sourceType ?? "",
-    sourceTitle: initial?.sourceTitle ?? "",
-    overview: initial?.overview ?? "",
-    tags: initial?.tags ?? [],
-    cues: normalizeCues(initial),
-    body: initial?.body ?? initial?.notes?.[0]?.content ?? "",
-    summary: initial?.summary ?? "",
-    nextReviewDate: initial?.nextReviewDate ?? "",
-  };
-}
-
-function fieldError(errors: ApiFieldError[], field: string) {
-  return errors.find((error) => error.field === field)?.message;
-}
-
-function indexedFieldError(errors: ApiFieldError[], field: string, index: number) {
-  return (
-    fieldError(errors, `${field}.${index}.text`) ??
-    fieldError(errors, `${field}.${index}.name`)
-  );
-}
-
-function toPayload(form: FormState): NotebookInput {
-  return {
-    title: form.title,
-    noteDate: form.noteDate,
-    sourceType: form.sourceType || undefined,
-    sourceTitle: form.sourceTitle,
-    overview: form.overview,
-    body: form.body,
-    summary: form.summary,
-    nextReviewDate: form.nextReviewDate || null,
-    cues: form.cues
-      .map((cue, index) => ({
-        id: cue.id,
-        text: cue.text.trim(),
-        order: index,
-      }))
-      .filter((cue) => cue.text.length > 0),
-    tags: form.tags.map((tag) => ({
-      id: tag.id,
-      name: tag.name.trim(),
-      color: tag.color ?? null,
-    })),
-  };
-}
-
-export function NoteEditor({ initial, mode, onCancel }: NoteEditorProps) {
+export function NoteEditor({ initial, mode, onCancel, onSaved }: NoteEditorProps) {
   const router = useRouter();
-  const [form, setForm] = useState<FormState>(() => createInitialForm(initial));
+  const [form, setForm] = useState<NoteEditorFormState>(() =>
+    createInitialNoteEditorForm(initial),
+  );
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<ApiFieldError[]>([]);
   const today = useMemo(() => todayDateString(), []);
 
-  function updateForm(next: Partial<FormState>) {
+  function updateForm(next: Partial<NoteEditorFormState>) {
     setForm((current) => ({ ...current, ...next }));
   }
 
@@ -179,31 +97,29 @@ export function NoteEditor({ initial, mode, onCancel }: NoteEditorProps) {
     setMessage(null);
     setFieldErrors([]);
 
-    const endpoint = mode === "create" ? "/api/notes" : `/api/notes/${form.id}`;
-    const method = mode === "create" ? "POST" : "PATCH";
-
     try {
-      const response = await fetch(endpoint, {
-        method,
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(toPayload(form)),
-      });
+      const data =
+        mode === "create"
+          ? await createNote(noteEditorFormToPayload(form))
+          : await updateExistingNote(form.id, noteEditorFormToPayload(form));
 
-      const data = response.status === 204 ? null : await response.json().catch(() => null);
-
-      if (!response.ok) {
-        const errorBody = data as Partial<ApiErrorBody> | null;
-        setMessage(errorBody?.message ?? "保存に失敗しました。");
-        setFieldErrors(errorBody?.errors ?? []);
+      if (mode === "edit" && typeof data.id === "string" && onSaved) {
+        onSaved(data);
+        router.refresh();
         return;
       }
 
-      const savedId = typeof data?.id === "string" ? data.id : form.id;
+      const savedId = typeof data.id === "string" ? data.id : form.id;
       if (savedId) {
         router.push(`/notes/${savedId}`);
         router.refresh();
       }
-    } catch {
+    } catch (caught) {
+      if (caught instanceof NotesRemoteError) {
+        setMessage(caught.message);
+        setFieldErrors(caught.fieldErrors);
+        return;
+      }
       setMessage("保存に失敗しました。通信状態またはAPIを確認してください。");
     } finally {
       setSaving(false);
@@ -539,9 +455,36 @@ function TagInput({
 }) {
   const [input, setInput] = useState("");
   const [localError, setLocalError] = useState<string | null>(null);
+  const [tagCandidates, setTagCandidates] = useState<NoteEditorTag[]>([]);
+  const [loadingCandidates, setLoadingCandidates] = useState(true);
+  const [candidateError, setCandidateError] = useState<string | null>(null);
 
-  function addTag() {
-    const name = input.trim();
+  useEffect(() => {
+    let ignore = false;
+
+    async function loadCandidates() {
+      setLoadingCandidates(true);
+      setCandidateError(null);
+
+      try {
+        const data = await fetchTagOptions();
+        if (!ignore) setTagCandidates(data);
+      } catch {
+        if (!ignore) setCandidateError("タグ候補の読み込みに失敗しました。");
+      } finally {
+        if (!ignore) setLoadingCandidates(false);
+      }
+    }
+
+    void loadCandidates();
+
+    return () => {
+      ignore = true;
+    };
+  }, []);
+
+  function addTagValue(tag: NoteEditorTag) {
+    const name = tag.name.trim();
     setLocalError(null);
 
     if (!name) return;
@@ -554,9 +497,25 @@ function TagInput({
       return;
     }
 
-    onChange([...tags, { name, color: null }]);
+    onChange([...tags, { ...tag, name }]);
     setInput("");
   }
+
+  function addTag() {
+    addTagValue({ name: input, color: null });
+  }
+
+  function addCandidate(candidateId: string) {
+    const candidate = tagCandidates.find((tag) => tag.id === candidateId);
+    if (!candidate) return;
+
+    addTagValue(candidate);
+    setInput("");
+  }
+
+  const availableCandidates = tagCandidates.filter(
+    (candidate) => !tags.some((tag) => tag.name === candidate.name),
+  );
 
   return (
     <div className="min-w-0 space-y-2">
@@ -583,6 +542,34 @@ function TagInput({
           ))}
         </div>
       )}
+      <div className="min-w-0 space-y-2">
+        <label htmlFor="tag-candidate-select" className="block text-xs font-medium text-stone-600">
+          既存タグから追加
+        </label>
+        <select
+          id="tag-candidate-select"
+          value=""
+          disabled={loadingCandidates || availableCandidates.length === 0}
+          onChange={(event) => addCandidate(event.target.value)}
+          className="w-full min-w-0 rounded-lg border border-stone-200 bg-white px-3 py-2 text-sm text-stone-900 shadow-sm outline-none transition focus:border-amber-500 focus:ring-2 focus:ring-amber-100 disabled:cursor-not-allowed disabled:bg-stone-50 disabled:text-stone-400"
+        >
+          <option value="">
+            {loadingCandidates
+              ? "タグ候補を読み込み中"
+              : availableCandidates.length > 0
+                ? "タグ候補を選択"
+                : "追加できる既存タグはありません"}
+          </option>
+          {availableCandidates.map((tag) => (
+            <option key={tag.id ?? tag.name} value={tag.id}>
+              {tag.name}
+            </option>
+          ))}
+        </select>
+        {candidateError && (
+          <p className="text-xs leading-5 text-amber-700">{candidateError}</p>
+        )}
+      </div>
       <div className="flex flex-col gap-2 sm:flex-row">
         <input
           id="tag-input"

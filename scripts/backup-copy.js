@@ -1,9 +1,9 @@
 async function main() {
   const path = await import("path");
-  const backupModule = await import("../src/lib/backup/index.js");
-  const { createBackup } = backupModule.default ?? backupModule;
+  const backupModule = await import("../src/server/backup/application/index.js");
+  const { createBackupEntry } = backupModule.default ?? backupModule;
   const projectRoot = path.resolve(__dirname, "..");
-  const backup = createBackup({ projectRoot });
+  const backup = createBackupEntry({ projectRoot });
   console.log(backup.path);
 }
 

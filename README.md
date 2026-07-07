@@ -33,6 +33,8 @@ npm run prisma:generate
 npm run prisma:migrate
 ```
 
+MVP では seed は不要です。`package.json` に seed script はなく、初期データは `/notes/new` の UI または `POST /api/notes` から作成します。
+
 `DATABASE_URL` は未指定の場合、`prisma.config.ts` の設定により `file:./dev.db` を使います。明示したい場合は、プロジェクトルートに `.env` を作り、次のように指定してください。
 
 ```env
@@ -72,6 +74,34 @@ http://localhost:3000/notes
 | `/notes/[id]` | ノート詳細。閲覧、編集、復習モードを切り替え |
 | `/backup` | SQLite DB バックアップの作成と一覧確認 |
 
+## MVP 受け入れ材料
+
+2026-07-05 時点の MVP 主要 UI フローは Playwright Chromium で検証済みです。操作デモ相当の確認結果は `summary/20260705/mvp-ui-flow-reverification-report.md` を参照してください。
+
+画面例:
+
+| 画面 | スクリーンショット |
+| --- | --- |
+| `/notes`: ノート一覧、検索、日付 / タグフィルタ、範囲 validation | ![ノート一覧](doc/assets/screenshots/mvp-notes-list.png) |
+| `/notes/new`: 新規作成、既存タグ候補選択、自由入力タグ追加 | ![新規ノート](doc/assets/screenshots/mvp-note-new.png) |
+| `/notes/[id]`: 閲覧、編集保存、復習モード、削除 | ![ノート詳細](doc/assets/screenshots/mvp-note-detail.png) |
+| `/backup`: バックアップ一覧表示、バックアップ作成 | ![バックアップ](doc/assets/screenshots/mvp-backup.png) |
+
+スクリーンショットを再取得する場合は、開発サーバーを起動してから主要画面を開き、画像を `doc/assets/screenshots/` 配下へ保存してください。
+
+```bash
+npm run dev -- -H 127.0.0.1 -p 3000
+```
+
+撮影対象:
+
+- `http://127.0.0.1:3000/notes`
+- `http://127.0.0.1:3000/notes/new`
+- `http://127.0.0.1:3000/notes/[id]`
+- `http://127.0.0.1:3000/backup`
+
+`/notes/[id]` は既存データが必要です。空 DB の場合は `/notes/new` から検証用ノートを一時作成し、撮影後に詳細画面の削除操作または `DELETE /api/notes/:id` で削除してください。
+
 ## 基本操作
 
 1. `/notes/new` でタイトル、学習日、Cue、本文、サマリー、タグ、次回復習日を入力します。
@@ -95,6 +125,8 @@ DB の作成と migration は次で行います。
 ```bash
 npm run prisma:migrate
 ```
+
+MVP セットアップで seed 実行は必要ありません。空の DB から開始し、検証用データは UI/API 操作で作成します。
 
 Prisma Client の再生成は次で行います。
 

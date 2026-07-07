@@ -7,6 +7,7 @@ changed_since=""
 watch_root=""
 worker_name=""
 task_kind="worker-task"
+failure_output=""
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -34,6 +35,10 @@ while [ "$#" -gt 0 ]; do
       task_kind="$2"
       shift 2
       ;;
+    --failure-output)
+      failure_output="$2"
+      shift 2
+      ;;
     *)
       echo "Unknown argument: $1" >&2
       exit 2
@@ -42,7 +47,7 @@ while [ "$#" -gt 0 ]; do
 done
 
 if [ -z "$status" ] || [ -z "$task_file" ] || [ -z "$changed_since" ] || [ -z "$watch_root" ]; then
-  echo "Usage: write-task-summary.sh --status <done|failed> --task <path> --changed-since <file> --watch-root <path> [--worker <name>] [--kind <kind>]" >&2
+  echo "Usage: write-task-summary.sh --status <done|failed> --task <path> --changed-since <file> --watch-root <path> [--worker <name>] [--kind <kind>] [--failure-output <path>]" >&2
   exit 2
 fi
 
@@ -76,6 +81,30 @@ changed_files="$(find "$watch_root" -type f -newer "$changed_since" \
   2>/dev/null | sed "s#^$watch_root/##" | sort || true)"
 
 next_read_files="$(printf '%s\n' "$changed_files" | sed '/^$/d' | head -n 20)"
+
+failure_reason=""
+failure_excerpt=""
+if [ "$status" = "failed" ] && [ -n "$failure_output" ] && [ -s "$failure_output" ]; then
+  if grep -Eiq 'model.*not supported|unsupported.*model|invalid_request_error.*model|Model metadata for .* not found' "$failure_output"; then
+    failure_reason="model unavailable or unsupported during Codex execution"
+  elif grep -Eiq 'npm ERR!|Command failed|Failed to compile|Type error|ESLint|lint|build failed|error TS[0-9]+' "$failure_output"; then
+    failure_reason="verification or build command failed"
+  elif grep -Eiq 'permission denied|operation not permitted|EPERM|EACCES' "$failure_output"; then
+    failure_reason="environment permission error"
+  elif grep -Eiq 'timed out|timeout' "$failure_output"; then
+    failure_reason="command timed out"
+  else
+    failure_reason="codex exec exited non-zero; see excerpt"
+  fi
+
+  failure_excerpt="$(grep -Ei 'ERROR:|error|failed|not supported|unsupported|permission denied|operation not permitted|EPERM|EACCES|Type error|ESLint|npm ERR!' "$failure_output" \
+    | head -n 12 \
+    | sed 's/[|]/\\|/g' \
+    || true)"
+  if [ -z "$failure_excerpt" ]; then
+    failure_excerpt="$(tail -n 12 "$failure_output" | sed 's/[|]/\\|/g' || true)"
+  fi
+fi
 
 {
   printf '%s\n' '---'
@@ -125,7 +154,25 @@ next_read_files="$(printf '%s\n' "$changed_files" | sed '/^$/d' | head -n 20)"
   else
     printf '| F-002 | fact | worker timestamp 以降の成果物更新は検出されなかった。 | Changes Made |\n'
   fi
+  if [ "$status" = "failed" ] && [ -n "$failure_reason" ]; then
+    printf '| F-003 | fact | 失敗理由の推定: %s | Failure Reason |\n' "$failure_reason"
+  fi
   printf '| A-001 | assumption | 後続作業ではこの summary の Next Read を起点にすれば raw log 再読を避けられる。 | summary 運用ルール |\n\n'
+
+  if [ "$status" = "failed" ]; then
+    printf '## Failure Reason\n\n'
+    if [ -n "$failure_reason" ]; then
+      printf '%s\n' "- 推定原因: $failure_reason"
+      printf '%s\n\n' '- raw log 全文は転記せず、原因特定に必要な短い抜粋のみ残す。'
+      if [ -n "$failure_excerpt" ]; then
+        printf '```text\n'
+        printf '%s\n' "$failure_excerpt"
+        printf '```\n\n'
+      fi
+    else
+      printf '%s\n\n' '- task は failed だが、失敗出力を取得できなかった。'
+    fi
+  fi
 
   printf '## Verification\n\n'
   printf '| 確認項目 | 結果 | 備考 |\n'
@@ -139,7 +186,11 @@ next_read_files="$(printf '%s\n' "$changed_files" | sed '/^$/d' | head -n 20)"
   printf '| ID | 未確認事項 | 次に必要な根拠 |\n'
   printf '|---|---|---|\n'
   if [ "$status" = "failed" ]; then
-    printf '| U-001 | task 失敗の詳細原因 | `%s` と worker log の該当箇所 |\n' "$(printf '%s\n' "$task_file" | sed "s#^$watch_root/##")"
+    if [ -n "$failure_reason" ]; then
+      printf '| U-001 | Failure Reason は短い抜粋による推定であり、完全な raw log 解析ではない | 必要時のみ worker 実行環境で再現確認 |\n'
+    else
+      printf '| U-001 | task 失敗の詳細原因 | `%s` と worker log の該当箇所 |\n' "$(printf '%s\n' "$task_file" | sed "s#^$watch_root/##")"
+    fi
   else
     printf '| U-001 | 生成物の内容妥当性はこの summary ではレビューしていない | Next Read の対象成果物 |\n'
   fi

@@ -4,72 +4,24 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { ReactNode } from "react";
 import { useState } from "react";
-import { MarkdownPreview } from "./markdown-field";
 import { NoteEditor } from "./note-editor";
-import type { NotebookInput } from "@/lib/validation";
+import {
+  formatDate,
+  formatDateTime,
+  formatSource,
+  normalizeSourceType,
+} from "@/modules/notes/model";
+import {
+  completeReview,
+  deleteNote as deleteRemoteNote,
+  NotesRemoteError,
+  type NoteDetailResponse,
+} from "@/modules/notes/remote";
+import { MarkdownPreview } from "@/shared/markdown";
 
-type SourceType = NonNullable<NotebookInput["sourceType"]>;
-
-export type NoteDetail = {
-  id: string;
-  title: string;
-  noteDate: string | null;
-  sourceType: string | null;
-  sourceTitle: string | null;
-  overview: string | null;
-  body: string | null;
-  summary: string | null;
-  nextReviewDate: string | null;
-  reviewedAt: string | null;
-  cues: Array<{ id: string; text: string; order: number }>;
-  tags: Array<{ id: string; name: string; color: string | null }>;
-};
+export type NoteDetail = NoteDetailResponse;
 
 type Mode = "view" | "edit" | "review";
-
-type ReviewResponse = {
-  reviewedAt?: string | null;
-  nextReviewDate?: string | null;
-  message?: string;
-};
-
-const sourceTypeLabels: Record<string, string> = {
-  book: "書籍",
-  lecture: "講義",
-  video: "動画",
-  article: "記事",
-  other: "その他",
-};
-
-const sourceTypes = ["book", "lecture", "video", "article", "other"] as const;
-
-function normalizeSourceType(value: string | null): SourceType | null {
-  return sourceTypes.some((sourceType) => sourceType === value)
-    ? (value as SourceType)
-    : null;
-}
-
-function formatDate(value: string | null) {
-  if (!value) return "未設定";
-  return value;
-}
-
-function formatDateTime(value: string | null) {
-  if (!value) return "未記録";
-
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-
-  return new Intl.DateTimeFormat("ja-JP", {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(date);
-}
-
-function formatSource(type: string | null, title: string | null) {
-  const typeLabel = type ? (sourceTypeLabels[type] ?? type) : "学習元未設定";
-  return title ? `${typeLabel}: ${title}` : typeLabel;
-}
 
 function tagStyle(color: string | null) {
   if (!color) return undefined;
@@ -184,17 +136,9 @@ export function NoteDetailModes({ initialNote }: { initialNote: NoteDetail }) {
     setError(null);
 
     try {
-      const response = await fetch(`/api/notes/${note.id}/review`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ nextReviewDate: reviewNextDate || null }),
+      const data = await completeReview(note.id, {
+        nextReviewDate: reviewNextDate || null,
       });
-      const data = (await response.json().catch(() => null)) as ReviewResponse | null;
-
-      if (!response.ok) {
-        setError(data?.message ?? "復習済み更新に失敗しました。");
-        return;
-      }
 
       setNote((current) => ({
         ...current,
@@ -205,7 +149,11 @@ export function NoteDetailModes({ initialNote }: { initialNote: NoteDetail }) {
       setShowBody(false);
       setMode("view");
       router.refresh();
-    } catch {
+    } catch (caught) {
+      if (caught instanceof NotesRemoteError) {
+        setError(caught.message);
+        return;
+      }
       setError("復習済み更新に失敗しました。通信状態またはAPIを確認してください。");
     } finally {
       setReviewing(false);
@@ -220,19 +168,14 @@ export function NoteDetailModes({ initialNote }: { initialNote: NoteDetail }) {
     setError(null);
 
     try {
-      const response = await fetch(`/api/notes/${note.id}`, {
-        method: "DELETE",
-      });
-
-      if (!response.ok) {
-        const data = (await response.json().catch(() => null)) as ReviewResponse | null;
-        setError(data?.message ?? "削除に失敗しました。");
-        return;
-      }
-
+      await deleteRemoteNote(note.id);
       router.push("/notes");
       router.refresh();
-    } catch {
+    } catch (caught) {
+      if (caught instanceof NotesRemoteError) {
+        setError(caught.message);
+        return;
+      }
       setError("削除に失敗しました。通信状態またはAPIを確認してください。");
     } finally {
       setDeleting(false);
@@ -268,7 +211,18 @@ export function NoteDetailModes({ initialNote }: { initialNote: NoteDetail }) {
             閲覧へ戻る
           </button>
         </div>
-        <NoteEditor mode="edit" initial={editorInitial} onCancel={() => setMode("view")} />
+        <NoteEditor
+          mode="edit"
+          initial={editorInitial}
+          onCancel={() => setMode("view")}
+          onSaved={(savedNote) => {
+            setNote(savedNote);
+            setReviewNextDate(savedNote.nextReviewDate ?? "");
+            setShowBody(false);
+            setError(null);
+            setMode("view");
+          }}
+        />
       </div>
     );
   }
