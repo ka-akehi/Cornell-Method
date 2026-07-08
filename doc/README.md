@@ -8,14 +8,14 @@
 | --- | --- | --- |
 | `requirements/` | 要件、MVP スコープ、仕様レビュー、分類判断 | `MVP_SYSTEM_SPEC.md`, `CORNELL_METHOD_SPEC_REVIEW.md`, `MVP_CLASSIFICATION_DRAFT.md` |
 | `workflows/` | 業務フロー、利用者操作、運用ルール | `MVP_WORKFLOW_DESIGN.md` |
-| `screens/` | 画面設計、画面棚卸し、Action / Data | `MVP_SCREEN_DESIGN.md`, `MVP_SCREEN_INVENTORY.md` |
+| `screens/` | 画面設計、画面棚卸し、Action / Data、低忠実度ワイヤフレーム、PNG 画像ワイヤフレーム、画面補助モック | `MVP_SCREEN_DESIGN.md`, `MVP_SCREEN_INVENTORY.md`, `MVP_UI_WIREFRAMES.md`, `assets/mockups/` |
 | `api/` | API 仕様、request / response、エラー仕様 | `MVP_API_DESIGN.md` |
 | `data/` | データモデル、エンティティ、検索要件 | `MVP_DATA_DESIGN.md` |
 | `technical/` | 技術設計、設計ツール運用、非機能に近い技術方針 | `MVP_TECHNICAL_DESIGN.md`, `TARGET_ARCHITECTURE.md`, `MVP_DESIGN_TOOLING_GUIDE.md` |
 | `diagrams/` | UML / Mermaid 図、画面遷移、ER、状態遷移、シーケンス、SVG 表示成果物 | `MVP_UML_DESIGN.md`, `MVP_*_DIAGRAM*.md`, `assets/mmd/`, `assets/svg/` |
 | `testing/` | テスト観点、受け入れ条件、手動確認観点 | `TEST_SCENARIOS.md` |
 | `implementation/` | 実装状況、実装タスク分割 | `IMPLEMENTATION_STATUS.md`, `MVP_IMPLEMENTATION_TASKS.md` |
-| `review/` | As-Is 棚卸し、設計レビュー計画、移行判断資料 | `AS_IS_DESIGN_INVENTORY.md`, `DESIGN_REVIEW_PLAN.md` |
+| `review/` | As-Is 棚卸し、設計レビュー計画、移行判断資料、UI 設計成果物レビュー | `AS_IS_DESIGN_INVENTORY.md`, `DESIGN_REVIEW_PLAN.md`, `MVP_UI_DESIGN_ARTIFACT_GAP_REVIEW.md`, `MVP_SCREENSHOT_WIREFRAME_LAYOUT_REVIEW.md` |
 | `design-studio/` | Google Stitch / Claude Design 風の設計運用、テンプレート | `README.md`, `templates/` |
 
 ## Primary Entry Points
@@ -24,6 +24,8 @@
 - 業務フロー: `workflows/MVP_WORKFLOW_DESIGN.md`
 - 画面設計: `screens/MVP_SCREEN_DESIGN.md`
 - 画面棚卸し: `screens/MVP_SCREEN_INVENTORY.md`
+- UI ワイヤフレーム: `screens/MVP_UI_WIREFRAMES.md`
+- NTE-020 レイアウト方針: `screens/NTE_020_NEW_NOTE_LAYOUT_POLICY.md`
 - API 設計: `api/MVP_API_DESIGN.md`
 - データ設計: `data/MVP_DATA_DESIGN.md`
 - ターゲットアーキテクチャ: `technical/TARGET_ARCHITECTURE.md`
