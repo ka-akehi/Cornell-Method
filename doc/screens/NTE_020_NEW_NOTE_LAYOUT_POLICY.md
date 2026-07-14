@@ -12,7 +12,7 @@
 
 | 種別 | ファイル |
 | --- | --- |
-| 現行実装スクリーンショット | `doc/assets/screenshots/mvp-note-new.png` |
+| 現行実装スクリーンショット（NTE-020 方針C） | [375px](../assets/screenshots/nte020-policy-c-new-375.png)、[768px](../assets/screenshots/nte020-policy-c-new-768.png)、[1280px](../assets/screenshots/nte020-policy-c-new-1280.png)、[1440px](../assets/screenshots/nte020-policy-c-new-1440.png) |
 | PNG ワイヤフレーム | `doc/screens/assets/mockups/mvp-nte-020-new-note-wireframe.png` |
 | レイアウトレビュー | `doc/review/MVP_SCREENSHOT_WIREFRAME_LAYOUT_REVIEW.md` |
 | UI ワイヤフレーム | `doc/screens/MVP_UI_WIREFRAMES.md` |

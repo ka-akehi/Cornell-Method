@@ -82,10 +82,25 @@ http://localhost:3000/notes
 
 | 画面 | スクリーンショット |
 | --- | --- |
-| `/notes`: ノート一覧、検索、日付 / タグフィルタ、範囲 validation | ![ノート一覧](doc/assets/screenshots/mvp-notes-list.png) |
-| `/notes/new`: 新規作成、既存タグ候補選択、自由入力タグ追加 | ![新規ノート](doc/assets/screenshots/mvp-note-new.png) |
-| `/notes/[id]`: 閲覧、編集保存、復習モード、削除 | ![ノート詳細](doc/assets/screenshots/mvp-note-detail.png) |
-| `/backup`: バックアップ一覧表示、バックアップ作成 | ![バックアップ](doc/assets/screenshots/mvp-backup.png) |
+| `/notes`: ノート一覧、検索、日付 / タグフィルタ、範囲 validation | [1440px](doc/assets/screenshots/runtime-notes-list-1440.png) |
+| `/notes/new`: 新規作成、既存タグ候補選択、自由入力タグ追加 | [375px](doc/assets/screenshots/nte020-policy-c-new-375.png) / [768px](doc/assets/screenshots/nte020-policy-c-new-768.png) / [1280px](doc/assets/screenshots/nte020-policy-c-new-1280.png) / [1440px](doc/assets/screenshots/nte020-policy-c-new-1440.png) |
+| `/notes/[id]`: 閲覧、編集保存、復習モード、削除 | [閲覧 1440px](doc/assets/screenshots/runtime-note-detail-view-1440.png) / [編集 1440px](doc/assets/screenshots/runtime-note-detail-edit-1440.png) / [復習 1440px](doc/assets/screenshots/runtime-note-detail-review-1440.png) |
+| `/backup`: バックアップ一覧表示、バックアップ作成 | [1440px](doc/assets/screenshots/runtime-backup-1440.png) |
+
+### NTE-030 runtime screenshot の確認内容
+
+閲覧／復習では、概要 → Cornell（Cue／本文）→ サマリーの基本構造を共有しています。復習時は本文領域だけをマスクし、Cue とサマリーから想起する構成にしています。
+
+### NTE-020 方針Cの実画面確認（新規作成画面）
+
+以下は、NTE-020 方針Cの新規ノート作成画面を実画面で確認したスクリーンショットです。新規作成画面の確認結果であり、`/notes/[id]` の編集画面の確認結果は含みません。
+
+| Viewport | 確認内容 | スクリーンショット |
+| --- | --- | --- |
+| 375px | Cornell部分のみ横スクロールを許容。 | ![NTE-020 方針C 新規作成 375px](doc/assets/screenshots/nte020-policy-c-new-375.png) |
+| 768px | タブレット幅での新規作成画面。 | ![NTE-020 方針C 新規作成 768px](doc/assets/screenshots/nte020-policy-c-new-768.png) |
+| 1280px | Cue / Note 約30% / 70%、本文入力とPreviewの横並び。 | ![NTE-020 方針C 新規作成 1280px](doc/assets/screenshots/nte020-policy-c-new-1280.png) |
+| 1440px | Cue / Note 約30% / 70%、本文入力とPreviewの横並び。 | ![NTE-020 方針C 新規作成 1440px](doc/assets/screenshots/nte020-policy-c-new-1440.png) |
 
 スクリーンショットを再取得する場合は、開発サーバーを起動してから主要画面を開き、画像を `doc/assets/screenshots/` 配下へ保存してください。
 

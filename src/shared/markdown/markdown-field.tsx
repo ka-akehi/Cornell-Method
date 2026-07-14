@@ -26,6 +26,7 @@ export type MarkdownFieldProps = {
   required?: boolean;
   textareaClassName?: string;
   previewEmptyLabel?: string;
+  layout?: "stacked" | "desktop-split";
 };
 
 const markdownComponents: Components = {
@@ -179,16 +180,12 @@ export function MarkdownField({
   required = false,
   textareaClassName = "",
   previewEmptyLabel,
+  layout = "stacked",
 }: MarkdownFieldProps) {
   const descriptionId = helperText ? `${id}-helper` : undefined;
   const errorId = error ? `${id}-error` : undefined;
-
-  return (
-    <div className="min-w-0 space-y-2">
-      <label htmlFor={id} className="block text-sm font-medium text-stone-700">
-        {label}
-        {required && <span className="ml-1 text-red-600">*</span>}
-      </label>
+  const fieldControls = (
+    <>
       <textarea
         id={id}
         value={value}
@@ -211,15 +208,36 @@ export function MarkdownField({
         </p>
       )}
       {error && (
-        <p id={errorId} className="text-xs leading-5 text-red-600">
+        <p id={errorId} className="break-words text-xs leading-5 text-red-600">
           {error}
         </p>
       )}
-      {preview === "visible" && (
-        <div className="space-y-2">
-          <div className="text-xs font-medium text-stone-500">プレビュー</div>
-          <MarkdownPreview value={value} emptyLabel={previewEmptyLabel} />
+    </>
+  );
+  const previewContent =
+    preview === "visible" ? (
+      <div className="min-w-0 space-y-2">
+        <div className="text-xs font-medium text-stone-500">プレビュー</div>
+        <MarkdownPreview value={value} emptyLabel={previewEmptyLabel} />
+      </div>
+    ) : null;
+
+  return (
+    <div className="min-w-0 space-y-2">
+      <label htmlFor={id} className="block text-sm font-medium text-stone-700">
+        {label}
+        {required && <span className="ml-1 text-red-600">*</span>}
+      </label>
+      {layout === "desktop-split" ? (
+        <div className="grid min-w-0 gap-3 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)] lg:items-start">
+          <div className="min-w-0 space-y-2">{fieldControls}</div>
+          {previewContent}
         </div>
+      ) : (
+        <>
+          {fieldControls}
+          {previewContent}
+        </>
       )}
     </div>
   );

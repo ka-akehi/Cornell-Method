@@ -303,22 +303,23 @@ export function NoteDetailModes({ initialNote }: { initialNote: NoteDetail }) {
         </div>
       )}
 
-      {mode === "review" ? (
-        <>
-          <div className="grid min-w-0 gap-5 lg:grid-cols-[minmax(220px,0.32fr)_minmax(0,0.68fr)]">
-            <Section title="キーワード / 質問">
-              <CueList cues={note.cues} />
-            </Section>
-            <Section title="サマリー">
-              <MarkdownPreview
-                value={note.summary ?? ""}
-                emptyLabel="サマリーは未入力です。"
-              />
-            </Section>
-          </div>
+      <Section title="概要">
+        {note.overview ? (
+          <p className="break-words text-sm leading-7 text-stone-800">
+            {note.overview}
+          </p>
+        ) : (
+          <p className="text-sm text-stone-500">概要は未入力です。</p>
+        )}
+      </Section>
 
-          <Section title="本文">
-            {showBody ? (
+      <div className="grid min-w-0 gap-5 lg:grid-cols-[minmax(220px,0.32fr)_minmax(0,0.68fr)]">
+        <Section title="キーワード / 質問">
+          <CueList cues={note.cues} />
+        </Section>
+        <Section title="ノート本文">
+          {mode === "review" ? (
+            showBody ? (
               <div className="space-y-3">
                 <button
                   type="button"
@@ -345,67 +346,50 @@ export function NoteDetailModes({ initialNote }: { initialNote: NoteDetail }) {
                   本文を表示
                 </button>
               </div>
-            )}
-          </Section>
+            )
+          ) : (
+            <MarkdownPreview value={note.body ?? ""} emptyLabel="本文は未入力です。" />
+          )}
+        </Section>
+      </div>
 
-          <Section title="復習記録">
-            <div className="grid gap-4 md:grid-cols-[220px_minmax(0,1fr)] md:items-end">
-              <div className="min-w-0 space-y-2">
-                <label
-                  htmlFor="review-next-date"
-                  className="block text-sm font-medium text-stone-700"
-                >
-                  次回復習日
-                </label>
-                <input
-                  id="review-next-date"
-                  type="date"
-                  value={reviewNextDate}
-                  onChange={(event) => setReviewNextDate(event.target.value)}
-                  className="w-full min-w-0 rounded-lg border border-stone-200 bg-white px-3 py-2 text-sm text-stone-900 shadow-sm outline-none transition focus:border-amber-500 focus:ring-2 focus:ring-amber-100"
-                />
-              </div>
-              <div className="flex flex-wrap justify-end gap-3">
-                <button
-                  type="button"
-                  disabled={reviewing}
-                  onClick={() => void submitReview()}
-                  className="rounded-lg bg-amber-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-amber-700 disabled:cursor-not-allowed disabled:bg-amber-300"
-                >
-                  {reviewing ? "更新中..." : "復習済みにする"}
-                </button>
-              </div>
+      <Section title="サマリー">
+        <MarkdownPreview
+          value={note.summary ?? ""}
+          emptyLabel="サマリーは未入力です。"
+        />
+      </Section>
+
+      {mode === "review" && (
+        <Section title="復習記録">
+          <div className="grid gap-4 md:grid-cols-[220px_minmax(0,1fr)] md:items-end">
+            <div className="min-w-0 space-y-2">
+              <label
+                htmlFor="review-next-date"
+                className="block text-sm font-medium text-stone-700"
+              >
+                次回復習日
+              </label>
+              <input
+                id="review-next-date"
+                type="date"
+                value={reviewNextDate}
+                onChange={(event) => setReviewNextDate(event.target.value)}
+                className="w-full min-w-0 rounded-lg border border-stone-200 bg-white px-3 py-2 text-sm text-stone-900 shadow-sm outline-none transition focus:border-amber-500 focus:ring-2 focus:ring-amber-100"
+              />
             </div>
-          </Section>
-        </>
-      ) : (
-        <>
-          <Section title="概要">
-            {note.overview ? (
-              <p className="break-words text-sm leading-7 text-stone-800">
-                {note.overview}
-              </p>
-            ) : (
-              <p className="text-sm text-stone-500">概要は未入力です。</p>
-            )}
-          </Section>
-
-          <div className="grid min-w-0 gap-5 lg:grid-cols-[minmax(220px,0.32fr)_minmax(0,0.68fr)]">
-            <Section title="キーワード / 質問">
-              <CueList cues={note.cues} />
-            </Section>
-            <Section title="ノート本文">
-              <MarkdownPreview value={note.body ?? ""} emptyLabel="本文は未入力です。" />
-            </Section>
+            <div className="flex flex-wrap justify-end gap-3">
+              <button
+                type="button"
+                disabled={reviewing}
+                onClick={() => void submitReview()}
+                className="rounded-lg bg-amber-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-amber-700 disabled:cursor-not-allowed disabled:bg-amber-300"
+              >
+                {reviewing ? "更新中..." : "復習済みにする"}
+              </button>
+            </div>
           </div>
-
-          <Section title="サマリー">
-            <MarkdownPreview
-              value={note.summary ?? ""}
-              emptyLabel="サマリーは未入力です。"
-            />
-          </Section>
-        </>
+        </Section>
       )}
     </div>
   );

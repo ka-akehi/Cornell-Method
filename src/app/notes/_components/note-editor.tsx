@@ -128,7 +128,7 @@ export function NoteEditor({ initial, mode, onCancel, onSaved }: NoteEditorProps
 
   return (
     <form
-      className="space-y-6"
+      className="min-w-0 space-y-5"
       onSubmit={(event) => {
         event.preventDefault();
         void save();
@@ -137,13 +137,13 @@ export function NoteEditor({ initial, mode, onCancel, onSaved }: NoteEditorProps
       {message && (
         <div
           role="alert"
-          className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm leading-6 text-red-700"
+          className="min-w-0 break-words rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm leading-6 text-red-700"
         >
           {message}
         </div>
       )}
 
-      <section className="space-y-4 rounded-lg border border-stone-200 bg-white p-5 shadow-sm">
+      <section className="min-w-0 space-y-3 rounded-lg border border-stone-200 bg-white p-4 shadow-sm">
         <div>
           <h2 className="text-base font-semibold text-stone-900">基本情報</h2>
           <p className="mt-1 text-sm leading-6 text-stone-500">
@@ -151,7 +151,7 @@ export function NoteEditor({ initial, mode, onCancel, onSaved }: NoteEditorProps
           </p>
         </div>
 
-        <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_180px]">
+        <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_180px]">
           <TextInput
             id="note-title"
             label="タイトル"
@@ -172,7 +172,7 @@ export function NoteEditor({ initial, mode, onCancel, onSaved }: NoteEditorProps
           />
         </div>
 
-        <div className="grid gap-4 md:grid-cols-[220px_minmax(0,1fr)]">
+        <div className="grid gap-3 md:grid-cols-[220px_minmax(0,1fr)]">
           <div className="min-w-0 space-y-2">
             <label htmlFor="source-type" className="block text-sm font-medium text-stone-700">
               学習元タイプ
@@ -194,7 +194,7 @@ export function NoteEditor({ initial, mode, onCancel, onSaved }: NoteEditorProps
               ))}
             </select>
             {fieldError(fieldErrors, "sourceType") && (
-              <p className="text-xs leading-5 text-red-600">
+              <p className="break-words text-xs leading-5 text-red-600">
                 {fieldError(fieldErrors, "sourceType")}
               </p>
             )}
@@ -212,7 +212,7 @@ export function NoteEditor({ initial, mode, onCancel, onSaved }: NoteEditorProps
           id="overview"
           label="概要"
           value={form.overview}
-          rows={3}
+          rows={2}
           onChange={(overview) => updateForm({ overview })}
           error={fieldError(fieldErrors, "overview")}
         />
@@ -225,7 +225,7 @@ export function NoteEditor({ initial, mode, onCancel, onSaved }: NoteEditorProps
         />
       </section>
 
-      <section className="space-y-4 rounded-lg border border-stone-200 bg-white p-5 shadow-sm">
+      <section className="min-w-0 space-y-3 rounded-lg border border-stone-200 bg-white p-4 shadow-sm">
         <div>
           <h2 className="text-base font-semibold text-stone-900">Cornell ノート</h2>
           <p className="mt-1 text-sm leading-6 text-stone-500">
@@ -233,88 +233,91 @@ export function NoteEditor({ initial, mode, onCancel, onSaved }: NoteEditorProps
           </p>
         </div>
 
-        <div className="grid gap-5 lg:grid-cols-[minmax(220px,0.32fr)_minmax(0,0.68fr)]">
-          <div className="min-w-0 space-y-3">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <h3 className="text-sm font-semibold text-stone-800">キーワード / 質問</h3>
-              <button
-                type="button"
-                onClick={addCue}
-                className="rounded-lg border border-stone-300 px-3 py-1.5 text-sm font-medium text-stone-700 transition hover:bg-stone-50"
-              >
-                Cue 追加
-              </button>
+        <div className="w-full min-w-0 overflow-x-auto overscroll-x-contain lg:overflow-x-visible">
+          <div className="grid w-full min-w-[640px] grid-cols-[minmax(0,3fr)_minmax(0,7fr)] gap-4 lg:min-w-0">
+            <div className="min-w-0 space-y-2.5">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h3 className="text-sm font-semibold text-stone-800">キーワード / 質問</h3>
+                <button
+                  type="button"
+                  onClick={addCue}
+                  className="rounded-lg border border-stone-300 px-3 py-1.5 text-sm font-medium text-stone-700 transition hover:bg-stone-50"
+                >
+                  Cue 追加
+                </button>
+              </div>
+
+              {form.cues.length === 0 ? (
+                <p className="rounded-lg border border-dashed border-stone-200 bg-stone-50 px-3 py-3 text-sm leading-6 text-stone-500">
+                  Cue は未追加です。
+                </p>
+              ) : (
+                <ul className="space-y-3">
+                  {form.cues.map((cue, index) => (
+                    <li key={`${cue.id ?? "new"}-${index}`} className="space-y-2 rounded-lg border border-stone-200 p-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <label
+                          htmlFor={`cue-${index}`}
+                          className="min-w-0 text-sm font-medium text-stone-700"
+                        >
+                          Cue {index + 1}
+                        </label>
+                        <button
+                          type="button"
+                          onClick={() => removeCue(index)}
+                          className="shrink-0 rounded-md px-2 py-1 text-sm text-red-600 transition hover:bg-red-50"
+                        >
+                          削除
+                        </button>
+                      </div>
+                      <textarea
+                        id={`cue-${index}`}
+                        value={cue.text}
+                        rows={3}
+                        onChange={(event) => updateCue(index, event.target.value)}
+                        aria-invalid={Boolean(indexedFieldError(fieldErrors, "cues", index))}
+                        className="w-full min-w-0 resize-y rounded-lg border border-stone-200 bg-white px-3 py-2 text-sm leading-6 text-stone-900 shadow-sm outline-none transition placeholder:text-stone-400 focus:border-amber-500 focus:ring-2 focus:ring-amber-100"
+                        placeholder="例: この章の主張は何か"
+                      />
+                      {indexedFieldError(fieldErrors, "cues", index) && (
+                        <p className="break-words text-xs leading-5 text-red-600">
+                          {indexedFieldError(fieldErrors, "cues", index)}
+                        </p>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
 
-            {form.cues.length === 0 ? (
-              <p className="rounded-lg border border-dashed border-stone-200 bg-stone-50 px-3 py-3 text-sm leading-6 text-stone-500">
-                Cue は未追加です。
-              </p>
-            ) : (
-              <ul className="space-y-3">
-                {form.cues.map((cue, index) => (
-                  <li key={`${cue.id ?? "new"}-${index}`} className="space-y-2 rounded-lg border border-stone-200 p-3">
-                    <div className="flex items-center justify-between gap-2">
-                      <label
-                        htmlFor={`cue-${index}`}
-                        className="min-w-0 text-sm font-medium text-stone-700"
-                      >
-                        Cue {index + 1}
-                      </label>
-                      <button
-                        type="button"
-                        onClick={() => removeCue(index)}
-                        className="shrink-0 rounded-md px-2 py-1 text-sm text-red-600 transition hover:bg-red-50"
-                      >
-                        削除
-                      </button>
-                    </div>
-                    <textarea
-                      id={`cue-${index}`}
-                      value={cue.text}
-                      rows={3}
-                      onChange={(event) => updateCue(index, event.target.value)}
-                      aria-invalid={Boolean(indexedFieldError(fieldErrors, "cues", index))}
-                      className="w-full min-w-0 resize-y rounded-lg border border-stone-200 bg-white px-3 py-2 text-sm leading-6 text-stone-900 shadow-sm outline-none transition placeholder:text-stone-400 focus:border-amber-500 focus:ring-2 focus:ring-amber-100"
-                      placeholder="例: この章の主張は何か"
-                    />
-                    {indexedFieldError(fieldErrors, "cues", index) && (
-                      <p className="text-xs leading-5 text-red-600">
-                        {indexedFieldError(fieldErrors, "cues", index)}
-                      </p>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            )}
+            <MarkdownField
+              id="body"
+              label="ノート本文"
+              value={form.body}
+              onChange={(body) => updateForm({ body })}
+              rows={12}
+              layout="desktop-split"
+              error={fieldError(fieldErrors, "body")}
+              placeholder="本文を Markdown で入力"
+              previewEmptyLabel="本文のプレビューはまだありません。"
+            />
           </div>
-
-          <MarkdownField
-            id="body"
-            label="ノート本文"
-            value={form.body}
-            onChange={(body) => updateForm({ body })}
-            rows={12}
-            error={fieldError(fieldErrors, "body")}
-            placeholder="本文を Markdown で入力"
-            previewEmptyLabel="本文のプレビューはまだありません。"
-          />
         </div>
       </section>
 
-      <section className="space-y-4 rounded-lg border border-stone-200 bg-white p-5 shadow-sm">
+      <section className="min-w-0 space-y-3 rounded-lg border border-stone-200 bg-white p-4 shadow-sm">
         <MarkdownField
           id="summary"
           label="サマリー"
           value={form.summary}
           onChange={(summary) => updateForm({ summary })}
-          rows={7}
+          rows={6}
           error={fieldError(fieldErrors, "summary")}
           placeholder="要点や次のアクションを Markdown で入力"
           previewEmptyLabel="サマリーのプレビューはまだありません。"
         />
 
-        <div className="grid gap-4 md:grid-cols-[220px_minmax(0,1fr)] md:items-end">
+        <div className="grid gap-3 md:grid-cols-[220px_minmax(0,1fr)] md:items-end">
           <TextInput
             id="next-review-date"
             label="次回復習日"
@@ -371,7 +374,7 @@ function TextInput({
   required?: boolean;
 }) {
   return (
-    <div className="min-w-0 space-y-2">
+    <div className="min-w-0 space-y-1.5">
       <label htmlFor={id} className="block text-sm font-medium text-stone-700">
         {label}
         {required && <span className="ml-1 text-red-600">*</span>}
@@ -392,7 +395,7 @@ function TextInput({
         }`}
       />
       {error && (
-        <p id={`${id}-error`} className="text-xs leading-5 text-red-600">
+        <p id={`${id}-error`} className="break-words text-xs leading-5 text-red-600">
           {error}
         </p>
       )}
@@ -434,7 +437,7 @@ function TextArea({
         }`}
       />
       {error && (
-        <p id={`${id}-error`} className="text-xs leading-5 text-red-600">
+        <p id={`${id}-error`} className="break-words text-xs leading-5 text-red-600">
           {error}
         </p>
       )}
@@ -518,16 +521,14 @@ function TagInput({
   );
 
   return (
-    <div className="min-w-0 space-y-2">
-      <label htmlFor="tag-input" className="block text-sm font-medium text-stone-700">
-        タグ
-      </label>
+    <div className="min-w-0 space-y-1.5">
+      <span className="block text-sm font-medium text-stone-700">タグ</span>
       {tags.length > 0 && (
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap gap-1.5">
           {tags.map((tag, index) => (
             <span
               key={`${tag.id ?? tag.name}-${index}`}
-              className="inline-flex max-w-full items-center gap-2 rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-sm text-amber-900"
+              className="inline-flex max-w-full items-center gap-2 rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-sm text-amber-900"
             >
               <span className="min-w-0 break-all">{tag.name}</span>
               <button
@@ -542,64 +543,71 @@ function TagInput({
           ))}
         </div>
       )}
-      <div className="min-w-0 space-y-2">
-        <label htmlFor="tag-candidate-select" className="block text-xs font-medium text-stone-600">
-          既存タグから追加
-        </label>
-        <select
-          id="tag-candidate-select"
-          value=""
-          disabled={loadingCandidates || availableCandidates.length === 0}
-          onChange={(event) => addCandidate(event.target.value)}
-          className="w-full min-w-0 rounded-lg border border-stone-200 bg-white px-3 py-2 text-sm text-stone-900 shadow-sm outline-none transition focus:border-amber-500 focus:ring-2 focus:ring-amber-100 disabled:cursor-not-allowed disabled:bg-stone-50 disabled:text-stone-400"
-        >
-          <option value="">
-            {loadingCandidates
-              ? "タグ候補を読み込み中"
-              : availableCandidates.length > 0
-                ? "タグ候補を選択"
-                : "追加できる既存タグはありません"}
-          </option>
-          {availableCandidates.map((tag) => (
-            <option key={tag.id ?? tag.name} value={tag.id}>
-              {tag.name}
+      <div className="grid min-w-0 gap-2 sm:grid-cols-2">
+        <div className="min-w-0 space-y-1">
+          <label htmlFor="tag-candidate-select" className="block text-xs font-medium text-stone-600">
+            既存タグから追加
+          </label>
+          <select
+            id="tag-candidate-select"
+            value=""
+            disabled={loadingCandidates || availableCandidates.length === 0}
+            onChange={(event) => addCandidate(event.target.value)}
+            className="w-full min-w-0 rounded-lg border border-stone-200 bg-white px-3 py-2 text-sm text-stone-900 shadow-sm outline-none transition focus:border-amber-500 focus:ring-2 focus:ring-amber-100 disabled:cursor-not-allowed disabled:bg-stone-50 disabled:text-stone-400"
+          >
+            <option value="">
+              {loadingCandidates
+                ? "タグ候補を読み込み中"
+                : availableCandidates.length > 0
+                  ? "タグ候補を選択"
+                  : "追加できる既存タグはありません"}
             </option>
-          ))}
-        </select>
-        {candidateError && (
-          <p className="text-xs leading-5 text-amber-700">{candidateError}</p>
-        )}
-      </div>
-      <div className="flex flex-col gap-2 sm:flex-row">
-        <input
-          id="tag-input"
-          value={input}
-          onChange={(event) => setInput(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter") {
-              event.preventDefault();
-              addTag();
-            }
-          }}
-          className="min-w-0 flex-1 rounded-lg border border-stone-200 bg-white px-3 py-2 text-sm text-stone-900 shadow-sm outline-none transition placeholder:text-stone-400 focus:border-amber-500 focus:ring-2 focus:ring-amber-100"
-          placeholder="タグ名を入力"
-        />
-        <button
-          type="button"
-          onClick={addTag}
-          className="rounded-lg border border-stone-300 px-3 py-2 text-sm font-medium text-stone-700 transition hover:bg-stone-50"
-        >
-          追加
-        </button>
+            {availableCandidates.map((tag) => (
+              <option key={tag.id ?? tag.name} value={tag.id}>
+                {tag.name}
+              </option>
+            ))}
+          </select>
+          {candidateError && (
+            <p className="text-xs leading-5 text-amber-700">{candidateError}</p>
+          )}
+        </div>
+        <div className="min-w-0 space-y-1">
+          <label htmlFor="tag-input" className="block text-xs font-medium text-stone-600">
+            新規タグを追加
+          </label>
+          <div className="flex min-w-0 gap-2">
+            <input
+              id="tag-input"
+              value={input}
+              onChange={(event) => setInput(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  addTag();
+                }
+              }}
+              className="min-w-0 flex-1 rounded-lg border border-stone-200 bg-white px-3 py-2 text-sm text-stone-900 shadow-sm outline-none transition placeholder:text-stone-400 focus:border-amber-500 focus:ring-2 focus:ring-amber-100"
+              placeholder="タグ名を入力"
+            />
+            <button
+              type="button"
+              onClick={addTag}
+              className="shrink-0 rounded-lg border border-stone-300 px-3 py-2 text-sm font-medium text-stone-700 transition hover:bg-stone-50"
+            >
+              追加
+            </button>
+          </div>
+        </div>
       </div>
       <p className="text-xs leading-5 text-stone-500">最大12件。Enter でも追加できます。</p>
       {(error || localError) && (
-        <p className="text-xs leading-5 text-red-600">{localError ?? error}</p>
+        <p className="break-words text-xs leading-5 text-red-600">{localError ?? error}</p>
       )}
       {tags.map((_, index) => {
         const itemError = indexedFieldError(fieldErrors, "tags", index);
         return itemError ? (
-          <p key={index} className="text-xs leading-5 text-red-600">
+          <p key={index} className="break-words text-xs leading-5 text-red-600">
             タグ {index + 1}: {itemError}
           </p>
         ) : null;
