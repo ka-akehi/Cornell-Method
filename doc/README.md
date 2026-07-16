@@ -14,7 +14,7 @@
 | `technical/` | 技術設計、設計ツール運用、非機能に近い技術方針 | `MVP_TECHNICAL_DESIGN.md`, `TARGET_ARCHITECTURE.md`, `MVP_DESIGN_TOOLING_GUIDE.md` |
 | `diagrams/` | UML / Mermaid 図、画面遷移、ER、状態遷移、シーケンス、SVG 表示成果物 | `MVP_UML_DESIGN.md`, `MVP_*_DIAGRAM*.md`, `assets/mmd/`, `assets/svg/` |
 | `testing/` | テスト観点、受け入れ条件、手動確認観点 | `TEST_SCENARIOS.md` |
-| `implementation/` | 実装状況、実装タスク分割 | `IMPLEMENTATION_STATUS.md`, `MVP_IMPLEMENTATION_TASKS.md` |
+| `implementation/` | 現行 MVP 契約、実装状況、実装タスク分割 | `MVP_CONTRACT.md`, `IMPLEMENTATION_STATUS.md`, `MVP_IMPLEMENTATION_TASKS.md` |
 | `review/` | As-Is 棚卸し、設計レビュー計画、移行判断資料、UI 設計成果物レビュー | `AS_IS_DESIGN_INVENTORY.md`, `DESIGN_REVIEW_PLAN.md`, `MVP_UI_DESIGN_ARTIFACT_GAP_REVIEW.md`, `MVP_SCREENSHOT_WIREFRAME_LAYOUT_REVIEW.md` |
 | `design-studio/` | Google Stitch / Claude Design 風の設計運用、テンプレート | `README.md`, `templates/` |
 
@@ -31,6 +31,7 @@
 - ターゲットアーキテクチャ: `technical/TARGET_ARCHITECTURE.md`
 - 図の入口: `diagrams/MVP_UML_DESIGN.md`
 - テスト観点: `testing/TEST_SCENARIOS.md`
+- 現行 MVP 契約: `implementation/MVP_CONTRACT.md`
 - 実装状況: `implementation/IMPLEMENTATION_STATUS.md`
 
 ## Rules
@@ -38,4 +39,4 @@
 - 新しい設計書は、目的に近いカテゴリへ追加します。
 - UML、ER、状態遷移、シーケンスなどの図は `diagrams/`、業務フローは `workflows/`、画面設計は `screens/` など、目的に近いカテゴリへ Markdown / Mermaid を置きます。
 - Mermaid 図は、該当カテゴリ配下の `assets/mmd/` と `assets/svg/` を生成し、視覚確認できる状態にします。
-- `AGENTS.md` はアプリ全体仕様の正本です。MVP 実装判断は `requirements/MVP_SYSTEM_SPEC.md` と関連 MVP 設計書を起点にします。
+- `AGENTS.md` は製品全体の仕様・ロードマップの正本です。現行 MVP の実装・受け入れ判断は `implementation/MVP_CONTRACT.md` を起点にし、`requirements/`、`api/`、`data/`、`screens/`、`testing/` の詳細書を追従させます。

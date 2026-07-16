@@ -4,7 +4,7 @@
 
 このドキュメントは、Cornell Method Notebook MVP の最終検証で使う確認項目です。
 
-MVP では、明示保存、物理削除、手動復習予定、`textarea + Markdown preview`、`/notes` の復習対象フィルタ、`/backup` の手動バックアップを確認対象とします。
+MVP では、明示保存、物理削除、手動で管理する `nextReviewDate`、`textarea + Markdown preview`、`/notes` の復習対象フィルタ、詳細画面内の復習モード、`/backup` の手動バックアップを確認対象とします。新規ノートの `nextReviewDate` は `noteDate + 7日` を初期値とし、1 日後 / 1 週間後の自動タスクや専用復習タスク画面は MVP の確認対象ではありません。
 
 MVP の初期データに seed は使いません。検証用データは `/notes/new` または `POST /api/notes` で作成します。
 
@@ -29,6 +29,8 @@ MVP の初期データに seed は使いません。検証用データは `/note
 - [ ] `/notes/new` でタイトルが 120 文字を超えると validation error が表示される
 - [ ] `/notes/new` で未来日の学習日は保存できない
 - [ ] `/notes/new` で概要が 400 文字を超えると validation error が表示される
+- [ ] `/notes/new` を開くと `nextReviewDate` に `noteDate + 7日` が初期入力される
+- [ ] `/notes/new` で初期入力された `nextReviewDate` を別の日付へ変更、または空欄化して保存できる
 - [ ] `/notes/new` で次回復習日が学習日より前の場合は validation error が表示される
 - [ ] `/notes/new` で Cue を追加できる
 - [ ] `/notes/new` で Cue を削除できる
@@ -85,6 +87,8 @@ MVP の初期データに seed は使いません。検証用データは `/note
 - [ ] `/notes/[id]` の閲覧モードでサマリー Markdown が表示される
 - [ ] `/notes/[id]` の閲覧モードから編集モードへ切り替えられる
 - [ ] `/notes/[id]` の編集モードで既存ノートの値がフォームに反映される
+- [ ] `/notes/[id]` の編集モードで `nextReviewDate` 未設定の既存ノートを開いても、編集開始だけでは日付が自動補完されない
+- [ ] `/notes/[id]` の編集モードで `noteDate` を変更しても、手動設定済みの `nextReviewDate` が自動移動しない
 - [ ] `/notes/[id]` の編集モードで保存すると `PATCH /api/notes/:id` が成功する
 - [ ] `/notes/[id]` の編集モードで保存中は保存ボタンが disabled になり `保存中...` が表示される
 - [ ] `/notes/[id]` の編集モードで保存 API が失敗した場合、フォーム上部に error alert が表示される
@@ -92,6 +96,8 @@ MVP の初期データに seed は使いません。検証用データは `/note
 - [ ] `/notes/[id]` の編集モードでキャンセルすると保存せず閲覧モードへ戻る
 - [ ] `/notes/[id]` の閲覧モードから復習モードへ切り替えられる
 - [ ] `/notes/[id]` の復習モードでは本文が初期状態で非表示になる
+- [ ] `/notes/[id]` の復習モードでは Summary が初期状態で非表示になる
+- [ ] `/notes/[id]` の復習モードで Cue を見て想起し、本文を確認した後に Summary を開ける
 - [ ] `/notes/[id]` の復習モードで本文を表示できる
 - [ ] `/notes/[id]` の復習モードで表示した本文を再度非表示にできる
 - [ ] `/notes/[id]` の復習モードで復習済みにすると `POST /api/notes/:id/review` が成功する
@@ -100,6 +106,7 @@ MVP の初期データに seed は使いません。検証用データは `/note
 - [ ] `/notes/[id]` の復習済み更新で `reviewedAt` が更新される
 - [ ] `/notes/[id]` の復習済み更新で任意の `nextReviewDate` が保存される
 - [ ] `/notes/[id]` の復習済み更新で `nextReviewDate` を空にできる
+- [ ] `/notes/[id]` の復習済み更新成功後、画面に `reviewedAt` と更新後の `nextReviewDate` が反映される
 - [ ] `/notes/[id]` で削除操作を選ぶと確認 UI が表示される
 - [ ] `/notes/[id]` の削除確認をキャンセルすると削除されない
 - [ ] `/notes/[id]` の削除確認を確定すると `DELETE /api/notes/:id` が成功する
@@ -114,7 +121,8 @@ MVP の初期データに seed は使いません。検証用データは `/note
 - [ ] `/notes/[id]` の閲覧モードと復習モードで、概要 → Cornell（Cue／本文）→ サマリーの基本順序と位置が共通している
 - [ ] デスクトップの閲覧モードと復習モードで、Cornell の Cue が左、本文領域が右にあり、幅は基本的に約 30% / 70% である
 - [ ] 復習モードへ切り替えても Cue とサマリーが本文より上の別領域へ移動せず、閲覧モードと同じ詳細画面シェルが維持される
-- [ ] 復習モードでは共通 Cornell の本文領域だけが初期状態でマスクされ、Cue、概要、サマリーは表示される
+- [ ] 復習モードでは共通 Cornell の本文領域と Summary が初期状態で非表示になり、Cue と概要は表示される
+- [ ] 復習モードでは Cue による想起と本文確認の後に Summary を開ける
 - [ ] 復習モードで本文を表示／非表示に切り替えても、本文領域の位置と概要・Cue・サマリーの位置が変わらない
 - [ ] 復習モードの復習記録と復習操作はサマリーの後ろに追加され、共通シェルの基本順序を置き換えない
 
@@ -231,21 +239,43 @@ MVP の初期データに seed は使いません。検証用データは `/note
 - [ ] Markdown preview の checkbox は preview 上でクリックしても保存値を変更しない
 - [ ] Markdown preview に危険な HTML を入力しても sanitize される
 - [ ] 閲覧モードの Markdown 表示にも sanitize が効く
-- [ ] 復習モードの Markdown 表示にも sanitize が効く
+- [ ] 復習モードで本文と Summary を開いた後の Markdown 表示にも sanitize が効く
 
-## 検証記録
+## 受け入れ証跡マトリクス
 
-| 日付 | 範囲 | 結果 | 参照 |
-| --- | --- | --- | --- |
-| 2026-07-05 | MVP 主要 UI フロー: `/` redirect、一覧、新規作成、既存タグ候補選択、自由入力タグ追加、詳細編集保存、復習、検索/日付/タグ filter、削除、バックアップ作成 | PASS | `summary/20260705/mvp-ui-flow-reverification-report.md` |
-| 2026-07-05 | API CRUD / review / search / tags / validation / not_found / backup prune | PASS | `summary/20260705/manager-mvp-api-crud-validation-backup-reverification-report.md` |
-| 2026-07-05 | Markdown sanitize / checkbox: GFM checkbox 表示、preview checkbox click 後の textarea 値不変、閲覧/復習モードの sanitize | PASS | `summary/20260705/manager-markdown-sanitize-checkbox-verification-report.md` |
-| 2026-07-05 | `npm run backup:copy`: 実 DB コピーと最新 3 世代保持 | PASS | `summary/20260705/backup-copy-command-verification-report.md` |
-| 2026-07-04〜2026-07-05 | Prisma validate/generate、`npm run lint`、`npm run build` | PASS | `HANDOFF_2026-07-06.md`、`summary/20260705/manager-fix-ui009-note-editor-tag-candidates-summary.md`、`summary/20260705/manager-fix-ui014-edit-save-state-summary.md` |
+上のチェックリストは確認項目の一覧であり、下表を確認済み範囲の正本とします。判定は記録単位の範囲に限ります。同じ section に含まれる未確認項目を、別の項目の PASS から推測して繰り上げません。`FAIL（静的照合）` は実装コードと現行 MVP 契約の照合で未達が確認されたもの、`未実施` は runtime 証跡がまだないものです。
+
+| ID | 対象シナリオ | route と画面状態 | viewport / 実行形態 | 確認日 | fixture / 検証用データの扱い | 判定 | 参照 summary / 根拠ファイル |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| MVP-UI-001 | 主要 UI フロー（redirect、一覧、作成、タグ、編集保存、復習、検索、削除、バックアップ） | `/` → `/notes`（redirect / 一覧）、`/notes/new`（作成）、`/notes/[id]`（閲覧・編集・復習・削除）、`/backup`（一覧・作成） | Playwright Chromium runtime。viewport は summary に記録なし | 2026-07-05 | UI 検証用の一時ノート、既存タグ候補、新規タグを作成。API / SQLite cleanup 後に query `UI検証` の `totalCount=0`、一時タグ 0 件を確認 | PASS | `summary/20260705/mvp-ui-flow-reverification-report.md` |
+| MVP-API-001 | Notes CRUD、review、一覧検索、タグ、validation、not found、backup API | `/api/notes`、`/api/notes/:id`、`/api/notes/:id/review`、`/api/tags`、`/api/backups` | API / CLI runtime（`127.0.0.1:3000`）。viewport は対象外 | 2026-07-05 | `dev.db` に API 検証用ノート / タグを作成し、API 削除と SQLite cleanup。検証タグ 0 件を確認。backup 最新 3 世代は検証結果として保持 | PASS | `summary/20260705/manager-mvp-api-crud-validation-backup-reverification-report.md` |
+| MVP-MD-001 | GFM checkbox、Preview checkbox の表示専用挙動、閲覧 / 復習時の sanitize | `/notes/new`（編集 preview）、`/notes/[id]`（閲覧・復習） | Playwright Chromium runtime。viewport は summary に記録なし | 2026-07-05 | `MD検証` 接頭辞の一時ノートに危険な Markdown と checkbox を入力。確認後に API cleanup し残存 0 件を確認 | PASS | `summary/20260705/manager-markdown-sanitize-checkbox-verification-report.md` |
+| MVP-BAK-001 | `npm run backup:copy` と最新 3 世代保持 | CLI / SQLite backup | CLI runtime。viewport は対象外 | 2026-07-05 | root の SQLite DB を 4 回コピー。古い世代を prune し、`backup/` に最新 3 ファイルだけが残ることを確認 | PASS | `summary/20260705/backup-copy-command-verification-report.md` |
+| MVP-TOOL-001 | lint、build | 静的 / CLI 検証 | CLI | 2026-07-04〜2026-07-05 | runtime fixture なし。コード変更後の検証コマンドを実行 | PASS | `summary/20260705/manager-fix-ui009-note-editor-tag-candidates-summary.md`、`summary/20260705/manager-fix-ui014-edit-save-state-summary.md` |
+| NTE020-NEW-375 | Policy C の新規作成レイアウト、ページ全体 overflow、Cornell 局所横スクロール、Cue / Markdown Preview 操作 | `/notes/new`（新規作成） | 375px、Puppeteer / headless Chromium runtime | 2026-07-14 | 空 DB、保存済みノート 0 件。保存・削除・API 更新なし。リポジトリ内 screenshot は新規作成画面の記録 | PASS | `summary/20260714/nte020-policy-c-layout-qa-report.md`、`doc/assets/screenshots/nte020-policy-c-new-375.png` |
+| NTE020-NEW-768 | Policy C の新規作成レイアウト、Cornell 2 列、ページ全体 overflow | `/notes/new`（新規作成） | 768px、Puppeteer / headless Chromium runtime | 2026-07-14 | 空 DB、保存・削除・API 更新なし | PASS | `summary/20260714/nte020-policy-c-layout-qa-report.md`、`doc/assets/screenshots/nte020-policy-c-new-768.png` |
+| NTE020-NEW-1280 | Policy C の desktop split、Cue / Note 約 30% / 70%、本文 textarea / Preview 横並び | `/notes/new`（新規作成） | 1280px、Puppeteer / headless Chromium runtime | 2026-07-14 | 空 DB、保存・削除・API 更新なし | PASS | `summary/20260714/nte020-policy-c-layout-qa-report.md`、`doc/assets/screenshots/nte020-policy-c-new-1280.png` |
+| NTE020-NEW-1440 | Policy C の desktop split、Cue / Note 約 30% / 70%、本文 textarea / Preview 横並び | `/notes/new`（新規作成） | 1440px、Puppeteer / headless Chromium runtime | 2026-07-14 | 空 DB、保存・削除・API 更新なし | PASS | `summary/20260714/nte020-policy-c-layout-qa-report.md`、`doc/assets/screenshots/nte020-policy-c-new-1440.png` |
+| NTE020-EDIT-ALL | Policy C の既存ノート edit runtime | `/notes/[id]`（編集） | 375 / 768 / 1280 / 1440px。いずれも未確認 | 2026-07-14 | 空 DBで保存済みノート 0 件。既存ノートを開かず、保存・削除・API 更新なし | 未実施 | `summary/20260714/nte020-policy-c-layout-qa-report.md`、`HANDOFF_2026-07-16.md` §4「未実施のまま残した範囲」 |
+| NTE020-OVERFLOW-375 | 長い Markdown、長いタグ、長い field error の overflow 境界 | `/notes/new` と共有 edit layout | 375px。対象入力の runtime 未確認 | 2026-07-14 | 長い Markdown / 長いタグ / 長い field error は測定に投入していない | 未実施 | `summary/20260714/nte020-policy-c-layout-qa-report.md` § Findings / Remaining Unknowns |
+| NTE030-VIEW-1440 | 閲覧の共通詳細シェル、概要 → Cornell → Summary の順序、本文表示 | `/notes/[id]`（閲覧） | 1440px、Puppeteer / headless Chromium runtime | 2026-07-15 | 一時ノート `QA-SCREENSHOT-NTE030-1784048555522` を作成し、確認後に削除。query で残存 0 件を確認 | PASS | `HANDOFF_2026-07-16.md` §4「PASS として記録された範囲」、`summary/20260715/0217-create-handoff-20260715-nte020-nte030-4ee10290-summary.md`、`doc/assets/screenshots/runtime-note-detail-view-1440.png` |
+| NTE030-REVIEW-1440 | 復習の共通詳細シェル、本文初期マスク、本文表示 / 再マスク、復習操作 | `/notes/[id]`（復習） | 1440px、Puppeteer / headless Chromium runtime | 2026-07-15 | 一時ノート `QA-SCREENSHOT-NTE030-1784048555522` を作成し、確認後に削除。query で残存 0 件を確認 | PASS | `HANDOFF_2026-07-16.md` §4「PASS として記録された範囲」、`summary/20260715/0217-create-handoff-20260715-nte020-nte030-4ee10290-summary.md`、`doc/assets/screenshots/runtime-note-detail-review-1440.png` |
+| NTE030-MOBILE-375-768 | 閲覧 / 復習の共通シェルと本文マスクの mobile runtime | `/notes/[id]`（閲覧・復習） | 375 / 768px。いずれも未確認 | 2026-07-15 | mobile runtime 用の確認・fixture は未実施 | 未実施 | `HANDOFF_2026-07-16.md` §4「未実施のまま残した範囲」、`summary/20260715/0155-qa-nte030-review-shared-shell-puppeteer-network-blocked-summary.md` |
+| MVP-REVIEW-EDGE-001 | 既存未設定 `nextReviewDate` の非補完、`noteDate` 変更時の手動設定日維持、review 成功後の画面反映 | `/notes/[id]`（編集・復習） | runtime viewport は summary に記録なし | 2026-07-16 | 該当 edge case fixture を使った実ブラウザ確認なし | 未実施 | `doc/implementation/IMPLEMENTATION_STATUS.md` §5.2、`doc/implementation/MVP_CONTRACT.md` §4.1・§4.3 |
+| MVP-GAP-001 | 新規 `nextReviewDate = noteDate + 7日` 初期値 | `/notes/new`（新規作成） | 静的照合（viewport / fixture なし） | 2026-07-16 | fixture なし。実装コード、現行 MVP 契約、実装状況を照合 | FAIL（静的照合） | `doc/implementation/IMPLEMENTATION_STATUS.md` §1・§5.2、`doc/implementation/MVP_CONTRACT.md` §4.1 |
+| MVP-GAP-002 | 復習開始時の Summary 初期非表示と Cue → 本文 → Summary の順序 | `/notes/[id]`（復習） | 静的照合（viewport / fixture なし） | 2026-07-16 | fixture なし。実装コード、現行 MVP 契約、実装状況を照合。runtime 未実施とは別に、Summary 初期非表示の未達を記録 | FAIL（静的照合） | `doc/implementation/IMPLEMENTATION_STATUS.md` §1・§5.2、`doc/implementation/MVP_CONTRACT.md` §4.3・§6 |
+| MVP-GAP-003 | 概要の Markdown preview / sanitize | `/notes/new`、`/notes/[id]`（編集・閲覧） | 静的照合（viewport / fixture なし） | 2026-07-16 | fixture なし。概要の保存は確認できるが、本文 / Summary と同じ Markdown preview / sanitize ではない | FAIL（静的照合） | `doc/implementation/IMPLEMENTATION_STATUS.md` §1・§5.2、`doc/implementation/MVP_CONTRACT.md` §2・§6 |
+| PHASE2-BOUNDARY | 自動保存、Undo / soft delete、専用復習タスク、NoteCard / D&D、PDF、タグ管理 UI 等 | `/tasks/review`、`/notes/backup`、export 等（MVP 外） | 静的な契約照合。runtime 対象外 | 2026-07-16 | fixture なし。Phase 2 の未実施項目として扱い、MVP の PASS 集計には含めない | 未実施 | `doc/implementation/MVP_CONTRACT.md` §2・§9、本文書「Phase 2 / 将来確認」 |
+
+NTE-020 の `summary/20260714/2205-document-nte020-policy-c-responsive-acceptance-scenarios-3f7ff466-summary.md` と `summary/20260714/2319-document-nte020-policy-c-runtime-screenshots-3b94ae94-summary.md` は、受け入れ観点・screenshot task の記録です。実画面の判定は `summary/20260714/nte020-policy-c-layout-qa-report.md` と存在確認済みの PNG を根拠にし、edit runtime や長文 overflow を推測で PASS にしていません。
+
+NTE-030 の `summary/20260715/0107-implement-nte030-review-shared-detail-shell-e125e816-summary.md` は実装 task、`summary/20260715/0112-qa-nte030-review-shared-shell-runtime-screenshots-f2358087-summary.md` と `summary/20260715/0206-document-nte030-runtime-screenshot-evidence-fcffd017-summary.md` は task / documentation 記録です。`summary/20260715/0155-qa-nte030-review-shared-shell-puppeteer-network-blocked-summary.md` は接続制約による失敗記録であり、これらの `done` 状態だけを runtime PASS の根拠にはしません。1440px の PASS は、直接確認内容を記した `HANDOFF_2026-07-16.md` と実在する screenshot を根拠にしています。
 
 ## Phase 2 / 将来確認
 
 以下は MVP 外です。MVP の必須受け入れ条件としては扱わず、Phase 2 以降の実装時に確認します。
+
+専用の復習タスク画面、1 日後 / 1 週間後の自動タスク、`review status`、未完了タスクバッジは、この節だけで扱います。現行 MVP の確認項目（`nextReviewDate` の手動管理、`reviewedAt` の更新、詳細画面内復習）とは混同しません。
 
 ### 1. 自動保存 / 下書き / 競合制御
 

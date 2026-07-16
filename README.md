@@ -76,7 +76,9 @@ http://localhost:3000/notes
 
 ## MVP 受け入れ材料
 
-2026-07-05 時点の MVP 主要 UI フローは Playwright Chromium で検証済みです。操作デモ相当の確認結果は `summary/20260705/mvp-ui-flow-reverification-report.md` を参照してください。
+受け入れ証跡の正本は [受け入れ証跡マトリクス](doc/testing/TEST_SCENARIOS.md#受け入れ証跡マトリクス) です。各記録に route、画面状態、viewport または API / CLI / 静的照合、確認日、fixture の扱い、判定、参照 summary / 根拠を記録しています。
+
+2026-07-05 時点の MVP 主要 UI フローは Playwright Chromium で検証済みです。操作デモ相当の確認結果は `summary/20260705/mvp-ui-flow-reverification-report.md` を参照してください。ただし、この route-level flow の PASS は NTE-020 の edit レイアウト全 viewport 確認や NTE-030 の mobile runtime 確認まで意味しません。
 
 画面例:
 
@@ -84,12 +86,19 @@ http://localhost:3000/notes
 | --- | --- |
 | `/notes`: ノート一覧、検索、日付 / タグフィルタ、範囲 validation | [1440px](doc/assets/screenshots/runtime-notes-list-1440.png) |
 | `/notes/new`: 新規作成、既存タグ候補選択、自由入力タグ追加 | [375px](doc/assets/screenshots/nte020-policy-c-new-375.png) / [768px](doc/assets/screenshots/nte020-policy-c-new-768.png) / [1280px](doc/assets/screenshots/nte020-policy-c-new-1280.png) / [1440px](doc/assets/screenshots/nte020-policy-c-new-1440.png) |
-| `/notes/[id]`: 閲覧、編集保存、復習モード、削除 | [閲覧 1440px](doc/assets/screenshots/runtime-note-detail-view-1440.png) / [編集 1440px](doc/assets/screenshots/runtime-note-detail-edit-1440.png) / [復習 1440px](doc/assets/screenshots/runtime-note-detail-review-1440.png) |
+| `/notes/[id]`: 閲覧、編集保存、復習モード、削除 | [閲覧 1440px](doc/assets/screenshots/runtime-note-detail-view-1440.png) / [編集保存 1440px（主要 UI flow）](doc/assets/screenshots/runtime-note-detail-edit-1440.png) / [復習 1440px](doc/assets/screenshots/runtime-note-detail-review-1440.png) |
 | `/backup`: バックアップ一覧表示、バックアップ作成 | [1440px](doc/assets/screenshots/runtime-backup-1440.png) |
 
 ### NTE-030 runtime screenshot の確認内容
 
-閲覧／復習では、概要 → Cornell（Cue／本文）→ サマリーの基本構造を共有しています。復習時は本文領域だけをマスクし、Cue とサマリーから想起する構成にしています。
+1440px の実画面では、閲覧／復習が概要 → Cornell（Cue／本文）→ サマリーの基本構造を共有し、復習時に本文領域だけをマスクして表示 / 再マスクできることを確認しています。375 / 768px の閲覧 / 復習 runtime は未確認です。なお、現行 MVP 契約が求める復習時 Summary の初期非表示は静的照合で未達のため、README の screenshot や runtime PASS から推測していません。詳細は証跡マトリクスの `MVP-GAP-002` を参照してください。
+
+### QA 証跡の確認済み範囲と未確認範囲
+
+- 確認済み: 2026-07-05 の主要 UI flow、Notes CRUD / validation / review / search、Markdown sanitize / checkbox、`npm run backup:copy`。NTE-020 の `/notes/new` は 375 / 768 / 1280 / 1440px、NTE-030 の `/notes/[id]` 閲覧 / 復習は 1440px を確認済みです。
+- 未確認: NTE-020 の `/notes/[id]` edit runtime（2026-07-05 の編集保存フローと、NTE-020 Policy C の edit レイアウト QA は別の確認単位です）、NTE-020 の 375px 長い Markdown / 長いタグ / 長い field error、NTE-030 の 375 / 768px 閲覧 / 復習 runtime。
+- MVP 契約との差分: 静的照合で、新規 `nextReviewDate = noteDate + 7日` 初期値と復習時 Summary 初期非表示が未達です。概要の Markdown preview / sanitize も契約どおりではなく部分実装です。これらは runtime 未実施とは別に `FAIL（静的照合）` として記録しています。
+- Phase 2: autosave、Undo / soft delete、専用復習タスク、NoteCard / D&D、PDF export、タグ管理 UI などは MVP の PASS に含めず、`TEST_SCENARIOS.md` の Phase 2 節で管理します。
 
 ### NTE-020 方針Cの実画面確認（新規作成画面）
 
@@ -123,8 +132,14 @@ npm run dev -- -H 127.0.0.1 -p 3000
 2. 保存すると `/notes/[id]` の詳細画面へ移動します。
 3. `/notes` で作成済みノートを検索します。
 4. 詳細画面で閲覧、編集、復習モードを切り替えます。
-5. 復習モードでは Cue とサマリーを見て本文を想起し、本文表示と復習済み更新を行います。
+5. 復習モードでは Cue を見て本文を想起し、本文表示と復習済み更新を行います。Summary の初期非表示は現行契約との差分として証跡マトリクスに記録しています。
 6. `/backup` または `npm run backup:copy` で SQLite DB をバックアップします。
+
+## ノートの削除と復元
+
+ノートの削除は詳細画面で確認 UI を表示し、確認後に `DELETE /api/notes/:id` を実行して Notebook を物理削除します。Cue と NotebookTag の関連も cascade で削除されます。MVP では削除後の Undo / 復元を保証しません。
+
+5 秒 Undo Snackbar、ソフトデリート、Undo buffer（`SoftDeleteBuffer`）、`/api/undo`、期限切れ後の purge は現行 MVP には含まれず、Phase 2 以降の機能です。
 
 ## データベース
 
@@ -163,9 +178,10 @@ npm run prisma:generate
 - バックアップファイルは `backup/` 配下に `.db` として作成されます。
 - 最新 3 世代を保持します。
 - 4 世代目以降は古いものから削除されます。
-- 復元は MVP 外です。自動復元機能はありません。
+- バックアップファイルからの自動復元は MVP 外です。
 
 復元が必要な場合は、アプリを停止した上でバックアップされた `.db` を手動で DB ファイルの場所へ戻す運用になります。
+これはバックアップファイルの手動復旧であり、ノート削除後の Undo / 個別復元機能ではありません。
 
 ## 検証
 
@@ -220,7 +236,7 @@ codex plugin add cornell-design-studio@cornell-method-local
 MVP では次の機能は対象外です。
 
 - 自動保存 / 下書き
-- Undo / ソフトデリート復元
+- Undo / ソフトデリート復元（Phase 2）
 - PDF export
 - 専用復習タスク画面
 - D&D によるカード並び替え

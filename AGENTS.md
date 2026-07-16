@@ -4,13 +4,18 @@
 
 ## Primary References
 
-- 仕様の正本: `AGENTS.md`
+- 製品全体仕様・ロードマップの正本: `AGENTS.md`
+- 現行 MVP の実装・受け入れ契約: `doc/implementation/MVP_CONTRACT.md`
 - 実装状況: `doc/implementation/IMPLEMENTATION_STATUS.md`
 - テスト観点: `doc/testing/TEST_SCENARIOS.md`
 - 設計書一覧: `doc/README.md`
 - Manager / Worker 運用: `codex-queue/README.md`
 - Task Summary 運用: `summary/README.md`
-- 最新引き継ぎ: `HANDOFF_2026-07-08.md`
+- 最新引き継ぎ: `HANDOFF_2026-07-16.md`
+
+### 仕様書の役割分担
+
+`AGENTS.md` は、現行 MVP と Phase 2 以降の高度機能を含む製品全体の仕様・ロードマップを管理します。現行 MVP の route、API、データモデル、保存・削除・復習方式、受け入れ判断は [`doc/implementation/MVP_CONTRACT.md`](doc/implementation/MVP_CONTRACT.md) を正本とします。MVP 契約と製品全体ロードマップの記載が異なる場合、現行 MVP の実装判断では MVP 契約を優先し、将来機能の記述はロードマップとして保持します。
 
 ## Development Policy
 
@@ -44,6 +49,10 @@
 
 この仕様書は、コーネルメソッドノート記録アプリを開発する際にエージェントへ抜け漏れなく依頼するためのテンプレートです。以下の項目を埋め、必要に応じて詳細を更新してください。
 
+### 現行 MVP と製品ロードマップの境界
+
+この章には、現行 MVP と Phase 2 以降の製品ロードマップを併記します。現行 MVP の実装・受け入れ判断は [`doc/implementation/MVP_CONTRACT.md`](doc/implementation/MVP_CONTRACT.md) を優先します。特に現行 MVP の削除は、詳細画面で確認 UI を表示した後に `DELETE /api/notes/:id` で物理削除し、削除後の Undo / 復元を保証しません。5 秒 Undo Snackbar、ソフトデリート、Undo buffer（`SoftDeleteBuffer`）、`/api/undo`、期限切れ後の purge は現行 MVP では提供せず、Phase 2 以降のロードマップです。
+
 ---
 
 ## 1. 概要
@@ -63,7 +72,7 @@
 - **共通**
 
   - 編集モードと閲覧モードをトグルで切り替え。編集モードではドラフト自動保存 + 明示的な保存/破棄ボタンを併用。
-  - 削除操作は確認モーダルが必須。削除後はスナックバーで 5 秒間 Undo を表示し復元を許可（Undo 期限まではソフトデリートで DB に退避）。
+  - （Phase 2 以降のロードマップ）削除操作は確認モーダルが必須。削除後はスナックバーで 5 秒間 Undo を表示し復元を許可（Undo 期限まではソフトデリートで DB に退避）。
   - 入力エリアはすべて Markdown 文法（基本記法 + チェックボックス）を受け付ける。エディタとプレビューを縦に並べて同時表示。
   - 編集中は 3 秒間入力が止まると差分のみドラフト保存（`isDraft=true` のまま DB 反映）。連続ドラフト保存は最短 6 秒間隔。楽観ロックで `updatedAt` が古い保存は 409 を返し、再読込を促す。
   - 409 競合時の UI：ドラフト保存（オートセーブ）はバナーで通知＋再読み込みボタン（自動保存は一時停止、編集は継続可）。確定保存（Cmd+S）はモーダルで再読み込み/後でを提示（自動保存は再読み込みまで停止）。
@@ -125,53 +134,53 @@
 | 画面         | パス例          | 主な状態                       | 備考                                 |
 | ------------ | --------------- | ------------------------------ | ------------------------------------ |
 | ノート一覧   | `/notes`        | 初期ロード / 検索中 / 結果表示 | ローカル検索（タイトル・日付・タグ） |
-| ノート詳細   | `/notes/[id]`   | 閲覧 / 編集 / 保存中 / エラー  | モードトグルと Undo Snackbar         |
+| ノート詳細   | `/notes/[id]`   | 閲覧 / 編集 / 保存中 / エラー  | モードトグル（Undo Snackbar は Phase 2 以降） |
 | 新規作成     | `/notes/new`    | 初期テンプレロード / 下書き    | 保存後 `/notes/[id]` へ遷移          |
 | バックアップ | `/notes/backup` | 最新 3 世代の一覧 / 再取得     | 自動コピーの履歴 + リトライボタン    |
 | 復習タスク   | `/tasks/review` | タブ切替 / 完了操作            | 1 日後 / 1 週間後タスクの完了管理    |
 
 - RSC + Client Component のハイブリッド。フォーム部分は Client Component。
-- Undo は Client 側で`setTimeout`管理し、期限切れ後は完全削除。
+- Phase 2 以降の Undo は Client 側で`setTimeout`管理し、期限切れ後は完全削除。
 - `/notes/backup` は最新 3 世代のバックアップ一覧と、失敗時の再試行ボタン/ログ確認リンクを提供する。
 
 ## 5. データモデル / API
 
 | テーブル                     | 主キー                               | 主な列                                                                                                                                                   | 備考                                                                                         |
 | ---------------------------- | ------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
-| `notebooks`                  | `id` (cuid)                          | `title`, `overview`, `summary`, `note_date`, `created_at`, `updated_at`, `deleted_at`                                                                    | Prisma モデル名は `Notebook` だが、テーブル/カラムは snake_case で管理（日時は `DATETIME`）  |
+| `notebooks`                  | `id` (cuid)                          | `title`, `overview`, `summary`, `note_date`, `created_at`, `updated_at`, `deleted_at`                                                                    | Prisma モデル名は `Notebook` だが、テーブル/カラムは snake_case で管理（日時は `DATETIME`）。`deleted_at` は Phase 2 以降のソフトデリート用 |
 | `notebook_draft_states`      | `notebook_id` (PK=FK)                | `is_draft`, `draft_updated_at`, `hidden_notes`, `version` (int), `autosave_version` (int)                                                                | Notebook と 1:1 の最新ドラフト専用テーブル。Notebook 作成時に必ず初期レコードを生成          |
 | `notebook_review_progresses` | `notebook_id` (PK=FK)                | `review_status` (0=未レビュー,1=1 日後済,2=1 週間後済), `first_review_at`, `second_review_at`, `first_review_completed_at`, `second_review_completed_at` | Notebook 作成時に必ず初期レコードを生成する spaced repetition 用メタデータ                   |
 | `tags`                       | `id`                                 | `name` (unique), `color` (任意), `created_at`                                                                                                            | タグ候補のマスタ                                                                             |
 | `notebook_tags`              | `notebook_id`, `tag_id` (複合主キー) | -                                                                                                                                                        | Notebook と Tag の多対多中間                                                                 |
-| `cue_cards`                  | `id`                                 | `notebook_id` FK, `marker`, `content`, `order`, `deleted_at`                                                                                             | Markdown: `content`                                                                          |
-| `note_cards`                 | `id`                                 | `notebook_id` FK, `title`, `content`, `order`, `is_hidden`, `deleted_at`                                                                                 | Markdown: `content`                                                                          |
+| `cue_cards`                  | `id`                                 | `notebook_id` FK, `marker`, `content`, `order`, `deleted_at`                                                                                             | Markdown: `content`。カード分割・`deleted_at` は Phase 2 以降 |
+| `note_cards`                 | `id`                                 | `notebook_id` FK, `title`, `content`, `order`, `is_hidden`, `deleted_at`                                                                                 | Markdown: `content`。カード分割・`deleted_at` は Phase 2 以降 |
 | `note_cue_links`             | `note_card_id`, `cue_card_id`        | `order` (任意)                                                                                                                                           | CueCard と NoteCard の多対多中間。DB が参照整合性を担保する                                  |
-| `soft_delete_buffers`        | `id`                                 | `entity_type` (`notebook`/`cue`/`note`), `entity_id`, `undo_expires_at`, `created_at`, `purged_at`                                                       | Undo 用のソフトデリート領域。ID と種別のみ保持し、実データは各テーブルの `deleted_at` で管理 |
+| `soft_delete_buffers`        | `id`                                 | `entity_type` (`notebook`/`cue`/`note`), `entity_id`, `undo_expires_at`, `created_at`, `purged_at`                                                       | Phase 2 以降の Undo 用ソフトデリート領域。ID と種別のみ保持し、実データは各テーブルの `deleted_at` で管理 |
 | `backup_logs`                | `id`                                 | `executed_at`, `status` (`success`/`failure`), `error_message`                                                                                           | 自動/手動バックアップのログ。`/notes/backup` で最新順に表示                                  |
 
-- Notebook は確定版の永続化のみを担い、ドラフトや復習、Undo 等の周辺責務はそれぞれ `NotebookDraftState`、`NotebookReviewProgress`、`SoftDeleteBuffer` が担当する。Notebook 作成時に `NotebookDraftState` / `NotebookReviewProgress` の初期レコードも同時生成し、以降は 1:1 リレーションを維持する。Notebook 保存時は関連テーブルを Prisma のトランザクションで一括更新する（スロークエリが問題になる場合のみ分割を検討）。
+- （Phase 2 以降のロードマップ）Notebook は確定版の永続化のみを担い、ドラフトや復習、Undo 等の周辺責務はそれぞれ `NotebookDraftState`、`NotebookReviewProgress`、`SoftDeleteBuffer` が担当する。Notebook 作成時に `NotebookDraftState` / `NotebookReviewProgress` の初期レコードも同時生成し、以降は 1:1 リレーションを維持する。Notebook 保存時は関連テーブルを Prisma のトランザクションで一括更新する（スロークエリが問題になる場合のみ分割を検討）。
 - 復習タスクはノート作成時に `first_review_at = note_date + 1 day`, `second_review_at = note_date + 7 days` を算出して `notebook_review_progresses` に保存し、`review_status` に応じて「1 日後」「1 週間後」タブに振り分ける。
-- Notebook/CueCard/NoteCard など削除対象は `deletedAt` によるソフトデリートを採用し、Undo 期限内はレコードを保持する。期限切れまたは明示破棄で `deletedAt IS NOT NULL` のレコードを物理削除する。
+- （Phase 2 以降のロードマップ）Notebook/CueCard/NoteCard など削除対象は `deletedAt` によるソフトデリートを採用し、Undo 期限内はレコードを保持する。期限切れまたは明示破棄で `deletedAt IS NOT NULL` のレコードを物理削除する。
 - `NoteCueLink` に CueCard との関連を移したことで、ノート本文更新と関連付け更新を別トランザクションにでき、DB 側で外部キー制約が機能する。
 - Draft のバージョニングは `version`（確定保存時に +1）と `autosave_version`（自動保存時に +1）を分離し、比較時は `version.autosave_version` を文字列連結して扱う。確定保存時は `version` をインクリメントして `autosave_version` を 0 にリセット、自動保存時は `autosave_version` のみ増やす。
 
 - クリーンアップ方針
 
-  - アプリ起動時に Prisma 経由で `draftUpdatedAt` から 30 日以上経過した `NotebookDraftState` を削除し、同時に `soft_delete_buffers` の `undo_expires_at < now()` を物理削除する（ログ保持なし）。
-  - 同タイミングで `deleted_at` が 30 日以上前の Notebook/CueCard/NoteCard を完全削除し、復元不可にする。
+  - （Phase 2 以降のロードマップ）アプリ起動時に Prisma 経由で `draftUpdatedAt` から 30 日以上経過した `NotebookDraftState` を削除し、同時に `soft_delete_buffers` の `undo_expires_at < now()` を物理削除する（ログ保持なし）。
+  - （Phase 2 以降のロードマップ）同タイミングで `deleted_at` が 30 日以上前の Notebook/CueCard/NoteCard を完全削除し、復元不可にする。
 
 - API 例
   - `GET /api/notes?query=...`
   - `GET /api/notes/:id`
   - `POST /api/notes`
   - `PATCH /api/notes/:id`
-  - `DELETE /api/notes/:id`
+  - `DELETE /api/notes/:id`（現行 MVP は確認後に物理削除。soft delete 版は Phase 2 以降）
   - `GET /api/review-tasks?type=day|week`（`first_review_at` / `second_review_at` と `review_status` でフィルタ）
   - `PATCH /api/review-tasks/:notebookId`（チェックボックス完了時に `review_status` と完了日時を更新）
   - `POST /api/tags`（一覧用）、ただし通常はノート編集時に未登録タグを自動作成
 - `POST /api/notes` / `PATCH /api/notes/:id` は Notebook（確定版）と `NotebookDraftState`（自動保存）を並行して更新する。同じリクエスト body に `{ notebook: {...}, draft: {...} }` を含め、ドラフトのみ保存時は `draft` 部分だけを更新し、確定保存時に両方を更新する。ドラフトのバージョンは `version`（整数）と `autosave_version`（整数）を組み合わせて管理し、リクエストで送信された値と DB の値が一致した場合のみ更新する。不一致時は 409 を返し、`errors: [{ field: "draft.version", message: "outdated" }]` などフィールドを明示する。自動保存時は `autosave_version` のみ +1、確定保存時は `version` を +1 して `autosave_version=0` にリセットする。
-- `DELETE` 系 API は直ちにレコードを消さず `deletedAt` を設定し、`SoftDeleteBuffer` に ID/種別を記録する。Undo 期限内であれば `deletedAt=NULL` に戻して復元できる。期限切れまたは明示的な破棄で初めて物理削除する。
-- Undo は送信がシンプルな `POST /api/undo` を定義し、ボディに `{ entityType, entityId }` を渡すと `SoftDeleteBuffer` から対象を復元する。期限切れまたは存在しない場合は 410 を返す。
+- （Phase 2 以降のロードマップ）`DELETE` 系 API は直ちにレコードを消さず `deletedAt` を設定し、`SoftDeleteBuffer` に ID/種別を記録する。Undo 期限内であれば `deletedAt=NULL` に戻して復元できる。期限切れまたは明示的な破棄で初めて物理削除する。
+- （Phase 2 以降のロードマップ）Undo は送信がシンプルな `POST /api/undo` を定義し、ボディに `{ entityType, entityId }` を渡すと `SoftDeleteBuffer` から対象を復元する。期限切れまたは存在しない場合は 410 を返す。
 - バックアップ画面向けに `GET /api/backups`（最新 3 世代 + 失敗履歴 + ログサマリ）、`POST /api/backups/retry`（失敗分の再試行）、`GET /api/backups/logs`（`backup_logs` テーブルを参照）を用意する。`POST /api/backups/retry` は `npm run backup:copy` と同じコマンドをキックする。
 - ノート保存時に未登録タグが自動作成された場合、レスポンスに `{ createdTags: Tag[] }` を含めて UI が即座に反映できるようにする。
 - すべての API でエラーは JSON 形式に統一し、`{ code, message, errors? }` を返す。バリデーションや 409 競合エラー時は `errors: [{ field, message }]` でフィールド単位の詳細を含める。ドラフト競合時は `field` を `draft.version` または `draft.autosave_version` として返す。
