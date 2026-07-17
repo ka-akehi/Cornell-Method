@@ -144,7 +144,7 @@ export function MarkdownPreview({
   if (!value.trim()) {
     return (
       <div
-        className={`rounded-lg border border-dashed border-stone-200 bg-stone-50 px-4 py-3 text-sm text-stone-500 ${className}`}
+        className={`markdown-preview-empty min-w-0 border-b border-dashed border-stone-300/70 bg-[color:var(--paper-soft)]/40 px-4 py-3 text-sm text-[color:var(--paper-ink-soft)] ${className}`}
       >
         {emptyLabel}
       </div>
@@ -153,7 +153,7 @@ export function MarkdownPreview({
 
   return (
     <div
-      className={`min-w-0 rounded-lg border border-stone-200 bg-white px-4 py-3 text-sm text-stone-800 ${className}`}
+      className={`markdown-preview-surface min-w-0 border-b border-stone-300/70 bg-[color:var(--paper-soft)]/70 px-4 pb-4 pt-3 text-sm text-[color:var(--paper-ink)] ${className}`}
     >
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
@@ -216,8 +216,10 @@ export function MarkdownField({
   );
   const previewContent =
     preview === "visible" ? (
-      <div className="min-w-0 space-y-2">
-        <div className="text-xs font-medium text-stone-500">プレビュー</div>
+      <div className="min-w-0">
+        <h3 className="border-b border-stone-300/70 pb-2 text-xs font-extrabold tracking-[0.06em] text-stone-700">
+          Markdown Preview
+        </h3>
         <MarkdownPreview value={value} emptyLabel={previewEmptyLabel} />
       </div>
     ) : null;

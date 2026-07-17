@@ -67,7 +67,7 @@ export default function BackupPage() {
 
   return (
     <div className="space-y-5">
-      <div className="flex flex-wrap items-start justify-between gap-3 border-b border-border pb-4">
+      <div className="app-page-header flex flex-wrap items-start justify-between gap-3 border-b border-border pb-4">
         <div className="min-w-0 space-y-1">
           <p className="text-sm font-medium text-muted-foreground">Backup</p>
           <h1 className="text-2xl font-semibold text-foreground">

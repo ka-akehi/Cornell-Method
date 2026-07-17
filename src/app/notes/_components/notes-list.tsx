@@ -123,7 +123,7 @@ export default function NotesList() {
 
   return (
     <div className="space-y-5">
-      <div className="flex flex-wrap items-start justify-between gap-3">
+      <div className="app-page-header flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0 space-y-1">
           <h1 className="text-2xl font-semibold text-stone-900">ノート一覧</h1>
           <p className="text-sm text-stone-500">

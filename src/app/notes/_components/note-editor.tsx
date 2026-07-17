@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { AppChromeState } from "@/app/_components/app-chrome";
 import type { ApiFieldError } from "@/shared/http";
 import { todayDateString } from "@/shared/date";
 import { MarkdownField } from "@/shared/markdown";
@@ -31,6 +32,7 @@ type NoteEditorProps = {
   mode: "create" | "edit";
   initial?: NoteEditorInitial;
   draft?: unknown;
+  shell?: boolean;
   onCancel?: () => void;
   onSaved?: (note: NoteEditorSavedNote) => void;
 };
@@ -42,7 +44,13 @@ async function updateExistingNote(id: string | undefined, input: NotebookInput) 
   return updateNote(id, input);
 }
 
-export function NoteEditor({ initial, mode, onCancel, onSaved }: NoteEditorProps) {
+export function NoteEditor({
+  initial,
+  mode,
+  shell = true,
+  onCancel,
+  onSaved,
+}: NoteEditorProps) {
   const router = useRouter();
   const [form, setForm] = useState<NoteEditorFormState>(() =>
     createInitialNoteEditorForm(initial),
@@ -50,6 +58,7 @@ export function NoteEditor({ initial, mode, onCancel, onSaved }: NoteEditorProps
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<ApiFieldError[]>([]);
+  const [overviewOpen, setOverviewOpen] = useState(mode === "create");
   const today = useMemo(() => todayDateString(), []);
 
   function updateForm(next: Partial<NoteEditorFormState>) {
@@ -118,6 +127,9 @@ export function NoteEditor({ initial, mode, onCancel, onSaved }: NoteEditorProps
       if (caught instanceof NotesRemoteError) {
         setMessage(caught.message);
         setFieldErrors(caught.fieldErrors);
+        if (fieldError(caught.fieldErrors, "overview")) {
+          setOverviewOpen(true);
+        }
         return;
       }
       setMessage("保存に失敗しました。通信状態またはAPIを確認してください。");
@@ -126,32 +138,46 @@ export function NoteEditor({ initial, mode, onCancel, onSaved }: NoteEditorProps
     }
   }
 
+  const overviewFieldError = fieldError(fieldErrors, "overview");
+  const sourceTypeFieldError = fieldError(fieldErrors, "sourceType");
+  const sourceTitleFieldError = fieldError(fieldErrors, "sourceTitle");
+
   return (
     <form
-      className="min-w-0 space-y-5"
+      className={`note-paper-editor min-w-0 space-y-0 ${
+        shell ? "note-paper-shell note-paper-content" : "note-paper-editor--embedded"
+      }`}
       onSubmit={(event) => {
         event.preventDefault();
         void save();
       }}
     >
+      <AppChromeState state={mode} />
+
       {message && (
         <div
           role="alert"
-          className="min-w-0 break-words rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm leading-6 text-red-700"
+          className="note-paper-alert min-w-0 break-words rounded-lg border px-4 py-3 text-sm leading-6"
         >
           {message}
         </div>
       )}
 
-      <section className="min-w-0 space-y-3 rounded-lg border border-stone-200 bg-white p-4 shadow-sm">
-        <div>
-          <h2 className="text-base font-semibold text-stone-900">基本情報</h2>
-          <p className="mt-1 text-sm leading-6 text-stone-500">
-            タイトル、学習日、学習元を記録します。
-          </p>
-        </div>
-
-        <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_180px]">
+      <section className="note-paper-section min-w-0 !space-y-0">
+        {shell ? (
+          <div className="note-paper-heading !border-b-0 !pb-0">
+            <div className="note-paper-heading-copy w-full">
+              <TitleInput
+                id="note-title"
+                label="タイトル"
+                value={form.title}
+                onChange={(title) => updateForm({ title })}
+                error={fieldError(fieldErrors, "title")}
+                required
+              />
+            </div>
+          </div>
+        ) : (
           <TextInput
             id="note-title"
             label="タイトル"
@@ -160,164 +186,225 @@ export function NoteEditor({ initial, mode, onCancel, onSaved }: NoteEditorProps
             error={fieldError(fieldErrors, "title")}
             required
           />
-          <TextInput
-            id="note-date"
-            label="学習日"
-            type="date"
-            value={form.noteDate}
-            max={today}
-            onChange={(noteDate) => updateForm({ noteDate })}
-            error={fieldError(fieldErrors, "noteDate")}
-            required
-          />
-        </div>
+        )}
 
-        <div className="grid gap-3 md:grid-cols-[220px_minmax(0,1fr)]">
-          <div className="min-w-0 space-y-2">
-            <label htmlFor="source-type" className="block text-sm font-medium text-stone-700">
-              学習元タイプ
-            </label>
-            <select
-              id="source-type"
-              value={form.sourceType}
-              onChange={(event) =>
-                updateForm({ sourceType: event.target.value as SourceType | "" })
-              }
-              aria-invalid={Boolean(fieldError(fieldErrors, "sourceType"))}
-              className="w-full min-w-0 rounded-lg border border-stone-200 bg-white px-3 py-2 text-sm text-stone-900 shadow-sm outline-none transition focus:border-amber-500 focus:ring-2 focus:ring-amber-100"
-            >
-              <option value="">未選択</option>
-              {sourceTypeOptions.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-            {fieldError(fieldErrors, "sourceType") && (
-              <p className="break-words text-xs leading-5 text-red-600">
-                {fieldError(fieldErrors, "sourceType")}
-              </p>
-            )}
+        <div className="note-paper-meta-grid !grid-cols-[minmax(0,0.8fr)_minmax(0,1.8fr)_minmax(0,1.8fr)] max-[900px]:!grid-cols-2 max-[640px]:!grid-cols-1">
+          <div className="note-paper-meta-item">
+            <TextInput
+              id="note-date"
+              label="学習日"
+              type="date"
+              value={form.noteDate}
+              max={today}
+              onChange={(noteDate) => updateForm({ noteDate })}
+              error={fieldError(fieldErrors, "noteDate")}
+              required
+            />
           </div>
-          <TextInput
-            id="source-title"
-            label="学習元タイトル"
-            value={form.sourceTitle}
-            onChange={(sourceTitle) => updateForm({ sourceTitle })}
-            error={fieldError(fieldErrors, "sourceTitle")}
-          />
+          <div className="note-paper-meta-item">
+            <div className="min-w-0 space-y-1.5">
+              <span className="block text-sm font-medium text-stone-700">学習元</span>
+              <div className="grid min-w-0 gap-2 sm:grid-cols-[minmax(0,8.5rem)_minmax(0,1fr)]">
+                <div className="min-w-0 space-y-1">
+                  <label htmlFor="source-type" className="sr-only">
+                    学習元タイプ
+                  </label>
+                  <select
+                    id="source-type"
+                    value={form.sourceType}
+                    onChange={(event) =>
+                      updateForm({ sourceType: event.target.value as SourceType | "" })
+                    }
+                    aria-invalid={Boolean(sourceTypeFieldError)}
+                    aria-describedby={sourceTypeFieldError ? "source-type-error" : undefined}
+                    className="w-full min-w-0 rounded-lg border border-stone-200 bg-white px-3 py-2 text-sm text-stone-900 shadow-sm outline-none transition focus:border-amber-500 focus:ring-2 focus:ring-amber-100"
+                  >
+                    <option value="">未選択</option>
+                    {sourceTypeOptions.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                  {sourceTypeFieldError && (
+                    <p id="source-type-error" className="break-words text-xs leading-5 text-red-600">
+                      {sourceTypeFieldError}
+                    </p>
+                  )}
+                </div>
+                <div className="min-w-0 space-y-1">
+                  <label htmlFor="source-title" className="sr-only">
+                    学習元タイトル
+                  </label>
+                  <input
+                    id="source-title"
+                    type="text"
+                    value={form.sourceTitle}
+                    onChange={(event) => updateForm({ sourceTitle: event.target.value })}
+                    aria-invalid={Boolean(sourceTitleFieldError)}
+                    aria-describedby={sourceTitleFieldError ? "source-title-error" : undefined}
+                    className={`w-full min-w-0 rounded-lg border bg-white px-3 py-2 text-sm text-stone-900 shadow-sm outline-none transition placeholder:text-stone-400 ${
+                      sourceTitleFieldError
+                        ? "border-red-300 focus:border-red-500 focus:ring-2 focus:ring-red-100"
+                        : "border-stone-200 focus:border-amber-500 focus:ring-2 focus:ring-amber-100"
+                    }`}
+                    placeholder="学習元タイトル"
+                  />
+                  {sourceTitleFieldError && (
+                    <p id="source-title-error" className="break-words text-xs leading-5 text-red-600">
+                      {sourceTitleFieldError}
+                    </p>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+          <div className="note-paper-meta-item">
+            <TagInput
+              tags={form.tags}
+              error={fieldError(fieldErrors, "tags")}
+              fieldErrors={fieldErrors}
+              onChange={(tags) => updateForm({ tags })}
+            />
+          </div>
         </div>
-
-        <TextArea
-          id="overview"
-          label="概要"
-          value={form.overview}
-          rows={2}
-          onChange={(overview) => updateForm({ overview })}
-          error={fieldError(fieldErrors, "overview")}
-        />
-
-        <TagInput
-          tags={form.tags}
-          error={fieldError(fieldErrors, "tags")}
-          fieldErrors={fieldErrors}
-          onChange={(tags) => updateForm({ tags })}
-        />
       </section>
 
-      <section className="min-w-0 space-y-3 rounded-lg border border-stone-200 bg-white p-4 shadow-sm">
-        <div>
-          <h2 className="text-base font-semibold text-stone-900">Cornell ノート</h2>
-          <p className="mt-1 text-sm leading-6 text-stone-500">
-            Cue は必要な分だけ追加し、本文は Markdown で記録します。
-          </p>
-        </div>
+      <section className="note-paper-section min-w-0">
+        <details
+          open={overviewOpen}
+          onToggle={(event) => setOverviewOpen(event.currentTarget.open)}
+          className="min-w-0"
+        >
+          <summary className="flex cursor-pointer list-none flex-wrap items-center gap-x-3 gap-y-1 text-sm font-semibold text-stone-800 outline-none focus-visible:rounded-md focus-visible:ring-2 focus-visible:ring-amber-500 focus-visible:ring-offset-2">
+            <span>概要</span>
+            <span className="font-normal text-stone-500">
+              {overviewOpen ? "概要を閉じる" : "概要を開く"}
+            </span>
+            {overviewFieldError && (
+              <span className="break-words font-normal text-red-600">
+                概要に入力エラーがあります
+              </span>
+            )}
+          </summary>
+          <div className="mt-3">
+            <TextArea
+              id="overview"
+              label="概要"
+              value={form.overview}
+              rows={2}
+              onChange={(overview) => updateForm({ overview })}
+              error={overviewFieldError}
+            />
+          </div>
+        </details>
+      </section>
 
-        <div className="w-full min-w-0 overflow-x-auto overscroll-x-contain lg:overflow-x-visible">
-          <div className="grid w-full min-w-[640px] grid-cols-[minmax(0,3fr)_minmax(0,7fr)] gap-4 lg:min-w-0">
-            <div className="min-w-0 space-y-2.5">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <h3 className="text-sm font-semibold text-stone-800">キーワード / 質問</h3>
-                <button
-                  type="button"
-                  onClick={addCue}
-                  className="rounded-lg border border-stone-300 px-3 py-1.5 text-sm font-medium text-stone-700 transition hover:bg-stone-50"
-                >
-                  Cue 追加
-                </button>
-              </div>
-
-              {form.cues.length === 0 ? (
-                <p className="rounded-lg border border-dashed border-stone-200 bg-stone-50 px-3 py-3 text-sm leading-6 text-stone-500">
-                  Cue は未追加です。
-                </p>
-              ) : (
-                <ul className="space-y-3">
-                  {form.cues.map((cue, index) => (
-                    <li key={`${cue.id ?? "new"}-${index}`} className="space-y-2 rounded-lg border border-stone-200 p-3">
-                      <div className="flex items-center justify-between gap-2">
-                        <label
-                          htmlFor={`cue-${index}`}
-                          className="min-w-0 text-sm font-medium text-stone-700"
-                        >
-                          Cue {index + 1}
-                        </label>
-                        <button
-                          type="button"
-                          onClick={() => removeCue(index)}
-                          className="shrink-0 rounded-md px-2 py-1 text-sm text-red-600 transition hover:bg-red-50"
-                        >
-                          削除
-                        </button>
-                      </div>
-                      <textarea
-                        id={`cue-${index}`}
-                        value={cue.text}
-                        rows={3}
-                        onChange={(event) => updateCue(index, event.target.value)}
-                        aria-invalid={Boolean(indexedFieldError(fieldErrors, "cues", index))}
-                        className="w-full min-w-0 resize-y rounded-lg border border-stone-200 bg-white px-3 py-2 text-sm leading-6 text-stone-900 shadow-sm outline-none transition placeholder:text-stone-400 focus:border-amber-500 focus:ring-2 focus:ring-amber-100"
-                        placeholder="例: この章の主張は何か"
-                      />
-                      {indexedFieldError(fieldErrors, "cues", index) && (
-                        <p className="break-words text-xs leading-5 text-red-600">
-                          {indexedFieldError(fieldErrors, "cues", index)}
-                        </p>
-                      )}
-                    </li>
-                  ))}
-                </ul>
-              )}
+      <section className="note-paper-section min-w-0 !space-y-0">
+        <div className="note-paper-cornell-grid grid w-full min-w-0 grid-cols-[minmax(0,30%)_minmax(0,70%)] max-[640px]:!grid-cols-1">
+          <div className="min-w-0 space-y-3 max-[640px]:!border-r-0 max-[640px]:!border-b max-[640px]:!pb-5 max-[640px]:!pr-0">
+            <div className="flex flex-wrap items-center justify-between gap-2 pb-2">
+              <h2 className="note-paper-section-title text-base">Cue / キーワード</h2>
+              <button
+                type="button"
+                onClick={addCue}
+                className="rounded-lg border border-stone-300 px-3 py-1.5 text-sm font-medium text-stone-700 transition hover:bg-stone-50"
+              >
+                Cue 追加
+              </button>
             </div>
 
+            {form.cues.length === 0 ? (
+              <p className="rounded-lg border border-dashed border-stone-200 !bg-transparent px-3 py-3 text-sm leading-6 text-stone-500">
+                Cue は未追加です。
+              </p>
+            ) : (
+              <ul className="space-y-0">
+                {form.cues.map((cue, index) => {
+                  const cueFieldError = indexedFieldError(fieldErrors, "cues", index);
+
+                  return (
+                    <li
+                      key={`${cue.id ?? "new"}-${index}`}
+                      className="note-paper-cue-item min-w-0 !rounded-none !border-x-0 !border-t-0 border-b border-dashed !bg-transparent px-0 py-3 first:pt-1 last:border-b-0"
+                    >
+                      <div className="flex min-w-0 items-start gap-3">
+                        <span
+                          aria-hidden="true"
+                          className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[color:var(--chrome)] text-xs font-bold text-[color:var(--chrome-foreground)]"
+                        >
+                          {index + 1}
+                        </span>
+                        <div className="min-w-0 flex-1 space-y-1.5">
+                          <div className="flex min-w-0 justify-end">
+                            <label htmlFor={`cue-${index}`} className="sr-only">
+                              Cue {index + 1}
+                            </label>
+                            <button
+                              type="button"
+                              onClick={() => removeCue(index)}
+                              className="shrink-0 rounded-md px-2 py-1 text-xs text-red-600 transition hover:bg-red-50"
+                            >
+                              削除
+                            </button>
+                          </div>
+                          <textarea
+                            id={`cue-${index}`}
+                            value={cue.text}
+                            rows={3}
+                            onChange={(event) => updateCue(index, event.target.value)}
+                            aria-invalid={Boolean(cueFieldError)}
+                            aria-describedby={cueFieldError ? `cue-${index}-error` : undefined}
+                            className={`w-full min-w-0 resize-y rounded-none border-0 border-b bg-transparent px-0 py-1 text-sm leading-6 text-stone-900 !shadow-none outline-none transition placeholder:text-stone-400 focus:border-amber-500 focus:ring-0 ${
+                              cueFieldError ? "border-red-400" : "border-stone-300/70"
+                            }`}
+                            placeholder="例: この章の主張は何か"
+                          />
+                          {cueFieldError && (
+                            <p id={`cue-${index}-error`} className="break-words text-xs leading-5 text-red-600">
+                              {cueFieldError}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </div>
+
+          <div className="min-w-0 max-[640px]:!pl-0 max-[640px]:!pt-5">
             <MarkdownField
               id="body"
               label="ノート本文"
               value={form.body}
               onChange={(body) => updateForm({ body })}
               rows={12}
-              layout="desktop-split"
+              layout="stacked"
               error={fieldError(fieldErrors, "body")}
               placeholder="本文を Markdown で入力"
               previewEmptyLabel="本文のプレビューはまだありません。"
+              textareaClassName="!rounded-none !border-0 !border-b !bg-transparent !px-0 !shadow-none focus:!ring-0"
             />
           </div>
         </div>
       </section>
 
-      <section className="min-w-0 space-y-3 rounded-lg border border-stone-200 bg-white p-4 shadow-sm">
+      <section className="note-paper-section min-w-0 space-y-3">
         <MarkdownField
           id="summary"
-          label="サマリー"
+          label="Summary / 要約と次の一歩"
           value={form.summary}
           onChange={(summary) => updateForm({ summary })}
           rows={6}
           error={fieldError(fieldErrors, "summary")}
           placeholder="要点や次のアクションを Markdown で入力"
           previewEmptyLabel="サマリーのプレビューはまだありません。"
+          textareaClassName="!rounded-none !border-0 !border-b !bg-transparent !px-0 !shadow-none focus:!ring-0"
         />
 
-        <div className="grid gap-3 md:grid-cols-[220px_minmax(0,1fr)] md:items-end">
+        <div className="note-paper-footer grid gap-3 md:grid-cols-[220px_minmax(0,1fr)] md:items-end">
           <TextInput
             id="next-review-date"
             label="次回復習日"
@@ -351,6 +438,51 @@ export function NoteEditor({ initial, mode, onCancel, onSaved }: NoteEditorProps
         </div>
       </section>
     </form>
+  );
+}
+
+function TitleInput({
+  id,
+  label,
+  value,
+  onChange,
+  error,
+  required = false,
+}: {
+  id: string;
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  error?: string;
+  required?: boolean;
+}) {
+  return (
+    <div className="min-w-0 space-y-1.5">
+      <label htmlFor={id} className="sr-only">
+        {label}
+        {required && <span className="ml-1">*</span>}
+      </label>
+      <input
+        id={id}
+        type="text"
+        value={value}
+        required={required}
+        onChange={(event) => onChange(event.target.value)}
+        aria-invalid={Boolean(error)}
+        aria-describedby={error ? `${id}-error` : undefined}
+        className={`note-paper-title w-full min-w-0 rounded-none border-0 border-b !bg-transparent px-0 py-1 !shadow-none outline-none transition placeholder:text-stone-400 focus:ring-0 ${
+          error
+            ? "border-red-400 focus:border-red-500"
+            : "border-stone-300 focus:border-amber-500"
+        }`}
+        placeholder="タイトルを入力"
+      />
+      {error && (
+        <p id={`${id}-error`} className="break-words text-xs leading-5 text-red-600">
+          {error}
+        </p>
+      )}
+    </div>
   );
 }
 
@@ -521,14 +653,14 @@ function TagInput({
   );
 
   return (
-    <div className="min-w-0 space-y-1.5">
+    <div className="min-w-0 space-y-1">
       <span className="block text-sm font-medium text-stone-700">タグ</span>
       {tags.length > 0 && (
-        <div className="flex flex-wrap gap-1.5">
+        <div className="flex flex-wrap gap-1">
           {tags.map((tag, index) => (
             <span
               key={`${tag.id ?? tag.name}-${index}`}
-              className="inline-flex max-w-full items-center gap-2 rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-sm text-amber-900"
+              className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs text-amber-900"
             >
               <span className="min-w-0 break-all">{tag.name}</span>
               <button
@@ -543,9 +675,9 @@ function TagInput({
           ))}
         </div>
       )}
-      <div className="grid min-w-0 gap-2 sm:grid-cols-2">
+      <div className="grid min-w-0 gap-1.5 sm:grid-cols-2">
         <div className="min-w-0 space-y-1">
-          <label htmlFor="tag-candidate-select" className="block text-xs font-medium text-stone-600">
+          <label htmlFor="tag-candidate-select" className="block text-[0.6875rem] font-medium text-stone-600">
             既存タグから追加
           </label>
           <select
@@ -553,7 +685,7 @@ function TagInput({
             value=""
             disabled={loadingCandidates || availableCandidates.length === 0}
             onChange={(event) => addCandidate(event.target.value)}
-            className="w-full min-w-0 rounded-lg border border-stone-200 bg-white px-3 py-2 text-sm text-stone-900 shadow-sm outline-none transition focus:border-amber-500 focus:ring-2 focus:ring-amber-100 disabled:cursor-not-allowed disabled:bg-stone-50 disabled:text-stone-400"
+            className="w-full min-w-0 rounded-lg border border-stone-200 bg-white px-2.5 py-1.5 text-sm text-stone-900 shadow-sm outline-none transition focus:border-amber-500 focus:ring-2 focus:ring-amber-100 disabled:cursor-not-allowed disabled:bg-stone-50 disabled:text-stone-400"
           >
             <option value="">
               {loadingCandidates
@@ -573,7 +705,7 @@ function TagInput({
           )}
         </div>
         <div className="min-w-0 space-y-1">
-          <label htmlFor="tag-input" className="block text-xs font-medium text-stone-600">
+          <label htmlFor="tag-input" className="block text-[0.6875rem] font-medium text-stone-600">
             新規タグを追加
           </label>
           <div className="flex min-w-0 gap-2">
@@ -587,20 +719,20 @@ function TagInput({
                   addTag();
                 }
               }}
-              className="min-w-0 flex-1 rounded-lg border border-stone-200 bg-white px-3 py-2 text-sm text-stone-900 shadow-sm outline-none transition placeholder:text-stone-400 focus:border-amber-500 focus:ring-2 focus:ring-amber-100"
+              className="min-w-0 flex-1 rounded-lg border border-stone-200 bg-white px-2.5 py-1.5 text-sm text-stone-900 shadow-sm outline-none transition placeholder:text-stone-400 focus:border-amber-500 focus:ring-2 focus:ring-amber-100"
               placeholder="タグ名を入力"
             />
             <button
               type="button"
               onClick={addTag}
-              className="shrink-0 rounded-lg border border-stone-300 px-3 py-2 text-sm font-medium text-stone-700 transition hover:bg-stone-50"
+              className="shrink-0 rounded-lg border border-stone-300 px-2.5 py-1.5 text-sm font-medium text-stone-700 transition hover:bg-stone-50"
             >
               追加
             </button>
           </div>
         </div>
       </div>
-      <p className="text-xs leading-5 text-stone-500">最大12件。Enter でも追加できます。</p>
+      <p className="text-[0.6875rem] leading-5 text-stone-500">最大12件。Enter でも追加できます。</p>
       {(error || localError) && (
         <p className="break-words text-xs leading-5 text-red-600">{localError ?? error}</p>
       )}

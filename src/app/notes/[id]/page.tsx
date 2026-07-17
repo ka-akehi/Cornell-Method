@@ -41,5 +41,9 @@ export default async function NoteDetailPage({
     );
   }
 
-  return <NoteDetailModes initialNote={notebook} />;
+  return (
+    <div className="note-paper-page">
+      <NoteDetailModes initialNote={notebook} />
+    </div>
+  );
 }
