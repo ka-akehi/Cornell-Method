@@ -5,9 +5,11 @@ import type {
 import { decodeApiErrorResponse } from "@/shared/http";
 import type {
   NotebookInput,
+  NoteBodyMode,
   NotesQuery,
   ReviewUpdateInput,
 } from "@/modules/notes/contracts";
+import type { CanvasDocumentV1 } from "@/shared/canvas";
 
 export type NoteTag = {
   id: string;
@@ -21,7 +23,8 @@ export type NotebookListItem = {
   noteDate: string | null;
   sourceType: string | null;
   sourceTitle: string;
-  overview: string;
+  bodyMode: NoteBodyMode;
+  hasCanvas: boolean;
   summary: string;
   cueCount: number;
   hasSummary: boolean;
@@ -42,9 +45,10 @@ export type NoteDetailResponse = {
   title: string;
   noteDate: string | null;
   sourceType: string | null;
-  sourceTitle: string | null;
-  overview: string | null;
+  sourceTitle: string;
+  bodyMode: NoteBodyMode;
   body: string | null;
+  canvas: CanvasDocumentV1 | null;
   summary: string | null;
   nextReviewDate: string | null;
   reviewedAt: string | null;

@@ -6,6 +6,52 @@ import remarkGfm from "remark-gfm";
 
 type PreviewMode = "hidden" | "visible";
 
+type MarkdownAstNode = {
+  type: string;
+  value?: string;
+  children?: MarkdownAstNode[];
+};
+
+/**
+ * Keep soft line breaks visible without adding a runtime dependency. Markdown
+ * code nodes deliberately remain untouched so source formatting is preserved.
+ */
+function remarkSoftLineBreaks() {
+  return (tree: MarkdownAstNode) => {
+    transformSoftLineBreaks(tree);
+  };
+}
+
+function transformSoftLineBreaks(node: MarkdownAstNode) {
+  if (!node.children || node.type === "code" || node.type === "inlineCode") {
+    return;
+  }
+
+  const children: MarkdownAstNode[] = [];
+
+  for (const child of node.children) {
+    if (child.type === "text" && child.value?.includes("\n")) {
+      const lines = child.value.split("\n");
+
+      lines.forEach((line, index) => {
+        if (line) {
+          children.push({ ...child, value: line });
+        }
+
+        if (index < lines.length - 1) {
+          children.push({ type: "break" });
+        }
+      });
+      continue;
+    }
+
+    transformSoftLineBreaks(child);
+    children.push(child);
+  }
+
+  node.children = children;
+}
+
 export type MarkdownPreviewProps = {
   value: string;
   emptyLabel?: string;
@@ -156,7 +202,7 @@ export function MarkdownPreview({
       className={`markdown-preview-surface min-w-0 border-b border-stone-300/70 bg-[color:var(--paper-soft)]/70 px-4 pb-4 pt-3 text-sm text-[color:var(--paper-ink)] ${className}`}
     >
       <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
+        remarkPlugins={[remarkGfm, remarkSoftLineBreaks]}
         rehypePlugins={[rehypeSanitize]}
         components={markdownComponents}
       >
@@ -217,7 +263,7 @@ export function MarkdownField({
   const previewContent =
     preview === "visible" ? (
       <div className="min-w-0">
-        <h3 className="border-b border-stone-300/70 pb-2 text-xs font-extrabold tracking-[0.06em] text-stone-700">
+        <h3 className="markdown-preview-heading border-b border-stone-300/70 pb-2 text-xs font-extrabold tracking-[0.06em] text-stone-700">
           Markdown Preview
         </h3>
         <MarkdownPreview value={value} emptyLabel={previewEmptyLabel} />

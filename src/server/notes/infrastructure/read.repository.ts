@@ -24,10 +24,10 @@ function buildNotesWhere(input: NotesQuery): Prisma.NotebookWhereInput {
   if (input.query) {
     where.OR = [
       { title: { contains: input.query } },
-      { overview: { contains: input.query } },
       { body: { contains: input.query } },
       { summary: { contains: input.query } },
       { cues: { some: { text: { contains: input.query } } } },
+      { canvas: { is: { searchText: { contains: input.query } } } },
     ];
   }
 
@@ -70,6 +70,7 @@ export async function findNotes(input: NotesQuery) {
     include: {
       _count: { select: { cues: true } },
       tags: { include: { tag: true } },
+      canvas: { select: { notebookId: true } },
     },
   });
 }
@@ -83,6 +84,7 @@ export async function findNoteDetail(id: string) {
     include: {
       cues: { orderBy: { order: "asc" } },
       tags: { include: { tag: true } },
+      canvas: true,
     },
   });
 }

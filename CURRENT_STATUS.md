@@ -1,6 +1,6 @@
 # CURRENT_STATUS
 
-確認日: 2026-07-02
+確認日: 2026-07-18
 
 ## 位置づけ
 
@@ -42,7 +42,7 @@
 
 `doc/implementation/MVP_IMPLEMENTATION_TASKS.md` は 2026-06-15 時点の MVP 実装順序として、DB/API 先行を推奨し、Prisma schema、validation、notes API、tags API、backup API、layout、Markdown preview、note form、notes list、detail modes、backup screen、test/update、README、final verification の順に分割しています。
 
-`doc/testing/TEST_SCENARIOS.md` は、MVP では明示保存、物理削除、手動復習予定、`textarea + Markdown preview`, `/notes` の復習対象フィルタ、`/backup` の手動バックアップを確認対象にしています。自動保存、Undo、PDF、専用復習タスク、D&D、NoteCard、タグ管理 UI、バックアップログ、高機能 Markdown エディタ、ショートカットは Phase 2 / 将来確認へ分離されています。
+`doc/testing/TEST_SCENARIOS.md` は、MVP では明示保存、物理削除、手動復習予定、Cue / Summary の Markdown preview、中央の Canvas 本文、`/notes` の復習対象フィルタ、`/backup` の手動バックアップを確認対象にしています。自動保存、Undo、PDF、専用復習タスク、D&D、NoteCard、タグ管理 UI、バックアップログ、高機能 Markdown エディタ、ショートカットは Phase 2 / 将来確認へ分離されています。
 
 ## 現コードで確認できる実装済みの範囲
 
@@ -58,10 +58,14 @@
 `prisma/schema.prisma` で確認できるモデルは次の範囲です。
 
 - `Notebook`
-  - `title`, `noteDate`, `sourceType`, `sourceTitle`, `overview`, `body`, `summary`, `nextReviewDate`, `reviewedAt`, `createdAt`, `updatedAt`, `deletedAt`
+  - `title`, `noteDate`, `sourceType`, `sourceTitle`, `body`, `bodyMode`, `summary`, `nextReviewDate`, `reviewedAt`, `createdAt`, `updatedAt`, `deletedAt`
+- `NotebookCanvas`
+  - `notebookId`, `schemaVersion`, `documentJson`, `searchText`, `createdAt`, `updatedAt`
 - `Tag`
 - `NotebookTag`
 - `Cue`
+
+Canvas 本文の共有契約は `CanvasDocumentV1` です。既定の用紙サイズは 1200x800px、幅・高さは 320〜4000px の整数 px、既存要素は用紙サイズ変更時に変形しません。
 
 現 schema は MVP 寄りです。最終仕様の `NotebookDraftState`, `NotebookReviewProgress`, `SoftDeleteBuffer`, `BackupLog`, `CueCard`, `NoteCard`, `NoteCueLink` は確認できません。
 
@@ -72,15 +76,15 @@
 - `GET /api/notes`
   - `query`, `tag`, `from`, `to`, `reviewDue`, `page` を扱います。
   - 1 ページ 50 件で `page`, `totalPages`, `totalCount`, `data` を返します。
-  - タイトル、概要、本文、サマリー、Cue を検索対象にしています。
+  - タイトル、既存 Markdown 本文、サマリー、Cue、Canvas text 要素由来の `searchText` を検索対象にしています。
   - タグは OR 条件で絞り込みます。
   - `reviewDue=true` は `nextReviewDate <= today` を対象にします。
 - `POST /api/notes`
-  - Notebook 作成、Cue 作成、Tag upsert、NotebookTag 作成をトランザクションで実行します。
+  - Notebook 作成、Cue 作成、Tag upsert、NotebookTag 作成をトランザクションで実行します。`bodyMode=canvas` の場合は Canvas JSON と `searchText` も保存します。
 - `GET /api/notes/:id`
-  - Notebook 詳細、Cue、Tag を返します。
+  - Notebook 詳細、Cue、Tag、`bodyMode`、Canvas document を返します。
 - `PATCH /api/notes/:id`
-  - Notebook を更新し、Cue と Tag 関連は全置換します。
+  - Notebook を更新し、Cue と Tag 関連は全置換します。Canvas の page 寸法変更では要素座標・寸法・points・style を変更しません。
 - `DELETE /api/notes/:id`
   - Prisma の `delete` を呼び、物理削除しています。
 - `POST /api/notes/:id/review`
@@ -91,6 +95,8 @@
   - `backup/` 配下の最新 3 世代を返します。
 - `POST /api/backups`
   - SQLite DB ファイルをコピーして最新 3 世代に prune します。
+
+2026-07-18 の `prisma/migrations/20260718011243_remove_notebook_overview/migration.sql` 適用後、通常使用中の SQLite DB と `prisma/schema.prisma` に旧 overview 列はありません。Canvas persistence の作業ツリーには `NotebookCanvas` と `bodyMode` も存在し、現行ノート項目はタイトル、学習日、学習元、タグ、Cue、Canvas または既存 Markdown 本文、サマリー、次回復習日、最終復習日時です。用紙サイズ変更だけでは新しい Prisma migration を要求しません。
 
 エラー形式は Zod validation と not found / server error で `{ code, message, errors? }` に概ね統一されています。
 
@@ -116,12 +122,13 @@
 - `/backup`
   - バックアップ一覧、手動作成、一覧更新、loading/error/success 表示があります。
 
-### 入力・Markdown
+### 入力・Markdown / Canvas
 
 - `MarkdownField` は textarea と `react-markdown` preview の縦並びです。
 - `remark-gfm` と `rehype-sanitize` が使われています。
 - preview の checkbox は `readOnly`, `tabIndex={-1}`, `preventDefault` で表示専用にされています。
 - `@uiw/react-md-editor` の利用は確認できません。
+- Canvas editor / viewer は `CanvasDocumentV1` を読み書きし、Canvas text 要素を `searchText` として保存します。現在のコードには 320〜4000px の Canvas document validation がありますが、本文領域の用紙サイズ数値入力・適用 UI は未実装です。
 
 ### バックアップ
 
@@ -141,6 +148,7 @@
 - ソフトデリート。現 `DELETE /api/notes/:id` は物理削除です。
 - 起動時クリーンアップバッチ。
 - `/tasks/review` 画面、`GET /api/review-tasks`, `PATCH /api/review-tasks/:notebookId`。
+- Canvas 本文の用紙サイズ入力・適用、保存後の可変 page 寸法での editor / viewer 復元、用紙サイズ変更時の要素不変挙動。共有 validation と JSON 保存・検索境界はあるが、UI と renderer は現状 1200x800 の定数を参照している。
 - グローバルナビの復習タスク未完バッジ。
 - `/api/notes/export?from&to` の PDF エクスポート。
 - `/api/backups/retry`, `/api/backups/logs`。
@@ -159,8 +167,9 @@
 
 | 項目 | `AGENTS.md` 最終仕様 | 現コードで確認できた状態 |
 | --- | --- | --- |
-| DB | Draft / ReviewProgress / SoftDeleteBuffer / BackupLog / NoteCard 系まで含む | Notebook / Tag / NotebookTag / Cue の MVP 寄り |
-| ノート本文 | NoteCard 複数カード、Cue との多対多リンク | Notebook.body 1 フィールド |
+| DB | Draft / ReviewProgress / SoftDeleteBuffer / BackupLog / NoteCard 系まで含む | Notebook / NotebookCanvas / Tag / NotebookTag / Cue の MVP 寄り |
+| ノート本文 | CanvasDocumentV1 のフリー入力本文、将来 NoteCard へ拡張 | NotebookCanvas JSON は接続済み。可変 page UI は未完了。既存 Markdown body も互換保持 |
+| Canvas 本文 | `CanvasDocumentV1` の page 寸法を数値入力で変更し、要素 geometry を不変に保つ | `NotebookCanvas` / `CanvasDocumentV1` の保存・検索境界はあるが、editor / viewer の可変 page 対応と寸法 UI は未完了 |
 | Cue | CueCard モデル、D&D 並び替え、削除確認 | Cue モデル、フォーム上の追加/削除のみ |
 | 削除 | ソフトデリート + Undo 5 秒 | `delete` による物理削除 |
 | 自動保存 | 3 秒アイドル + 最短 6 秒 + 409 制御 | 未確認。手動保存のみ |
@@ -197,7 +206,7 @@
 - MVP 確認対象は `/backup` ですが、`AGENTS.md` の最終仕様は `/notes/backup` です。
 - MVP では物理削除を確認対象にしていますが、`AGENTS.md` の最終仕様はソフトデリート + Undo です。
 - MVP では手動復習予定を確認対象にしていますが、`AGENTS.md` の最終仕様は `NotebookReviewProgress` と `/tasks/review` です。
-- MVP では `textarea + Markdown preview` を確認対象にしていますが、`AGENTS.md` の最終仕様は `@uiw/react-md-editor` です。
+- MVP では Cue / Summary の `textarea + Markdown preview` と中央 Canvas 本文を確認対象にしていますが、`AGENTS.md` の最終仕様では高機能 Markdown editor と Canvas の可変用紙 UI を追加で求めています。
 
 これは単純な誤りというより、「MVP と最終仕様の層が違う」ことによるズレです。次の作業では、MVP 継続か最終仕様への拡張かを先に決める必要があります。
 

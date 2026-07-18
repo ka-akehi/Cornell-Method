@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import type { ReactNode } from "react";
 import { useState } from "react";
 import { NoteEditor } from "./note-editor";
+import { NoteCanvasViewer } from "./note-canvas-viewer";
 import { AppChromeState } from "@/app/_components/app-chrome";
 import {
   formatDate,
@@ -105,6 +106,14 @@ function CueList({ cues }: { cues: NoteDetail["cues"] }) {
   );
 }
 
+function NoteBody({ note }: { note: NoteDetail }) {
+  if (note.bodyMode === "canvas") {
+    return <NoteCanvasViewer document={note.canvas} />;
+  }
+
+  return <MarkdownPreview value={note.body ?? ""} emptyLabel="本文は未入力です。" />;
+}
+
 function MetaGrid({ note }: { note: NoteDetail }) {
   return (
     <div className="min-w-0">
@@ -137,37 +146,6 @@ function MetaGrid({ note }: { note: NoteDetail }) {
         </div>
       </dl>
     </div>
-  );
-}
-
-function OverviewDisclosure({
-  mode,
-  overview,
-}: {
-  mode: Exclude<Mode, "edit">;
-  overview: string | null;
-}) {
-  const overviewText = overview?.trim() ?? "";
-  const [open, setOpen] = useState(mode === "review");
-
-  return (
-    <details
-      open={open}
-      onToggle={(event) => setOpen(event.currentTarget.open)}
-      className="note-paper-section min-w-0 space-y-3"
-    >
-      <summary className="flex min-w-0 cursor-pointer list-none items-baseline gap-3 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-600">
-        <span className="note-paper-section-title shrink-0">概要</span>
-        <span className="min-w-0 flex-1 truncate text-sm text-stone-500">
-          {overviewText || "概要は未入力です。"}
-        </span>
-      </summary>
-      {overviewText ? (
-        <p className="break-words text-sm leading-7 text-stone-800">{overview}</p>
-      ) : (
-        <p className="text-sm text-stone-500">概要は未入力です。</p>
-      )}
-    </details>
   );
 }
 
@@ -241,8 +219,9 @@ export function NoteDetailModes({ initialNote }: { initialNote: NoteDetail }) {
       noteDate: note.noteDate ?? "",
       sourceType: normalizeSourceType(note.sourceType),
       sourceTitle: note.sourceTitle ?? "",
-      overview: note.overview ?? "",
+      bodyMode: note.bodyMode,
       body: note.body ?? "",
+      canvas: note.canvas,
       summary: note.summary ?? "",
       nextReviewDate: note.nextReviewDate ?? "",
     };
@@ -291,12 +270,6 @@ export function NoteDetailModes({ initialNote }: { initialNote: NoteDetail }) {
           </div>
         )}
 
-        <OverviewDisclosure
-          key={mode}
-          mode={mode}
-          overview={note.overview}
-        />
-
         <div className="note-paper-cornell-grid grid min-w-0 gap-0 lg:grid-cols-[minmax(0,3fr)_minmax(0,7fr)]">
           <Section title="キーワード / 質問">
             <CueList cues={note.cues} />
@@ -315,15 +288,12 @@ export function NoteDetailModes({ initialNote }: { initialNote: NoteDetail }) {
                   >
                     本文を隠す
                   </button>
-                  <MarkdownPreview
-                    value={note.body ?? ""}
-                    emptyLabel="本文は未入力です。"
-                  />
+                  <NoteBody note={note} />
                 </div>
               ) : (
                 <div className="border border-dashed border-stone-300/80 bg-transparent px-4 py-4">
                   <p className="text-sm leading-6 text-stone-600">
-                    本文は非表示です。Cue と概要を手がかりに思い出してから表示してください。
+                    本文は非表示です。Cue を手がかりに思い出してから表示してください。
                   </p>
                   <button
                     type="button"
@@ -335,7 +305,7 @@ export function NoteDetailModes({ initialNote }: { initialNote: NoteDetail }) {
                 </div>
               )
             ) : (
-              <MarkdownPreview value={note.body ?? ""} emptyLabel="本文は未入力です。" />
+              <NoteBody note={note} />
             )}
           </Section>
         </div>

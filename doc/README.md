@@ -16,6 +16,7 @@
 | `testing/` | テスト観点、受け入れ条件、手動確認観点 | `TEST_SCENARIOS.md` |
 | `implementation/` | 現行 MVP 契約、実装状況、実装タスク分割 | `MVP_CONTRACT.md`, `IMPLEMENTATION_STATUS.md`, `MVP_IMPLEMENTATION_TASKS.md` |
 | `review/` | As-Is 棚卸し、設計レビュー計画、移行判断資料、UI 設計成果物レビュー | `AS_IS_DESIGN_INVENTORY.md`, `DESIGN_REVIEW_PLAN.md`, `MVP_UI_DESIGN_ARTIFACT_GAP_REVIEW.md`, `MVP_SCREENSHOT_WIREFRAME_LAYOUT_REVIEW.md` |
+| `designs/` | 個別機能の技術設計・段階導入提案 | `CANVAS_PARTIAL_ERASER_DESIGN.md`, `CANVAS_TOOLBAR_DESIGN.md` |
 | `design-studio/` | Google Stitch / Claude Design 風の設計運用、テンプレート | `README.md`, `templates/` |
 
 ## Primary Entry Points
@@ -33,6 +34,8 @@
 - テスト観点: `testing/TEST_SCENARIOS.md`
 - 現行 MVP 契約: `implementation/MVP_CONTRACT.md`
 - 実装状況: `implementation/IMPLEMENTATION_STATUS.md`
+- Canvas 部分消去設計: `designs/CANVAS_PARTIAL_ERASER_DESIGN.md`
+- Canvas ツールバー設計: `designs/CANVAS_TOOLBAR_DESIGN.md`
 
 ## Rules
 

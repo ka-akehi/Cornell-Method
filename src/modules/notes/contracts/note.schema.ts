@@ -1,7 +1,9 @@
 import { z } from "zod";
+import { validateCanvasDocument, type CanvasDocumentV1 } from "@/shared/canvas";
 
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const SOURCE_TYPES = ["book", "lecture", "video", "article", "other"] as const;
+const BODY_MODES = ["markdown", "canvas"] as const;
 
 function isValidDateString(value: string) {
   if (!DATE_PATTERN.test(value)) {
@@ -70,6 +72,18 @@ export const cueSchema = z.object({
   ),
 });
 
+export const canvasDocumentSchema = z.unknown().transform((value, context) => {
+  try {
+    return validateCanvasDocument(value);
+  } catch (error) {
+    context.addIssue({
+      code: "custom",
+      message: error instanceof Error ? error.message : "Canvas document is invalid",
+    });
+    return z.NEVER;
+  }
+});
+
 export const notebookInputSchema = z
   .object({
     title: z
@@ -86,11 +100,9 @@ export const notebookInputSchema = z
       (value) => value ?? "",
       z.string().max(120, "出典タイトルは120文字以内で入力してください"),
     ),
-    overview: z.preprocess(
-      (value) => value ?? "",
-      z.string().max(400, "概要は400文字以内で入力してください"),
-    ),
+    bodyMode: z.enum(BODY_MODES).default("markdown"),
     body: z.preprocess((value) => value ?? "", z.string()),
+    canvas: canvasDocumentSchema.optional(),
     summary: z.preprocess((value) => value ?? "", z.string()),
     nextReviewDate: nullableDateStringSchema.optional(),
     cues: z.array(cueSchema).default([]),
@@ -110,6 +122,22 @@ export const notebookInputSchema = z
         code: "custom",
         path: ["nextReviewDate"],
         message: "次回復習日は記載日以降の日付を入力してください",
+      });
+    }
+
+    if (input.bodyMode === "canvas" && !input.canvas) {
+      context.addIssue({
+        code: "custom",
+        path: ["canvas"],
+        message: "bodyMode=canvasではcanvasが必須です",
+      });
+    }
+
+    if (input.bodyMode === "markdown" && input.canvas) {
+      context.addIssue({
+        code: "custom",
+        path: ["canvas"],
+        message: "bodyMode=markdownではcanvasを指定できません",
       });
     }
 
@@ -189,6 +217,8 @@ export const reviewUpdateSchema = z.object({
 
 export type TagInput = z.infer<typeof tagSchema>;
 export type CueInput = z.infer<typeof cueSchema>;
+export type NoteBodyMode = (typeof BODY_MODES)[number];
+export type CanvasDocumentInput = CanvasDocumentV1;
 export type NotebookInput = z.infer<typeof notebookInputSchema>;
 export type NotesQuery = z.infer<typeof notesQuerySchema>;
 export type ReviewUpdateInput = z.infer<typeof reviewUpdateSchema>;

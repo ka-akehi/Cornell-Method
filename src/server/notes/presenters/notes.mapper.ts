@@ -1,9 +1,11 @@
 import { Prisma } from "@prisma/client";
+import { restoreCanvasDocument } from "@/shared/canvas";
 
 export type NotebookWithListRelations = Prisma.NotebookGetPayload<{
   include: {
     _count: { select: { cues: true } };
     tags: { include: { tag: true } };
+    canvas: { select: { notebookId: true } };
   };
 }>;
 
@@ -11,6 +13,7 @@ export type NotebookWithDetailRelations = Prisma.NotebookGetPayload<{
   include: {
     cues: true;
     tags: { include: { tag: true } };
+    canvas: true;
   };
 }>;
 
@@ -30,6 +33,14 @@ function dateTimeString(date: Date | null) {
   return date ? date.toISOString() : null;
 }
 
+function bodyModeString(bodyMode: string) {
+  if (bodyMode === "markdown" || bodyMode === "canvas") {
+    return bodyMode;
+  }
+
+  throw new Error(`Unsupported notebook body mode: ${bodyMode}`);
+}
+
 function formatTags(tags: NotebookWithDetailRelations["tags"]) {
   return tags
     .map(({ tag }) => ({
@@ -47,7 +58,8 @@ export function formatNoteListItem(notebook: NotebookWithListRelations) {
     noteDate: dateOnlyString(notebook.noteDate),
     sourceType: notebook.sourceType,
     sourceTitle: notebook.sourceTitle,
-    overview: notebook.overview,
+    bodyMode: bodyModeString(notebook.bodyMode),
+    hasCanvas: notebook.canvas !== null,
     summary: notebook.summary,
     cueCount: notebook._count.cues,
     hasSummary: notebook.summary.trim().length > 0,
@@ -58,14 +70,29 @@ export function formatNoteListItem(notebook: NotebookWithListRelations) {
 }
 
 export function formatNoteDetail(notebook: NotebookWithDetailRelations) {
+  const bodyMode = bodyModeString(notebook.bodyMode);
+  let canvas = null;
+
+  if (bodyMode === "canvas") {
+    if (!notebook.canvas) {
+      throw new Error("Canvas note is missing its canvas document");
+    }
+
+    canvas = restoreCanvasDocument(notebook.canvas.documentJson);
+    if (canvas.schemaVersion !== notebook.canvas.schemaVersion) {
+      throw new Error("Canvas schema version does not match its stored document");
+    }
+  }
+
   return {
     id: notebook.id,
     title: notebook.title,
     noteDate: dateOnlyString(notebook.noteDate),
     sourceType: notebook.sourceType,
     sourceTitle: notebook.sourceTitle,
-    overview: notebook.overview,
+    bodyMode,
     body: notebook.body,
+    canvas,
     summary: notebook.summary,
     nextReviewDate: dateOnlyString(notebook.nextReviewDate),
     reviewedAt: dateTimeString(notebook.reviewedAt),

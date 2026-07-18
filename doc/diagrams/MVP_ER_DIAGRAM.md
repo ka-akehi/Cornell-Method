@@ -28,7 +28,6 @@ erDiagram
     datetime noteDate
     string sourceType
     string sourceTitle
-    string overview
     string body
     string summary
     datetime nextReviewDate

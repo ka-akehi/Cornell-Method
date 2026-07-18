@@ -1,6 +1,6 @@
 # MVP API 設計案
 
-確認日: 2026-07-04
+確認日: 2026-07-18
 
 ## 位置づけ
 
@@ -8,7 +8,7 @@
 
 MVP API は、ノート作成・検索・閲覧・編集・削除・復習済み更新・タグ候補取得・バックアップに絞ります。自動保存、Undo、PDF 出力、高度な復習タスクは Phase 2 とします。
 
-現コードは `Notebook`, `Cue`, `Tag`, `NotebookTag` を中心にした MVP 構成です。この文書の request / response / error は、現行の `src/app/api/**`, `src/lib/validation.ts`, `prisma/schema.prisma` に寄せた実装・テスト期待値として扱います。
+現コードは `Notebook`, `NotebookCanvas`, `Cue`, `Tag`, `NotebookTag` を中心にした MVP 構成です。この文書の request / response / error は、現行の `src/app/api/**`, `src/modules/notes/contracts/note.schema.ts`, `prisma/schema.prisma` に寄せた実装・テスト期待値として扱います。
 
 ## API 設計方針
 
@@ -86,8 +86,13 @@ MVP API は、ノート作成・検索・閲覧・編集・削除・復習済み
   "noteDate": "2026-06-14",
   "sourceType": "book",
   "sourceTitle": "Sample Book",
-  "overview": "第1章の整理",
-  "body": "本文 Markdown",
+  "bodyMode": "canvas",
+  "body": "",
+  "canvas": {
+    "schemaVersion": 1,
+    "page": { "width": 1200, "height": 800, "background": "paper" },
+    "elements": []
+  },
   "summary": "要約 Markdown",
   "nextReviewDate": "2026-06-15",
   "reviewedAt": null,
@@ -110,8 +115,13 @@ MVP API は、ノート作成・検索・閲覧・編集・削除・復習済み
   "noteDate": "2026-06-14",
   "sourceType": "book",
   "sourceTitle": "Sample Book",
-  "overview": "第1章の整理",
-  "body": "本文 Markdown",
+  "bodyMode": "canvas",
+  "body": "",
+  "canvas": {
+    "schemaVersion": 1,
+    "page": { "width": 1200, "height": 800, "background": "paper" },
+    "elements": []
+  },
   "summary": "要約 Markdown",
   "nextReviewDate": "2026-06-15",
   "cues": [
@@ -129,8 +139,9 @@ MVP API は、ノート作成・検索・閲覧・編集・削除・復習済み
 | `noteDate` | 必須 | string | `YYYY-MM-DD`。今日以前 |
 | `sourceType` | 任意 | string | `book`, `lecture`, `video`, `article`, `other` のいずれか |
 | `sourceTitle` | 任意 | string | 未指定時 `""`。0〜120 文字 |
-| `overview` | 任意 | string | 未指定時 `""`。0〜400 文字 |
-| `body` | 任意 | string | 未指定時 `""` |
+| `bodyMode` | 任意 | `"canvas"` \| `"markdown"` | 未指定時は既存 API 互換の `"markdown"`。Canvas 本文では `"canvas"` を指定 |
+| `body` | 条件付き | string | `bodyMode="markdown"` の本文 Markdown。`bodyMode="canvas"` では `""` |
+| `canvas` | 条件付き | `CanvasDocumentV1` | `bodyMode="canvas"` のとき必須。`bodyMode="markdown"` のとき指定不可 |
 | `summary` | 任意 | string | 未指定時 `""` |
 | `nextReviewDate` | 任意 | string \| null | `YYYY-MM-DD`、`noteDate` 以降、または `null` / 空文字 / 未指定 |
 | `cues` | 任意 | array | 未指定時 `[]` |
@@ -140,6 +151,14 @@ MVP API は、ノート作成・検索・閲覧・編集・削除・復習済み
 | `tags[].name` | 必須 | string | trim 後 1〜30 文字。使用可能文字は validation 表を参照 |
 | `tags[].color` | 任意 | string \| null | 空文字 / 未指定は `null` |
 
+### CanvasDocumentV1
+
+`canvas` は本文領域の保存・復元に使う JSON です。`schemaVersion=1`、`page.background="paper"` を固定し、`page.width` / `page.height` は整数 px とします。既定値は `1200 x 800`、許容範囲は幅・高さとも `320〜4000`（境界値を含む）です。`elements` の各要素は `x`, `y`, `width`, `height`, `points`, `style` などの既存データを保持します。
+
+用紙サイズ変更リクエストは `canvas.page.width` / `canvas.page.height` だけを変更します。要素の座標・寸法・points・style を API が自動変形してはならず、用紙を小さくして境界外になる要素も削除・移動・縮小しません。既存の 1200x800 Canvas document は自動変換せず、そのまま復元します。
+
+Canvas JSON は既存の `NotebookCanvas.documentJson` 保存領域を利用し、用紙サイズのための新しい Prisma column / migration は追加しません。`NotebookCanvas.searchText` は Canvas の text 要素から生成し、用紙サイズの変更だけでは値を変更しません。
+
 ## GET `/api/notes`
 
 ノート一覧を取得します。
@@ -148,7 +167,7 @@ MVP API は、ノート作成・検索・閲覧・編集・削除・復習済み
 
 | パラメータ | 必須 | 仕様 |
 | --- | --- | --- |
-| `query` | 任意 | title, overview, body, summary, cue.text を部分一致検索 |
+| `query` | 任意 | title, legacy `bodyMode=markdown` の body, summary, cue.text, Canvas text 要素から生成した `searchText` を部分一致検索 |
 | `tag` | 任意 | タグ名。複数指定時はカンマ区切り。重複と空要素は除外 |
 | `from` | 任意 | `noteDate` の開始日。`YYYY-MM-DD` |
 | `to` | 任意 | `noteDate` の終了日。`YYYY-MM-DD` |
@@ -173,7 +192,8 @@ HTTP 200
       "noteDate": "2026-06-14",
       "sourceType": "book",
       "sourceTitle": "Sample Book",
-      "overview": "第1章の整理",
+      "bodyMode": "canvas",
+      "hasCanvas": true,
       "summary": "",
       "cueCount": 3,
       "hasSummary": false,
@@ -247,6 +267,7 @@ HTTP 201。作成した `Note detail` を返す。
 ### 保存仕様
 
 - Notebook、Cue、Tag、NotebookTag をトランザクションで保存する。
+- `bodyMode="canvas"` の場合は `CanvasDocumentV1` を `NotebookCanvas.documentJson` に保存し、`schemaVersion` と text 要素由来の `searchText` を更新する。`bodyMode="markdown"` の既存本文は従来どおり `Notebook.body` に保存する。
 - タグ名が存在しない場合は自動作成する。
 - 既存タグの `color` は更新しない。新規作成時のみ `tags[].color ?? null` を保存する。
 - Cue は `order` 指定があればその値、未指定なら配列 index で保存する。
@@ -277,7 +298,6 @@ HTTP 400
 | `noteDate` が未来日 | `noteDate` | `未来日は入力できません` |
 | `sourceType` が許可値以外 | `sourceType` | Zod 標準メッセージ |
 | `sourceTitle` が 120 文字超 | `sourceTitle` | `出典タイトルは120文字以内で入力してください` |
-| `overview` が 400 文字超 | `overview` | `概要は400文字以内で入力してください` |
 | `nextReviewDate` が `YYYY-MM-DD` ではない、または存在しない日付 | `nextReviewDate` | `YYYY-MM-DD形式で入力してください` |
 | `nextReviewDate < noteDate` | `nextReviewDate` | `次回復習日は記載日以降の日付を入力してください` |
 | `cues[].text` が空、または trim 後に空 | `cues.{index}.text` | `キューは必須です` |
@@ -367,6 +387,7 @@ HTTP 500
 - Notebook を更新する。
 - Cue はリクエスト内容で全置換する。
 - Tag 関連もリクエスト内容で全置換する。
+- `bodyMode="canvas"` の場合は Canvas JSON を同じ `NotebookCanvas` レコードへ upsert する。`page.width` / `page.height` の変更時も要素の `x`, `y`, `width`, `height`, `points`, `style` は変更しない。Canvas から Markdown への自動変換や既存 Canvas document の自動変換は行わない。
 - タグ名が存在しない場合は自動作成する。
 - MVP では楽観ロックを行わない。
 
@@ -694,8 +715,12 @@ MVP の固定 validation message は次を正とする。
 | `noteDate` | `YYYY-MM-DD`、今日以前 | `YYYY-MM-DD形式で入力してください` / `未来日は入力できません` |
 | `sourceType` | `book`, `lecture`, `video`, `article`, `other`, 未指定 | Zod 標準メッセージ |
 | `sourceTitle` | 0〜120 文字 | `出典タイトルは120文字以内で入力してください` |
-| `overview` | 0〜400 文字 | `概要は400文字以内で入力してください` |
 | `body` | 文字列 | Zod 標準メッセージ |
+| `bodyMode` | `canvas` または `markdown` | Zod 標準メッセージ |
+| `canvas` が `bodyMode="canvas"` で未指定 | Canvas document 必須 | `bodyMode=canvasではcanvasが必須です` |
+| `canvas` が `bodyMode="markdown"` で指定 | Canvas document 指定不可 | `bodyMode=markdownではcanvasを指定できません` |
+| `canvas.page.width` / `canvas.page.height` | 整数 px、320〜4000 | `Canvas page width/height must be an integer between 320 and 4000 pixels` 相当の Canvas validation message |
+| `canvas` の要素データ | `CanvasDocumentV1` の型・要素数・points・JSON サイズ制約 | Canvas validation message |
 | `summary` | 文字列 | Zod 標準メッセージ |
 | `nextReviewDate` | `YYYY-MM-DD`、ノート保存時は `noteDate` 以降、または未指定 / 空文字 / null | `YYYY-MM-DD形式で入力してください` / `次回復習日は記載日以降の日付を入力してください` |
 | `cues[].text` | 1〜120 文字 | `キューは必須です` / `キューは120文字以内で入力してください` |

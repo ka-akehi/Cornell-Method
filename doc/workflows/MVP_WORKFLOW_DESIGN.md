@@ -1,6 +1,6 @@
 # MVP 業務フロー・ワークフロー設計
 
-確認日: 2026-06-21
+確認日: 2026-07-18
 
 ## 位置づけ
 
@@ -167,7 +167,7 @@ flowchart TD
 
 1. 新規作成画面を開く。
 2. タイトル、学習日を入力する。
-3. 必要に応じて学習元タイプ、学習元タイトル、概要を入力する。
+3. 必要に応じて学習元タイプ、学習元タイトルを入力する。
 4. Cue、本文、サマリーを入力する。
 5. 必要に応じてタグと次回復習日を設定する。
 6. 保存する。
@@ -179,7 +179,6 @@ flowchart TD
 - `noteDate`
 - `sourceType`
 - `sourceTitle`
-- `overview`
 - `body`
 - `summary`
 - `nextReviewDate`
@@ -369,7 +368,7 @@ MVP では、Cue と Tag 関連は PATCH リクエスト内容で全置換しま
 - 条件に一致するノート一覧が返る。
 - 一覧は `noteDate desc, updatedAt desc` の固定順で表示される。
 - タグは OR 条件で絞り込む。
-- フリーワードは `title`, `overview`, `body`, `summary`, `cue.text` を対象にする。
+- フリーワードは `title`, `body`, `summary`, `cue.text` を対象にする。
 - 復習対象フィルタは `nextReviewDate` が今日以前のノートを対象にする。
 
 ### 例外系 / 判断分岐

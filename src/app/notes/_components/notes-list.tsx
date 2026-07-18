@@ -155,7 +155,7 @@ export default function NotesList() {
               className="mt-1 w-full rounded-md border border-stone-300 px-3 py-2 text-sm text-stone-900 outline-none focus:border-stone-500"
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              placeholder="タイトル、概要、本文、Cue"
+              placeholder="タイトル、本文、Cue"
             />
           </div>
 
@@ -340,9 +340,6 @@ export default function NotesList() {
                         <h3 className="truncate text-base font-semibold text-stone-900">
                           {note.title}
                         </h3>
-                        <p className="mt-1 line-clamp-2 text-sm text-stone-500">
-                          {note.overview || "概要未入力"}
-                        </p>
                       </div>
                       <div className="shrink-0 text-right text-sm text-stone-500">
                         <div>学習日</div>

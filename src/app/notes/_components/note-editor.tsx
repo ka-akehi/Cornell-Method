@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AppChromeState } from "@/app/_components/app-chrome";
 import type { ApiFieldError } from "@/shared/http";
 import { todayDateString } from "@/shared/date";
 import { MarkdownField } from "@/shared/markdown";
+import { NoteCanvasEditor } from "./note-canvas-editor";
 import type { NotebookInput } from "@/modules/notes/contracts";
 import {
   createInitialNoteEditorForm,
@@ -52,14 +53,23 @@ export function NoteEditor({
   onSaved,
 }: NoteEditorProps) {
   const router = useRouter();
-  const [form, setForm] = useState<NoteEditorFormState>(() =>
-    createInitialNoteEditorForm(initial),
-  );
+  const [form, setForm] = useState<NoteEditorFormState>(() => {
+    const initialForm = createInitialNoteEditorForm(initial);
+    return mode === "create" ? { ...initialForm, bodyMode: "canvas" } : initialForm;
+  });
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<ApiFieldError[]>([]);
-  const [overviewOpen, setOverviewOpen] = useState(mode === "create");
+  const [canvasError, setCanvasError] = useState<string | null>(null);
   const today = useMemo(() => todayDateString(), []);
+
+  const handleCanvasDocumentChange = useCallback((canvas: NoteEditorFormState["canvas"]) => {
+    setForm((current) => ({ ...current, canvas }));
+  }, []);
+
+  const handleCanvasError = useCallback((error: string | null) => {
+    setCanvasError(error);
+  }, []);
 
   function updateForm(next: Partial<NoteEditorFormState>) {
     setForm((current) => ({ ...current, ...next }));
@@ -105,6 +115,7 @@ export function NoteEditor({
     setSaving(true);
     setMessage(null);
     setFieldErrors([]);
+    setCanvasError(null);
 
     try {
       const data =
@@ -127,9 +138,11 @@ export function NoteEditor({
       if (caught instanceof NotesRemoteError) {
         setMessage(caught.message);
         setFieldErrors(caught.fieldErrors);
-        if (fieldError(caught.fieldErrors, "overview")) {
-          setOverviewOpen(true);
-        }
+        return;
+      }
+      if (caught instanceof Error && form.bodyMode === "canvas") {
+        setCanvasError(caught.message);
+        setMessage(caught.message);
         return;
       }
       setMessage("保存に失敗しました。通信状態またはAPIを確認してください。");
@@ -138,13 +151,12 @@ export function NoteEditor({
     }
   }
 
-  const overviewFieldError = fieldError(fieldErrors, "overview");
   const sourceTypeFieldError = fieldError(fieldErrors, "sourceType");
   const sourceTitleFieldError = fieldError(fieldErrors, "sourceTitle");
 
   return (
     <form
-      className={`note-paper-editor min-w-0 space-y-0 ${
+      className={`note-paper-editor ${mode === "create" ? "note-paper-editor--create" : ""} min-w-0 space-y-0 ${
         shell ? "note-paper-shell note-paper-content" : "note-paper-editor--embedded"
       }`}
       onSubmit={(event) => {
@@ -270,36 +282,6 @@ export function NoteEditor({
         </div>
       </section>
 
-      <section className="note-paper-section min-w-0">
-        <details
-          open={overviewOpen}
-          onToggle={(event) => setOverviewOpen(event.currentTarget.open)}
-          className="min-w-0"
-        >
-          <summary className="flex cursor-pointer list-none flex-wrap items-center gap-x-3 gap-y-1 text-sm font-semibold text-stone-800 outline-none focus-visible:rounded-md focus-visible:ring-2 focus-visible:ring-amber-500 focus-visible:ring-offset-2">
-            <span>概要</span>
-            <span className="font-normal text-stone-500">
-              {overviewOpen ? "概要を閉じる" : "概要を開く"}
-            </span>
-            {overviewFieldError && (
-              <span className="break-words font-normal text-red-600">
-                概要に入力エラーがあります
-              </span>
-            )}
-          </summary>
-          <div className="mt-3">
-            <TextArea
-              id="overview"
-              label="概要"
-              value={form.overview}
-              rows={2}
-              onChange={(overview) => updateForm({ overview })}
-              error={overviewFieldError}
-            />
-          </div>
-        </details>
-      </section>
-
       <section className="note-paper-section min-w-0 !space-y-0">
         <div className="note-paper-cornell-grid grid w-full min-w-0 grid-cols-[minmax(0,30%)_minmax(0,70%)] max-[640px]:!grid-cols-1">
           <div className="min-w-0 space-y-3 max-[640px]:!border-r-0 max-[640px]:!border-b max-[640px]:!pb-5 max-[640px]:!pr-0">
@@ -315,7 +297,7 @@ export function NoteEditor({
             </div>
 
             {form.cues.length === 0 ? (
-              <p className="rounded-lg border border-dashed border-stone-200 !bg-transparent px-3 py-3 text-sm leading-6 text-stone-500">
+              <p className="note-paper-cue-empty rounded-lg border border-dashed border-stone-200 !bg-transparent px-3 py-3 text-sm leading-6 text-stone-500">
                 Cue は未追加です。
               </p>
             ) : (
@@ -375,18 +357,33 @@ export function NoteEditor({
           </div>
 
           <div className="min-w-0 max-[640px]:!pl-0 max-[640px]:!pt-5">
-            <MarkdownField
-              id="body"
-              label="ノート本文"
-              value={form.body}
-              onChange={(body) => updateForm({ body })}
-              rows={12}
-              layout="stacked"
-              error={fieldError(fieldErrors, "body")}
-              placeholder="本文を Markdown で入力"
-              previewEmptyLabel="本文のプレビューはまだありません。"
-              textareaClassName="!rounded-none !border-0 !border-b !bg-transparent !px-0 !shadow-none focus:!ring-0"
-            />
+            {form.bodyMode === "canvas" ? (
+              <div className="note-canvas-field">
+                <div className="note-canvas-field-heading">
+                  <h3>ノート本文</h3>
+                </div>
+                <NoteCanvasEditor
+                  initialDocument={form.canvas}
+                  apiError={fieldError(fieldErrors, "canvas")}
+                  externalError={canvasError}
+                  onDocumentChange={handleCanvasDocumentChange}
+                  onError={handleCanvasError}
+                />
+              </div>
+            ) : (
+              <MarkdownField
+                id="body"
+                label="ノート本文"
+                value={form.body}
+                onChange={(body) => updateForm({ body })}
+                rows={12}
+                layout="stacked"
+                error={fieldError(fieldErrors, "body")}
+                placeholder="本文を Markdown で入力"
+                previewEmptyLabel="本文のプレビューはまだありません。"
+                textareaClassName="!rounded-none !border-0 !border-b !bg-transparent !px-0 !shadow-none focus:!ring-0"
+              />
+            )}
           </div>
         </div>
       </section>
@@ -521,48 +518,6 @@ function TextInput({
         aria-invalid={Boolean(error)}
         aria-describedby={error ? `${id}-error` : undefined}
         className={`w-full min-w-0 rounded-lg border bg-white px-3 py-2 text-sm text-stone-900 shadow-sm outline-none transition placeholder:text-stone-400 ${
-          error
-            ? "border-red-300 focus:border-red-500 focus:ring-2 focus:ring-red-100"
-            : "border-stone-200 focus:border-amber-500 focus:ring-2 focus:ring-amber-100"
-        }`}
-      />
-      {error && (
-        <p id={`${id}-error`} className="break-words text-xs leading-5 text-red-600">
-          {error}
-        </p>
-      )}
-    </div>
-  );
-}
-
-function TextArea({
-  id,
-  label,
-  value,
-  onChange,
-  error,
-  rows,
-}: {
-  id: string;
-  label: string;
-  value: string;
-  onChange: (value: string) => void;
-  error?: string;
-  rows: number;
-}) {
-  return (
-    <div className="min-w-0 space-y-2">
-      <label htmlFor={id} className="block text-sm font-medium text-stone-700">
-        {label}
-      </label>
-      <textarea
-        id={id}
-        value={value}
-        rows={rows}
-        onChange={(event) => onChange(event.target.value)}
-        aria-invalid={Boolean(error)}
-        aria-describedby={error ? `${id}-error` : undefined}
-        className={`w-full min-w-0 resize-y rounded-lg border bg-white px-3 py-2 text-sm leading-6 text-stone-900 shadow-sm outline-none transition placeholder:text-stone-400 ${
           error
             ? "border-red-300 focus:border-red-500 focus:ring-2 focus:ring-red-100"
             : "border-stone-200 focus:border-amber-500 focus:ring-2 focus:ring-amber-100"

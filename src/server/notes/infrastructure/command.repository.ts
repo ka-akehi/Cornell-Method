@@ -4,6 +4,11 @@ import type {
   NotebookInput,
   ReviewUpdateInput,
 } from "@/modules/notes/contracts";
+import {
+  extractCanvasSearchText,
+  serializeCanvasDocument,
+  validateCanvasDocument,
+} from "@/shared/canvas";
 import type {
   NotebookReviewUpdateRecord,
   NotebookWithDetailRelations,
@@ -11,6 +16,19 @@ import type {
 
 function dateFromDateOnly(value: string) {
   return new Date(`${value}T00:00:00.000Z`);
+}
+
+function prepareCanvas(input: NotebookInput) {
+  if (input.bodyMode !== "canvas" || !input.canvas) {
+    return null;
+  }
+
+  const document = validateCanvasDocument(input.canvas);
+  return {
+    schemaVersion: document.schemaVersion,
+    documentJson: serializeCanvasDocument(document),
+    searchText: extractCanvasSearchText(document),
+  };
 }
 
 async function createTagsAndLinks(
@@ -46,6 +64,7 @@ async function findNoteDetailRecord(id: string) {
     include: {
       cues: { orderBy: { order: "asc" } },
       tags: { include: { tag: true } },
+      canvas: true,
     },
   });
 }
@@ -63,6 +82,7 @@ export async function findExistingNote(id: string) {
 export async function createNoteRecord(
   input: NotebookInput,
 ): Promise<NotebookWithDetailRelations> {
+  const canvas = prepareCanvas(input);
   const notebookId = await prisma.$transaction(async (tx) => {
     const notebook = await tx.notebook.create({
       data: {
@@ -70,12 +90,19 @@ export async function createNoteRecord(
         noteDate: dateFromDateOnly(input.noteDate),
         sourceType: input.sourceType ?? null,
         sourceTitle: input.sourceTitle,
-        overview: input.overview,
-        body: input.body,
+        bodyMode: input.bodyMode,
+        body: input.bodyMode === "canvas" ? "" : input.body,
         summary: input.summary,
         nextReviewDate: input.nextReviewDate
           ? dateFromDateOnly(input.nextReviewDate)
           : null,
+        ...(canvas
+          ? {
+              canvas: {
+                create: canvas,
+              },
+            }
+          : {}),
         ...(input.cues.length > 0
           ? {
               cues: {
@@ -120,8 +147,8 @@ export async function updateNoteRecord(
         noteDate: dateFromDateOnly(input.noteDate),
         sourceType: input.sourceType ?? null,
         sourceTitle: input.sourceTitle,
-        overview: input.overview,
-        body: input.body,
+        bodyMode: input.bodyMode,
+        body: input.bodyMode === "canvas" ? "" : input.body,
         summary: input.summary,
         nextReviewDate: input.nextReviewDate
           ? dateFromDateOnly(input.nextReviewDate)
@@ -142,6 +169,17 @@ export async function updateNoteRecord(
 
     await tx.notebookTag.deleteMany({ where: { notebookId: id } });
     await createTagsAndLinks(tx, id, input.tags);
+
+    const canvas = prepareCanvas(input);
+    if (canvas) {
+      await tx.notebookCanvas.upsert({
+        where: { notebookId: id },
+        update: canvas,
+        create: { notebookId: id, ...canvas },
+      });
+    } else {
+      await tx.notebookCanvas.deleteMany({ where: { notebookId: id } });
+    }
   });
 
   const notebook = await findNoteDetailRecord(id);

@@ -9,6 +9,8 @@ MVP 要件・設計・テスト観点と現コードを直接照合し、次の 
 
 この棚卸しでは `doc/implementation/IMPLEMENTATION_STATUS.md` を実装済み判断の根拠にしていない。現コード確認は `src/app/**`, `src/lib/**`, `prisma/schema.prisma`, `scripts/**`, `package.json`, `README.md` を対象にした。
 
+履歴注記: 本書の表は 2026-07-05 時点の確認結果を保持するスナップショットです。表中の `overview` に関する API・DB・validation の記述は、2026-07-18 の項目削除前の事実であり、現行 MVP の契約・コード・受け入れ条件ではありません。現在の判断は `doc/implementation/MVP_CONTRACT.md`、`doc/implementation/IMPLEMENTATION_STATUS.md`、`prisma/schema.prisma` を参照してください。
+
 2026-07-05 更新では、主要 UI フロー再検証、API CRUD / validation / backup 再検証、Markdown sanitize / checkbox 検証、`npm run backup:copy` 検証、`npm run lint` / `npm run build` の PASS 結果を反映した。確認根拠は `summary/20260705/mvp-ui-flow-reverification-report.md`、`summary/20260705/manager-mvp-api-crud-validation-backup-reverification-report.md`、`summary/20260705/manager-markdown-sanitize-checkbox-verification-report.md`、`summary/20260705/backup-copy-command-verification-report.md`、`summary/20260705/manager-fix-ui009-note-editor-tag-candidates-summary.md`、`summary/20260705/manager-fix-ui014-edit-save-state-summary.md`、`HANDOFF_2026-07-06.md`。
 
 ## 参照した MVP 設計書

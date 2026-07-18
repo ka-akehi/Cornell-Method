@@ -2,7 +2,7 @@ import { NoteEditor } from "../_components/note-editor";
 
 export default function NewNotePage() {
   return (
-    <div className="note-paper-page">
+    <div className="note-paper-page note-paper-page--create">
       <NoteEditor mode="create" />
     </div>
   );

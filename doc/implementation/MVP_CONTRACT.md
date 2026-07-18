@@ -1,6 +1,6 @@
 # 現行 MVP 契約
 
-更新日: 2026-07-16
+更新日: 2026-07-18
 状態: D-01〜D-05 決定済みの現行 MVP 契約
 
 ## 1. 位置づけと正本
@@ -13,15 +13,16 @@
 
 ## 2. MVP の目的と対象範囲
 
-MVP の目的は、ローカル個人利用で、Cornell Method のノートを「Cue で整理する → 1 本の本文に記録する → 要約する → 閲覧・復習する」流れを、明示保存で最後まで完了できるようにすることです。
+MVP の目的は、ローカル個人利用で、Cornell Method のノートを「Cue で整理する → 中央のフリー入力 Canvas に本文を記録する → Summary で要約する → 閲覧・復習する」流れを、明示保存で最後まで完了できるようにすることです。既存の Markdown 本文モードは互換表示のために保持し、既存データを Canvas へ自動変換しません。
 
 ### MVP に含めるもの
 
 - ノートの新規作成、一覧、詳細閲覧、編集、確認付き削除。
 - Cornell の左欄を `Cue` のリストとして保持すること。
-- ノート本文を 1 本の Markdown 文字列として保持すること。
-- タイトル、学習日、学習元、概要、タグ、本文、Summary、次回復習日を保存すること。
-- タイトル・本文・概要・Summary・Cue と、日付・タグによる一覧検索。
+- 中央の本文領域を `CanvasDocumentV1` のフリー入力 Canvas として保持すること。Cue と Summary は従来どおり Markdown として保持すること。
+- 既存の Markdown 本文モードを破壊せず、`bodyMode` に応じて Canvas または既存本文を表示すること。
+- タイトル、学習日、学習元、タグ、`bodyMode` に応じた Canvas または legacy Markdown 本文、Summary、次回復習日を保存すること。
+- タイトル・本文・Summary・Cue と、日付・タグによる一覧検索。
 - 詳細画面内の閲覧モード、編集モード、復習モード。
 - SQLite DB の手動バックアップ作成と、最新 3 世代の確認。
 
@@ -41,7 +42,7 @@ MVP の目的は、ローカル個人利用で、Cornell Method のノートを�
 | 画面 | canonical route | MVP の責務 |
 | --- | --- | --- |
 | ノート一覧 | `/notes` | ノート検索、日付・タグ・復習対象の絞り込み、新規作成への入口 |
-| ノート作成 | `/notes/new` | 初期値を使った 1 本文 + Cue リストの入力と明示保存 |
+| ノート作成 | `/notes/new` | 初期値を使った Canvas 本文 + Cue リスト + Summary の入力と明示保存 |
 | ノート詳細 | `/notes/[id]` | 閲覧、編集、詳細画面内復習、確認付き削除 |
 | バックアップ | `/backup` | SQLite DB の手動コピー作成、最新 3 世代の確認 |
 
@@ -102,8 +103,13 @@ MVP の目的は、ローカル個人利用で、Cornell Method のノートを�
   "noteDate": "2026-07-16",
   "sourceType": "book",
   "sourceTitle": "書籍名",
-  "overview": "概要 Markdown",
-  "body": "本文 Markdown",
+  "bodyMode": "canvas",
+  "body": "",
+  "canvas": {
+    "schemaVersion": 1,
+    "page": { "width": 1200, "height": 800, "background": "paper" },
+    "elements": []
+  },
   "summary": "Summary Markdown",
   "nextReviewDate": "2026-07-23",
   "cues": [{ "text": "重要語句", "order": 0 }],
@@ -112,8 +118,9 @@ MVP の目的は、ローカル個人利用で、Cornell Method のノートを�
 ```
 
 - `title` は trim 後 1〜120 文字、`noteDate` は今日以前の `YYYY-MM-DD` です。
-- `sourceType` は `book` / `lecture` / `video` / `article` / `other`、`sourceTitle` は 120 文字以内、`overview` は 400 文字以内です。
-- `body` は 1 本の Markdown 文字列です。Cue は `{ text, order }` のリストで、Cue と本文の厳密なリンクは持ちません。
+- `sourceType` は `book` / `lecture` / `video` / `article` / `other`、`sourceTitle` は 120 文字以内です。
+- `bodyMode` は `canvas` または `markdown` です。`canvas` のとき `canvas` は必須、`body` は空文字として保存します。`markdown` のときは既存の `body` を使用し、`canvas` は指定しません。Cue は `{ text, order }` のリストで、Cue と本文要素の厳密なリンクは持ちません。
+- `canvas` は次節の `CanvasDocumentV1` 契約に従います。既存の Canvas document は保存・復元時に破壊・自動変換しません。
 - `nextReviewDate` は `YYYY-MM-DD`、`null`、空欄を受け付けます。新規作成時に省略された場合は UI / 保存処理の初期値を `noteDate + 7日` とします。
 - `tags` は 1 ノート最大 12 件、同一ノート内で重複不可です。未登録名はノート保存時に Tag として自動作成します。
 - 作成・更新の成功 response は保存後のノート詳細です。`GET /api/notes/:id` も同じ詳細形を返します。
@@ -122,7 +129,7 @@ MVP の目的は、ローカル個人利用で、Cornell Method のノートを�
 
 | Query | 内容 |
 | --- | --- |
-| `query` | title、overview、body、summary、Cue text の部分一致 |
+| `query` | title、既存 Markdown mode の body、summary、Cue text、Canvas `searchText` の部分一致 |
 | `tag` | タグ名のカンマ区切り。複数タグは OR 条件、重複・空要素は除外 |
 | `from` / `to` | `noteDate` の開始日・終了日。片側指定可 |
 | `reviewDue` | `true` の場合、`nextReviewDate` が今日以前のノート |
@@ -150,31 +157,48 @@ MVP のタグ API は `GET /api/tags` のみです。request body / query はな
 - `POST /api/backups` は request body / query を持たず、SQLite DB を `backup/` 配下へコピーします。成功時は `200` で `{ "ok": true, "backup": { "file", "path" } }` を返します。
 - MVP のバックアップ操作は手動作成と一覧確認です。PDF export、バックアップログ、`/api/backups/retry` はこの契約に含めません。
 
-## 6. Markdown と Summary Preview
+## 6. Canvas 本文と Markdown / Summary Preview
 
-- 本文は 1 本の Markdown 文字列として編集・保存します。基本記法と GFM のチェックボックスを表示対象とします。
-- 閲覧モードでは本文、概要、Summary を Markdown として安全にレンダリングします。Preview の checkbox は表示専用で、クリックして保存データを変更できないものとします。
+### 6.1 CanvasDocumentV1 と用紙サイズ
+
+- Canvas の保存形式は `CanvasDocumentV1` とし、`page.width` / `page.height` は可変の整数 px とする。
+- 既定の用紙サイズは幅 1200px、高さ 800px。各寸法の許容範囲は 320〜4000px（境界値を含む）。`schemaVersion` は `1`、`page.background` は `paper` とする。
+- 本文領域には幅・高さの数値入力と適用操作を置く。入力値は用紙そのものの寸法であり、表示倍率ではない。
+- Fit / 50% / 100% / 200% は表示用の倍率操作として内部に残る場合があるが、用紙サイズの選択肢・保存値・API 入力にはしない。表示倍率と `page.width` / `page.height` を別 state と責務で扱う。
+- 用紙サイズの変更は `page.width` / `page.height` のみを更新する。既存要素の `x`, `y`, `width`, `height`, `points`, `style`、`rotation`、`text`、`z` は自動変更しない。
+- 用紙を小さくして要素が境界外になる場合も、要素を削除・移動・縮小・クリップして保存しない。境界外の要素データはそのまま保持し、後から用紙を広げたときも同じ位置・寸法で復元する。
+- 保存・復元は既存の Canvas JSON 保存領域を利用する。用紙サイズ変更だけを理由に Notebook の新しいカラムや Prisma migration を追加しない。
+- 既存の `schemaVersion=1` かつ 1200x800 の Canvas document はそのまま有効なデータとして復元し、既存要素を自動変換しない。未知の schema version や寸法範囲外は validation error とする。
+
+### 6.2 Markdown と Summary Preview
+
+- Cue と Summary は Markdown として編集・保存します。基本記法と GFM のチェックボックスを表示対象とします。Canvas 本文は Markdown Preview ではなく、Canvas viewer/editor で表示します。
+- `bodyMode=markdown` の既存ノートでは従来の本文 Markdown を安全にレンダリングし、`bodyMode=canvas` のノートでは保存済み Canvas document を詳細・編集・復習で復元します。
+- Summary の Markdown 表示では Preview の checkbox を表示専用とし、クリックして保存データを変更できないものとします。
 - 編集モードの Summary Preview は、折りたたみ表示または占有量を抑えた簡易表示のいずれかを採用します。常時大きなフル Preview を MVP の必須条件にはしません。
 - 復習モードの Summary は初期非表示です。Cue による想起、本文の確認、その後の Summary 確認という順序を保ちます。
 
 ## 7. デスクトップ優先とモバイルの対応範囲
 
-- デスクトップを主対象とし、Cornell は Cue を左、本文を右に置く約 30% / 70% を基本とします。本文の入力と Preview はデスクトップで確認しやすい配置を優先します。
+- デスクトップを主対象とし、Cornell は Cue を左、Canvas 本文を右に置く約 30% / 70% を基本とします。Canvas の用紙操作は本文列で確認しやすく配置し、Cue / Summary の Markdown Preview はそれぞれの入力欄に属するものとして扱います。
 - 768px 未満では本格的な編集最適化を MVP の必須条件にしません。モバイル専用の縦積み、操作案内、キーボード最適化は Phase 2 以降に再評価します。
 - モバイルではページ全体が壊れないこと、主要な入力・保存・閲覧操作へ到達できることを最低限確認します。Cornell 部分の局所的な横スクロールは許容しますが、ページ全体の意図しない横 overflow は許容しません。
 
 ## 8. 現行 MVP データモデル
 
-MVP の Prisma model は `Notebook`、`Tag`、`NotebookTag`、`Cue` の 4 つです。DB table / column は既存 schema の mapping に従います。
+MVP の Prisma model は `Notebook`、`NotebookCanvas`、`Tag`、`NotebookTag`、`Cue` です。Canvas の用紙サイズは `NotebookCanvas.documentJson` 内で管理し、`page.width` / `page.height` の変更のために別の DB カラムを追加しません。DB table / column は既存 schema の mapping に従います。
 
 | Model | 主な責務 | 主な項目 |
 | --- | --- | --- |
-| `Notebook` | ノート本体、1 本の本文、要約、手動復習情報 | `id`, `title`, `noteDate`, `sourceType`, `sourceTitle`, `overview`, `body`, `summary`, `nextReviewDate`, `reviewedAt`, `createdAt`, `updatedAt` |
+| `Notebook` | ノート本体、本文モード、既存本文、要約、手動復習情報 | `id`, `title`, `noteDate`, `sourceType`, `sourceTitle`, `bodyMode`, `body`, `summary`, `nextReviewDate`, `reviewedAt`, `createdAt`, `updatedAt` |
+| `NotebookCanvas` | Canvas 本文の JSON と一覧検索用 text index | `notebookId`, `schemaVersion`, `documentJson`, `searchText`, `createdAt`, `updatedAt` |
 | `Tag` | タグ名のマスタ | `id`, `name` (unique), `color`, `createdAt` |
 | `NotebookTag` | Notebook と Tag の多対多関連 | `notebookId` + `tagId` の複合主キー |
 | `Cue` | Cornell 左欄のキーワード / 質問 | `id`, `notebookId`, `text`, `order`, `createdAt`, `updatedAt` |
 
-- `Notebook.body` が MVP の本文です。`NoteCard`、`CueCard`、`NoteCueLink` は持ちません。
+- `bodyMode=canvas` の MVP 本文は `NotebookCanvas.documentJson` です。`bodyMode=markdown` の既存本文は互換用に保持します。`NoteCard`、`CueCard`、`NoteCueLink` は持ちません。
+- `Notebook.bodyMode=canvas` の本文は `NotebookCanvas.documentJson` の `CanvasDocumentV1` です。`bodyMode=markdown` は既存本文の互換モードとして残します。
+- `NotebookCanvas.searchText` は Canvas の text 要素から生成し、一覧のフリーワード検索に使います。用紙サイズ変更だけでは searchText を更新する必要はありません。
 - Notebook の物理削除時は Cue と NotebookTag を cascade delete します。
 - `Notebook.deletedAt` が既存 schema にあっても、MVP では soft delete 用の互換フィールドとして未使用です。
 - `NotebookDraftState`、`NotebookReviewProgress`、`SoftDeleteBuffer`、`BackupLog` は MVP のモデル範囲外です。
@@ -207,6 +231,6 @@ MVP の route、API、データ、保存、削除、復習、Markdown、端末�
 
 ## 11. この契約に続く task
 
-今回の task は契約文書の固定、`AGENTS.md` と `doc/README.md` からの参照導線追加だけを行います。コード、設定、依存関係、Prisma schema、DB、UI、API、テスト、画像、および実装状況の棚卸しは対象外です。
+今回の仕様更新 task は、`AGENTS.md`、本契約、API / data / screen / test の正本、実装状況サマリへ Canvas 用紙サイズ契約を反映します。コード、設定、依存関係、Prisma schema、DB、UI、API 実装、テストコード、画像、生成物は変更しません。
 
 次の記録 task は **DOC-001「実装状況サマリを実態へ修正」** です。DOC-001 で、現行コードがこの MVP 契約のどの項目を実装済み・部分実装・未実装・仕様のみとして満たすかを、推測せずに修正します。

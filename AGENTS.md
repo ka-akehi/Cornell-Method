@@ -11,7 +11,7 @@
 - 設計書一覧: `doc/README.md`
 - Manager / Worker 運用: `codex-queue/README.md`
 - Task Summary 運用: `summary/README.md`
-- 最新引き継ぎ: `HANDOFF_2026-07-17.md`
+- 最新引き継ぎ: `HANDOFF_2026-07-19.md`
 
 ### 仕様書の役割分担
 
@@ -55,13 +55,13 @@
 
 ---
 
-## 1. 概要
+## 1. 製品概要
 
 - **タイトル**: コーネルメソッドノート記録アプリ
 - **利用想定**: ローカル環境での個人利用。認証・ユーザー管理は不要。
 - **目的 / 成功条件**
   - コーネルメソッドのレイアウトでノートを作成・編集・閲覧できる。
-  - Markdown（基本記法 + チェックボックス）で入力した内容を Prisma（SQLite）に永続化し、後から読み返せる。
+  - Cue と Summary は Markdown（基本記法 + チェックボックス）で入力し、中央の本文領域はフリー入力 Canvas として文字・図形・線・ストロークを Prisma（SQLite）に永続化し、後から読み返せる。
   - 初期テンプレートはコーネルのみ。将来、追加テンプレートを拡張できる構造とする。
   - タイトルエリアでタグ付けし、タグによる検索フィルタが可能（タグは `Tag` テーブルで一元管理）。
   - 保存済みノートの一覧は日付ソート（昇順/降順切替）で閲覧できる。
@@ -73,7 +73,7 @@
 
   - 編集モードと閲覧モードをトグルで切り替え。編集モードではドラフト自動保存 + 明示的な保存/破棄ボタンを併用。
   - （Phase 2 以降のロードマップ）削除操作は確認モーダルが必須。削除後はスナックバーで 5 秒間 Undo を表示し復元を許可（Undo 期限まではソフトデリートで DB に退避）。
-  - 入力エリアはすべて Markdown 文法（基本記法 + チェックボックス）を受け付ける。エディタとプレビューを縦に並べて同時表示。
+  - Cue と Summary の入力エリアは Markdown 文法（基本記法 + チェックボックス）を受け付け、エディタとプレビューを縦に並べて同時表示する。中央の本文領域は Markdown 本文欄ではなく、Canvas の直接操作面として扱う。
   - 編集中は 3 秒間入力が止まると差分のみドラフト保存（`isDraft=true` のまま DB 反映）。連続ドラフト保存は最短 6 秒間隔。楽観ロックで `updatedAt` が古い保存は 409 を返し、再読込を促す。
   - 409 競合時の UI：ドラフト保存（オートセーブ）はバナーで通知＋再読み込みボタン（自動保存は一時停止、編集は継続可）。確定保存（Cmd+S）はモーダルで再読み込み/後でを提示（自動保存は再読み込みまで停止）。
   - 「保存」ボタンで最終確定し `isDraft=false` へ更新。同時にドラフトステータスバッジを消す。ドラフト自体は 1 レコードを使い回し、同一ノートで 10 件以上 `isDraft=true` が残らないよう週次でクリーンアップバッチを走らせる。
@@ -83,7 +83,7 @@
 
 - **タイトルエリア**
 
-  - タイトル、概要、日付フィールドを配置。概要は複数行スクロール可。
+  - タイトル、学習元、日付、タグのフィールドを配置する。
   - 日付選択はカレンダー UI で入力。手入力も許可する場合はフォーマットを YYYY-MM-DD に統一。
   - タグ入力欄を設置。既存タグのオートコンプリート + 新規追加に対応し、Notebook と Tag を中間テーブルで関連付ける。候補に存在しないタグはその場で `Tag` レコードを自動作成する。各ノートにつき最大 12 個までで、重複は UI/ロジックで弾く。
   - タグ仕様：長さ 1〜30 文字。使用可文字はひらがな・カタカナ・英数字・記号 `!"#$%&'()0=~|-^¥@[\`{;:]+\*},./<>?\_`のみ、空白はトリムし絵文字不可。色は任意入力可（デフォルト`#f59e0b`）。削除は確認付きでノート紐付けも同時解除。名称変更は既存ノートへ即時反映。
@@ -95,22 +95,26 @@
     - カード形式で複数エントリを保持。＋ボタンで追加、－ボタンで個別削除（件数制限なし）。
     - 削除時は確認モーダルを表示。閲覧モードでもスクロールは可能。
     - カードはドラッグ＆ドロップで並び替え可能。`dnd-kit` ベースで実装し、ドロップ時に `order` を自動更新。
-  - **ノート欄**
-    - カード形式でノート本文を保持。カードごとに紐づくキーワード ID を選択できる。
-    - カード追加/削除、閲覧モードでの非表示切替（hidden flag）を実装。件数制限なし。
-    - カードはドラッグ＆ドロップで並び替え可能（`dnd-kit`）。ドロップ時に `order` を即時計算し、差分のみ保存。
-    - ノート欄全体を一時的に非表示にする機能は閲覧モードのみ許可。
+  - **本文領域（Canvas）**
+    - Cue の右側にフリー入力 Canvas を置き、Canvas 上へ文字・図形・線・ストロークを自由に配置する。Cue と Summary は残し、本文をカードや Markdown 本文欄へ自動分割しない。
+    - Canvas document は `CanvasDocumentV1` として保存し、`page.width` / `page.height` は可変の整数 px とする。既定値は幅 1200px、高さ 800px、許容範囲は各 320〜4000px。
+    - 本文領域には幅・高さの数値入力と適用操作を置く。入力値は表示倍率ではなく用紙そのものの寸法であり、Fit / 50% / 100% / 200% は用紙サイズの選択肢にしない。
+    - 用紙サイズを変更しても、既存要素の `x`, `y`, `width`, `height`, `points`, `style` を自動変更しない。境界外になる要素も削除・移動・縮小せず、Canvas JSON の要素データをそのまま保持する。
+    - 保存・復元時は既存の Canvas JSON 保存領域を利用し、用紙サイズ変更だけを理由に Prisma migration を追加しない。既存の 1200x800 Canvas document は自動変換せず、そのまま復元する。
+
+  - （Phase 2 以降のロードマップ）本文を NoteCard に分割し、Cue と本文を ID リンクして D&D 並び替え・hidden flag を持たせる案は、Canvas 本文の MVP 契約とは別に扱う。
 
 - **サマリーエリア**
 
   - 要約と次アクションを記載する Markdown フィールド。スクロール可能。
-  - プレビューのチェックボックスは表示専用 (`react-markdown` + `remark-gfm` + `rehype-sanitize`) とし、クリック時は `preventDefault` でエディタ側のみ変更可能に保つ（キーワード/ノート欄と同仕様）。`react-markdown` の `components.input` を override して tailwind の design token（例: `accent-primary`, `border-muted`, `bg-surface`）に統一したスタイルを適用する。
+  - Cue / Summary の Markdown プレビューのチェックボックスは表示専用 (`react-markdown` + `remark-gfm` + `rehype-sanitize`) とし、クリック時は `preventDefault` でエディタ側のみ変更可能に保つ。`react-markdown` の `components.input` を override して tailwind の design token（例: `accent-primary`, `border-muted`, `bg-surface`）に統一したスタイルを適用する。Canvas 本文はこの Markdown Preview の対象にしない。
 
 - **一覧画面**
 
   - タイトル・日付（From/To 範囲）フィルタに加え、タグはトークナイザー型入力（フリーワード + サジェスト）で OR 条件絞り込み。候補リストは名前順で表示し、検索/オートコンプリート可能。最大 12 個まで追加（重複は自動で弾く）。タグの右クリックメニューから名称変更・削除を行える管理 UI を提供する。
   - 日付範囲は `react-day-picker` の range mode で開始・終了を設定。片側のみ指定した場合は「開始日以降」または「終了日以前」として扱い、ブランクは制限なしとみなす。From > To や無効日付はフォーカスアウト時と検索実行時にバリデーションしてエラー表示。クイックセレクトとして「今日」「過去 7 日」「過去 30 日」をボタンで提供。
   - 並び順は日付ソート（昇順/降順切替）に限定。
+  - フリーワード検索はタイトル・既存 Markdown 本文・Summary・Cue に加え、Canvas 内の text 要素から生成した `searchText` を対象とする。用紙サイズだけを変更しても `searchText` は変化しない。
   - 新規ノート作成ボタンからテンプレ初期値で詳細画面へ遷移。
   - 期間指定エクスポート：日付フィルタ群の右隣に開始日/終了日ピッカーと「PDF 出力」ボタンを配置し、指定期間内のノートをプリント専用の 1 ノート 1 ページ SSR レイアウトで組み立て、Playwright で PDF 化する（将来 HTML へ戻す可能性あり）。`GET /api/notes/export?from&to` で取得し、`学習記録-YYYYMMDD(開始日)-YYYYMMDD(終了日).pdf` として保存。カード単位で改ページしフッターにノート日付のみ表示。リクエストごとに Chromium を起動して生成。期間未指定・範囲不正時はボタンを無効化し、実行後は進行中インジケータと完了トーストを表示する。
 
@@ -128,6 +132,7 @@
 - Prisma + SQLite（ローカルファイル）でデータ永続化。`prisma migrate` でスキーマ管理。
 - 外部 API との連携なし。ネットワーク接続不要。
 - PDF 出力は Playwright（Chromium）を利用し、エクスポート API でリクエストごとに起動する。
+- Canvas 本文は共有の `CanvasDocumentV1` JSON 契約で扱う。描画ライブラリは保存形式を直接決めず、編集・閲覧 renderer と表示用の倍率を用紙サイズ・要素データから分離する。
 
 ## 4. 状態遷移 / ルーティング
 
@@ -147,7 +152,8 @@
 
 | テーブル                     | 主キー                               | 主な列                                                                                                                                                   | 備考                                                                                         |
 | ---------------------------- | ------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
-| `notebooks`                  | `id` (cuid)                          | `title`, `overview`, `summary`, `note_date`, `created_at`, `updated_at`, `deleted_at`                                                                    | Prisma モデル名は `Notebook` だが、テーブル/カラムは snake_case で管理（日時は `DATETIME`）。`deleted_at` は Phase 2 以降のソフトデリート用 |
+| `notebooks`                  | `id` (cuid)                          | `title`, `body`, `body_mode`, `summary`, `note_date`, `source_type`, `source_title`, `next_review_date`, `reviewed_at`, `created_at`, `updated_at`, `deleted_at` | Prisma モデル名は `Notebook` だが、テーブル/カラムは snake_case で管理（日時は `DATETIME`）。`body_mode=canvas` では Canvas JSON を `notebook_canvases` に保持し、`body` は空文字とする。`deleted_at` は Phase 2 以降のソフトデリート用 |
+| `notebook_canvases`         | `notebook_id` (PK=FK)                | `schema_version`, `document_json`, `search_text`, `created_at`, `updated_at` | `CanvasDocumentV1` の JSON と Canvas text 要素から抽出した一覧検索用 `search_text` を保持。用紙サイズは JSON 内の `page.width` / `page.height` で管理し、寸法変更用の別カラムは持たない |
 | `notebook_draft_states`      | `notebook_id` (PK=FK)                | `is_draft`, `draft_updated_at`, `hidden_notes`, `version` (int), `autosave_version` (int)                                                                | Notebook と 1:1 の最新ドラフト専用テーブル。Notebook 作成時に必ず初期レコードを生成          |
 | `notebook_review_progresses` | `notebook_id` (PK=FK)                | `review_status` (0=未レビュー,1=1 日後済,2=1 週間後済), `first_review_at`, `second_review_at`, `first_review_completed_at`, `second_review_completed_at` | Notebook 作成時に必ず初期レコードを生成する spaced repetition 用メタデータ                   |
 | `tags`                       | `id`                                 | `name` (unique), `color` (任意), `created_at`                                                                                                            | タグ候補のマスタ                                                                             |
@@ -178,6 +184,7 @@
   - `GET /api/review-tasks?type=day|week`（`first_review_at` / `second_review_at` と `review_status` でフィルタ）
   - `PATCH /api/review-tasks/:notebookId`（チェックボックス完了時に `review_status` と完了日時を更新）
   - `POST /api/tags`（一覧用）、ただし通常はノート編集時に未登録タグを自動作成
+- `POST /api/notes` / `PATCH /api/notes/:id` の Canvas 入力は `bodyMode: "canvas"` と `canvas: CanvasDocumentV1` を受け付ける。保存時は既存 Canvas JSON 領域へ `documentJson` を保存し、`searchText` は text 要素から再生成する。`GET /api/notes/:id` の詳細・編集・閲覧・復習では保存済み Canvas document をそのまま返し、用紙サイズ変更による要素の自動変形を行わない。
 - `POST /api/notes` / `PATCH /api/notes/:id` は Notebook（確定版）と `NotebookDraftState`（自動保存）を並行して更新する。同じリクエスト body に `{ notebook: {...}, draft: {...} }` を含め、ドラフトのみ保存時は `draft` 部分だけを更新し、確定保存時に両方を更新する。ドラフトのバージョンは `version`（整数）と `autosave_version`（整数）を組み合わせて管理し、リクエストで送信された値と DB の値が一致した場合のみ更新する。不一致時は 409 を返し、`errors: [{ field: "draft.version", message: "outdated" }]` などフィールドを明示する。自動保存時は `autosave_version` のみ +1、確定保存時は `version` を +1 して `autosave_version=0` にリセットする。
 - （Phase 2 以降のロードマップ）`DELETE` 系 API は直ちにレコードを消さず `deletedAt` を設定し、`SoftDeleteBuffer` に ID/種別を記録する。Undo 期限内であれば `deletedAt=NULL` に戻して復元できる。期限切れまたは明示的な破棄で初めて物理削除する。
 - （Phase 2 以降のロードマップ）Undo は送信がシンプルな `POST /api/undo` を定義し、ボディに `{ entityType, entityId }` を渡すと `SoftDeleteBuffer` から対象を復元する。期限切れまたは存在しない場合は 410 を返す。
@@ -188,9 +195,8 @@
 - 期間指定エクスポートはクライアント側で HTML を生成し、`/api/notes/export?from=...&to=...` などの API でノートデータをまとめて取得して実行する。
 - 一覧/復習タスク API は 2000ms を目安に応答し、タイムアウトした場合はエラー JSON を返す。データ量増加で超過する場合は見直しを検討。
 - API 呼び出しは Next.js App Router のキャッシュ（`fetch` のデフォルトキャッシュ/SWR 相当）を利用し、追加のサーバーサイドキャッシュは設けない。復習タスクのバッジ更新は画面リロード時に最新状態を取得する。
-- バリデーション（タイトル/概要/サマリーはフォーカスアウトと保存時に検証）
+- バリデーション（タイトル/サマリーはフォーカスアウトと保存時に検証）
   - タイトル: 1〜120 文字
-  - 概要: 0〜400 文字（Markdown）
   - カード数: 制限なし（パフォーマンス上の注意のみ）
   - 日付: 過去〜今日、未来日は入力をブロックする（無効日付や From>To はインラインエラー＋枠ハイライト）
 

@@ -12,8 +12,8 @@ model Notebook {
   noteDate       DateTime  @map("note_date")
   sourceType     String?   @map("source_type")
   sourceTitle    String    @default("") @map("source_title")
-  overview       String    @default("") @map("overview")
   body           String    @default("") @map("body")
+  bodyMode       String    @default("markdown") @map("body_mode")
   summary        String    @default("") @map("summary")
   nextReviewDate DateTime? @map("next_review_date")
   reviewedAt     DateTime? @map("reviewed_at")
@@ -23,10 +23,24 @@ model Notebook {
 
   cues Cue[]
   tags NotebookTag[]
+  canvas NotebookCanvas?
 
   @@index([noteDate])
   @@index([nextReviewDate])
   @@map("notebooks")
+}
+
+model NotebookCanvas {
+  notebookId    String   @id @map("notebook_id")
+  schemaVersion Int      @default(1) @map("schema_version")
+  documentJson  String   @map("document_json")
+  searchText    String   @default("") @map("search_text")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  notebook Notebook @relation(fields: [notebookId], references: [id], onDelete: Cascade)
+
+  @@map("notebook_canvases")
 }
 
 model Tag {

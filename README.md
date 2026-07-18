@@ -91,13 +91,13 @@ http://localhost:3000/notes
 
 ### NTE-030 runtime screenshot の確認内容
 
-1440px の実画面では、閲覧／復習が概要 → Cornell（Cue／本文）→ サマリーの基本構造を共有し、復習時に本文領域だけをマスクして表示 / 再マスクできることを確認しています。375 / 768px の閲覧 / 復習 runtime は未確認です。なお、現行 MVP 契約が求める復習時 Summary の初期非表示は静的照合で未達のため、README の screenshot や runtime PASS から推測していません。詳細は証跡マトリクスの `MVP-GAP-002` を参照してください。
+1440px の実画面では、閲覧／復習がタイトル・学習日／学習元／タグのメタ情報 → Cornell（Cue／本文）→ Summary の基本構造を共有し、復習時に本文領域だけをマスクして表示 / 再マスクできることを確認しています。375 / 768px の閲覧 / 復習 runtime は未確認です。復習時 Summary の初期非表示はコード上の実装状態と、runtime 未確認の事実を分けて扱っています。詳細は証跡マトリクスの `NTE030-MOBILE-375-768` を参照してください。
 
 ### QA 証跡の確認済み範囲と未確認範囲
 
 - 確認済み: 2026-07-05 の主要 UI flow、Notes CRUD / validation / review / search、Markdown sanitize / checkbox、`npm run backup:copy`。NTE-020 の `/notes/new` は 375 / 768 / 1280 / 1440px、NTE-030 の `/notes/[id]` 閲覧 / 復習は 1440px を確認済みです。
 - 未確認: NTE-020 の `/notes/[id]` edit runtime（2026-07-05 の編集保存フローと、NTE-020 Policy C の edit レイアウト QA は別の確認単位です）、NTE-020 の 375px 長い Markdown / 長いタグ / 長い field error、NTE-030 の 375 / 768px 閲覧 / 復習 runtime。
-- MVP 契約との差分: 静的照合で、新規 `nextReviewDate = noteDate + 7日` 初期値と復習時 Summary 初期非表示が未達です。概要の Markdown preview / sanitize も契約どおりではなく部分実装です。これらは runtime 未実施とは別に `FAIL（静的照合）` として記録しています。
+- MVP 契約との差分: 静的照合で、新規 `nextReviewDate = noteDate + 7日` 初期値が未達です。これは runtime 未実施とは別に `FAIL（静的照合）` として記録しています。復習時 Summary の初期非表示は現行コードへ反映済みですが、対象 viewport の runtime 確認は未実施です。
 - Phase 2: autosave、Undo / soft delete、専用復習タスク、NoteCard / D&D、PDF export、タグ管理 UI などは MVP の PASS に含めず、`TEST_SCENARIOS.md` の Phase 2 節で管理します。
 
 ### NTE-020 方針Cの実画面確認（新規作成画面）
@@ -149,6 +149,8 @@ MVP の DB は Prisma + SQLite です。主なモデルは次のとおりです�
 - `Cue`: キーワード / 質問
 - `Tag`: タグ
 - `NotebookTag`: ノートとタグの中間テーブル
+
+2026-07-18 の `prisma/migrations/20260718011243_remove_notebook_overview/migration.sql` 適用により、Notebook の旧 overview 列は削除済みです。現行のノート項目はタイトル、学習日、学習元、タグ、Cue、本文、Summary、次回復習日、最終復習日時です。
 
 DB の作成と migration は次で行います。
 

@@ -15,7 +15,7 @@ import type { ReactNode } from "react";
 export type AppChromeMode = "create" | "edit" | "view" | "review";
 
 export const APP_CHROME_MODE_LABELS: Record<AppChromeMode, string> = {
-  create: "新規作成",
+  create: "作成中",
   edit: "編集中",
   view: "閲覧中",
   review: "復習中",

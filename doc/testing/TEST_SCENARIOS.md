@@ -4,7 +4,7 @@
 
 このドキュメントは、Cornell Method Notebook MVP の最終検証で使う確認項目です。
 
-MVP では、明示保存、物理削除、手動で管理する `nextReviewDate`、`textarea + Markdown preview`、`/notes` の復習対象フィルタ、詳細画面内の復習モード、`/backup` の手動バックアップを確認対象とします。新規ノートの `nextReviewDate` は `noteDate + 7日` を初期値とし、1 日後 / 1 週間後の自動タスクや専用復習タスク画面は MVP の確認対象ではありません。
+MVP では、明示保存、物理削除、手動で管理する `nextReviewDate`、Cue / Summary の `textarea + Markdown preview`、中央のフリー入力 Canvas 本文、`/notes` の復習対象フィルタ、詳細画面内の復習モード、`/backup` の手動バックアップを確認対象とします。新規ノートの `nextReviewDate` は `noteDate + 7日` を初期値とし、1 日後 / 1 週間後の自動タスクや専用復習タスク画面は MVP の確認対象ではありません。
 
 MVP の初期データに seed は使いません。検証用データは `/notes/new` または `POST /api/notes` で作成します。
 
@@ -28,7 +28,6 @@ MVP の初期データに seed は使いません。検証用データは `/note
 - [ ] `/notes/new` でタイトル未入力のまま保存すると validation error が表示される
 - [ ] `/notes/new` でタイトルが 120 文字を超えると validation error が表示される
 - [ ] `/notes/new` で未来日の学習日は保存できない
-- [ ] `/notes/new` で概要が 400 文字を超えると validation error が表示される
 - [ ] `/notes/new` を開くと `nextReviewDate` に `noteDate + 7日` が初期入力される
 - [ ] `/notes/new` で初期入力された `nextReviewDate` を別の日付へ変更、または空欄化して保存できる
 - [ ] `/notes/new` で次回復習日が学習日より前の場合は validation error が表示される
@@ -40,12 +39,30 @@ MVP の初期データに seed は使いません。検証用データは `/note
 - [ ] `/notes/new` で同一ノート内の重複タグが拒否される、または重複除外される
 - [ ] `/notes/new` で既存タグ候補を選択して保存できる
 - [ ] `/notes/new` で未登録タグを入力すると保存時に自動作成される
-- [ ] `/notes/new` の本文 Markdown preview に入力内容が反映される
+- [ ] `/notes/new` で中央の Canvas 本文に文字・図形・線・ストロークを配置できる
+- [ ] `/notes/new` の Canvas 用紙サイズ入力が幅 1200px・高さ 800px を既定値として表示する
+- [ ] `/notes/new` の Canvas 用紙サイズに幅・高さの数値入力と `適用` 操作がある
+- [ ] `/notes/new` の Canvas 用紙サイズ入力は整数 px の 320〜4000 の範囲だけを受け付ける
+- [ ] `/notes/new` の Canvas 用紙サイズで小数、0、負数、320 未満、4000 超、空欄などの無効値が適用・保存できず field error が表示される
+- [ ] `/notes/new` の Canvas 用紙サイズ変更時に既存要素の `x`, `y`, `width`, `height`, `points`, `style` が変わらない
+- [ ] `/notes/new` の Canvas 用紙を小さくして要素が境界外になっても、要素が削除・移動・縮小されない
+- [ ] `/notes/new` の `Fit` / `50%` / `100%` / `200%` が表示される場合も、表示倍率として用紙サイズ入力・保存値と分離されている
 - [ ] `/notes/new` のサマリー Markdown preview に入力内容が反映される
 - [ ] `/notes/new` で保存中は保存ボタンが disabled になり `保存中...` が表示される
 - [ ] `/notes/new` で保存 API が失敗した場合、フォーム上部に error alert が表示される
 - [ ] `/notes/new` で有効な入力を保存すると `POST /api/notes` が成功する
 - [ ] `/notes/new` の保存成功後に作成したノートの `/notes/[id]` へ遷移する
+
+#### Canvas 本文・用紙サイズの保存／復元
+
+- [ ] Canvas を含むノートを保存すると `bodyMode=canvas` と `CanvasDocumentV1` が保存される
+- [ ] Canvas を含むノートの保存後、詳細画面で保存済み `page.width` / `page.height` が表示・復元される
+- [ ] Canvas を含むノートを編集して用紙サイズだけを変更し、再保存・再読込しても既存要素の `x`, `y`, `width`, `height`, `points`, `style` が変更されない
+- [ ] Canvas の要素を用紙の外側へ置いた状態で保存・再表示しても、要素が削除・移動・縮小されない
+- [ ] 既存の 1200x800 Canvas document を開いても、要素データが自動変換されず同じ位置・寸法で表示される
+- [ ] 既存 Canvas document を開くだけで用紙サイズや要素の保存値が書き換えられない
+- [ ] Canvas の用紙サイズだけを変更しても Canvas text 由来の `searchText` は変わらず、一覧の同じ検索語で同じノートが検索できる
+- [ ] 詳細閲覧・編集・復習の各表示が保存済み Canvas document を使い、復習時の本文マスク／表示切替が Canvas JSON を変更しない
 
 ### 3. ノート一覧
 
@@ -56,7 +73,6 @@ MVP の初期データに seed は使いません。検証用データは `/note
 - [ ] `/notes` で保存済みノートの Cue 件数が表示される
 - [ ] `/notes` で要約未作成の状態が判別できる
 - [ ] `/notes` でフリーワード検索がタイトルに対して効く
-- [ ] `/notes` でフリーワード検索が概要に対して効く
 - [ ] `/notes` でフリーワード検索が本文に対して効く
 - [ ] `/notes` でフリーワード検索がサマリーに対して効く
 - [ ] `/notes` でフリーワード検索が Cue に対して効く
@@ -80,13 +96,13 @@ MVP の初期データに seed は使いません。検証用データは `/note
 - [ ] `/notes/[id]` の閲覧モードでタイトルが表示される
 - [ ] `/notes/[id]` の閲覧モードで学習日が表示される
 - [ ] `/notes/[id]` の閲覧モードで学習元が表示される
-- [ ] `/notes/[id]` の閲覧モードで概要が表示される
 - [ ] `/notes/[id]` の閲覧モードでタグが表示される
 - [ ] `/notes/[id]` の閲覧モードで Cue リストが表示される
-- [ ] `/notes/[id]` の閲覧モードで本文 Markdown が表示される
+- [ ] `/notes/[id]` の閲覧モードで `bodyMode=canvas` の Canvas 本文が表示される
+- [ ] `/notes/[id]` の閲覧モードで `bodyMode=markdown` の既存ノートは本文 Markdown が表示される
 - [ ] `/notes/[id]` の閲覧モードでサマリー Markdown が表示される
 - [ ] `/notes/[id]` の閲覧モードから編集モードへ切り替えられる
-- [ ] `/notes/[id]` の編集モードで既存ノートの値がフォームに反映される
+- [ ] `/notes/[id]` の編集モードで既存ノートの title、Cue、Summary、Canvas または既存 Markdown 本文、用紙サイズが反映される
 - [ ] `/notes/[id]` の編集モードで `nextReviewDate` 未設定の既存ノートを開いても、編集開始だけでは日付が自動補完されない
 - [ ] `/notes/[id]` の編集モードで `noteDate` を変更しても、手動設定済みの `nextReviewDate` が自動移動しない
 - [ ] `/notes/[id]` の編集モードで保存すると `PATCH /api/notes/:id` が成功する
@@ -118,12 +134,12 @@ MVP の初期データに seed は使いません。検証用データは `/note
 #### NTE-030 閲覧／復習の共通構造
 
 - [ ] `/notes/[id]` の閲覧モードと復習モードで、タイトル・メタ情報・ヘッダー領域の基本構造が共通している（モードラベルと操作ボタンの違いは許容する）
-- [ ] `/notes/[id]` の閲覧モードと復習モードで、概要 → Cornell（Cue／本文）→ サマリーの基本順序と位置が共通している
+- [ ] `/notes/[id]` の閲覧モードと復習モードで、メタ情報 → Cornell（Cue／本文）→ Summary の基本順序と位置が共通している
 - [ ] デスクトップの閲覧モードと復習モードで、Cornell の Cue が左、本文領域が右にあり、幅は基本的に約 30% / 70% である
 - [ ] 復習モードへ切り替えても Cue とサマリーが本文より上の別領域へ移動せず、閲覧モードと同じ詳細画面シェルが維持される
-- [ ] 復習モードでは共通 Cornell の本文領域と Summary が初期状態で非表示になり、Cue と概要は表示される
+- [ ] 復習モードでは共通 Cornell の本文領域と Summary が初期状態で非表示になり、Cue は表示される
 - [ ] 復習モードでは Cue による想起と本文確認の後に Summary を開ける
-- [ ] 復習モードで本文を表示／非表示に切り替えても、本文領域の位置と概要・Cue・サマリーの位置が変わらない
+- [ ] 復習モードで本文を表示／非表示に切り替えても、本文領域の位置と Cue・Summary の位置が変わらない
 - [ ] 復習モードの復習記録と復習操作はサマリーの後ろに追加され、共通シェルの基本順序を置き換えない
 
 ### 4.1. NTE-020 / NTE-030 edit レイアウト / responsive
@@ -136,28 +152,28 @@ MVP の初期データに seed は使いません。検証用データは `/note
 
 #### Desktop（1280px 以上）
 
-- [ ] 1280px 前後で基本情報カードの高さと余白が圧縮され、タイトル・学習日・学習元・概要・タグを過度な縦幅なしに確認できる
-- [ ] 1280px 前後で Cornell の Cue / Note が左約 30% / 右約 70% の幅比で表示される
-- [ ] 1280px 前後で Note 本文の textarea と Preview が横並びで表示される
+- [ ] 1280px 前後で基本情報カードの高さと余白が圧縮され、タイトル・学習日・学習元・タグを過度な縦幅なしに確認できる
+- [ ] 1280px 前後で Cornell の Cue / Canvas 本文が左約 30% / 右約 70% の幅比で表示される
+- [ ] 1280px 前後で Canvas 本文が Cue の右側に約 70% の幅で表示され、Canvas の操作面が確認できる
 - [ ] 1440px 前後で基本情報カードの圧縮方針が維持される
-- [ ] 1440px 前後で Cornell の Cue / Note が左約 30% / 右約 70% の幅比で表示される
-- [ ] 1440px 前後で Note 本文の textarea と Preview が横並びで表示される
+- [ ] 1440px 前後で Cornell の Cue / Canvas 本文が左約 30% / 右約 70% の幅比で表示される
+- [ ] 1440px 前後で Canvas 本文が Cue の右側に約 70% の幅で表示され、Canvas の操作面が確認できる
 - [ ] 1280px 以上で Summary が textarea → Preview → 次回復習日 → キャンセル / 保存の順序で表示される
 
 #### Tablet / mobile（768px / 375px 前後）
 
 - [ ] 768px 前後で Cornell の Cue / Note の 2 列関係が維持され、左右の内容が同時に確認できる
 - [ ] 768px 前後で Cornell の Cue 入力欄をフォーカスして操作できる
-- [ ] 768px 前後で Cornell の Note 入力欄をフォーカスして操作できる
-- [ ] 375px 前後で Cornell section 内の Cue / Note / Preview の関係を横スクロールで確認できる
+- [ ] 768px 前後で Cornell の Canvas 本文操作面と用紙サイズ入力を操作できる
+- [ ] 375px 前後で Cornell section 内の Cue / Canvas の関係を横スクロールで確認できる
 - [ ] 375px 前後で基本情報 section は横スクロールせず通常の縦スクロールで確認できる
 - [ ] 375px 前後で Summary section は横スクロールせず通常の縦スクロールで確認できる
 - [ ] 375px 前後で Cornell section の外側のページは横スクロールせず、通常の縦スクロールで移動できる
 - [ ] 375px 前後で Cue 追加ボタンを押して Cue を追加できる
 - [ ] 375px 前後で Cue 削除ボタンを押して対象 Cue を削除できる
 - [ ] 375px 前後で Cue の textarea にフォーカスして入力できる
-- [ ] 375px 前後で Note 本文の textarea にフォーカスして Markdown を入力できる
-- [ ] 375px 前後で Note 本文の Preview を確認できる
+- [ ] 375px 前後で Canvas 本文の操作面、幅・高さ入力、`適用` に到達できる
+- [ ] 375px 前後で Canvas の表示倍率操作が用紙サイズ入力と混同されない
 - [ ] 375px 前後で Summary の textarea → Preview → 次回復習日 → キャンセル / 保存の順序が維持される
 - [ ] 375px 前後でキャンセル操作を実行できる
 - [ ] 375px 前後で保存操作を実行できる
@@ -171,7 +187,7 @@ MVP の初期データに seed は使いません。検証用データは `/note
 
 #### Markdown Preview の layout 回帰
 
-- [ ] 375px / 768px 前後でレイアウト変更後も Markdown Preview の checkbox が表示専用のままで、クリックしても入力値を変更しない
+- [ ] 375px / 768px 前後でレイアウト変更後も Cue / Summary の Markdown Preview の checkbox が表示専用のままで、クリックしても入力値を変更しない
 - [ ] 375px / 768px 前後でレイアウト変更後も GFM の表・取り消し線・タスクリスト等が Preview 内に表示される
 - [ ] 375px / 768px 前後でレイアウト変更後も危険な HTML が sanitize され、Preview の外へ表示されない
 
@@ -201,11 +217,16 @@ MVP の初期データに seed は使いません。検証用データは `/note
 - [ ] `GET /api/notes` が `reviewDue=true` を受け取り復習対象を返す
 - [ ] `GET /api/notes` が `page`, `totalPages`, `totalCount`, `data` を返す
 - [ ] `POST /api/notes` が Notebook を作成する
+- [ ] `POST /api/notes` が `bodyMode=canvas` と `CanvasDocumentV1` を保存する
+- [ ] `POST /api/notes` が Canvas の `searchText` を text 要素から生成する
 - [ ] `POST /api/notes` が Cue を作成する
 - [ ] `POST /api/notes` が未登録 Tag を作成する
 - [ ] `POST /api/notes` が NotebookTag を作成する
 - [ ] `GET /api/notes/:id` がノート詳細を返す
+- [ ] `GET /api/notes/:id` が保存済み `bodyMode` と Canvas document の page 寸法・要素を返す
 - [ ] `PATCH /api/notes/:id` が Notebook を更新する
+- [ ] `PATCH /api/notes/:id` が Canvas の page.width / page.height だけを変更して保存できる
+- [ ] `PATCH /api/notes/:id` が page 寸法変更時に要素の x / y / width / height / points / style を変更しない
 - [ ] `PATCH /api/notes/:id` が Cue をリクエスト内容で全置換する
 - [ ] `PATCH /api/notes/:id` が Tag 関連をリクエスト内容で全置換する
 - [ ] `DELETE /api/notes/:id` がノートを物理削除する
@@ -221,6 +242,8 @@ MVP の初期データに seed は使いません。検証用データは `/note
 - [ ] `GET /api/notes` で不正な `from` / `to` / `page` が `invalid_query` と field 別 error を返す
 - [ ] `GET /api/notes` で From > To が `field: "from"` / `message: "開始日は終了日以前の日付を入力してください"` を返す
 - [ ] `POST /api/notes` でタイトル未入力、タイトル 120 文字超、未来日の `noteDate` が `invalid_body` と field 別 error を返す
+- [ ] `POST /api/notes` で Canvas の幅・高さが整数 px の 320〜4000 の範囲外の場合、`invalid_body` と Canvas field error を返す
+- [ ] `POST /api/notes` で `bodyMode=canvas` の `canvas` 未指定、および `bodyMode=markdown` の `canvas` 指定を拒否する
 - [ ] `POST /api/notes` で 13 件以上のタグ、重複タグ、使用不可文字を含むタグが `invalid_body` と field 別 error を返す
 - [ ] `PATCH /api/notes/:id` で不正 body は not found 確認より先に 400 `invalid_body` を返す
 - [ ] `GET /api/notes/:id` / `PATCH /api/notes/:id` / `DELETE /api/notes/:id` / `POST /api/notes/:id/review` が存在しない ID に 404 `not_found` / `message: "ノートが見つかりません"` を返す
@@ -228,6 +251,8 @@ MVP の初期データに seed は使いません。検証用データは `/note
 - [ ] `GET /api/tags` でタグ 0 件の場合も 200 と `[]` を返す
 - [ ] `GET /api/backups` でバックアップ 0 件の場合も 200 と `{ backups: [] }` を返す
 - [ ] `POST /api/backups` で DB ファイル不在や `DATABASE_URL` 不正の場合は 500 `server_error` を返す
+
+- [ ] Canvas 用紙サイズの変更は `NotebookCanvas.documentJson` の JSON 更新で完結し、用紙寸法のためだけに Prisma schema / migration が増えていないことを静的に確認する
 
 ### 7. Markdown / Security
 
@@ -265,7 +290,10 @@ MVP の初期データに seed は使いません。検証用データは `/note
 | MVP-GAP-001 | 新規 `nextReviewDate = noteDate + 7日` 初期値 | `/notes/new`（新規作成） | 静的照合（viewport / fixture なし） | 2026-07-16 | fixture なし。実装コード、現行 MVP 契約、実装状況を照合 | FAIL（静的照合） | `doc/implementation/IMPLEMENTATION_STATUS.md` §1・§5.2、`doc/implementation/MVP_CONTRACT.md` §4.1 |
 | MVP-GAP-002 | 復習開始時の Summary 初期非表示と Cue → 本文 → Summary の順序 | `/notes/[id]`（復習） | 静的照合（viewport / fixture なし） | 2026-07-16 | fixture なし。実装コード、現行 MVP 契約、実装状況を照合。runtime 未実施とは別に、Summary 初期非表示の未達を記録 | FAIL（静的照合） | `doc/implementation/IMPLEMENTATION_STATUS.md` §1・§5.2、`doc/implementation/MVP_CONTRACT.md` §4.3・§6 |
 | MVP-GAP-003 | 概要の Markdown preview / sanitize | `/notes/new`、`/notes/[id]`（編集・閲覧） | 静的照合（viewport / fixture なし） | 2026-07-16 | fixture なし。概要の保存は確認できるが、本文 / Summary と同じ Markdown preview / sanitize ではない | FAIL（静的照合） | `doc/implementation/IMPLEMENTATION_STATUS.md` §1・§5.2、`doc/implementation/MVP_CONTRACT.md` §2・§6 |
+| CANVAS-DIMENSION-001 | Canvas の既定 1200x800、320〜4000px の整数入力、保存後復元、resize 前後の要素データ不変、表示倍率との分離 | `/notes/new`、`/notes/[id]`（編集・閲覧・復習）、`/api/notes` | 実装・runtime 未確認 | 2026-07-18 | fixture なし。共有 Canvas validation / JSON persistence の静的確認はあるが、可変 page UI と resize 後の runtime 確認は未実施 | 未実施 | 本更新の Canvas 契約、`src/shared/canvas/canvas-document.ts`、`doc/implementation/IMPLEMENTATION_STATUS.md` §5.4 |
 | PHASE2-BOUNDARY | 自動保存、Undo / soft delete、専用復習タスク、NoteCard / D&D、PDF、タグ管理 UI 等 | `/tasks/review`、`/notes/backup`、export 等（MVP 外） | 静的な契約照合。runtime 対象外 | 2026-07-16 | fixture なし。Phase 2 の未実施項目として扱い、MVP の PASS 集計には含めない | 未実施 | `doc/implementation/MVP_CONTRACT.md` §2・§9、本文書「Phase 2 / 将来確認」 |
+
+注記: 2026-07-18 の概要項目削除より前に実施した `NTE030-VIEW-1440`、`MVP-GAP-002`、`MVP-GAP-003` は、当時の画面・契約に対する履歴記録です。現在の受け入れ対象には含めず、過去の確認結果・未達理由を改変せずに保持します。
 
 NTE-020 の `summary/20260714/2205-document-nte020-policy-c-responsive-acceptance-scenarios-3f7ff466-summary.md` と `summary/20260714/2319-document-nte020-policy-c-runtime-screenshots-3b94ae94-summary.md` は、受け入れ観点・screenshot task の記録です。実画面の判定は `summary/20260714/nte020-policy-c-layout-qa-report.md` と存在確認済みの PNG を根拠にし、edit runtime や長文 overflow を推測で PASS にしていません。
 
