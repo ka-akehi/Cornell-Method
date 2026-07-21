@@ -1,0 +1,420 @@
+/* Isolated Fabric/Konva canvas comparison route. The page is intentionally
+   bounded and does not share state with the note editor. */
+.canvas-spike-page {
+  width: 100%;
+  min-width: 0;
+  margin-inline: auto;
+  color: var(--paper-ink);
+}
+
+.canvas-spike-page-header,
+.canvas-spike-contract,
+.canvas-spike-observations,
+.canvas-spike-notes {
+  width: min(100%, 100rem);
+  min-width: 0;
+  margin-inline: auto;
+}
+
+.canvas-spike-page-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 2rem;
+  margin-bottom: 1rem;
+  color: var(--chrome-foreground);
+}
+
+.canvas-spike-page-header h1,
+.canvas-spike-page-header h2,
+.canvas-spike-page-header h3,
+.canvas-spike-page-header p {
+  overflow-wrap: anywhere;
+}
+
+.canvas-spike-page-header h1 {
+  margin: 0.25rem 0 0;
+  color: var(--chrome-foreground);
+  font-size: clamp(1.5rem, 3vw, 2.35rem);
+  letter-spacing: -0.035em;
+  line-height: 1.15;
+}
+
+.canvas-spike-page-header > div > p:last-child {
+  max-width: 58rem;
+  margin: 0.75rem 0 0;
+  color: var(--chrome-muted);
+  line-height: 1.65;
+}
+
+.canvas-spike-eyebrow {
+  margin: 0;
+  color: var(--paper-accent-deep);
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.11em;
+  line-height: 1.4;
+  text-transform: uppercase;
+}
+
+.canvas-spike-page-header .canvas-spike-eyebrow {
+  color: var(--chrome-focus);
+}
+
+.canvas-spike-back-link {
+  flex: 0 0 auto;
+  border: 1px solid var(--chrome-border);
+  border-radius: 9999px;
+  padding: 0.55rem 0.9rem;
+  color: var(--chrome-foreground);
+  font-size: 0.82rem;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.canvas-spike-back-link:hover {
+  background: var(--chrome-hover);
+}
+
+.canvas-spike-back-link:focus-visible,
+.canvas-spike-toolbar button:focus-visible,
+.canvas-spike-toolbar input:focus-visible,
+.canvas-spike-viewport:focus-visible {
+  outline: 2px solid var(--chrome-focus);
+  outline-offset: 3px;
+}
+
+.canvas-spike-contract,
+.canvas-spike-observations,
+.canvas-spike-notes {
+  border: 1px solid rgb(112 113 104 / 24%);
+  border-radius: 0.75rem;
+  background: var(--paper);
+  box-shadow: var(--paper-shadow);
+}
+
+.canvas-spike-contract {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(16rem, 1fr);
+  gap: 1.5rem;
+  margin-bottom: 1rem;
+  padding: clamp(1rem, 2vw, 1.5rem);
+}
+
+.canvas-spike-contract h2,
+.canvas-spike-observations h2,
+.canvas-spike-notes h2 {
+  margin: 0.25rem 0 0;
+  color: var(--paper-ink);
+  font-size: 1.25rem;
+  letter-spacing: -0.025em;
+}
+
+.canvas-spike-contract p,
+.canvas-spike-section-heading p,
+.canvas-spike-notes p {
+  margin: 0.65rem 0 0;
+  color: var(--paper-ink-soft);
+  line-height: 1.6;
+}
+
+.canvas-spike-contract-list,
+.canvas-spike-live-projection {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.65rem;
+  margin: 0;
+}
+
+.canvas-spike-contract-list > div,
+.canvas-spike-live-projection > div {
+  min-width: 0;
+  border-left: 2px solid var(--paper-line-strong);
+  padding-left: 0.75rem;
+}
+
+.canvas-spike-contract-list dt,
+.canvas-spike-live-projection dt {
+  color: var(--paper-ink-soft);
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.canvas-spike-contract-list dd,
+.canvas-spike-live-projection dd {
+  margin: 0.2rem 0 0;
+  overflow-wrap: anywhere;
+  color: var(--paper-ink);
+  font-size: 0.85rem;
+  line-height: 1.45;
+}
+
+.canvas-spike-panels {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+  width: min(100%, 100rem);
+  min-width: 0;
+  margin-inline: auto;
+}
+
+.canvas-spike-engine-panel {
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid rgb(112 113 104 / 24%);
+  border-radius: 0.75rem;
+  background: var(--paper);
+  box-shadow: var(--paper-shadow);
+}
+
+.canvas-spike-engine-heading {
+  display: flex;
+  min-width: 0;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem 1rem 0.75rem;
+}
+
+.canvas-spike-engine-heading h2 {
+  margin: 0.2rem 0 0;
+  color: var(--paper-ink);
+  font-size: 1.3rem;
+  letter-spacing: -0.025em;
+}
+
+.canvas-spike-engine-heading p:last-child {
+  margin: 0.4rem 0 0;
+  color: var(--paper-ink-soft);
+  font-size: 0.8rem;
+  line-height: 1.45;
+}
+
+.canvas-spike-ready {
+  flex: 0 0 auto;
+  border: 1px solid var(--paper-line);
+  border-radius: 9999px;
+  padding: 0.3rem 0.55rem;
+  color: var(--paper-ink-soft);
+  font-size: 0.68rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.canvas-spike-ready[data-ready="true"] {
+  border-color: rgb(47 85 68 / 38%);
+  background: #e8f0e7;
+  color: #2f5544;
+}
+
+.canvas-spike-toolbar {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+  border-block: 1px solid var(--paper-line);
+  background: var(--paper-soft);
+  padding: 0.65rem 1rem;
+}
+
+.canvas-spike-toolbar-group {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 0.25rem;
+  flex-wrap: wrap;
+}
+
+.canvas-spike-toolbar button {
+  border: 1px solid var(--paper-line);
+  border-radius: 0.4rem;
+  background: var(--paper);
+  padding: 0.35rem 0.5rem;
+  color: var(--paper-ink);
+  cursor: pointer;
+  font-size: 0.72rem;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.canvas-spike-toolbar button:hover:not(:disabled),
+.canvas-spike-toolbar button[data-active="true"] {
+  border-color: var(--paper-accent);
+  background: #fff2df;
+  color: var(--paper-accent-deep);
+}
+
+.canvas-spike-toolbar button:disabled {
+  cursor: not-allowed;
+  opacity: 0.42;
+}
+
+.canvas-spike-text-control {
+  display: flex;
+  min-width: 8rem;
+  align-items: center;
+  gap: 0.35rem;
+  color: var(--paper-ink-soft);
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+
+.canvas-spike-text-control input {
+  min-width: 7rem;
+  max-width: 12rem;
+  border: 1px solid var(--paper-line);
+  border-radius: 0.4rem;
+  background: var(--paper);
+  padding: 0.35rem 0.45rem;
+  color: var(--paper-ink);
+  font-size: 0.75rem;
+}
+
+.canvas-spike-roundtrip-status {
+  min-width: 11rem;
+  margin-left: auto;
+  color: var(--paper-ink-soft);
+  font-size: 0.7rem;
+  line-height: 1.3;
+}
+
+.canvas-spike-viewport {
+  max-width: 100%;
+  overflow: auto;
+  overscroll-behavior: contain;
+  background: #e4e2da;
+  padding: 0.75rem;
+  scrollbar-width: thin;
+}
+
+.canvas-spike-stage {
+  position: relative;
+  flex: 0 0 auto;
+  overflow: hidden;
+  border: 1px solid rgb(112 113 104 / 28%);
+  background: var(--paper);
+  box-shadow: 0 5px 16px rgb(47 54 49 / 10%);
+}
+
+.canvas-spike-stage canvas {
+  display: block;
+  max-width: none;
+}
+
+.canvas-spike-konva-container,
+.canvas-spike-konva-container > div,
+.canvas-spike-konva-container canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.canvas-spike-engine-meta {
+  display: flex;
+  min-width: 0;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  border-top: 1px solid var(--paper-line);
+  padding: 0.6rem 1rem;
+  color: var(--paper-ink-soft);
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  line-height: 1.4;
+}
+
+.canvas-spike-engine-meta span:last-child {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.canvas-spike-observations {
+  margin-top: 1rem;
+  padding: clamp(1rem, 2vw, 1.5rem);
+}
+
+.canvas-spike-section-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 2rem;
+}
+
+.canvas-spike-section-heading > p {
+  max-width: 46rem;
+  margin-top: 0.15rem;
+}
+
+.canvas-spike-comparison-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr);
+  gap: 1.5rem;
+  margin-top: 1rem;
+}
+
+.canvas-spike-comparison-grid h3 {
+  margin: 0;
+  color: var(--paper-ink);
+  font-size: 0.95rem;
+}
+
+.canvas-spike-comparison-grid ul {
+  margin: 0.6rem 0 0;
+  padding-left: 1.2rem;
+  color: var(--paper-ink-soft);
+  font-size: 0.82rem;
+  line-height: 1.65;
+}
+
+.canvas-spike-notes {
+  margin-top: 1rem;
+  padding: clamp(1rem, 2vw, 1.5rem);
+}
+
+.canvas-spike-notes p + p {
+  margin-top: 0.35rem;
+}
+
+@media (max-width: 1100px) {
+  .canvas-spike-panels {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 700px) {
+  .canvas-spike-page-header,
+  .canvas-spike-section-heading {
+    display: block;
+  }
+
+  .canvas-spike-back-link {
+    display: inline-flex;
+    margin-top: 0.85rem;
+  }
+
+  .canvas-spike-contract,
+  .canvas-spike-comparison-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .canvas-spike-contract-list,
+  .canvas-spike-live-projection {
+    margin-top: 1rem;
+  }
+
+  .canvas-spike-engine-heading {
+    display: block;
+  }
+
+  .canvas-spike-ready {
+    display: inline-flex;
+    margin-top: 0.6rem;
+  }
+
+  .canvas-spike-roundtrip-status {
+    width: 100%;
+    margin-left: 0;
+  }
+}

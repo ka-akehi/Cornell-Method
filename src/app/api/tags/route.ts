@@ -1,18 +1,10 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/server/infrastructure/prisma";
+import { listTagOptions } from "@/server/notes/application";
 import { apiErrorResponse, createServerError } from "@/shared/http";
 
 export async function GET() {
   try {
-    const tags = await prisma.tag.findMany({
-      orderBy: { name: "asc" },
-      select: {
-        id: true,
-        name: true,
-        color: true,
-      },
-    });
-    return NextResponse.json(tags);
+    return NextResponse.json(await listTagOptions());
   } catch (error) {
     console.error(error);
     return apiErrorResponse(createServerError());

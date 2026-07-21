@@ -1,0 +1,326 @@
+/* The note routes use one continuous sheet instead of a stack of floating cards. */
+.note-paper-shell {
+  --note-paper-outer-gutter: clamp(1rem, 3vw, 3rem);
+  --note-paper-rule-step: 2.25rem;
+  width: min(
+    100%,
+    calc(
+      100vw - var(--note-paper-outer-gutter) - var(--note-paper-outer-gutter)
+    )
+  );
+  margin-inline: auto;
+  overflow: hidden;
+  border: 1px solid rgb(112 113 104 / 24%);
+  border-radius: clamp(0.5rem, 1vw, 0.75rem);
+  background-color: var(--paper);
+  background-image: repeating-linear-gradient(
+    to bottom,
+    transparent 0,
+    transparent calc(var(--note-paper-rule-step) - 1px),
+    var(--paper-rule) calc(var(--note-paper-rule-step) - 1px),
+    var(--paper-rule) var(--note-paper-rule-step)
+  );
+  box-shadow: var(--paper-shadow);
+  color: var(--paper-ink);
+}
+
+.note-paper-content {
+  padding: clamp(1.25rem, 3.4vw, 3.5rem) clamp(1rem, 3.4vw, 3.5rem);
+}
+
+.note-paper-heading {
+  display: flex;
+  min-width: 0;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1.25rem;
+  padding-bottom: clamp(1.25rem, 2.6vw, 2rem);
+  border-bottom: 1px solid var(--paper-line);
+}
+
+.note-paper-heading-copy {
+  min-width: 0;
+}
+
+.note-paper-kicker {
+  margin: 0 0 0.4rem;
+  color: var(--paper-accent-deep);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  line-height: 1.4;
+  text-transform: uppercase;
+}
+
+.note-paper-title {
+  margin: 0;
+  color: var(--paper-ink);
+  font-size: clamp(1.75rem, 3.2vw, 2.75rem);
+  font-weight: 650;
+  letter-spacing: -0.035em;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+
+.note-paper-meta-grid {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0;
+  margin-top: clamp(1rem, 2vw, 1.5rem);
+  padding-bottom: clamp(1rem, 2vw, 1.5rem);
+  border-bottom: 1px solid var(--paper-line);
+}
+
+.note-paper-meta-item {
+  min-width: 0;
+  padding: 0.1rem 1rem;
+  border-left: 1px solid var(--paper-line);
+}
+
+.note-paper-meta-item:first-child {
+  padding-left: 0;
+  border-left: 0;
+}
+
+.note-paper-meta-item dt {
+  color: var(--paper-ink-soft);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.note-paper-meta-item dd {
+  margin-top: 0.25rem;
+  color: var(--paper-ink);
+  overflow-wrap: anywhere;
+}
+
+.note-paper-section {
+  min-width: 0;
+  padding-block: clamp(1.25rem, 2.8vw, 2.25rem);
+  border-top: 1px solid var(--paper-line);
+}
+
+.note-paper-editor > .note-paper-section:first-of-type,
+.note-paper-detail > .note-paper-section:first-of-type {
+  border-top: 0;
+}
+
+.note-paper-section-title {
+  margin: 0;
+  color: var(--paper-ink);
+  font-size: clamp(1.05rem, 1.7vw, 1.35rem);
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  line-height: 1.35;
+}
+
+.note-paper-cornell-grid {
+  --note-paper-cornell-rule-step: 2.25rem;
+  column-gap: 0;
+  border-top: 1px solid var(--paper-line-strong);
+  border-bottom: 1px solid var(--paper-line-strong);
+  background-image: repeating-linear-gradient(
+    to bottom,
+    transparent 0,
+    transparent calc(var(--note-paper-cornell-rule-step) - 1px),
+    var(--paper-rule) calc(var(--note-paper-cornell-rule-step) - 1px),
+    var(--paper-rule) var(--note-paper-cornell-rule-step)
+  );
+}
+
+.note-paper-cornell-grid > :first-child {
+  min-width: 0;
+  border-right: 1px solid var(--paper-line-strong);
+  padding-right: clamp(1rem, 2vw, 2rem);
+}
+
+.note-paper-cornell-grid > :last-child {
+  min-width: 0;
+  padding-left: clamp(1rem, 2vw, 2rem);
+}
+
+.note-paper-cue-item {
+  border-radius: 0.375rem;
+  border-color: var(--paper-line);
+  background: rgb(250 247 239 / 46%);
+  box-shadow: none;
+}
+
+.note-paper-footer {
+  margin-top: clamp(1rem, 2vw, 1.5rem);
+  padding-top: clamp(1rem, 2vw, 1.5rem);
+  border-top: 1px solid var(--paper-line-strong);
+  background: linear-gradient(180deg, rgb(250 247 239 / 28%), transparent 5rem);
+}
+
+.note-paper-footer button[type="submit"]:not(:disabled) {
+  border-color: var(--paper-accent);
+  background-color: var(--paper-accent);
+  color: #fff8eb;
+}
+
+.note-paper-footer button[type="submit"]:hover:not(:disabled) {
+  border-color: var(--paper-accent-deep);
+  background-color: var(--paper-accent-deep);
+}
+
+.note-paper-footer button:focus-visible {
+  outline: 2px solid var(--paper-accent-deep);
+  outline-offset: 3px;
+}
+
+.note-paper-alert {
+  margin-bottom: 1rem;
+  border-color: rgb(164 72 72 / 35%);
+  background: rgb(164 72 72 / 8%);
+  color: var(--paper-danger);
+}
+
+.note-paper-shell input:not([type="checkbox"]),
+.note-paper-shell textarea,
+.note-paper-shell select {
+  background-color: var(--paper-soft);
+  box-shadow: none;
+}
+
+.note-paper-shell input:not([type="checkbox"]):focus,
+.note-paper-shell textarea:focus,
+.note-paper-shell select:focus {
+  box-shadow: 0 0 0 3px rgb(198 107 61 / 11%);
+}
+
+@media (max-width: 900px) {
+  .note-paper-meta-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    row-gap: 1rem;
+  }
+
+  .note-paper-meta-item:nth-child(odd) {
+    padding-left: 0;
+    border-left: 0;
+  }
+
+  .note-paper-meta-item:nth-child(n + 3) {
+    padding-top: 1rem;
+    border-top: 1px solid var(--paper-line);
+  }
+
+  .note-paper-detail .note-paper-cornell-grid {
+    width: 100%;
+    min-width: 0;
+    overflow-x: auto;
+    overscroll-behavior-inline: contain;
+    grid-template-columns: minmax(12rem, 30%) minmax(28rem, 70%);
+  }
+}
+
+@media (max-width: 640px) {
+  .note-paper-heading {
+    flex-direction: column;
+  }
+
+  .note-paper-heading .flex {
+    width: 100%;
+  }
+
+  .note-paper-meta-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .note-paper-meta-item,
+  .note-paper-meta-item:nth-child(odd) {
+    padding: 0.75rem 0 0;
+    border-top: 1px solid var(--paper-line);
+    border-left: 0;
+  }
+
+  .note-paper-meta-item:first-child {
+    padding-top: 0;
+    border-top: 0;
+  }
+
+  .note-paper-cornell-grid > :first-child {
+    border-right: 1px solid var(--paper-line-strong);
+    border-bottom: 0;
+    padding-bottom: 0;
+  }
+
+  .note-paper-cornell-grid > :last-child {
+    padding-top: 0;
+    padding-left: clamp(1rem, 2vw, 2rem);
+  }
+}
+
+.note-paper-editor--create.note-paper-shell {
+  --note-paper-outer-gutter: clamp(0.75rem, 1.5vw, 1.5rem);
+  padding: clamp(0.75rem, 1.5vw, 1.25rem) clamp(0.75rem, 1.75vw, 1.5rem);
+  background-image: none;
+}
+
+.note-paper-editor--create .note-paper-cornell-grid {
+  background-image: none;
+  border-top-color: transparent;
+  border-bottom-color: transparent;
+}
+
+.note-paper-editor--create .note-paper-meta-grid {
+  border-bottom-color: transparent;
+}
+
+.note-paper-editor--create .note-paper-title:not(:focus):not([aria-invalid="true"]) {
+  border-bottom-color: transparent;
+}
+
+.note-paper-editor--create .markdown-preview-heading {
+  border-bottom-color: transparent;
+}
+
+.note-paper-editor--create .note-paper-footer {
+  border-top-color: var(--paper-line-strong);
+  background-image: none;
+}
+
+.note-paper-editor--create .note-paper-cornell-grid textarea:not(:focus):not([aria-invalid="true"]) {
+  border-bottom-color: transparent;
+}
+
+/* The new-note form preserves the shell and structural dividers while removing
+   decorative horizontal rules from the continuous paper surface. */
+.note-paper-editor--create > .note-paper-section {
+  border-top: 1px solid var(--paper-line);
+}
+
+.note-paper-editor--create > .note-paper-section:first-of-type {
+  border-top: 0;
+}
+
+.note-paper-editor--create .note-paper-meta-item {
+  border-top: 0;
+}
+
+.note-paper-editor--create
+  input:not([type="checkbox"]):not(.note-paper-title):not(:focus):not([aria-invalid="true"]),
+.note-paper-editor--create textarea:not(:focus):not([aria-invalid="true"]),
+.note-paper-editor--create select:not(:focus):not([aria-invalid="true"]) {
+  border-color: transparent;
+  background-color: transparent;
+  box-shadow: none;
+}
+
+.note-paper-editor--create .note-paper-cue-empty,
+.note-paper-editor--create .note-paper-cue-item {
+  border-color: transparent;
+}
+
+.note-paper-editor--create .markdown-preview-surface,
+.note-paper-editor--create .markdown-preview-empty {
+  border-bottom-color: transparent;
+}
+
+/* Keep the create sheet compact without changing detail/review paper spacing. */
+.note-paper-editor--create > .note-paper-section {
+  padding-block: clamp(0.75rem, 1.2vw, 1.25rem);
+}
+

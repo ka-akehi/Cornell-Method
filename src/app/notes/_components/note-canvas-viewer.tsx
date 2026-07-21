@@ -10,7 +10,9 @@ import {
   fabricDocumentToCanvas,
   type FabricApiLike,
   type FabricCanvasLike,
-} from "@/app/spikes/canvas/_lib/fabric-adapter";
+} from "@/shared/canvas/adapters/fabric";
+import { applyCanvasSurfaceDimensions } from "../_lib/canvas-surface";
+import { NoteCanvasSurface } from "./note-canvas-surface";
 
 type NoteCanvasViewerProps = {
   document: CanvasDocumentV1 | null;
@@ -77,13 +79,20 @@ export function NoteCanvasViewer({ document }: NoteCanvasViewerProps) {
         nextCanvas.backgroundColor = "#fffdf8";
         nextCanvas.selection = false;
         nextCanvas.isDrawingMode = false;
-        nextCanvas.setDimensions({ width: pageWidth, height: pageHeight });
         const validated = cloneCanvasDocument(validDocument);
         fabricDocumentToCanvas(nextCanvas, fabricModule, validated);
         nextCanvas.getObjects().forEach((object) => {
           object.set({ selectable: false, evented: false });
         });
         nextCanvas.discardActiveObject();
+        applyCanvasSurfaceDimensions(
+          {
+            canvas: nextCanvas,
+            canvasElement: element,
+            surface: surfaceRef.current,
+          },
+          validated.page,
+        );
         nextCanvas.renderAll();
         setReady(true);
         setError(null);
@@ -106,19 +115,14 @@ export function NoteCanvasViewer({ document }: NoteCanvasViewerProps) {
     const canvas = canvasRef.current;
     if (!surface || !canvas) return;
 
-    canvas.setDimensions({ width: pageWidth, height: pageHeight });
-    surface.style.width = `${pageWidth}px`;
-    surface.style.height = `${pageHeight}px`;
-    const wrapper = canvas.upperCanvasEl.parentElement;
-    if (wrapper) {
-      wrapper.style.width = `${pageWidth}px`;
-      wrapper.style.height = `${pageHeight}px`;
-      wrapper.querySelectorAll("canvas").forEach((node) => {
-        node.style.width = `${pageWidth}px`;
-        node.style.height = `${pageHeight}px`;
-      });
-    }
-    canvas.requestRenderAll?.();
+    applyCanvasSurfaceDimensions(
+      {
+        canvas,
+        canvasElement: canvasElementRef.current,
+        surface,
+      },
+      { width: pageWidth, height: pageHeight },
+    );
   }, [pageHeight, pageWidth, ready]);
 
   const textElements = validDocument.elements
@@ -140,28 +144,15 @@ export function NoteCanvasViewer({ document }: NoteCanvasViewerProps) {
       )}
 
       {documentRef.current !== null && (
-        <div
-          ref={viewportRef}
-          className="note-canvas-viewport note-canvas-viewport--viewer"
-          role="img"
-          aria-label={`保存済みCanvas本文。用紙サイズ ${pageWidth} x ${pageHeight} px。図形、線、ストローク、テキストを含みます。`}
-        >
-          <div className="note-canvas-horizontal-scroll">
-            <div
-              ref={surfaceRef}
-              className="note-canvas-stage note-canvas-stage--viewer"
-              style={{ width: `${pageWidth}px`, height: `${pageHeight}px` }}
-            >
-              <canvas
-                ref={canvasElementRef}
-                width={pageWidth}
-                height={pageHeight}
-                style={{ width: `${pageWidth}px`, height: `${pageHeight}px` }}
-                aria-label={`保存済み${pageWidth} x ${pageHeight} Canvas`}
-              />
-            </div>
-          </div>
-        </div>
+        <NoteCanvasSurface
+          mode="viewer"
+          pageDimensions={{ width: pageWidth, height: pageHeight }}
+          viewportRef={viewportRef}
+          surfaceRef={surfaceRef}
+          canvasElementRef={canvasElementRef}
+          viewportAriaLabel={`保存済みCanvas本文。用紙サイズ ${pageWidth} x ${pageHeight} px。図形、線、ストローク、テキストを含みます。`}
+          canvasAriaLabel={`保存済み${pageWidth} x ${pageHeight} Canvas`}
+        />
       )}
 
       <div className="note-canvas-assistive-text">

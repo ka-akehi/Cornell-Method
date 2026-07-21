@@ -5,3 +5,13 @@ export function todayDateString() {
   const day = String(now.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
 }
+
+export function addDaysToDateString(value: string, days: number) {
+  const [year, month, day] = value.split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  date.setUTCDate(date.getUTCDate() + days);
+
+  return [date.getUTCFullYear(), date.getUTCMonth() + 1, date.getUTCDate()]
+    .map((part) => String(part).padStart(2, "0"))
+    .join("-");
+}

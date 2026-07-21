@@ -1,0 +1,179 @@
+.app-chrome-header {
+  border-bottom: 1px solid var(--chrome-border);
+  background:
+    linear-gradient(110deg, rgb(7 31 22 / 96%), rgb(13 48 34 / 98%)),
+    var(--chrome);
+  box-shadow: var(--chrome-shadow);
+  color: var(--chrome-foreground);
+}
+
+.app-chrome-inner {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  width: min(100%, 1440px);
+  min-width: 0;
+  margin-inline: auto;
+  align-items: center;
+  column-gap: clamp(1.25rem, 4vw, 4rem);
+  padding: 0.75rem clamp(1rem, 4vw, 3rem);
+}
+
+.app-chrome-brand {
+  display: flex;
+  min-width: 0;
+  grid-column: 1;
+  align-items: center;
+  gap: 0.75rem;
+  color: var(--chrome-foreground);
+  text-decoration: none;
+}
+
+.app-chrome-brand-mark {
+  display: flex;
+  width: 2.25rem;
+  height: 2.25rem;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgb(247 240 223 / 72%);
+  border-radius: 9999px;
+  color: var(--chrome-foreground);
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 1rem;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.app-chrome-brand-copy {
+  min-width: 0;
+}
+
+.app-chrome-brand-title {
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: var(--chrome-foreground);
+  font-size: 0.875rem;
+  font-weight: 650;
+  letter-spacing: 0.08em;
+  line-height: 1.35;
+}
+
+.app-chrome-brand-subtitle {
+  margin: 0.125rem 0 0;
+  color: var(--chrome-muted);
+  font-size: 0.75rem;
+  line-height: 1.35;
+}
+
+.app-chrome-nav {
+  display: flex;
+  min-width: 0;
+  grid-column: 2;
+  justify-content: flex-end;
+  overflow-x: auto;
+  overscroll-behavior-inline: contain;
+  scrollbar-width: thin;
+  gap: 0.25rem;
+}
+
+.app-chrome-nav-link {
+  flex-shrink: 0;
+  border-radius: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  color: var(--chrome-muted);
+  font-size: 0.875rem;
+  font-weight: 600;
+  line-height: 1.25rem;
+  text-decoration: none;
+  transition: background-color 150ms ease, color 150ms ease;
+}
+
+.app-chrome-nav-link:hover {
+  background: var(--chrome-hover);
+  color: var(--chrome-foreground);
+}
+
+.app-chrome-nav-link:focus-visible,
+.app-chrome-brand:focus-visible {
+  outline: 2px solid var(--chrome-focus);
+  outline-offset: 3px;
+}
+
+.app-chrome-state-slot {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.app-chrome-state-slot[data-state="idle"] {
+  display: none;
+}
+
+.app-chrome-state-badge {
+  display: inline-flex;
+  max-width: min(12rem, 30vw);
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border: 1px solid rgb(247 240 223 / 34%);
+  border-radius: 9999px;
+  background: var(--paper-accent);
+  padding: 0.35rem 0.75rem;
+  color: #fff8eb;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-main {
+  width: 100%;
+  min-width: 0;
+  flex: 1 1 auto;
+  padding: clamp(1.5rem, 3vw, 2rem) clamp(1rem, 4vw, 3rem);
+}
+
+.app-main:has(> .note-paper-page--create) {
+  padding: clamp(0.75rem, 1.5vw, 1.25rem) clamp(0.75rem, 2vw, 1.5rem);
+}
+
+.app-main > :not(.note-paper-shell):not(.note-paper-page) {
+  width: min(100%, 72rem);
+  margin-inline: auto;
+}
+
+.app-page-header {
+  border-color: var(--chrome-border);
+}
+
+.app-page-header h1 {
+  color: var(--chrome-foreground);
+}
+
+.app-page-header p {
+  color: var(--chrome-muted);
+}
+
+.note-paper-page {
+  width: 100%;
+  min-width: 0;
+}
+
+@media (max-width: 900px) {
+  .app-chrome-inner {
+    grid-template-columns: minmax(0, 1fr);
+    row-gap: 0.5rem;
+  }
+
+  .app-chrome-brand,
+  .app-chrome-nav {
+    grid-column: 1;
+  }
+
+  .app-chrome-nav {
+    justify-content: flex-start;
+  }
+}

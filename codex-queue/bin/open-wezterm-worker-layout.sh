@@ -32,18 +32,18 @@ split_bottom() {
   wezterm cli split-pane --pane-id "$pane_id" --bottom --percent "$percent" --cwd "$project_dir"
 }
 
-# main_1="$(open_window)"
-# right_1="$(split_right "$main_1" 50)"
-# left_bottom_1="$(split_bottom "$main_1" 50)"
+main_1="$(open_window)"
+right_1="$(split_right "$main_1" 50)"
+left_bottom_1="$(split_bottom "$main_1" 50)"
 
-# send_command "$main_1" "codex"
-# send_command "$left_bottom_1" "WORKER_NOTIFY_TARGET_PANE_ID=$right_1 codex-queue/bin/notify-worker-run.sh"
-# send_command "$right_1" 'codex "$(cat codex-queue/prompts/manager-codex.md)
+send_command "$main_1" "codex"
+send_command "$left_bottom_1" "WORKER_NOTIFY_TARGET_PANE_ID=$right_1 codex-queue/bin/notify-worker-run.sh"
+send_command "$right_1" 'codex "$(cat codex-queue/prompts/manager-codex.md)
 
-# ---
+---
 
-# 引き継ぎ資料を確認して、次に実施する作業を整理してください。
-# "'
+引き継ぎ資料を確認して、次に実施する作業を整理してください。
+"'
 
 main_2="$(open_window)"
 right_2="$(split_right "$main_2" 50)"

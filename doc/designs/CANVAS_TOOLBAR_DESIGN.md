@@ -12,9 +12,9 @@
 
 v2 の決定事項は次のとおり。
 
-- **icon-first、短い可視ラベル併用**を採用する。アイコンを主な視覚アンカーにし、ラベルは選択、ペン、直線、矢印、四角、円、文字、全体消去、戻す、やり直すのように短くする。
+- **icon-first、短い可視ラベル併用**を採用する。アイコンを主な視覚アンカーにし、ラベルは選択、ペン、直線、矢印、四角、円、文字、消しゴム、戻す、やり直すのように短くする。
 - アイコンは toolbar 内の小さな inline SVG または CSS で表現できる範囲に限定する。絵文字、Unicode 記号を実アイコンとして使うこと、新しいアイコンライブラリ依存を追加することは禁止する。
-- 選択、描画、線、図形、文字、全体消去、履歴を、同じ高さのボタン列ではなく、背景・separator・active 表現の異なる操作グループとして見せる。
+- 選択、描画、線、図形、文字、消しゴム、履歴を、同じ高さのボタン列ではなく、背景・separator・active 表現の異なる操作グループとして見せる。
 - 用紙設定は描画操作の rail に入れず、強い境界を持つ独立パネルとして右端または別行に置く。用紙の幅・高さは zoom と呼ばない。
 - tool の sticky 性、オブジェクト単位の消しゴム、CanvasDocumentV1、Canvas の client Undo / Redo、320〜4000px の用紙寸法、ページ縦 scroll と Canvas 横 scroll は維持する。
 - `pen` / `line` / `arrow` / `rect` / `ellipse` / `text` は、空白だけでなく既存のアプリ所有 Canvas 要素上からも新規作成を開始できる。未知 metadata の一時 Fabric object は新規 gesture の対象にしない。
@@ -53,7 +53,7 @@ v2 は draw.io の全機能を再現するものではない。道具箱とし�
 | active | aria-pressed と data-active は存在し、CSS は橙色背景と下側 inset marker を使う | active はアイコン、label、marker、aria-pressed の複数で示す。色だけには依存しない |
 | tooltip / 説明 | `title` と `aria-describedby` の visually hidden description はある。`title` は browser の補助表示で、touch では表示されない | desktop / tablet の hover と keyboard focus では visible tooltip を出し、可視 label と hidden description を併用している |
 | 履歴 | Undo、Redo の text button があり、canUndo / canRedo により native disabled になる | アイコン＋短い label を使い、disabled と active tool state を混同させない |
-| 用紙 | `type="number"` の幅・高さ、320〜4000 の min / max、Enter または適用、`aria-invalid` と `role="alert"` がある | validation と操作を維持し、独立 panel、helper、状態表現を加えている |
+| 用紙 | `type="number"` の幅・高さ、320〜4000 の min / max、Enter または適用、`aria-invalid` と `role="alert"` がある | validation と操作を維持し、独立 panel と状態表現を加えている |
 
 ### 2.3 v2 導入前の CSS の比較基準
 
@@ -71,8 +71,8 @@ active は paper-accent / paper-accent-deep、淡い橙背景、下側 inset mar
 | iconography | icon がなく、ラベルの文字列を読まないと形状・履歴の意味を判断できない | currentColor の inline SVG / CSS icon と短い label を併用する |
 | button density | すべて min-height 2.75rem、長いラベルも同じ横幅規則で、列が詰まる | icon slot を固定し、label を一行の短語にし、group 間の余白を group 内より大きくする |
 | group boundary | 薄い縦線だけで、描画の小グループと大きな責務の境界が読みにくい | group outer separator、subgroup separator、面の差を段階的に使う |
-| primary / secondary | 選択、全体消去、Undo / Redo が通常 tool と同じ重み | 選択を primary、全体消去を安全確認が必要な distinct action、Undo / Redo を secondary、描画を rail として分ける |
-| paper conflict | 幅・高さ・適用が描画 tool と同じ row の一部に見える | paper panel を二重に近い境界で分離し、「用紙の寸法、表示倍率ではない」を helper で明示する |
+| primary / secondary | 選択、消しゴム、Undo / Redo が通常 tool と同じ重み | 選択を primary、消しゴムを安全確認が必要な distinct action、Undo / Redo を secondary、描画を rail として分ける |
+| paper conflict | 幅・高さ・適用が描画 tool と同じ row の一部に見える | paper panel を二重に近い境界で分離し、用紙寸法の入力であることを構造と field label で示す |
 | responsive | 640px 以下の rail はあるが、tablet の折り返しと narrow の優先順位が未定義 | desktop / tablet / narrow の行・overflow・disclosure を固定する |
 | accessibility | ARIA と focus ring はあるが、visible tooltip と、色以外での active / group の見分けが不足 | label、icon、marker、aria、focus tooltip、live status を重ねる。ラベルを icon-only の奥へ隠さない |
 
@@ -90,7 +90,7 @@ toolbar の DOM / 認知上の順序は、操作 → 描画 rail → スタイ�
 | 図形 | 四角、円 | icon＋四角 / 円 | drawing rail 内で subgroup separator | 片方だけ active |
 | 文字 | テキスト | icon＋文字 | drawing rail 内の末尾 subgroup | active は text tool だけに付ける |
 | スタイル | 線幅、色、文字サイズ、文字配置 | field label、px、color input、alignment icon | drawing rail の外。選択対象に応じて有効／無効を示す独立 surface | active tool は持たない。対象なし・対象外では controls を disabled にする |
-| 消去 | 消しゴム（全体） | eraser icon＋全体消去 | rail の外。通常 tool とは異なる淡い danger tint または強い境界 | active は danger marker。部分消去ではないことを常に説明 |
+| 消去 | 消しゴム | eraser icon＋消しゴム | rail の外。通常 tool とは異なる淡い danger tint または強い境界 | active は danger marker。触れた要素を object 単位で消去することを説明 |
 | 履歴 | Undo、Redo | undo / redo icon＋戻す / やり直す | rail の外。secondary surface | native disabled。active tool の aria-pressed は持たない |
 | 用紙 | 幅、高さ、適用 | 用紙 panel、field label、px、適用 | 描画操作から強い separator で分離。desktop は独立した下段、狭幅は disclosure | active state は持たない。invalid は field と error で示す |
 
@@ -105,8 +105,8 @@ Desktop（広い本文列、paper は独立した下段）:
     ┌──────────────────────────────────────────────────────────────────────────────────────────────────────┐
     │ [SVG:pointer 選択] │ [SVG:pencil ペン] [SVG:line 直線] │ [SVG:arrow 矢印] │ [SVG:rect 四角] [SVG:circle 円] │ [線幅] [色] [文字サイズ] [配置] │
     │                    │ [描画 rail: local horizontal scroll if needed]                                  │
-    │                    │ [SVG:T 文字] │ [SVG:eraser 全体消去] │ [SVG:undo 戻す] [SVG:redo やり直す] ║       │
-    │                    ║ 用紙  [幅 1200 px] [高さ 800 px] [適用]  寸法は用紙そのもの                       │
+    │                    │ [SVG:T 文字] │ [SVG:eraser 消しゴム] │ [SVG:undo 戻す] [SVG:redo やり直す] ║       │
+    │                    ║ 用紙  [幅 1200 px] [高さ 800 px] [適用]                                  │
     └──────────────────────────────────────────────────────────────────────────────────────────────────────┘
 
 実際の desktop では rail 内の tool は可能な限り一行に置く。wireframe の改行は説明用であり、描画 tool の button を縦に一つずつ並べる指定ではない。縦線は group separator、二重線は paper panel の境界を表す。group の面は薄く異なる背景で示し、ボタンの面より group の面が広く見えるようにする。
@@ -115,10 +115,10 @@ Tablet（641〜1099px）:
 
     row 1: [SVG:pointer 選択] │ [描画 rail: [ペン] [直線] [矢印] [四角] [円] [文字] → 横 scroll]
     row 2: [線幅 ...] [色] [文字サイズ ...] [配置 ...]
-    row 3: [SVG:eraser 全体消去] │ [SVG:undo 戻す] [SVG:redo やり直す]
+    row 3: [SVG:eraser 消しゴム] │ [SVG:undo 戻す] [SVG:redo やり直す]
     row 4: ║ 用紙 [幅 ...] [高さ ...] [適用]
 
-tablet では group の途中で button を折り返さない。drawing rail は row 1 の残り幅だけを使い、rail 外の style、全体消去、履歴、用紙は rail の scroll に巻き込まない。ページ全体の横 overflow は出さない。
+tablet では group の途中で button を折り返さない。drawing rail は row 1 の残り幅だけを使い、rail 外の style、消しゴム、履歴、用紙は rail の scroll に巻き込まない。ページ全体の横 overflow は出さない。
 
 Narrow（640px 以下）:
 
@@ -127,10 +127,10 @@ Narrow（640px 以下）:
             │ [ペン] [直線] [矢印] [四角] [円] [文字]  → この rail だけ横 scroll │
             └───────────────────────────────────────────────────────────────────────┘
     row 3: [線幅 ...] [色] [文字サイズ ...] [配置 ...]
-    row 4: [SVG:eraser 全体消去] │ [SVG:undo 戻す] [SVG:redo やり直す]
-    row 5: [用紙設定 1200 × 800 px ▸]  （開くと幅・高さ・適用・helper/error）
+    row 4: [SVG:eraser 消しゴム] │ [SVG:undo 戻す] [SVG:redo やり直す]
+    row 5: [用紙設定 1200 × 800 px ▸]  （開くと幅・高さ・適用・error）
 
-narrow では選択・全体消去・履歴を drawing rail の中へ入れず、rail の横 scroll なしで到達できる別 row に置く。描画 rail はラベルを省略せずに横 scroll する。用紙は summary が現在寸法を示す native disclosure または同等の明示的な開閉 UI とし、開いた入力欄をキーボードで到達できるようにする。disclosure を採用する場合も、入力値・適用・error を DOM から削除しない。
+narrow では選択・消しゴム・履歴を drawing rail の中へ入れず、rail の横 scroll なしで到達できる別 row に置く。描画 rail はラベルを省略せずに横 scroll する。用紙は summary が現在寸法を示す native disclosure または同等の明示的な開閉 UI とし、開いた入力欄をキーボードで到達できるようにする。disclosure を採用する場合も、入力値・適用・error を DOM から削除しない。
 
 ### 3.3 ボタンの label / icon 方針
 
@@ -143,7 +143,7 @@ narrow では選択・全体消去・履歴を drawing rail の中へ入れず�
 | rect | rectangle | 四角 | 四角 | 空白または既存のアプリ所有 Canvas 要素上からドラッグして四角形を描く |
 | ellipse | circle / ellipse | 円 | 円 | 空白または既存のアプリ所有 Canvas 要素上からドラッグして円または楕円を描く |
 | text | T / text cursor | 文字 | 文字 | 空白または既存のアプリ所有 Canvas 要素上をクリックして文字を入力する |
-| erase | eraser | 全体消去 | 全体消去 | 消しゴム（全体）。クリックまたはなぞって object 全体を削除する |
+| erase | eraser | 消しゴム | 消しゴムツール | クリックまたはなぞって、触れた要素を消去する |
 | undo | curved arrow left | 戻す | 戻す | Canvas の直前の操作を元に戻す |
 | redo | curved arrow right | やり直す | やり直す | Canvas の取り消した操作をやり直す |
 
@@ -164,7 +164,7 @@ narrow では選択・全体消去・履歴を drawing rail の中へ入れず�
 | paper-line | group 内の弱い境界、input border | default separator |
 | paper-line-strong | toolbar 外周、group 間、paper panel | group が変わることを示す 1px 境界 |
 | paper-accent / paper-accent-deep | hover、active、focus ring | current tool の共通 accent |
-| paper-danger | 全体消去の active / error | danger 色だけに意味を委ねず、marker と label を併用 |
+| paper-danger | 消しゴムの active / error | danger 色だけに意味を委ねず、marker と label を併用 |
 | icon slot | 16〜18px の固定幅 | label の左側に常に確保 |
 | control height | 最低 44px 相当 | pointer / touch の target を確保。高さを下げて横幅だけを詰めない |
 | group gap | group 内 gap より広い | 役割の切り替わりを余白で補強 |
@@ -201,7 +201,7 @@ active は「橙色の背景だけ」では不十分である。marker、太さ�
 
 ### 5.1 Tool の状態
 
-- 初期 tool は select。選択中の tool は sticky であり、ペン、直線、矢印、四角、円、文字、消しゴム（全体）を一度選ぶと、別 tool を選ぶまで同じ tool が有効である。
+- 初期 tool は select。選択中の tool は sticky であり、ペン、直線、矢印、四角、円、文字、消しゴムを一度選ぶと、別 tool を選ぶまで同じ tool が有効である。
 - tool 切替、hover、focus、tooltip の表示は CanvasDocumentV1 と history を変更しない。
 - select は既存 element の選択、移動、resize を許可する。既存 element を操作する入口は select と説明する。
 - pen、line、arrow、rect、ellipse、text は、空白または既存のアプリ所有 Canvas 要素上から新規 element を作る。これを `既存要素上からの重ね描き` と呼び、既存要素を選択・移動・resize する `select` の役割とは分ける。
@@ -224,12 +224,12 @@ toolbar の style controls は、Canvas の描画・文字の基本スタイル�
 
 対象を選択中、または図形内文字を編集中に style を変更した場合は、Canvas の表示へ即時反映する。入力の preview／commit は現行の editor の明示保存と client history の境界を使い、新しい DB/API 保存領域を追加しない。
 
-### 5.3 消しゴム（全体）
+### 5.3 消しゴム
 
 現行の erase は部分消去ではなく、hit した Fabric object 全体を削除する。v2 ではこの意味を見た目と説明に固定する。
 
-- 表示 label は全体消去、accessible name と tooltip は消しゴム（全体）とする。
-- click または drag / なぞりで hit した stroke、line、arrow、rect、ellipse、text を object 単位で削除する。
+- 表示 label は「消しゴム」、group / button の accessible name と tooltip は「消しゴムツール」とする。説明は「クリックまたはなぞって、触れた要素を消去する」とする。
+- click または drag / なぞりで hit した stroke、line、arrow、rect、ellipse、text を対象要素として object 単位で削除する。
 - 一 gesture 中に同じ object を二重削除せず、hit があった場合だけ一つの history entry を作る。
 - no-hit は document、history、親フォームの値を変更しない。
 - active は danger tint または danger marker で示すが、部分消去や不可逆なサーバー削除を意味しない。
@@ -245,7 +245,7 @@ toolbar の style controls は、Canvas の描画・文字の基本スタイル�
 ### 5.5 用紙設定
 
 - page.width / page.height の既定値は 1200 × 800px、許容範囲は各 320〜4000px の整数である。
-- input は表示倍率ではなく用紙そのものの寸法を入力する。Fit、50%、100%、200% は表示倍率を表す概念であり、用紙サイズの選択肢ではない。現行 UI に倍率操作はなく、将来追加する場合も page 寸法の state / 保存値と分離する。
+- input は page の幅・高さを用紙寸法として入力する。Fit、50%、100%、200% は表示倍率を表す概念であり、用紙サイズの選択肢ではない。現行 UI に倍率操作はなく、将来追加する場合も page 寸法の state / 保存値と分離する。
 - 幅・高さの適用は既存の onPageDimensionsChange callback を使う。無効値では document を変更せず、field 単位の error を表示する。
 - 用紙寸法を変更しても element の x、y、width、height、points、style、rotation、text、z を自動変更しない。境界外の element も削除、移動、縮小、clip しない。
 - page の JSON と text element 由来の searchText の保存契約は維持する。用紙サイズだけの変更で searchText を書き換えない。
@@ -308,11 +308,11 @@ CSS の order だけで視覚的な row と DOM の Tab 順を大きく反転さ
 ### 9.1 見た目
 
 - [ ] toolbar が Canvas 本文列の上に表示され、Cornell の Cue 30% / 本文 70%、Summary、Canvas の紙面位置を変更していない。
-- [ ] 文字だけのカテゴリ見出しを横一列に置かず、選択、描画 rail、全体消去、履歴、用紙の境界が背景・余白・separator で判別できる。
+- [ ] 文字だけのカテゴリ見出しを横一列に置かず、選択、描画 rail、消しゴム、履歴、用紙の境界が背景・余白・separator で判別できる。
 - [ ] すべての tool button に SVG / CSS icon と短い可視 label があり、label-only の平置きから移行している。
-- [ ] 選択、全体消去、Undo / Redo、描画 tool の primary / secondary の重みが、面・marker・余白の差で見える。
+- [ ] 選択、消しゴム、Undo / Redo、描画 tool の primary / secondary の重みが、面・marker・余白の差で見える。
 - [ ] active は icon / label の色だけでなく marker または border と aria-pressed で分かる。active tool は一つだけである。
-- [ ] paper panel が drawing rail の中に入らず、幅・高さ・px・適用と「用紙そのものの寸法」という説明が視覚的に分離されている。
+- [ ] paper panel が drawing rail の中に入らず、幅・高さ・px・適用が用紙寸法の設定として視覚的に分離されている。
 - [ ] hover、focus、disabled、invalid の見た目が default と区別でき、focus ring が active marker に埋もれない。
 - [ ] desktop、tablet、narrow で button の途中折り返しや page-wide horizontal overflow がない。
 
@@ -321,10 +321,10 @@ CSS の order だけで視覚的な row と DOM の Tab 順を大きく反転さ
 - [ ] 初期 tool は選択で、tool を選ぶと別 tool を選ぶまで sticky に active である。
 - [ ] 選択、ペン、直線、矢印、四角、円、文字をそれぞれの group / rail から一回の操作で選べる。
 - [ ] tool 切替、hover、focus、tooltip 表示だけでは CanvasDocumentV1、history、親フォームの値が変わらない。
-- [ ] 消しゴム（全体）は click / なぞりで hit した object 全体を削除し、partial erase や mask を行わない。no-hit は no-op である。
+- [ ] 消しゴムは click / なぞりで hit した要素を object 単位で削除し、Canvas 全体の削除、partial erase、mask を行わない。no-hit は no-op である。
 - [ ] Undo / Redo は canUndo / canRedo と連動し、disabled button をクリックして無意味な history を増やさない。
 - [ ] 用紙サイズ input は整数 320〜4000px、Enter または適用で更新でき、不正値は document を更新せず field error を出す。
-- [ ] narrow の drawing rail だけが横 scroll し、rail 外の選択・全体消去・履歴・用紙へ横 scroll なしで到達できる。
+- [ ] narrow の drawing rail だけが横 scroll し、rail 外の選択・消しゴム・履歴・用紙へ横 scroll なしで到達できる。
 - [ ] pen、line、arrow、rect、ellipse、text は空白と既存のアプリ所有 Canvas 要素上のどちらからも新規作成でき、未知 metadata の一時 object 上では開始しない。
 - [ ] line、arrow、rect、ellipse は一定の移動量を超えた場合だけ作成し、クリック／ダブルクリックだけでは不要な図形を作らない。
 - [ ] `select`、`rect`、`ellipse` の対象図形のダブルクリックで図形内文字編集に入り、図形外形を表示したまま、確定・キャンセル後も他要素を失わない。
@@ -340,7 +340,7 @@ CSS の order だけで視覚的な row と DOM の Tab 順を大きく反転さ
 - [ ] 全 button、input、disclosure に Tab で到達でき、Enter / Space、Enter 適用が機能する。DOM の論理順と見た目の group 順が大きく矛盾しない。
 - [ ] focus-visible は 2px 以上で、active、hover、disabled と同時に視認できる。focus を色だけで表現しない。
 - [ ] active は aria-pressed、disabled は native disabled、用紙の invalid は aria-invalid と aria-describedby / role="alert" で表現する。
-- [ ] current tool、no-op、全体消去結果など、画面上で伝わりにくい状態は status / aria-live に通知できる。通知だけで操作の意味を置き換えない。
+- [ ] current tool、no-op、消しゴムの結果など、画面上で伝わりにくい状態は status / aria-live に通知できる。通知だけで操作の意味を置き換えない。
 - [ ] narrow で label を icon-only の tooltip のみに隠さず、rail 内でも label と focus 位置を確認できる。
 
 ### 9.4 既存機能回帰

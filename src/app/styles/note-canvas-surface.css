@@ -1,0 +1,73 @@
+.note-canvas-viewport {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  overflow: visible;
+  overflow-anchor: none;
+  overscroll-behavior: auto;
+  scroll-behavior: auto;
+  background: #e4e2da;
+  padding: 0.7rem;
+}
+
+.note-canvas-horizontal-scroll {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: clip;
+  overscroll-behavior: auto;
+  scrollbar-width: thin;
+}
+
+.note-canvas-viewport--viewer {
+  cursor: default;
+}
+
+.note-canvas-viewport[data-tool="erase"],
+.note-canvas-viewport[data-tool="erase"] .canvas-container,
+.note-canvas-viewport[data-tool="erase"] .upper-canvas {
+  cursor: crosshair !important;
+}
+
+.note-canvas-stage {
+  position: relative;
+  flex: 0 0 auto;
+  overflow: hidden;
+  border: 1px solid rgb(112 113 104 / 28%);
+  background: var(--paper);
+  box-shadow: 0 5px 16px rgb(47 54 49 / 10%);
+}
+
+.note-canvas-stage .canvas-container {
+  position: relative;
+  display: block;
+  flex: 0 0 auto;
+}
+
+.note-canvas-stage canvas {
+  display: block;
+  max-width: none;
+}
+
+.note-canvas-error {
+  margin: 0.65rem 0;
+  border: 1px solid rgb(164 72 72 / 35%);
+  background: rgb(164 72 72 / 8%);
+  padding: 0.65rem 0.75rem;
+  color: var(--paper-danger);
+  font-size: 0.78rem;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.note-canvas-assistive-text {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  clip-path: inset(50%);
+}

@@ -1,6 +1,6 @@
 # 実装状況サマリ
 
-更新日: 2026-07-19
+更新日: 2026-07-21
 
 ## 判定基準
 
@@ -20,11 +20,11 @@
 
 現行 MVP と照合した重要な差分は次のとおり。
 
-- 新規作成時の `nextReviewDate = noteDate + 7日` は実装されていない。新規フォームは空欄で始まり、空欄のまま保存すると `null` になる。
+- 新規作成時の `nextReviewDate = noteDate + 7日` は実装済み。新規フォームは学習日から 7 日後で始まり、保存前に変更または空欄化できる。既存ノートの未設定値は自動補完せず、学習日を変更しても明示された次回復習日は自動移動しない。
 - 復習モードの本文と Summary は初期非表示になる。本文を表示した後に Summary を開ける。
 - 削除は確認後に物理削除する。`deletedAt` は schema に残る互換フィールドであり、Undo / soft delete の実装を意味しない。
 - 専用復習タスク、ドラフト自動保存、NoteCard、D&D、PDF export などの route・model・UI は存在しない。
-- Canvas は、`CanvasDocumentV1`（既定 page 1200x800、各 320〜4000px）の共有 validation、JSON 保存・復元、Canvas text 要素由来の `searchText`、幅・高さ数値入力と適用操作、保存済み `page` 寸法による editor / viewer の実寸描画、page 寸法だけを更新して要素 geometry を保持する処理、draw.io 風 toolbar、sticky tool、whole-object eraser、client history、style controls、図形内文字、既存要素上の重ね描き、図形ドラッグ閾値、Fabric path metadata までコード上で実装されている。これらは静的実装確認であり、pointer / wheel / touch、保存・再読込、responsive を含むブラウザ実機 QA は未確認である。
+- Canvas は、`CanvasDocumentV1`（既定 page 1200x800、各 320〜4000px）の共有 validation、JSON 保存・復元、Canvas text 要素由来の `searchText`、幅・高さ数値入力と適用操作、保存済み `page` 寸法による editor / viewer の実寸描画、page 寸法だけを更新して要素 geometry を保持する処理、draw.io 風 toolbar、sticky tool、消しゴム（触れた要素を object 単位で消去する whole-object eraser）、client history、style controls、図形内文字、既存要素上の重ね描き、図形ドラッグ閾値、Fabric path metadata までコード上で実装されている。2026-07-21 に API の Canvas 保存・復元境界も実リクエストで確認したが、pointer / wheel / touch、Browser UI の保存・再読込、responsive を含むブラウザ実機 QA は未確認である。
 
 ## 2. 画面と route
 
@@ -100,7 +100,7 @@ route handler の export と一致する一覧は次のとおり。これ以外�
 | Canvas 用紙サイズ UI / 実寸 renderer | 実装済み（静的確認）。toolbar の幅・高さ `type=number` 入力、整数・320〜4000px validation、適用 / Enter 操作、保存済み `document.page` を使う editor / viewer の DOM・Fabric 寸法反映。 | `src/app/notes/_components/note-canvas-toolbar.tsx`, `src/app/notes/_components/note-canvas-editor.tsx`, `src/app/notes/_components/note-canvas-viewer.tsx`, `src/app/spikes/canvas/_lib/fabric-adapter.ts` |
 | Canvas 用紙サイズ変更の要素不変挙動 | 実装済み（静的確認）。page の `width` / `height` だけを history / document に反映し、既存要素の `x`, `y`, `width`, `height`, `points`, `style` などを再配置・縮小・削除しない。 | `src/app/notes/_components/note-canvas-editor.tsx`, `src/shared/canvas/canvas-document.ts`, `doc/implementation/MVP_CONTRACT.md` §6.1 |
 | Canvas draw.io 風 toolbar | 実装済み（静的確認）。操作、描く、線、図形、文字、消去、履歴、用紙の group、active state、ARIA、tooltip / description、用紙サイズ入力を持つ。 | `src/app/notes/_components/note-canvas-toolbar.tsx`, `HANDOFF_2026-07-19.md` §4.5 |
-| Canvas tool state / eraser / history | 実装済み（静的確認）。tool は sticky、消去は stroke / line / arrow / rect / ellipse / text の whole-object eraser、Undo / Redo は Canvas の client history snapshot。 | `src/app/notes/_components/note-canvas-editor.tsx`, `src/app/notes/_components/note-canvas-toolbar.tsx`, `HANDOFF_2026-07-19.md` §6.4 |
+| Canvas tool state / eraser / history | 実装済み（静的確認）。tool は sticky、消しゴムは stroke / line / arrow / rect / ellipse / text を object 単位で消去する whole-object eraser、Undo / Redo は Canvas の client history snapshot。 | `src/app/notes/_components/note-canvas-editor.tsx`, `src/app/notes/_components/note-canvas-toolbar.tsx`, `HANDOFF_2026-07-19.md` §6.4 |
 | Canvas style controls | 実装済み（静的確認）。線幅 1〜20px（既定 1px）、文字サイズ 8〜96px（既定 12px）、color input、文字配置 `left` / `center` / `right` を提供し、選択中または図形内文字編集中に表示へ即時反映する。 | `src/app/notes/_components/note-canvas-toolbar.tsx`, `src/app/notes/_components/note-canvas-editor.tsx`, `src/app/spikes/canvas/_lib/fabric-adapter.ts`, `doc/implementation/MVP_CONTRACT.md` §6.2 |
 | Canvas text save boundary | 実装済み（静的確認）。standalone text は `style.fontSize` / `style.fill` / `style.textAlign`、図形内文字は `textStyle.fontSize` / `textStyle.fill` / `textStyle.textAlign` に保存する。 | `src/shared/canvas/canvas-document.ts`, `src/app/notes/_components/note-canvas-editor.tsx`, `src/app/spikes/canvas/_lib/fabric-adapter.ts`, `doc/implementation/MVP_CONTRACT.md` §6.2 |
 | Canvas shape inline text | 実装済み（静的確認）。`select` / `rect` / `ellipse` の対象図形をダブルクリックすると、図形外形を表示したまま inline editor を開き、確定・キャンセル後も元の shape と既存のペン線・他要素を保持する。 | `src/app/notes/_components/note-canvas-editor.tsx`, `src/app/spikes/canvas/_lib/fabric-adapter.ts`, `doc/implementation/MVP_CONTRACT.md` §6.2 |
@@ -112,13 +112,21 @@ route handler の export と一致する一覧は次のとおり。これ以外�
 | 契約項目 | 実際の挙動 | 判定 | 根拠 |
 | --- | --- | --- | --- |
 | 復習モードの本文・Summary | 本文と Summary は復習開始時に非表示で、本文を表示した後に Summary を開ける。表示・再非表示の状態は保存しない。 | 実装済み（runtime QA は別途確認） | `src/app/notes/_components/note-detail-modes.tsx` |
-| 新規 `nextReviewDate` 初期値 | 新規フォームは `initial?.nextReviewDate ?? ""` で初期化され、`noteDate + 7日` の計算がない。空欄保存は `null` になる。 | 未実装（現行 MVP 要件） | `src/modules/notes/model/note-editor-form.ts:66-76`, `src/server/notes/infrastructure/command.repository.ts:76-78`, `doc/implementation/MVP_CONTRACT.md:57-59` |
-| 復習の次回日管理 | `POST /api/notes/:id/review` は存在し、`reviewedAt` とユーザー入力の `nextReviewDate` / `null` を更新する。日付の自動再計算はない。 | 実装済み。ただし初期値の不足は上記の未実装 | `src/app/api/notes/[id]/review/route.ts`, `src/server/notes/infrastructure/command.repository.ts:168-195` |
+| 新規 `nextReviewDate` 初期値 | 新規フォームは `noteDate` を基準に `addDaysToDateString(noteDate, 7)` で初期化され、空欄化して保存することもできる。既存ノートは未設定値を補完せず、`noteDate` 変更時も明示された次回復習日を自動移動しない。 | 実装済み（静的確認。runtime QA は別途確認） | `src/modules/notes/model/note-editor-form.ts:54-84`, `src/shared/date/date-only.ts:9-17`, `doc/implementation/MVP_CONTRACT.md:59-60` |
+| 復習の次回日管理 | `POST /api/notes/:id/review` は存在し、`reviewedAt` とユーザー入力の `nextReviewDate` / `null` を更新する。日付の自動再計算はない。 | 実装済み | `src/app/api/notes/[id]/review/route.ts`, `src/server/notes/infrastructure/command.repository.ts:168-195` |
 | 依存ライブラリに対する高度 UI | `@dnd-kit/*`、`@uiw/react-md-editor`、`react-day-picker` は `package.json` にあるが、現行画面は native textarea / date input と手動 Cue 操作を使う。 | MVP の実装済みとは数えない | `package.json`, `src/app/notes/_components/note-editor.tsx`, `src/app/notes/_components/notes-list.tsx` |
 
-### 5.3 未確認（静的実装とは別のブラウザ QA）
+### 5.3 Runtime 検証境界（API と Browser を分離）
 
-Canvas の次の項目は、コード上の実装を確認できるが、2026-07-19 時点でブラウザ実機の完了証跡がない。静的実装の存在だけで PASS にはしない。
+API runtime の実リクエスト結果と、ブラウザ実機での pointer / wheel / touch / 保存・再読込 / responsive QA は別の判定として記録する。静的実装の存在だけで Browser runtime を PASS にはしない。
+
+#### 2026-07-21 Notes API runtime（API 境界のみ）
+
+権限昇格後に `127.0.0.1:3107` で server listen に成功し、既存 DB を壊さない一意な QA note を使った実リクエストは PASS。Canvas page の `640x480` → `1920x1080` 変更後も既存 element の geometry / `style` / `text` は不変で、Canvas text 検索、review、物理削除、削除後 404、QA title の `totalCount=0` を確認した。これは API runtime の証跡であり、下表の Browser QA を PASS へ繰り上げない。詳細は `doc/testing/TEST_SCENARIOS.md` の「Notes API runtime 検証記録（2026-07-21）」を参照する。
+
+#### Browser runtime 未確認
+
+Canvas の次の項目は、2026-07-21 時点でもブラウザ実機の完了証跡がない。Browser backend が利用できず、静的実装の存在だけで PASS にはしない。
 
 | 確認項目 | 未確認の範囲 | 判定 | 根拠 |
 | --- | --- | --- | --- |
@@ -126,7 +134,7 @@ Canvas の次の項目は、コード上の実装を確認できるが、2026-07
 | Canvas drag threshold / gesture separation | 小さなクリック／ダブルクリックが no-op になり、一定のドラッグ量を超えたときだけ line / arrow / rect / ellipse が作成されること。standalone text 作成、図形ダブルクリック編集、図形作成が混同されないこと。 | 未確認（runtime QA） | `HANDOFF_2026-07-19.md` §7.1、`doc/implementation/MVP_CONTRACT.md` §6.2、`doc/designs/CANVAS_TOOLBAR_DESIGN.md` §9.2 |
 | Canvas shape inline text lifecycle | 図形内文字編集中の外形表示、確定・キャンセル、既存のペン線・線・矢印・図形・standalone text の保持、Fabric lifecycle error 不発生を確認すること。 | 未確認（runtime QA） | `HANDOFF_2026-07-19.md` §7.1、`doc/implementation/MVP_CONTRACT.md` §6.2 |
 | Canvas style controls / persistence | 線幅 1〜20px・既定 1px、文字サイズ 8〜96px・既定 12px、色、文字配置 `left` / `center` / `right` が選択中または図形内文字編集中に即時反映され、保存・再読込後に `style` / `textStyle` として復元されること。 | 未確認（runtime QA） | `HANDOFF_2026-07-19.md` §7.1、`doc/implementation/MVP_CONTRACT.md` §6.2 |
-| Canvas 保存・再読込 | 用紙サイズ変更後の `POST` / `PATCH`、詳細画面での page / 要素復元、既存 element geometry の不変、Canvas text 検索の実データ確認。 | 未確認（runtime QA） | `HANDOFF_2026-07-19.md` §2.3・§7.1、`doc/implementation/MVP_CONTRACT.md` §6.1 |
+| Canvas browser 保存・再読込 | Browser UI での用紙サイズ変更後の保存・再読込、詳細画面での page / 要素復元、page 外要素の表示確認。API の page resize、geometry / `style` / `text` 不変、Canvas text 検索は 2026-07-21 に別途確認済み。 | 未確認（runtime QA） | `HANDOFF_2026-07-19.md` §2.3・§7.1、`doc/implementation/MVP_CONTRACT.md` §6.1、`doc/testing/TEST_SCENARIOS.md` の「Notes API runtime 検証記録（2026-07-21）」 |
 | Canvas wheel / trackpad / touch | ページ縦 scroll が Summary / footer まで通ること、広い用紙だけが局所横 scroll になること、Canvas pointer 操作と scroll が干渉しないこと。 | 未確認（runtime QA） | `HANDOFF_2026-07-19.md` §2.3・§7.1、`doc/designs/CANVAS_TOOLBAR_DESIGN.md` §5.6 |
 | Canvas toolbar keyboard / responsive / focus | 375 / 768 / 1280 / 1440px で toolbar group、active state、focus ring、tooltip / accessible description、drawing rail、用紙入力へ keyboard / touch で到達できること。 | 未確認（runtime QA） | `HANDOFF_2026-07-19.md` §2.3・§7.1、`doc/designs/CANVAS_TOOLBAR_DESIGN.md` §6・§9.3 |
 
@@ -153,9 +161,9 @@ Canvas の次の項目は、コード上の実装を確認できるが、2026-07
 | --- | --- | --- |
 | `src/shared/canvas/canvas-document.ts` | `CanvasDocumentV1`、既定 1200x800、320〜4000px validation、serialize / restore、`extractCanvasSearchText`。 | 無効値入力・境界値・壊れた document のブラウザ / API 実機確認。 |
 | `src/modules/notes/contracts/note.schema.ts` | `bodyMode` と `canvas` の相互排他、Canvas validation の API 入力境界。 | API の field error 表示と保存時の実機確認。 |
-| `src/server/notes/infrastructure/command.repository.ts` | `documentJson` / `searchText` の create・update 保存。page 寸法変更用の別 API / DB column はない。 | 保存・再読込後の page、要素 geometry、`searchText` の実データ確認。 |
+| `src/server/notes/infrastructure/command.repository.ts` | `documentJson` / `searchText` の create・update 保存。page 寸法変更用の別 API / DB column はない。 | Browser UI での保存・再読込は未確認。API の page、要素 geometry、`style` / `text`、`searchText` は 2026-07-21 に実データ確認済み。 |
 | `src/server/notes/infrastructure/read.repository.ts` / `src/server/notes/presenters/notes.mapper.ts` | Canvas `searchText` を一覧検索に含め、保存済み JSON を復元する。 | 一覧検索と詳細復元のブラウザ実機確認。 |
-| `src/app/notes/_components/note-canvas-editor.tsx` | toolbar から page を更新し、DOM / Fabric を `document.page` の実寸に反映する。page 更新時は要素データを変更せず、sticky tool、重ね描き、drag threshold、図形内文字、style 即時反映、whole-object erase、client history を扱う。 | pointer 操作、移動・resize、図形内文字 lifecycle、style、消しゴム、保存・再読込、wheel / touch の実機確認。 |
+| `src/app/notes/_components/note-canvas-editor.tsx` | toolbar から page を更新し、DOM / Fabric を `document.page` の実寸に反映する。page 更新時は要素データを変更せず、sticky tool、重ね描き、drag threshold、図形内文字、style 即時反映、消しゴムの whole-object erase、client history を扱う。 | pointer 操作、移動・resize、図形内文字 lifecycle、style、消しゴム、保存・再読込、wheel / touch の実機確認。 |
 | `src/app/notes/_components/note-canvas-viewer.tsx` | 保存済み `document.page` を使って viewer の用紙を実寸描画する。 | 閲覧・復習時の表示、page 外要素の復元、responsive の実機確認。 |
 | `src/app/notes/_components/note-canvas-toolbar.tsx` | 用紙の幅・高さ入力、整数・範囲 validation、適用 / Enter、tool group、sticky tool の active state、線幅・文字サイズ・color・文字配置 controls、ARIA。 | 375 / 768 / 1280 / 1440px の keyboard / touch 到達性、focus、tooltip、local rail、style の即時反映と保存境界の実機確認。 |
 | `src/app/spikes/canvas/_lib/fabric-adapter.ts` | app-owned `CanvasDocumentV1` と Fabric object の変換、page 寸法・座標の反映、path metadata、points / bounds / transform の復元、shape inline text の renderer。 | pointer で作成・移動・resize した geometry、path の保存・再読込、shape inline text lifecycle の実機確認。 |
@@ -194,8 +202,10 @@ Canvas の次の項目は、コード上の実装を確認できるが、2026-07
 | 2026-07-04〜2026-07-05 | Prisma validate/generate、`npm run lint`、`npm run build` | PASS | `doc/testing/TEST_SCENARIOS.md` の検証記録、`summary/20260705/mvp-ui-flow-reverification-report.md`, `summary/20260705/manager-fix-ui009-note-editor-tag-candidates-summary.md`, `summary/20260705/manager-fix-ui014-edit-save-state-summary.md` |
 | 2026-07-16 | `nextReviewDate + 7日` 初期値、既存未設定値の非補完、復習 Summary 初期非表示 | 未実施。静的照合では初期値と Summary 非表示に差分あり | `doc/testing/TEST_SCENARIOS.md` の 2026-07-16 記録、本文書 §5.2 |
 | 2026-07-19 | Canvas 用紙サイズの数値入力、既定 1200x800、320〜4000px 検証、保存境界、editor / viewer の実寸描画、resize 時の要素不変、toolbar、Canvas text `searchText` | 静的実装確認済み。ブラウザ実機 QA は未確認 | `HANDOFF_2026-07-19.md` §2.3・§3.6・§4.2・§4.5、`doc/implementation/MVP_CONTRACT.md` §6.1、本文書 §5.1・§5.5 |
-| 2026-07-19 | Canvas の style controls、text alignment、shape inline text、既存要素上の重ね描き、図形 drag threshold、whole-object eraser、client history、Fabric path metadata | 静的実装確認済み。ブラウザ実機 QA は未確認 | `HANDOFF_2026-07-19.md` §5.4・§6.4、`doc/implementation/MVP_CONTRACT.md` §6.2、本文書 §5.1 |
-| 2026-07-19 | Canvas の pointer / wheel / trackpad / touch、保存・再読込、responsive QA | 未確認。静的コードの存在を runtime PASS の根拠にしない | `HANDOFF_2026-07-19.md` §2.3・§7.1、`doc/testing/TEST_SCENARIOS.md` の `CANVAS-DIMENSION-001`、本文書 §5.3 |
+| 2026-07-19 | Canvas の style controls、text alignment、shape inline text、既存要素上の重ね描き、図形 drag threshold、消しゴム（触れた要素を object 単位で消去する whole-object eraser）、client history、Fabric path metadata | 静的実装確認済み。ブラウザ実機 QA は未確認 | `HANDOFF_2026-07-19.md` §5.4・§6.4、`doc/implementation/MVP_CONTRACT.md` §6.2、本文書 §5.1 |
+| 2026-07-19 | Canvas Browser の pointer / wheel / trackpad / touch、UI 保存・再読込、responsive QA | 未確認。静的コードの存在を runtime PASS の根拠にしない | `HANDOFF_2026-07-19.md` §2.3・§7.1、`doc/testing/TEST_SCENARIOS.md` の `CANVAS-DIMENSION-001`、本文書 §5.3 |
+| 2026-07-21 | 新規 `nextReviewDate = noteDate + 7日` 初期値、既存未設定値の非補完、明示値の保持 | 静的実装確認済み。月末・年末跨ぎを含む runtime QA は未確認 | `summary/20260721/1940-implement-new-note-review-date-default-20260721-24f5f31b-summary.md`, `src/modules/notes/model/note-editor-form.ts`, `src/shared/date/date-only.ts`, `doc/testing/TEST_SCENARIOS.md` |
+| 2026-07-21 | Notes API runtime: 一覧 / tags / backups、Canvas 作成・復元、page resize 後の element 不変、Canvas text 検索、review、物理削除 / 404、QA cleanup | PASS（API runtime のみ。Browser QA は未確認） | `doc/testing/TEST_SCENARIOS.md` の「Notes API runtime 検証記録（2026-07-21）」 |
 
 ### 7.1 2026-07-19 静的検証証跡
 

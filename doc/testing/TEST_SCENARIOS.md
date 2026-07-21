@@ -29,6 +29,7 @@ MVP の初期データに seed は使いません。検証用データは `/note
 - [ ] `/notes/new` でタイトルが 120 文字を超えると validation error が表示される
 - [ ] `/notes/new` で未来日の学習日は保存できない
 - [ ] `/notes/new` を開くと `nextReviewDate` に `noteDate + 7日` が初期入力される
+- [ ] `/notes/new` の `nextReviewDate` 初期値が月末（例: `2026-01-31` → `2026-02-07`）・年末（例: `2026-12-31` → `2027-01-07`）を正しく跨ぐ
 - [ ] `/notes/new` で初期入力された `nextReviewDate` を別の日付へ変更、または空欄化して保存できる
 - [ ] `/notes/new` で次回復習日が学習日より前の場合は validation error が表示される
 - [ ] `/notes/new` で Cue を追加できる
@@ -138,7 +139,7 @@ MVP の初期データに seed は使いません。検証用データは `/note
   - 対象 route / 画面状態: `/notes/new` と `/notes/[id]` の編集状態。Canvas toolbar、Canvas 本体、Summary、footer が同一ページに存在する状態。
   - 操作:
     1. viewport を 375px、768px、1280px、1440px に切り替える。Tab / Shift+Tab で style input、left / center / right button、用紙の disclosure・幅・高さ・適用、各 tool group の全 controls へ到達する。各 viewport で touch 操作も行う。
-    2. tool を切り替え、stroke 系 object を選択し、standalone text と shape inline text を編集する。active tool、style target、alignment の visual state と `aria-pressed`、group / toolbar の accessible name、field の `aria-invalid` / alert、current tool status を確認する。
+    2. tool を切り替え、stroke 系 object を選択し、standalone text と shape inline text を編集する。消しゴム tool の可視 label、accessible name / tooltip、説明文がそれぞれ現行 UI の表記（消しゴム、消しゴムツール、クリックまたはなぞって、触れた要素を消去する）であることを確認する。active tool、style target、alignment の visual state と `aria-pressed`、group / toolbar の accessible name、field の `aria-invalid` / alert、current tool status を確認する。
     3. Canvas pointer 操作後にページを縦 scroll し、Summary と footer まで到達する。用紙を本文列より広くして Canvas の局所横 scroll を行い、ページ全体の横 scroll は発生しないことを確認する。
   - 期待結果:
     - 4 viewport すべてで style input、alignment buttons、用紙入力、tool group を keyboard / touch から操作でき、狭幅でも drawing rail の局所 scroll に閉じ込められる。page-wide horizontal overflow は発生しない。
@@ -348,6 +349,30 @@ MVP の初期データに seed は使いません。検証用データは `/note
 - [ ] 閲覧モードの Markdown 表示にも sanitize が効く
 - [ ] 復習モードで本文と Summary を開いた後の Markdown 表示にも sanitize が効く
 
+### Canvas runtime QA 記録（2026-07-21）
+
+Canvas のブラウザ実機 QA は、API runtime 検証とは分離して `未実施` のままとした。権限昇格後は local server の listen に成功したが、Browser backend は利用できず、静的 source / docs の確認結果も runtime の PASS 根拠にはしていない。
+
+| 項目 | 記録 |
+| --- | --- |
+| 起動試行 | 権限昇格後、`npm run dev -- --hostname 127.0.0.1 --port 3107` の server listen に成功 |
+| Browser 試行 | `agent.browsers.list()` が空。Browser backend 不可のため runtime 操作は未実施 |
+| 対象 route / viewport | 未到達。`/notes/new`、必要時の `/notes/[id]`、375 / 768 / 1280 / 1440px は未確認 |
+| fixture | Browser QA 用の基準 fixture（pen stroke、line、arrow、rect、ellipse、standalone text）は未作成。Browser 用 screenshot、console / error log も未取得（API response は下記の独立記録に保存） |
+| 操作範囲 | Browser の pointer / click / double-click / 3px 未満 drag / 4px 超過 drag、shape inline text、style controls、wheel / touch、keyboard / ARIA、UI 明示保存・再読込比較は全て未実施 |
+| 判定 | `CANVAS-DIMENSION-001`、`CANVAS-INTERACTION-001`、`CANVAS-GESTURE-001`、`CANVAS-SHAPE-TEXT-001`、`CANVAS-STYLE-001`、`CANVAS-PERSISTENCE-STYLE-001`、`CANVAS-TOOLBAR-STYLE-001` は全て `未実施`。API runtime の独立した PASS は下記に記録し、Browser QA へ繰り上げていない |
+| 再開条件 | Browser backend が利用可能な環境で、上記 fixture と操作を実行し、console / error、viewport、保存前後 JSON、再読込表示を記録する |
+
+#### 7 シナリオの今回判定
+
+- `CANVAS-DIMENSION-001`: `未実施`。Browser UI の既定値・境界値・別寸法、page 外要素、保存・再読込比較なし。API の page resize と geometry / style / text 不変は下記の API runtime 記録で別途 PASS。
+- `CANVAS-INTERACTION-001`: `未実施`。空白・6 種類の既存要素上、preview / inline overlay 境界の作成操作なし。
+- `CANVAS-GESTURE-001`: `未実施`。クリック、ダブルクリック、3px 未満、4px 閾値超過の実測なし。
+- `CANVAS-SHAPE-TEXT-001`: `未実施`。rect / ellipse の inline editor、確定・キャンセル、既存要素保持、console 状態の確認なし。
+- `CANVAS-STYLE-001`: `未実施`。線幅 1〜20px、文字サイズ 8〜96px、色、left / center / right、無効値の実機確認なし。
+- `CANVAS-PERSISTENCE-STYLE-001`: `未実施`。API response の page resize、geometry / `style` / `text`、`searchText` は下記で確認済みだが、Browser UI の明示保存・再読込と standalone text / shape inline text の完全な `style` / `textStyle` 復元は未実施。
+- `CANVAS-TOOLBAR-STYLE-001`: `未実施`。4 viewport の keyboard / touch 到達性、ARIA / active state、縦 scroll / 局所横 scroll の確認なし。
+
 ## 受け入れ証跡マトリクス
 
 上のチェックリストは確認項目の一覧であり、下表を確認済み範囲の正本とします。判定は記録単位の範囲に限ります。同じ section に含まれる未確認項目を、別の項目の PASS から推測して繰り上げません。`FAIL（静的照合）` は実装コードと現行 MVP 契約の照合で未達が確認されたもの、`未実施` は runtime 証跡がまだないものです。
@@ -369,15 +394,16 @@ MVP の初期データに seed は使いません。検証用データは `/note
 | NTE030-REVIEW-1440 | 復習の共通詳細シェル、本文初期マスク、本文表示 / 再マスク、復習操作 | `/notes/[id]`（復習） | 1440px、Puppeteer / headless Chromium runtime | 2026-07-15 | 一時ノート `QA-SCREENSHOT-NTE030-1784048555522` を作成し、確認後に削除。query で残存 0 件を確認 | PASS | `HANDOFF_2026-07-16.md` §4「PASS として記録された範囲」、`summary/20260715/0217-create-handoff-20260715-nte020-nte030-4ee10290-summary.md`、`doc/assets/screenshots/runtime-note-detail-review-1440.png` |
 | NTE030-MOBILE-375-768 | 閲覧 / 復習の共通シェルと本文マスクの mobile runtime | `/notes/[id]`（閲覧・復習） | 375 / 768px。いずれも未確認 | 2026-07-15 | mobile runtime 用の確認・fixture は未実施 | 未実施 | `HANDOFF_2026-07-16.md` §4「未実施のまま残した範囲」、`summary/20260715/0155-qa-nte030-review-shared-shell-puppeteer-network-blocked-summary.md` |
 | MVP-REVIEW-EDGE-001 | 既存未設定 `nextReviewDate` の非補完、`noteDate` 変更時の手動設定日維持、review 成功後の画面反映 | `/notes/[id]`（編集・復習） | runtime viewport は summary に記録なし | 2026-07-16 | 該当 edge case fixture を使った実ブラウザ確認なし | 未実施 | `doc/implementation/IMPLEMENTATION_STATUS.md` §5.2、`doc/implementation/MVP_CONTRACT.md` §4.1・§4.3 |
-| MVP-GAP-001 | 新規 `nextReviewDate = noteDate + 7日` 初期値 | `/notes/new`（新規作成） | 静的照合（viewport / fixture なし） | 2026-07-16 | fixture なし。実装コード、現行 MVP 契約、実装状況を照合 | FAIL（静的照合） | `doc/implementation/IMPLEMENTATION_STATUS.md` §1・§5.2、`doc/implementation/MVP_CONTRACT.md` §4.1 |
+| MVP-GAP-001（2026-07-16時点の履歴） | 新規 `nextReviewDate = noteDate + 7日` 初期値 | `/notes/new`（新規作成） | 静的照合（viewport / fixture なし） | 2026-07-16 | 当時の実装コード、現行 MVP 契約、実装状況を照合した履歴 | FAIL（静的照合・当時の判定） | `doc/implementation/IMPLEMENTATION_STATUS.md` §1・§5.2、`doc/implementation/MVP_CONTRACT.md` §4.1 |
+| MVP-REVIEW-DEFAULT-001 | 新規フォームの `nextReviewDate = noteDate + 7日` 初期値、月末・年末跨ぎ、既存ノートの未設定値非補完、明示値保持 | `/notes/new`、`/notes/[id]`（編集） | 静的コード確認（runtime 未実施、viewport / fixture なし） | 2026-07-21 | `addDaysToDateString` の `2026-01-31` → `2026-02-07`、`2026-12-31` → `2027-01-07` の境界を確認。ブラウザ入力・保存・再読込の runtime 証跡は未取得 | 静的実装確認済み（runtime 未実施） | `summary/20260721/1940-implement-new-note-review-date-default-20260721-24f5f31b-summary.md`、`src/modules/notes/model/note-editor-form.ts`、`src/shared/date/date-only.ts`、`doc/implementation/MVP_CONTRACT.md` §4.1 |
 | MVP-GAP-002 | 復習開始時の Summary 初期非表示と Cue → 本文 → Summary の順序 | `/notes/[id]`（復習） | 静的照合（viewport / fixture なし） | 2026-07-16 | fixture なし。実装コード、現行 MVP 契約、実装状況を照合。runtime 未実施とは別に、Summary 初期非表示の未達を記録 | FAIL（静的照合） | `doc/implementation/IMPLEMENTATION_STATUS.md` §1・§5.2、`doc/implementation/MVP_CONTRACT.md` §4.3・§6 |
 | MVP-GAP-003 | 概要の Markdown preview / sanitize | `/notes/new`、`/notes/[id]`（編集・閲覧） | 静的照合（viewport / fixture なし） | 2026-07-16 | fixture なし。概要の保存は確認できるが、本文 / Summary と同じ Markdown preview / sanitize ではない | FAIL（静的照合） | `doc/implementation/IMPLEMENTATION_STATUS.md` §1・§5.2、`doc/implementation/MVP_CONTRACT.md` §2・§6 |
-| CANVAS-DIMENSION-001 | Canvas の既定 1200x800、320〜4000px の整数入力、保存後復元、resize 前後の要素データ不変、表示倍率との分離 | `/notes/new`、`/notes/[id]`（編集・閲覧・復習）、`/api/notes` | 静的実装確認済み・runtime 未確認 | 2026-07-18 | fixture なし。共有 Canvas validation / JSON persistence、可変 page UI、実寸 renderer、resize 後の要素不変は静的確認済みだが、browser runtime の入力・保存・再読込は未実施 | 未実施 | `doc/implementation/MVP_CONTRACT.md` §6.1、`src/shared/canvas/canvas-document.ts`、`doc/implementation/IMPLEMENTATION_STATUS.md` §5.1・§5.5 |
+| CANVAS-DIMENSION-001 | Canvas の既定 1200x800、320〜4000px の整数入力、保存後復元、resize 前後の要素データ不変、表示倍率との分離 | `/notes/new`、`/notes/[id]`（編集・閲覧・復習）、`/api/notes` | Browser runtime 未確認。API runtime の一部は別途 PASS | 2026-07-18 | Browser UI の入力・保存・再読込は未実施。API の `640x480` → `1920x1080` resize、既存 element の geometry / `style` / `text` 不変は 2026-07-21 に別記録で確認 | 未実施 | `doc/implementation/MVP_CONTRACT.md` §6.1、`src/shared/canvas/canvas-document.ts`、`doc/implementation/IMPLEMENTATION_STATUS.md` §5.1・§5.3、本文書の「Notes API runtime 検証記録（2026-07-21）」 |
 | CANVAS-INTERACTION-001 | 空白および既存の pen stroke、line、arrow、rect、ellipse、standalone text 上からの新規作成、preview / inline editor overlay / metadata 欠落 object の gesture 遮断 | `/notes/new`、`/notes/[id]`（編集） | ブラウザ runtime（予定 viewport 1280px、pointer / touch。未実施） | 2026-07-19 | fixture 未作成。後続 QA で空白と 6 種類の基準要素を用意する。今回は操作・保存・比較・overlay 境界の runtime 証跡なし | 未実施 | `summary/20260719/2143-sync-canvas-interaction-design-contract-20260719-5b6bd3a6-summary.md`、`summary/20260719/2153-sync-canvas-implementation-status-20260719-7ac6f95e-summary.md`、`HANDOFF_2026-07-19.md` §7.1、`doc/implementation/MVP_CONTRACT.md` §6.2、`src/app/notes/_components/note-canvas-editor.tsx` |
 | CANVAS-GESTURE-001 | line / arrow / rect / ellipse のクリック・ダブルクリック no-op、4px drag threshold、standalone text・shape inline text・shape drag の gesture 分離 | `/notes/new`、`/notes/[id]`（編集） | ブラウザ runtime（予定 viewport 1280px、pointer。未実施） | 2026-07-19 | fixture 未作成。3px 未満と 5px 以上の比較、要素数・geometry の記録は後続 QA で行う。今回は runtime 証跡なし | 未実施 | `summary/20260719/2143-sync-canvas-interaction-design-contract-20260719-5b6bd3a6-summary.md`、`HANDOFF_2026-07-19.md` §7.1、`doc/designs/CANVAS_TOOLBAR_DESIGN.md` §9.2、`src/app/notes/_components/note-canvas-editor.tsx` |
 | CANVAS-SHAPE-TEXT-001 | rect / ellipse の図形内文字 inline editor、外形と文字の表示、確定・キャンセル、他要素保持、Fabric lifecycle error 無し、配置の即時反映 | `/notes/new`、`/notes/[id]`（編集） | ブラウザ runtime（予定 viewport 1280px、pointer / keyboard。未実施） | 2026-07-19 | fixture 未作成。pen stroke、line、arrow、別図形、standalone text を含む基準 document は後続 QA で作成する。console / error 証跡なし | 未実施 | `summary/20260719/2143-sync-canvas-interaction-design-contract-20260719-5b6bd3a6-summary.md`、`HANDOFF_2026-07-19.md` §7.1、`doc/implementation/MVP_CONTRACT.md` §6.2、`src/app/notes/_components/note-canvas-editor.tsx`、`src/app/spikes/canvas/_lib/fabric-adapter.ts` |
 | CANVAS-STYLE-001 | 線幅・文字サイズの既定値と整数範囲、無効値拒否、stroke / text の色、standalone text / shape inline text の left・center・right、選択中・編集中の即時反映 | `/notes/new`、`/notes/[id]`（編集） | ブラウザ runtime（予定 viewport 1280px、pointer / keyboard。未実施） | 2026-07-19 | fixture 未作成。境界値・無効値、stroke / standalone text / shape inline text の対象別確認は後続 QA で行う。今回は runtime 証跡なし | 未実施 | `summary/20260719/2153-sync-canvas-implementation-status-20260719-7ac6f95e-summary.md`、`HANDOFF_2026-07-19.md` §7.1、`doc/implementation/MVP_CONTRACT.md` §6.2、`doc/implementation/IMPLEMENTATION_STATUS.md` §5.1、`src/app/notes/_components/note-canvas-toolbar.tsx`、`src/app/notes/_components/note-canvas-editor.tsx` |
-| CANVAS-PERSISTENCE-STYLE-001 | standalone text の `style`、shape inline text の `textStyle`、線幅・線色の保存境界、保存・再読込、用紙だけ変更した場合の style / text / geometry / searchText 不変 | `/notes/new`、`/notes/[id]`（編集・閲覧）、`/api/notes` | ブラウザ runtime + Notes API response / 再読込（予定 viewport 1280px、未実施） | 2026-07-19 | fixture 未作成。明示保存、`GET /api/notes/:id`、page 寸法だけの変更前後比較は後続 QA で行う。今回は保存・再読込の実データ証跡なし | 未実施 | `summary/20260719/2153-sync-canvas-implementation-status-20260719-7ac6f95e-summary.md`、`HANDOFF_2026-07-19.md` §7.1・§6.2、`doc/implementation/MVP_CONTRACT.md` §6.1・§6.2、`doc/implementation/IMPLEMENTATION_STATUS.md` §5.1、`src/shared/canvas/canvas-document.ts`、`src/app/spikes/canvas/_lib/fabric-adapter.ts` |
+| CANVAS-PERSISTENCE-STYLE-001 | standalone text の `style`、shape inline text の `textStyle`、線幅・線色の保存境界、保存・再読込、用紙だけ変更した場合の style / text / geometry / searchText 不変 | `/notes/new`、`/notes/[id]`（編集・閲覧）、`/api/notes` | Browser runtime + Notes API response / 再読込（Browser UI 未実施） | 2026-07-19 | API の `GET /api/notes/:id`、page 寸法変更前後の geometry / `style` / `text`、Canvas text 検索は 2026-07-21 に確認。Browser UI の明示保存・再読込、standalone text / shape inline text の完全な `style` / `textStyle` 比較は未実施 | 未実施 | `summary/20260719/2153-sync-canvas-implementation-status-20260719-7ac6f95e-summary.md`、`HANDOFF_2026-07-19.md` §7.1・§6.2、`doc/implementation/MVP_CONTRACT.md` §6.1・§6.2、`doc/implementation/IMPLEMENTATION_STATUS.md` §5.1・§5.3、本文書の「Notes API runtime 検証記録（2026-07-21）」 |
 | CANVAS-TOOLBAR-STYLE-001 | style input、alignment button、用紙入力、tool group の responsive / keyboard / touch 到達性、active・style target・alignment の visual / ARIA 状態、ページ縦 scroll と用紙局所横 scroll | `/notes/new`、`/notes/[id]`（編集） | ブラウザ runtime（375 / 768 / 1280 / 1440px、keyboard / touch。未実施） | 2026-07-19 | fixture 未作成。全 viewport の focus、ARIA、pointer 後の Summary / footer 到達、page-wide overflow の測定は後続 QA で行う。今回は screenshot / runtime metrics なし | 未実施 | `summary/20260719/2143-sync-canvas-interaction-design-contract-20260719-5b6bd3a6-summary.md`、`HANDOFF_2026-07-19.md` §7.1・§6.5・§6.6、`doc/designs/CANVAS_TOOLBAR_DESIGN.md` §6・§9.3、`doc/implementation/IMPLEMENTATION_STATUS.md` §5.3、`src/app/notes/_components/note-canvas-toolbar.tsx` |
 | PHASE2-BOUNDARY | 自動保存、Undo / soft delete、専用復習タスク、NoteCard / D&D、PDF、タグ管理 UI 等 | `/tasks/review`、`/notes/backup`、export 等（MVP 外） | 静的な契約照合。runtime 対象外 | 2026-07-16 | fixture なし。Phase 2 の未実施項目として扱い、MVP の PASS 集計には含めない | 未実施 | `doc/implementation/MVP_CONTRACT.md` §2・§9、本文書「Phase 2 / 将来確認」 |
 
@@ -472,3 +498,35 @@ NTE-030 の `summary/20260715/0107-implement-nte030-review-shared-detail-shell-e
 - [ ] モーダルに必要な ARIA 属性が付与されている
 - [ ] モーダルのフォーカス制御が実装されている
 - [ ] 削除確認以外の確認モーダルにもフォーカストラップが効く
+
+## MVP 静的検証記録（2026-07-21）
+
+| 検証 | 判定 | 記録 |
+| --- | --- | --- |
+| `npm run lint` | PASS | 終了コード 0 |
+| `npx tsc --noEmit --pretty false` | PASS | 終了コード 0 |
+| `npm run build` | PASS | Next.js webpack build、TypeScript、route 生成まで終了コード 0 |
+| `git diff --check` | PASS | whitespace error なし |
+| `npx prisma validate` | PASS | `prisma/schema.prisma` は valid |
+| `npx prisma generate` | PASS | Prisma Client v7.8.0 生成。リポジトリ内生成物の追加・変更なし |
+| Canvas / date 境界の純粋関数実行 | PASS | default 1200×800、320 / 4000 px 境界、319 / 4001 px・小数拒否、text 要素からの `searchText`、page resize 後の geometry / points / style / text 不変、`2026-01-31` → `2026-02-07`、`2026-12-31` → `2027-01-07` を確認 |
+
+### Notes API runtime 検証記録（2026-07-21）
+
+権限昇格後に `npm run dev -- --hostname 127.0.0.1 --port 3107` の server listen に成功し、既存 DB を壊さない一意な QA note を用いて実リクエストを確認した。API runtime の判定は次のとおり。
+
+| リクエスト | status | 確認結果 |
+| --- | --- | --- |
+| `GET /api/notes` | 200 | 一覧取得 |
+| `GET /api/tags` | 200 | タグ取得 |
+| `GET /api/backups` | 200 | バックアップ一覧取得 |
+| `POST /api/notes` | 201 | QA note 作成 |
+| `GET /api/notes/:id` | 200 | Canvas の page と text を復元 |
+| `PATCH /api/notes/:id` | 200 | page を `640x480` から `1920x1080` へ変更。既存 element の geometry / `style` / `text` は不変 |
+| `GET /api/notes?query=API_SEARCH_TOKEN` | 200 | Canvas text の検索ヒット |
+| `POST /api/notes/:id/review` | 200 | `nextReviewDate=2026-08-01` を確認 |
+| `DELETE /api/notes/:id` | 204 | QA note を物理削除 |
+| 削除後 `GET /api/notes/:id` | 404 | 削除済みであることを確認 |
+| QA note title の cleanup 検索 | 200 | `totalCount=0`。QA データ cleanup 済み |
+
+補足的な検証環境メモ: 初回の review API request は Turbopack の生成キャッシュ破損により 500 になったが、`.next/dev` の生成キャッシュだけを再生成して再試行した結果は PASS だった。初回 500 はアプリ API の機能 FAIL として扱わない。Browser runtime は `agent.browsers.list()` が空で未実施のため、pointer、overlap、inline text、eraser、scroll、responsive の各 QA は引き続き `未実施` とする。

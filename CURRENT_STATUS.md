@@ -1,6 +1,6 @@
 # CURRENT_STATUS
 
-確認日: 2026-07-19
+確認日: 2026-07-21
 
 ## 位置づけ
 
@@ -100,6 +100,12 @@ Canvas 本文の共有契約は `CanvasDocumentV1` です。`schemaVersion=1`、
 
 エラー形式は Zod validation と not found / server error で `{ code, message, errors? }` に概ね統一されています。
 
+### 2026-07-21 Notes API runtime 検証
+
+権限昇格後、`127.0.0.1:3107` で server listen に成功し、既存 DB を壊さない一意な QA note による Notes API 実リクエストを PASS として確認しました。`GET /api/notes`・`/api/tags`・`/api/backups` は 200、作成は 201、Canvas page / text の復元は 200、`640x480` → `1920x1080` の page resize 後も element geometry / `style` / `text` は不変、Canvas text 検索、review（`nextReviewDate=2026-08-01`）、delete（204）、削除後 404、QA title cleanup（`totalCount=0`）を確認済みです。初回 review の 500 は Turbopack 生成キャッシュ破損による環境メモで、`.next/dev` の生成キャッシュ再生成後の再試行を正とします。詳細は `doc/testing/TEST_SCENARIOS.md` の「Notes API runtime 検証記録（2026-07-21）」を参照してください。
+
+これは API runtime の証跡であり、Browser runtime の PASS を意味しません。`agent.browsers.list()` が空だったため、Canvas の pointer / overlap / inline text / eraser / scroll / responsive は引き続き未実施です。
+
 ### UI
 
 現コードで確認できる画面は次の通りです。
@@ -114,6 +120,7 @@ Canvas 本文の共有契約は `CanvasDocumentV1` です。`schemaVersion=1`、
   - 日付ソート切替 UI は確認できません。API は `noteDate desc`, `updatedAt desc` 固定です。
 - `/notes/new`
   - `NoteEditor` による新規作成フォームがあります。
+  - 新規フォームの `nextReviewDate` は `noteDate + 7日` を初期値とし、保存前に変更または空欄化できます。既存ノートの未設定値は補完せず、学習日の変更でも明示値を自動移動しません。
 - `/notes/[id]`
   - 閲覧、編集、復習のモードがあります。
   - 復習モードでは本文を非表示にし、手動で表示できます。
@@ -129,7 +136,7 @@ Canvas 本文の共有契約は `CanvasDocumentV1` です。`schemaVersion=1`、
 - preview の checkbox は `readOnly`, `tabIndex={-1}`, `preventDefault` で表示専用にされています。
 - `@uiw/react-md-editor` の利用は確認できません。
 - Canvas editor / viewer は `CanvasDocumentV1` を読み書きし、Canvas text 要素を `searchText` として保存します。用紙の幅・高さは 1200x800px を既定値とする 320〜4000px の整数入力で、適用時は page だけを更新し、既存要素の `x`, `y`, `width`, `height`, `points`, `style` などを変更しません。保存済み `document.page` を editor / viewer の DOM・Fabric 実寸へ反映します。
-- Canvas toolbar は draw.io 風に操作、描く、線、図形、文字、スタイル、消去、履歴、用紙を分け、tool は sticky、消去は object 単位の whole-object eraser、Undo / Redo は client history です。
+- Canvas toolbar は draw.io 風に操作、描く、線、図形、文字、スタイル、消去、履歴、用紙を分け、tool は sticky、消しゴムは触れた要素を object 単位で消去する whole-object eraser、Undo / Redo は client history です。
 - style controls は線幅 1〜20px（既定 1px）、文字サイズ 8〜96px（既定 12px）、color input、文字配置 `left` / `center` / `right` を持ち、standalone text は `style`、図形内文字は `textStyle` に保存します。
 - `rect` / `ellipse` のダブルクリックは図形内文字編集です。編集中も図形外形を表示し、確定・キャンセル後に既存のペン線・線・矢印・図形・standalone text を保持します。通常の `text` クリックによる standalone text 作成とは別経路です。
 - `pen` / `line` / `arrow` / `rect` / `ellipse` / `text` は空白または既知の app-owned Canvas 要素上から開始できます。未知 metadata object、preview、inline editor overlay は遮断し、図形は 4px の移動閾値を超えるまで確定しません。Fabric path 作成時には app-owned metadata と基準座標を付与して保存変換へ渡します。
@@ -152,7 +159,7 @@ Canvas 本文の共有契約は `CanvasDocumentV1` です。`schemaVersion=1`、
 - ソフトデリート。現 `DELETE /api/notes/:id` は物理削除です。
 - 起動時クリーンアップバッチ。
 - `/tasks/review` 画面、`GET /api/review-tasks`, `PATCH /api/review-tasks/:notebookId`。
-- Canvas のブラウザ実機 QA。用紙サイズ UI、実寸 renderer、geometry 不変、toolbar、style controls、図形内文字、重ね描き、drag threshold、path metadata、whole-object eraser、client history はコード上で実装済み（静的確認）だが、以下の runtime 項目は未確認です。
+- Canvas のブラウザ実機 QA。用紙サイズ UI、実寸 renderer、geometry 不変、toolbar、style controls、図形内文字、重ね描き、drag threshold、消しゴム（触れた要素を object 単位で消去する whole-object eraser）、client history はコード上で実装済み（静的確認）だが、以下の runtime 項目は未確認です。
 - グローバルナビの復習タスク未完バッジ。
 - `/api/notes/export?from&to` の PDF エクスポート。
 - `/api/backups/retry`, `/api/backups/logs`。
@@ -185,7 +192,7 @@ Canvas 本文の共有契約は `CanvasDocumentV1` です。`schemaVersion=1`、
 | --- | --- | --- |
 | DB | Draft / ReviewProgress / SoftDeleteBuffer / BackupLog / NoteCard 系まで含む | Notebook / NotebookCanvas / Tag / NotebookTag / Cue の MVP 寄り |
 | ノート本文 | CanvasDocumentV1 のフリー入力本文、将来 NoteCard へ拡張 | NotebookCanvas JSON、可変 page UI、editor / viewer 実寸反映まで静的確認済み。既存 Markdown body も互換保持 |
-| Canvas 本文 | `CanvasDocumentV1` の page 寸法を数値入力で変更し、要素 geometry を不変に保つ | 保存・検索境界、寸法 UI、実寸 renderer、geometry 不変は静的確認済み。pointer、保存・再読込、responsive は未確認 |
+| Canvas 本文 | `CanvasDocumentV1` の page 寸法を数値入力で変更し、要素 geometry を不変に保つ | 保存・検索境界、寸法 UI、実寸 renderer、geometry 不変は静的確認済み。API の page resize / Canvas text 検索は 2026-07-21 に runtime 確認済み。pointer、Browser UI の保存・再読込、responsive は未確認 |
 | Cue | CueCard モデル、D&D 並び替え、削除確認 | Cue モデル、フォーム上の追加/削除のみ |
 | 削除 | ソフトデリート + Undo 5 秒 | `delete` による物理削除 |
 | 自動保存 | 3 秒アイドル + 最短 6 秒 + 409 制御 | 未確認。手動保存のみ |
@@ -208,9 +215,9 @@ Canvas 本文の共有契約は `CanvasDocumentV1` です。`schemaVersion=1`、
 
 ### 現行 MVP 契約との差分
 
-- 新規 `nextReviewDate = noteDate + 7日` の初期値は現行 form に未実装です。これは契約上の要件と実装差分として保持し、実装済みへ変更しません。
+- 新規 `nextReviewDate = noteDate + 7日` の初期値は現行 form に実装済みです。`addDaysToDateString` により月末・年末を跨ぐ日付も計算します。既存ノートの未設定値は補完せず、学習日変更時も明示値を保持します。今回の確認は静的確認であり、runtime PASS ではありません。
 - autosave / draft / 409 optimistic lock、soft delete / Undo、専用復習 task、NoteCard / D&D、PDF export、タグ管理 UI、バックアップ高度機能などは現行 MVP 外または未実装の Phase 2 / ロードマップ項目です。
-- Canvas の用紙サイズ UI、実寸 renderer、geometry 不変、toolbar、style、図形内文字、重ね描き、drag threshold、whole-object eraser、path metadata はコード上で静的確認済みです。これを browser runtime PASS とは扱いません。
+- Canvas の用紙サイズ UI、実寸 renderer、geometry 不変、toolbar、style、図形内文字、重ね描き、drag threshold、消しゴム（触れた要素を object 単位で消去する whole-object eraser）、path metadata はコード上で静的確認済みです。これを browser runtime PASS とは扱いません。
 
 ### 現在の主な残課題: Canvas browser runtime QA
 
@@ -220,10 +227,10 @@ Canvas 本文の共有契約は `CanvasDocumentV1` です。`schemaVersion=1`、
 - クリック／ダブルクリックの no-op、4px drag threshold、standalone text と図形内文字の gesture 分離。
 - 図形内文字の外形表示、確定・キャンセル、既存要素保持、Fabric lifecycle error の有無。
 - 線幅・文字サイズ・色・文字配置の即時反映と保存・再読込後の `style` / `textStyle` 復元。
-- 用紙寸法変更後の保存・再読込、page 外要素、Canvas text 検索、wheel / trackpad / touch の縦・局所横 scroll。
+- Browser UI での用紙寸法変更後の保存・再読込、page 外要素、Canvas text 検索、wheel / trackpad / touch の縦・局所横 scroll（API の page resize / Canvas text 検索は別途 2026-07-21 に PASS）。
 - 375 / 768 / 1280 / 1440px の toolbar responsive、keyboard / touch 到達性、focus、ARIA、tooltip、page-wide horizontal overflow。
 
-静的検証の `npm run lint`、`npx tsc --noEmit --pretty false`、`npm run build`、`git diff --check` は runtime QA の PASS を意味しません。実施結果は `doc/testing/TEST_SCENARIOS.md` の Canvas シナリオへ記録し、必要に応じてこの文書と `IMPLEMENTATION_STATUS.md`、handoff を証跡に合わせて更新します。
+静的検証の `npm run lint`、`npx tsc --noEmit --pretty false`、`npm run build`、`git diff --check` と、2026-07-21 の Notes API runtime PASS は Browser runtime QA の PASS を意味しません。実施結果は `doc/testing/TEST_SCENARIOS.md` の Canvas シナリオと API runtime 記録へ分離して記録し、必要に応じてこの文書と `IMPLEMENTATION_STATUS.md`、handoff を証跡に合わせて更新します。
 
 ### Phase 2 / 将来設計の扱い
 

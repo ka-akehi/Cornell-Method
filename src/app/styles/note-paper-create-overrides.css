@@ -1,0 +1,17 @@
+.note-paper-editor--create .note-paper-meta-grid {
+  margin-top: clamp(0.5rem, 0.9vw, 0.75rem);
+  padding-bottom: clamp(0.5rem, 0.9vw, 0.75rem);
+}
+
+.note-paper-editor--create .note-paper-cornell-grid > :first-child {
+  padding-right: clamp(0.75rem, 1vw, 1rem);
+}
+
+.note-paper-editor--create .note-paper-cornell-grid > :last-child {
+  padding-left: clamp(0.75rem, 1vw, 1rem);
+}
+
+.note-paper-editor--create .note-paper-footer {
+  margin-top: clamp(0.5rem, 0.9vw, 0.75rem);
+  padding-top: clamp(0.5rem, 0.9vw, 0.75rem);
+}
