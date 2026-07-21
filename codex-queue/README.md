@@ -17,6 +17,8 @@ codex-queue/
     worker-run.sh
     worker-ui-run.sh
     worker-api-run.sh
+    worker-progress.sh
+    worker-status.sh
     notify-worker-run.sh
   tasks/
     queued/
@@ -151,6 +153,27 @@ codex-queue/bin/notify-worker-run.sh
 WORKER_NOTIFY_TARGET_PANE_ID=<pane-id> codex-queue/bin/notify-worker-run.sh
 ```
 
+Worker の進捗確認:
+
+```sh
+# 1 回だけ現在の状態を表示
+codex-queue/bin/worker-status.sh
+
+# 2 秒ごとに更新して監視
+codex-queue/bin/worker-status.sh --watch
+```
+
+`worker-status.sh` はキューごとに、`done + failed` を処理済みとした処理進捗、完了数、失敗数、実行中数、待機数、成功率を表示します。失敗は処理済みには数えますが、成功率には含めません。実行中 task の詳細な率は、Worker が `worker-progress.sh` で報告した値だけを表示し、未報告の場合は `未報告` と表示します。したがって、表示値は作業の見積りであり、コード変更量から自動推定した値ではありません。
+
+Worker task の節目で進捗を更新する場合:
+
+```sh
+codex-queue/bin/worker-progress.sh 25 "調査完了"
+codex-queue/bin/worker-progress.sh --percent 60 --phase "implementation" --message "実装完了"
+```
+
+`worker-run.sh` 経由で起動した Worker には状態ファイルの場所が自動設定されます。状態ファイルは `codex-queue/.state/` に保存され、Git 管理対象外です。Worker の完了・失敗時には runner が状態を終了処理し、task の移動と既存の summary 作成を従来どおり行います。
+
 Worker は `queued` から `running` に移動できた `*.task.md` だけを実行し、終了後に `done` または `failed` へ移動します。
 
 Worker task の完了/失敗時には、`codex-queue/bin/write-task-summary.sh` が `summary/YYYYMMDD/HHMM-*-summary.md` を自動作成します。
@@ -158,6 +181,7 @@ summary は raw log を含めず、変更ファイル、確認結果、次に読
 失敗時は raw log 全文ではなく、Worker が取得した実行出力から推定原因と短い抜粋を `Failure Reason` に残します。
 `open-wezterm-worker-layout.sh` で起動した場合、通知 Worker は完了/失敗メッセージを Manager Codex pane へ転送します。
 `WORKER_NOTIFY_AUTO_SUBMIT=0` を指定すると、メッセージ入力だけ行い自動送信を止められます。
+同スクリプトで起動する最初の Worker ウィンドウには、`worker-status.sh --watch` の進捗監視ペインも作成されます。監視ペインは Common Worker の下側を 50% 使用し、UI / API Worker のログ領域を狭めない構成です。
 
 ## Queue Choice
 

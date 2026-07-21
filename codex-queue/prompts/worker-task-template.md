@@ -23,6 +23,18 @@
 
 - ...
 
+## 進捗報告
+
+`codex-queue/bin/worker-run.sh` 経由で実行される場合、作業の節目で次のコマンドを使って 0〜100 の見積り進捗を更新する。
+
+```sh
+codex-queue/bin/worker-progress.sh --percent 25 --phase "調査" --message "対象確認完了"
+codex-queue/bin/worker-progress.sh --percent 60 --phase "実装" --message "実装完了"
+codex-queue/bin/worker-progress.sh --percent 85 --phase "検証" --message "検証中"
+```
+
+進捗報告に失敗しても task の作業や完了報告は止めない。完了・失敗の状態は Worker runner が記録する。
+
 ## 制約
 
 - 作業前後に `git status --short` を確認する

@@ -1,458 +1,359 @@
-# Canvas ツールバー情報設計・操作設計
+# Canvas ツールバー v2 情報設計・操作設計
 
-作成日: 2026-07-18（JST）  
-状態: Manager 推奨案（設計のみ）  
-対象: Canvas 本文の編集 toolbar  
-関連 task: `fix-canvas-line-arrow-placement-movement-563d27c2`（進行中）
+作成日: 2026-07-19（JST）
+状態: v2 実装済み（静的確認）／browser runtime QA 未確認
+対象: Canvas 本文 toolbar の visual / information architecture と、それに結び付く操作・スタイル・用紙設定の契約
 
-## 1. 目的と決定事項
+## 1. 目的と v2 の結論
 
-この文書は、Fabric.js を使った Canvas 本文の toolbar を、draw.io の「役割が見える道具箱」に近づけるための MVP 情報設計と操作契約を定める。対象はツールの見つけやすさ、選択状態、操作説明、キーボード到達性、レスポンシブ配置であり、Canvas の保存形式や描画アルゴリズムを変更するものではない。
+本書は、Canvas 本文の操作を壊さず、draw.io から借りるべき「道具の役割が見える」「現在の状態が分かる」「設定が操作と混ざらない」という toolbar の視覚・情報設計と、toolbar から利用する操作・スタイル・用紙設定の境界を記録する。Canvas の保存形式、Fabric の座標計算、API、DB の実装詳細は対象外とし、必要な保存・復元不変条件だけを契約として参照する。v2 の markup / CSS は実装済みだが、以下の受け入れ観点は browser runtime QA の証跡ではない。
 
-Manager 推奨は、**主要操作を常時表示し、描画ツールを役割別の小グループへ分ける構成**である。
+参照画像は /Users/blp542/Desktop/スクショ/スクリーンショット 2026-07-19 9.56.19.png。画像は v2 導入前の `/notes/new` 本文列を確認するための比較基準であり、現行 UI のスクリーンショットとして扱わない。
 
-```text
-[操作] 選択
-│ [描く] ペン │ [線] 直線・矢印 │ [図形] 四角・円 │ [文字] テキスト
-│ [消去] 消しゴム（全体）
-│ [履歴] Undo・Redo
-└ [用紙] 幅 × 高さ px・適用
-```
+v2 の決定事項は次のとおり。
 
-次の判断を今回の MVP の基準とする。
+- **icon-first、短い可視ラベル併用**を採用する。アイコンを主な視覚アンカーにし、ラベルは選択、ペン、直線、矢印、四角、円、文字、全体消去、戻す、やり直すのように短くする。
+- アイコンは toolbar 内の小さな inline SVG または CSS で表現できる範囲に限定する。絵文字、Unicode 記号を実アイコンとして使うこと、新しいアイコンライブラリ依存を追加することは禁止する。
+- 選択、描画、線、図形、文字、全体消去、履歴を、同じ高さのボタン列ではなく、背景・separator・active 表現の異なる操作グループとして見せる。
+- 用紙設定は描画操作の rail に入れず、強い境界を持つ独立パネルとして右端または別行に置く。用紙の幅・高さは zoom と呼ばない。
+- tool の sticky 性、オブジェクト単位の消しゴム、CanvasDocumentV1、Canvas の client Undo / Redo、320〜4000px の用紙寸法、ページ縦 scroll と Canvas 横 scroll は維持する。
+- `pen` / `line` / `arrow` / `rect` / `ellipse` / `text` は、空白だけでなく既存のアプリ所有 Canvas 要素上からも新規作成を開始できる。未知 metadata の一時 Fabric object は新規 gesture の対象にしない。
+- 図形のドラッグ作成は一定の移動量を超えたときだけ開始・確定し、小さなクリック／ダブルクリックは不要な図形を作らない。`select` / `rect` / `ellipse` で対象図形をダブルクリックした場合は、図形外形を表示したまま図形内文字編集へ入る。
+- 文字だけのカテゴリ見出しを横一列に並べる構成は廃止する。group 名は主に ARIA と tooltip の意味に移し、可視上は group の背景・separator とボタン内の短いラベルで役割を示す。
 
-- 初期ツールは現行どおり `選択`。選択中のツールは視覚表示と `aria-pressed` の両方で示す。
-- `ペン`、`直線`、`矢印`、`四角`、`円`、`テキスト`は描画グループ内で役割別に整理する。全機能を一つの dropdown に隠さない。
-- 現行の `消しゴム`は **`消しゴム（全体）`** と明示し、クリックまたはなぞりで hit したオブジェクト全体を削除する。部分消去とは別機能にする。
-- `選択`は既存オブジェクトの選択・移動・サイズ変更専用とする。描画ツールは、既存オブジェクト上から開始した場合に新規図形を作らない。
-- Undo/Redo は常時表示し、Canvas の履歴だけを操作する。ツール切替は履歴へ積まない。
-- 用紙サイズは描画ツールや zoom と混同しない独立グループにする。幅・高さは用紙そのものの px 寸法であり、既存要素を自動変形しない。
-- Canvas は紙面内の bounded surface とし、既存の Canvas 内横スクロールとページ全体の縦スクロールを維持する。
-- draw.io の snap、connector routing、複数選択、layer panel などを今回の MVP へ持ち込まない。
+v2 は draw.io の全機能を再現するものではない。道具箱としての認識しやすさを高める最小変更であり、操作の追加や保存契約の拡張ではない。
 
-本タスクではコード、設定、依存関係、DB、API、生成物を変更しない。実装時も、Canvas JSON の `CanvasDocumentV1` 契約と既存保存経路を維持する。
+## 2. v2 導入前の比較基準と現行実装の整理
 
-## 2. 現状の棚卸し
+### 2.0 比較基準の扱い
 
-### 2.1 Toolbar の現状
+以下の 2.1〜2.4 は、v2 導入前の画面・source・CSS を比較基準として残した履歴である。現在の source / CSS の状態を説明する節ではない。現行の toolbar 契約は本書の §3〜§6、静的実装と browser runtime 未確認の区別は `doc/implementation/IMPLEMENTATION_STATUS.md` と `doc/testing/TEST_SCENARIOS.md` を参照する。
 
-`src/app/notes/_components/note-canvas-toolbar.tsx` は、現在次の状態である。
+### 2.1 v2 導入前の画像から確認できたこと
 
-| 現在の項目 | 現在の意味 | 現在の UI / 操作 | 設計上の整理先 |
-| --- | --- | --- | --- |
-| 選択 | 選択・移動・サイズ変更 | `select`。初期状態。`aria-pressed` と `data-active` あり | 操作グループ。常時表示 |
-| ペン | 自由線を描く | `pen`。Fabric の free drawing | 描くグループ。常時到達 |
-| 直線 | 2 点をドラッグして直線を描く | `line`。ドラッグ中は preview | 線グループ |
-| 矢印 | 2 点をドラッグして矢印を描く | `arrow`。ドラッグ中は preview | 線グループ |
-| 四角 | 四角形を描く | `rect`。ドラッグ中は preview | 図形グループ |
-| 円 | 楕円要素を描く | `ellipse`。ドラッグ中は preview | 図形グループ |
-| テキスト | Canvas 上へ text element を追加して入力 | `text`。クリック位置で編集開始 | 文字グループ |
-| 消しゴム | 対象オブジェクト全体を削除 | `erase`。クリックまたはなぞり。部分消去ではない | 消去グループ。描画グループから分離 |
-| Undo / Redo | Canvas 操作を戻す / やり直す | `canUndo` / `canRedo` で disabled | 履歴グループ。常時表示 |
-| 用紙サイズ | `page.width` / `page.height` を指定 | 320〜4000 px の整数。適用または Enter | 用紙グループ。右端または別行 |
+参照画像では、ノート本文の上に「操作」「描く」「線」「図形」「文字」「消去」「履歴」「用紙サイズ」が一列で表示されている。各カテゴリは小さな日本語見出し、各操作は白い角丸のテキストボタンである。選択中の選択ボタンだけが薄い橙色と下側の marker を持つ。
 
-現行 toolbar は一つの `描画ツール` group に 8 ツールを平置きし、履歴と用紙サイズを後ろへ置いている。ツールボタンには日本語ラベル、`aria-label`、`title`、`aria-pressed`、`data-active`がある。CSS には hover、active、disabled、`focus-visible` の状態と、幅が狭いときの折り返しが既にある。
+画像上の違和感は、機能の不足ではなく次の構造から生じている。
 
-### 2.2 Editor の現状
+- すべての操作が同じ白いボタン、同じ最小高さ、ほぼ同じ文字の太さで、選択・描画・消去・履歴の優先度が見えない。
+- 見出しは小さく薄い一方、ボタンの文字は大きく、group 名より個々のラベルが目立つ。結果として見出しが操作グループの説明として機能しない。
+- アイコンがないため、形状を表す四角・円、線の直線・矢印、履歴の戻す・やり直すを目でスキャンしにくい。
+- group の境界は細い縦線だけで、描画 rail の中の小グループと toolbar 全体の境界が同じ強さに見える。
+- 用紙サイズの幅・高さ入力と適用ボタンが、描画 tool と同じボタン列に見える。用紙の寸法設定が、描画操作または zoom の一種と誤認されやすい。
+- 画面幅が広いときは横一列に詰まるが、幅が減ると何を優先して残すかが見た目から判断できない。
 
-`src/app/notes/_components/note-canvas-editor.tsx` では、toolbar の選択値が Fabric の操作モードへ直接反映される。
+### 2.2 v2 導入前の source の比較基準
 
-| 状態 | 現行挙動 | 今回の設計で明確にする境界 |
+| 観点 | v2 導入前の確認 | 現行 v2 での整理 |
 | --- | --- | --- |
-| `select` | Fabric の selection を有効にし、既存要素の選択・移動・resize を `object:modified` で履歴へ反映 | 既存要素を操作する入口は `選択`だけと説明する |
-| `pen` | free drawing の path を作成し、pointer up 相当で document へ commit | 開始点が既存要素なら新規 stroke を作らない |
-| `line` / `arrow` / `rect` / `ellipse` | pointer down から drag draft / preview を作り、pointer up で一要素を commit | 空白から開始した gesture だけを新規作成にする。線・矢印の座標・移動は進行中 task と整合させる |
-| `text` | pointer 位置に text element を追加し、編集状態へ入る | 空白では新規作成、既存 text では編集、他の既存要素上では新規作成しない |
-| `erase` | hit target を session 内で一度だけ削除し、gesture 終了時に一つの履歴へ commit | 全 element type の全体消去であることをラベルと説明に出す |
-| Canvas history | viewport に focus があるとき Cmd/Ctrl+Z、Cmd/Ctrl+Shift+Z。選択中の Delete / Backspace も扱う | 入力欄、用紙サイズ input、text editing の browser 操作を奪わない |
-| 用紙サイズ | 有効値を適用すると document の `page` を更新して Canvas を再描画 | page 寸法変更を zoom と呼ばず、要素の座標・寸法・style・points を変更しない |
+| tool 定義 | `note-canvas-toolbar.tsx` の `ToolDefinition` は value、label、description を持つが icon 情報を持たない | icon key と local SVG renderer を採用し、`CanvasNoteTool` の union は変更していない |
+| ボタン内容 | `renderTool` は item.label だけを表示し、アイコンを出力しない | icon を先に配置し、短い可視 label を残している |
+| group | TOOL_GROUPS は operation、draw、line、shape、text、erase に分かれ、group label と role="group" がある | group の意味を維持し、見出しの平置きを背景・separator・ARIA に置き換えている |
+| rail | drawing-rail は draw、line、shape、text だけを内包する。operation、erase、history、paper は rail の外にある | 描画 tool だけを横 scroll できる rail とし、erase、history、paper を rail 内へ移動しない |
+| active | aria-pressed と data-active は存在し、CSS は橙色背景と下側 inset marker を使う | active はアイコン、label、marker、aria-pressed の複数で示す。色だけには依存しない |
+| tooltip / 説明 | `title` と `aria-describedby` の visually hidden description はある。`title` は browser の補助表示で、touch では表示されない | desktop / tablet の hover と keyboard focus では visible tooltip を出し、可視 label と hidden description を併用している |
+| 履歴 | Undo、Redo の text button があり、canUndo / canRedo により native disabled になる | アイコン＋短い label を使い、disabled と active tool state を混同させない |
+| 用紙 | `type="number"` の幅・高さ、320〜4000 の min / max、Enter または適用、`aria-invalid` と `role="alert"` がある | validation と操作を維持し、独立 panel、helper、状態表現を加えている |
 
-### 2.3 現状の設計ギャップ
+### 2.3 v2 導入前の CSS の比較基準
 
-- `選択`と描画ツールが同じ平面上で何を許すか、特に既存オブジェクト上からの描画開始が UI 契約として書かれていない。
-- 8 ツールが平置きのため、`直線`と`矢印`、`四角`と`円`の関係が見えにくい。
-- `消しゴム`という名称だけでは、線を部分的に消す機能と誤解しやすい。現行実装はオブジェクト単位である。
-- `title` は補助にはなるが、タッチ端末では表示されない。ラベル、状態表示、focus 表示を合わせて設計する必要がある。
-- 現行コードには `aria-pressed` と focus ring はあるが、現在のツールや、描画開始をキャンセルした理由を live status で伝える契約がない。
-- 用紙サイズは既に独立 group だが、描画ツール群と同じ toolbar の中での優先順位と、狭幅時の収納ルールが未定義である。
+v2 導入前の `src/app/globals.css` では、`note-canvas-toolbar` に `display:flex`、`flex-wrap:wrap`、`paper-soft` の背景、上下の border、0.6rem 前後の padding を指定していた。group は `border-inline-start` と `padding-inline-start` で区切られ、group label は 0.64rem の薄い文字だった。button は共通して `min-height: 2.75rem`、paper 背景、`paper-line` の border、同じ角丸と font-weight を持っていた。
 
-## 3. MVP の不変条件と境界
+active は paper-accent / paper-accent-deep、淡い橙背景、下側 inset marker だけで示されていた。hover、disabled、focus-visible はあったが、button の icon slot、group ごとの面、primary / secondary の密度差はなかった。
 
-### 3.1 維持する機能
+導入前の drawing rail は `overflow-x:auto` で局所横 scroll を持っていた。一方、media query は max-width:640px に集中しており、641〜1023px の tablet で group をどのように優先・折り返しするかの専用方針はなかった。paper-size は `margin-inline-start:auto` で右寄せになるが、同じ toolbar surface と同じ button 規則の中にあった。
 
-次の機能は toolbar の見た目を変えても維持する。
+### 2.4 v2 導入前のギャップ分析
 
-- 本文領域が `CanvasDocumentV1` を編集・閲覧する Canvas であること。
-- ペン、直線、矢印、四角、円、テキストの作成、選択、移動、サイズ変更。
-- 現行のオブジェクト単位の消しゴム。線・矢印・図形・テキストを部分的に切り刻まない。
-- Canvas 内の Undo / Redo と、新しい操作後に Redo が破棄される現行履歴モデル。
-- 用紙幅・高さの整数入力、320〜4000 px の範囲検証、適用・Enter 操作。
-- 用紙寸法を変えても既存 element の `x`、`y`、`width`、`height`、`points`、`style` を自動変更しないこと。
-- 用紙が viewport より広い場合の Canvas 内横スクロールと、Canvas 上から Summary や保存 footer へ戻れるページ全体の縦スクロール。
-- 明示保存時に親フォームへ Canvas document を渡し、既存の API / Prisma 保存領域へ保存すること。
+| 観点 | v2 導入前の問題 | v2 の設計判断 |
+| --- | --- | --- |
+| visual hierarchy | 見出し、tool、Undo / Redo、適用が同じ横列・同じ密度で、主操作と設定の重みが揃っている | primary tool、drawing rail、secondary action、paper panel を面・余白・境界で階層化する |
+| iconography | icon がなく、ラベルの文字列を読まないと形状・履歴の意味を判断できない | currentColor の inline SVG / CSS icon と短い label を併用する |
+| button density | すべて min-height 2.75rem、長いラベルも同じ横幅規則で、列が詰まる | icon slot を固定し、label を一行の短語にし、group 間の余白を group 内より大きくする |
+| group boundary | 薄い縦線だけで、描画の小グループと大きな責務の境界が読みにくい | group outer separator、subgroup separator、面の差を段階的に使う |
+| primary / secondary | 選択、全体消去、Undo / Redo が通常 tool と同じ重み | 選択を primary、全体消去を安全確認が必要な distinct action、Undo / Redo を secondary、描画を rail として分ける |
+| paper conflict | 幅・高さ・適用が描画 tool と同じ row の一部に見える | paper panel を二重に近い境界で分離し、「用紙の寸法、表示倍率ではない」を helper で明示する |
+| responsive | 640px 以下の rail はあるが、tablet の折り返しと narrow の優先順位が未定義 | desktop / tablet / narrow の行・overflow・disclosure を固定する |
+| accessibility | ARIA と focus ring はあるが、visible tooltip と、色以外での active / group の見分けが不足 | label、icon、marker、aria、focus tooltip、live status を重ねる。ラベルを icon-only の奥へ隠さない |
 
-ツールを選ぶ、hover する、focus する、Esc で描画をキャンセルする操作は document の履歴や DB の保存値ではない。用紙サイズの適用と Canvas element の編集だけが document history の対象である。
+## 3. v2 の toolbar 構造
 
-### 3.2 今回導入しない機能
+### 3.1 Group の責務と表示
 
-draw.io から借りるのは、役割を分類し、状態を見せ、操作を予測可能にする考え方に限る。次は今回の toolbar MVP に含めない。
+toolbar の DOM / 認知上の順序は、操作 → 描画 rail → スタイル → 消去 → 履歴 → 用紙とする。描画 rail の中だけが local horizontal scroll の対象である。
 
-- connector の自動 routing、waypoint、orthogonal line、snap、grid、guides、smart handles。
-- 複数選択、group / ungroup、layer panel、z-order の専用 UI、rotate、minimap、infinite canvas。
-- fill / stroke palette、線幅、矢尻種類、破線、フォント toolbar、rich text、Markdown の Canvas 編集。
-- 画像、ファイル、貼り付け asset、外部 URL embed、export、印刷専用 toolbar。
-- pixel 単位の消しゴム、図形・矢印・テキストの部分消去。自由線の部分消去は別設計 `CANVAS_PARTIAL_ERASER_DESIGN.md` の段階導入対象であり、今回のボタンへ混ぜない。
-- Canvas の server-side undo、autosave、draft、409 競合、revision history、collaboration。
-- toolbar 専用の新しい DB column、API、Prisma migration、依存関係。
-
-## 4. 代替案と Manager 推奨
-
-| 案 | 構成 | 長所 | 影響 / リスク | 判断 |
+| group | controls | 可視表現 | 背景 / separator | active / disabled |
 | --- | --- | --- | --- | --- |
-| A. 現状維持 | 8 ツールを一つの group に平置き | 差分が小さく、現在の操作をそのまま残せる | 線と図形の関係、全体消去の意味、重要操作の優先度が見えない | 不採用。次の UI task へ進む理由を解消できない |
-| B. グループ化・主要操作は常時表示 | 選択、描く、線、図形、文字、消去、履歴、用紙を区切る | discoverability と現行機能の両立。実装が既存 component / CSS の範囲に収まる | 画面幅が狭いと 2 行または local overflow が必要 | **Manager 推奨** |
-| C. 線 / 図形を dropdown に収納 | `[線]`や`[図形]`を開いて中のツールを選ぶ | desktop の横幅を節約できる | 直線・矢印・四角・円が隠れ、現在のツールが group trigger だけでは分かりにくい。タッチ操作も一手増える | MVP では不採用。幅が極端に狭い表示の補助案に限る |
-| D. draw.io 風の左縦 rail | Canvas 左側へ icon rail を固定 | 役割を視覚的に並べやすく、将来のツール追加に強い | Cornell の Cue 幅を圧迫し、mobile と paper scroll の責務が増える。今回の既存 layout と競合する | 不採用。将来の大規模 editor 化で再評価 |
+| 操作 | 選択 | icon＋選択 | toolbar の先頭。少し広い左右 padding と強めの外周 | active は最も強い accent marker。disabled にはしない |
+| 描く | ペン | icon＋ペン | drawing rail 内の先頭 subgroup | sticky active。選択中は marker と aria-pressed |
+| 線 | 直線、矢印 | icon＋直線 / 矢印 | drawing rail 内で subgroup separator | 片方だけ active。2 ボタンを一つの選択にまとめない |
+| 図形 | 四角、円 | icon＋四角 / 円 | drawing rail 内で subgroup separator | 片方だけ active |
+| 文字 | テキスト | icon＋文字 | drawing rail 内の末尾 subgroup | active は text tool だけに付ける |
+| スタイル | 線幅、色、文字サイズ、文字配置 | field label、px、color input、alignment icon | drawing rail の外。選択対象に応じて有効／無効を示す独立 surface | active tool は持たない。対象なし・対象外では controls を disabled にする |
+| 消去 | 消しゴム（全体） | eraser icon＋全体消去 | rail の外。通常 tool とは異なる淡い danger tint または強い境界 | active は danger marker。部分消去ではないことを常に説明 |
+| 履歴 | Undo、Redo | undo / redo icon＋戻す / やり直す | rail の外。secondary surface | native disabled。active tool の aria-pressed は持たない |
+| 用紙 | 幅、高さ、適用 | 用紙 panel、field label、px、適用 | 描画操作から強い separator で分離。desktop は独立した下段、狭幅は disclosure | active state は持たない。invalid は field と error で示す |
 
-案 B では、desktop の横幅を使ってツールを見せ、mobile では描画 group だけを局所的に横スクロールさせる。隠し dropdown を基本にしないため、「どの道具を使えるか」が最初から分かる。ボタン名は短い日本語を残し、アイコンを追加してもラベルを消さない。
+group 名は role="group" の aria-label と tooltip の説明に残す。現在のように「操作」「描く」「線」などの見出しを全 group のボタン横へ一列で表示しない。可視 label は各ボタンに残るため、group 名を視覚的に隠しても操作名が失われるわけではない。
 
-## 5. 推奨 toolbar 構成
+### 3.2 実装 wireframe
 
-### 5.1 Desktop の並び順
+下記の SVG:pointer などは実装時の icon slot 名を表す記号であり、絵文字や Unicode 記号を実アイコンにする提案ではない。各 button は icon を先に、短い label を後に置く。
 
-本文列の上に、通常の document flow で次の順に置く。
+Desktop（広い本文列、paper は独立した下段）:
 
-```text
-┌──────────┬────────┬──────────────┬──────────────┬────────┬──────────────┬────────┬────────────┐
-│ 操作     │ 描く   │ 線           │ 図形         │ 文字   │ 消去         │ 履歴   │ 用紙       │
-│ 選択     │ ペン   │ 直線 矢印    │ 四角 円      │ テキスト│ 消しゴム(全体)│ Undo Redo│ 幅 高さ 適用│
-└──────────┴────────┴──────────────┴──────────────┴────────┴──────────────┴────────┴────────────┘
-```
+    ┌──────────────────────────────────────────────────────────────────────────────────────────────────────┐
+    │ [SVG:pointer 選択] │ [SVG:pencil ペン] [SVG:line 直線] │ [SVG:arrow 矢印] │ [SVG:rect 四角] [SVG:circle 円] │ [線幅] [色] [文字サイズ] [配置] │
+    │                    │ [描画 rail: local horizontal scroll if needed]                                  │
+    │                    │ [SVG:T 文字] │ [SVG:eraser 全体消去] │ [SVG:undo 戻す] [SVG:redo やり直す] ║       │
+    │                    ║ 用紙  [幅 1200 px] [高さ 800 px] [適用]  寸法は用紙そのもの                       │
+    └──────────────────────────────────────────────────────────────────────────────────────────────────────┘
 
-group 間には視覚的な区切りを置く。group 内は隣接したボタンとして扱い、`role="group"` と accessible label を持たせる。`用紙`は値入力があるため描画 group と同じ見た目の segmented control にせず、入力 group として区別する。
+実際の desktop では rail 内の tool は可能な限り一行に置く。wireframe の改行は説明用であり、描画 tool の button を縦に一つずつ並べる指定ではない。縦線は group separator、二重線は paper panel の境界を表す。group の面は薄く異なる背景で示し、ボタンの面より group の面が広く見えるようにする。
 
-### 5.2 Group / visibility 契約
+Tablet（641〜1099px）:
 
-| group | controls | accessible label | desktop | mobile |
+    row 1: [SVG:pointer 選択] │ [描画 rail: [ペン] [直線] [矢印] [四角] [円] [文字] → 横 scroll]
+    row 2: [線幅 ...] [色] [文字サイズ ...] [配置 ...]
+    row 3: [SVG:eraser 全体消去] │ [SVG:undo 戻す] [SVG:redo やり直す]
+    row 4: ║ 用紙 [幅 ...] [高さ ...] [適用]
+
+tablet では group の途中で button を折り返さない。drawing rail は row 1 の残り幅だけを使い、rail 外の style、全体消去、履歴、用紙は rail の scroll に巻き込まない。ページ全体の横 overflow は出さない。
+
+Narrow（640px 以下）:
+
+    row 1: [SVG:pointer 選択]
+    row 2: ┌ 描画 rail ──────────────────────────────────────────────────────────────┐
+            │ [ペン] [直線] [矢印] [四角] [円] [文字]  → この rail だけ横 scroll │
+            └───────────────────────────────────────────────────────────────────────┘
+    row 3: [線幅 ...] [色] [文字サイズ ...] [配置 ...]
+    row 4: [SVG:eraser 全体消去] │ [SVG:undo 戻す] [SVG:redo やり直す]
+    row 5: [用紙設定 1200 × 800 px ▸]  （開くと幅・高さ・適用・helper/error）
+
+narrow では選択・全体消去・履歴を drawing rail の中へ入れず、rail の横 scroll なしで到達できる別 row に置く。描画 rail はラベルを省略せずに横 scroll する。用紙は summary が現在寸法を示す native disclosure または同等の明示的な開閉 UI とし、開いた入力欄をキーボードで到達できるようにする。disclosure を採用する場合も、入力値・適用・error を DOM から削除しない。
+
+### 3.3 ボタンの label / icon 方針
+
+| tool | icon の意味 | desktop / tablet の可視 label | narrow の可視 label | accessible name / tooltip |
 | --- | --- | --- | --- | --- |
-| 操作 | 選択 | `Canvas 操作` | 常時表示、先頭 | 常時表示 |
-| 描く | ペン | `自由線を描く` | 常時表示 | 描画ツール rail 内で常時到達 |
-| 線 | 直線、矢印 | `線を描く` | 2 ボタンを表示 | 描画ツール rail 内で 2 ボタンを表示 |
-| 図形 | 四角、円 | `図形を描く` | 2 ボタンを表示 | 描画ツール rail 内で 2 ボタンを表示 |
-| 文字 | テキスト | `文字を置く` | 常時表示 | 描画ツール rail 内で表示 |
-| 消去 | 消しゴム（全体） | `オブジェクトを全体消去` | 描画と区切って常時表示 | 主要 strip に置く |
-| 履歴 | Undo、Redo | `Canvas 履歴` | 常時表示。disabled を明示 | 常時表示 |
-| 用紙 | 幅、高さ、適用 | `Canvas 用紙サイズ` | 右端または toolbar 下段 | `用紙サイズ` disclosure 内 |
+| select | pointer / cursor | 選択 | 選択 | 選択・移動・サイズ変更 |
+| pen | pencil / freehand | ペン | ペン | 空白または既存のアプリ所有 Canvas 要素上から自由線を描く |
+| line | diagonal line | 直線 | 直線 | 空白または既存のアプリ所有 Canvas 要素上からドラッグして直線を描く |
+| arrow | line with arrow head | 矢印 | 矢印 | 空白または既存のアプリ所有 Canvas 要素上からドラッグして矢印を描く |
+| rect | rectangle | 四角 | 四角 | 空白または既存のアプリ所有 Canvas 要素上からドラッグして四角形を描く |
+| ellipse | circle / ellipse | 円 | 円 | 空白または既存のアプリ所有 Canvas 要素上からドラッグして円または楕円を描く |
+| text | T / text cursor | 文字 | 文字 | 空白または既存のアプリ所有 Canvas 要素上をクリックして文字を入力する |
+| erase | eraser | 全体消去 | 全体消去 | 消しゴム（全体）。クリックまたはなぞって object 全体を削除する |
+| undo | curved arrow left | 戻す | 戻す | Canvas の直前の操作を元に戻す |
+| redo | curved arrow right | やり直す | やり直す | Canvas の取り消した操作をやり直す |
 
-mobile の「描画ツール rail」はページ全体ではなく toolbar 内だけの `overflow-x: auto` とする。group の途中でボタンを折り返して順序を壊さない。消去と履歴は描画 rail の奥へ隠さず、画面上部の主要 strip に残す。用紙入力は disclosure を開けば必ず Tab で到達できる。
+アイコンは 16〜18px 程度の固定 slot、label は一行の短い文字列とする。icon は currentColor の stroke / fill を使い、active、hover、disabled、focus で label と同じ色変化をする。button の accessible name を icon の代替文字へ依存させない。SVG は aria-hidden="true" とし、button の aria-label / visible label を正本にする。
 
-### 5.3 ボタン名、説明、状態
+アイコンを置くために既存の Canvas renderer、Fabric adapter、CanvasDocumentV1、外部 icon package を変更しない。実装は note-canvas-toolbar.tsx 内の local SVG component、または globals.css の単純な CSS shape に限定する。複雑な図形を CSS で無理に描く場合は inline SVG を優先する。
 
-| control | 表示ラベル | tooltip / accessible description | active 時の意味 |
+## 4. Visual tokens と states
+
+### 4.1 Visual tokens
+
+既存の paper palette を優先して再利用する。新しい色や依存を増やすのではなく、役割を CSS class に割り当てる。
+
+| token / role | 用途 | v2 の表示 |
+| --- | --- | --- |
+| paper-soft | toolbar 外周、secondary surface、drawing rail の面 | Canvas の紙面より一段暗い背景 |
+| paper | button、input、paper panel の内側 | 操作可能な面 |
+| paper-line | group 内の弱い境界、input border | default separator |
+| paper-line-strong | toolbar 外周、group 間、paper panel | group が変わることを示す 1px 境界 |
+| paper-accent / paper-accent-deep | hover、active、focus ring | current tool の共通 accent |
+| paper-danger | 全体消去の active / error | danger 色だけに意味を委ねず、marker と label を併用 |
+| icon slot | 16〜18px の固定幅 | label の左側に常に確保 |
+| control height | 最低 44px 相当 | pointer / touch の target を確保。高さを下げて横幅だけを詰めない |
+| group gap | group 内 gap より広い | 役割の切り替わりを余白で補強 |
+
+group の背景を変えるときも、色差を小さくし、paper palette を逸脱しない。active の判定、focus、disabled、error は色差だけでなく border、marker、属性、説明を併用する。
+
+### 4.2 State matrix
+
+| state | tool button | Undo / Redo | paper field / apply |
 | --- | --- | --- | --- |
-| select | 選択 | `選択・移動・サイズ変更。既存オブジェクトを操作` | 既存要素を操作できる |
-| pen | ペン | `自由線を描く。空白から開始` | 空白から自由線を作成する |
-| line | 直線 | `直線を描く。空白から開始` | 空白から直線を作成する |
-| arrow | 矢印 | `矢印を描く。空白から開始` | 空白から矢印を作成する |
-| rect | 四角 | `四角形を描く。空白から開始` | 空白から四角形を作成する |
-| ellipse | 円 | `円または楕円を描く。空白から開始` | 空白から楕円要素を作成する |
-| text | テキスト | `空白をクリックしてテキストを入力` | 空白から text element を作成する |
-| erase | 消しゴム（全体） | `クリックまたはなぞって、対象オブジェクト全体を削除` | hit した要素を全体削除する |
-| undo | Undo | `Canvas の直前の操作を元に戻す` | active state は持たず、利用不可時は disabled |
-| redo | Redo | `Canvas の取り消した操作をやり直す` | active state は持たず、利用不可時は disabled |
+| default | paper 背景、paper-line、標準 icon / label | paper 背景、標準 icon / label | paper 背景、field label、px |
+| hover | accent border、淡い accent surface、tooltip | 同じ。ただし disabled には適用しない | input hover は border のみ |
+| active | accent-deep border、accent surface、上または下の 3px marker、aria-pressed="true" | 使用可能でも active tool marker は付けない | active state を持たない |
+| keyboard focus | 2px 以上の visible outline、3px 前後の outline-offset。active marker と同時に見える | 同じ | input にも同じ focus ring |
+| disabled | native disabled、pointer 不可、標準より低いコントラスト。ただし判読可能な icon / label を残す | canUndo / canRedo が false のときだけ | apply は入力未完了や無効値では実行結果を作らず、error を field に出す |
+| invalid | tool には使わない | tool には使わない | aria-invalid="true"、paper-danger border、inline error と role="alert" |
+| live status | current tool、no-op、whole erase 結果を必要に応じて status に通知 | undo / redo の結果を必要に応じて通知 | 適用成功時の幅・高さを status に通知してよい |
 
-ラベルは desktop でも mobile でも意味の手がかりとして残す。アイコンを足す場合はアイコンを `aria-hidden="true"` とし、絵文字や色だけを意味の代わりにしない。`title` は fallback として残せるが、hover と keyboard focus で同じ説明を確認できる実装を正とする。
+active は「橙色の背景だけ」では不十分である。marker、太さまたは border、aria-pressed、現在の tool の status を最低限組み合わせる。disabled は opacity だけでなく native disabled 属性を必ず使う。
 
-## 6. 操作モデル
+### 4.3 Tooltip と ARIA
 
-### 6.1 ツールの状態
+- toolbar root は role="toolbar"、aria-label="Canvas ツールバー"、aria-orientation="horizontal" を持つ。
+- 各大 group は role="group" と aria-label を持つ。描画 rail の中の draw / line / shape / text も、役割が分かる nested group を維持する。
+- tool button は button type="button"、visible label、aria-label、aria-pressed、必要なら aria-describedby を持つ。SVG は aria-hidden="true" にする。
+- Undo / Redo は button type="button" と native disabled を使う。disabled button に tooltip の操作説明を依存させず、aria-label は常に残す。
+- 幅・高さは可視 label、type="number"、inputMode="numeric"、min 320、max 4000、step 1、aria-label、aria-invalid、invalid 時の aria-describedby を維持する。
+- desktop / tablet では hover と keyboard focus で短い visible tooltip を表示する。tooltip は補足であり、visible label と accessible name の代替にしない。tooltip が drawing rail の overflow にクリップされる場合は、rail 内へ essential text を置かず、toolbar 側の表示領域へ逃がす。
+- narrow / touch では hover tooltip を前提にしない。label を常時残し、focus 時の説明と current tool status を利用する。
+- DOM の通常 Tab 順を維持する。roving tabindex や矢印キーによる複合 widget は MVP に追加しない。CSS の order だけで focus 順と見た目を大きく逆転させない。
+- current tool の live status は visually hidden のままでもよいが、narrow で selected tool を確認できる短い表示を置いてよい。status は tool 切替だけで Canvas history を増やさない。
 
-描画ツールは選択後も active のままにする **sticky tool** を MVP の推奨とする。現行の「同じ tool で続けて描く」操作を保ち、複数の線や図形を連続して作れるためである。誤操作対策は自動的に `選択`へ戻すことではなく、開始点の guard と Escape、active 表示で行う。
+## 5. 操作状態と既存 MVP 契約
 
-| active tool | pointer down が空白 | pointer down が既存要素 | pointer up / 完了 |
+### 5.1 Tool の状態
+
+- 初期 tool は select。選択中の tool は sticky であり、ペン、直線、矢印、四角、円、文字、消しゴム（全体）を一度選ぶと、別 tool を選ぶまで同じ tool が有効である。
+- tool 切替、hover、focus、tooltip の表示は CanvasDocumentV1 と history を変更しない。
+- select は既存 element の選択、移動、resize を許可する。既存 element を操作する入口は select と説明する。
+- pen、line、arrow、rect、ellipse、text は、空白または既存のアプリ所有 Canvas 要素上から新規 element を作る。これを `既存要素上からの重ね描き` と呼び、既存要素を選択・移動・resize する `select` の役割とは分ける。
+- 新規 gesture の開始対象は、空白、または `canvasElement` metadata に既知の `CanvasElementV1` type を持つアプリ所有要素に限る。Fabric の一時 preview object、図形内文字の編集 overlay、metadata が欠落または未知の object が含まれる場合は、新規 gesture を開始しない。
+- line、arrow、rect、ellipse は pointer down だけでは図形を作らず、一定の移動量を超えたときだけ drag preview と新規 element の確定を開始する。小さなクリック／ダブルクリックの pointer up は no-op とし、不要な図形を作らない。
+- `select`、`rect`、`ellipse` で既存の対象図形をダブルクリックすると、`図形内文字編集` に入る。編集 overlay 中も図形外形を表示し、確定またはキャンセルで overlay を片付ける。既存のペン線、線、矢印、図形、standalone text など他要素は失わない。
+- `text` の通常クリックは standalone text の新規作成であり、図形内文字編集とは別の経路である。図形ダブルクリックの inline 編集と、移動量を超えた図形の重ね描きを同じ gesture として扱わない。
+- tool の active 表示は現在の tool が一つだけであることを示す。line と arrow、rect と ellipse を同時 active にしない。
+
+### 5.2 スタイル入力
+
+toolbar の style controls は、Canvas の描画・文字の基本スタイルだけを扱う。rich text、font family、全文字単位の装飾、full font / fill / stroke palette は対象外である。
+
+| 入力 | 契約 | 保存境界 |
+| --- | --- | --- |
+| 線幅 | 整数 1〜20px、既定 1px。pen、line、arrow、rect、ellipse と選択中の非 text element に適用する | `style.strokeWidth` |
+| 文字サイズ | 整数 8〜96px、既定 12px。standalone text と図形内文字に適用する | standalone text は `style.fontSize`、図形内文字は `textStyle.fontSize` |
+| 色 | color input の値を対象へ適用する。stroke 対象は線色、text 対象は文字色として扱う | stroke 対象は `style.stroke`、standalone text は `style.fill`、図形内文字は `textStyle.fill` |
+| 文字配置 | `left` / `center` / `right` の左寄せ・中央寄せ・右寄せ | standalone text は `style.textAlign`、図形内文字は `textStyle.textAlign` |
+
+対象を選択中、または図形内文字を編集中に style を変更した場合は、Canvas の表示へ即時反映する。入力の preview／commit は現行の editor の明示保存と client history の境界を使い、新しい DB/API 保存領域を追加しない。
+
+### 5.3 消しゴム（全体）
+
+現行の erase は部分消去ではなく、hit した Fabric object 全体を削除する。v2 ではこの意味を見た目と説明に固定する。
+
+- 表示 label は全体消去、accessible name と tooltip は消しゴム（全体）とする。
+- click または drag / なぞりで hit した stroke、line、arrow、rect、ellipse、text を object 単位で削除する。
+- 一 gesture 中に同じ object を二重削除せず、hit があった場合だけ一つの history entry を作る。
+- no-hit は document、history、親フォームの値を変更しない。
+- active は danger tint または danger marker で示すが、部分消去や不可逆なサーバー削除を意味しない。
+
+### 5.4 Undo / Redo
+
+- Undo / Redo は Canvas の client history snapshot を操作する。DB や API の server-side Undo ではない。
+- canUndo / canRedo が false の button は native disabled。tool の active 表示を Undo / Redo に付けない。
+- 新しい Canvas 操作の commit 後は Redo が破棄される現行 history model を維持する。
+- 用紙サイズ変更が現在の editor で history の document commit になる契約を維持する。tool 切替や input focus は history に積まない。
+- Canvas viewport に focus があるときの Cmd/Ctrl+Z、Cmd/Ctrl+Shift+Z を維持する。Cue、Summary、text editing、用紙 input の通常 undo を奪わない。
+
+### 5.5 用紙設定
+
+- page.width / page.height の既定値は 1200 × 800px、許容範囲は各 320〜4000px の整数である。
+- input は表示倍率ではなく用紙そのものの寸法を入力する。Fit、50%、100%、200% は表示倍率を表す概念であり、用紙サイズの選択肢ではない。現行 UI に倍率操作はなく、将来追加する場合も page 寸法の state / 保存値と分離する。
+- 幅・高さの適用は既存の onPageDimensionsChange callback を使う。無効値では document を変更せず、field 単位の error を表示する。
+- 用紙寸法を変更しても element の x、y、width、height、points、style、rotation、text、z を自動変更しない。境界外の element も削除、移動、縮小、clip しない。
+- page の JSON と text element 由来の searchText の保存契約は維持する。用紙サイズだけの変更で searchText を書き換えない。
+- paper panel は drawing rail と同じ横 scroll container にしない。desktop の right aligned panel、tablet の別行、narrow の disclosure のいずれでも、入力自体は keyboard / touch から到達できるようにする。
+
+### 5.6 Scroll
+
+- ページ全体の縦 scroll は通常 document flow のまま維持する。Canvas の上から Summary / footer へ戻れることを優先する。
+- 用紙が本文列より広い場合だけ note-canvas-horizontal-scroll が Canvas 用紙を横 scroll する。
+- toolbar の drawing rail の横 scroll と Canvas 用紙の横 scroll は別の local overflow である。
+- toolbar v2 で page-wide overflow-x、Canvas viewport の overflow-y:hidden、manual wheel forwarding、fixed overlay を追加しない。
+- rail の横 scroll によって page-wide horizontal scrollbar を出さない。focus された button は local rail の中で視認できるようにする。
+
+## 6. Responsive 方針
+
+| viewport | toolbar layout | rail / paper | 必須の挙動 |
 | --- | --- | --- | --- |
-| 選択 | active selection を解除または何もしない | その要素を選択。drag で移動、handle で resize | `object:modified` を一つの履歴へ commit |
-| ペン | 自由線 gesture を開始 | **新規 stroke を開始せずキャンセル** | 空白から始めた gesture だけ commit |
-| 直線 / 矢印 | drag draft を開始 | **新規 line / arrow を作らずキャンセル** | 空白から始めた gesture を一要素として commit |
-| 四角 / 円 | drag draft を開始 | **新規 shape を作らずキャンセル** | 空白から始めた gesture を一要素として commit |
-| テキスト | 新規 text element を作成して編集開始 | 既存 text ならその text の編集へ入る。text 以外なら新規作成せずキャンセル | 空文字は保存せず、入力済み text の変更を一つの履歴へ commit |
-| 消しゴム（全体） | 何もしない | target 全体を session 内で一度だけ削除 | hit があったときだけ一 gesture 一履歴。部分消去はしない |
+| 1100px 以上 | 操作、drawing rail、style、消去、履歴を上段に置き、paper を独立した下段へ置く | drawing rail のみ local x scroll。paper は toolbar 全幅の独立 panelで、rail の外 | 全 group と全 label が見える。button の途中で折り返さない |
+| 641〜1099px | 操作と drawing rail、style、消去・履歴、paper の順に行を分ける | drawing rail は残り幅を local x scroll。paper は同じ rail に入れない | tablet 用の優先順位が見た目から分かる。focus 順は DOM 順を保つ |
+| 640px 以下 | 操作、drawing rail、style、消去・履歴、paper の順に行を分ける。paper は disclosure | drawing rail だけ x scroll。paper の入力は開閉後も page width を増やさない | 44px touch target、visible label、全 controls の keyboard / touch 到達、page-wide x overflow なし |
 
-ここでいう「既存要素上」は、pointer down 時の Fabric hit target を基準にする。空白から開始して gesture の途中で既存要素を横切ることは妨げない。これにより、既存の図形の上へ線を引きたい場合も、空白の余白から開始すれば現在の自由配置を失わない。一方、既存要素をクリックしてから意図せず drag した場合は、新規要素を増やさない。
+desktop で一行に収めるために label を極端に小さくしない。tablet では長い label を省略記号で切らず、rail を scroll する。narrow でも icon-only を既定にしない。将来、幅が極端に小さい端末で icon-only を検討する場合は、別 task で current tool 名の常時表示、tooltip、accessible name、focus scroll を含む設計を先に決める。
 
-描画開始がキャンセルされたときは、document、親フォーム、Undo stack を変更しない。Canvas 近くの status に次を一度だけ示す。
+CSS の order だけで視覚的な row と DOM の Tab 順を大きく反転させない。row を分ける場合は、operation → drawing rail → style → erase → history → paper の論理順を読み手が追える配置にする。rail 外の style、erase、history、paper は rail の scroll に隠れないことを優先する。
 
-> 描画は空白から開始してください。既存オブジェクトの移動・サイズ変更は「選択」を使います。
+## 7. 現行実装と確認境界
 
-消しゴムはこの guard の例外である。消しゴムを選んで既存要素へ触れる操作は、意図した全体削除として扱う。hit がない消しゴム gesture は履歴へ積まない。
+### 7.1 静的に確認できる現行実装
 
-### 6.2 選択と描画の境界
+- `src/app/notes/_components/note-canvas-toolbar.tsx` に local SVG icon、短い visible label、group の ARIA、active state、tooltip、style controls、用紙寸法入力・validation、Undo / Redo、narrow の paper disclosure がある。
+- `src/app/globals.css` に operation / drawing rail / style / erase / history / paper の面、separator、active・disabled・focus・invalid の状態、desktop / tablet / narrow の行構成、drawing rail の local horizontal scroll がある。
+- toolbar から利用する sticky tool、既存要素上の重ね描き、4px drag threshold、図形内文字、whole-object eraser、client history、CanvasDocumentV1 の page 寸法・要素不変契約は `note-canvas-editor.tsx`、Fabric adapter、共有 Canvas 契約に接続している。
 
-- `選択`が既存要素の操作専用であることを、ボタン説明、カーソル、status、tooltip で同じ言葉にする。
-- `ペン`、`直線`、`矢印`、`四角`、`円`では、既存要素を選択状態にしたり移動させたりしない。描画開始が既存 target に当たった場合は gesture を破棄する。
-- 描画 tool へ切り替えたときは、残っている selection handle を描画の対象と見せない。必要な selection 解除は UI state で行い、document の変更にはしない。
-- `テキスト`は既存 text の再編集を例外として許可する。既存の図形・線・矢印上に text を重ねたい場合は、空白から開始する。既存 target 上のクリックで別の text box を増やさない。
-- `Delete` / `Backspace` は Canvas viewport に focus があり、`選択`で既存要素が選択されているときの削除に限る。text editing 中、用紙サイズ input 中、Cue / Summary 入力中は browser の通常動作を守る。
-- `Esc` は進行中の drag、text の未入力 draft、消しゴム gesture を commit せず破棄し、active tool を `選択`へ戻す。既に選択されている要素の選択解除にも使う。
-- tool の active state はノートや DB へ保存しない。画面を再読み込みした初期値は `選択`とする。
+### 7.2 Browser runtime QA の境界
 
-### 6.3 線・矢印の進行中 task との関係
+現行実装の browser runtime QA は未確認である。特に、各 viewport の表示、keyboard / touch 到達性、tooltip / focus、pointer による重ね描き・図形内文字・style 反映、保存・再読込、wheel / trackpad / touch scroll は PASS と判定しない。確認項目は `doc/testing/TEST_SCENARIOS.md` の `CANVAS-DIMENSION-001`、`CANVAS-INTERACTION-001`、`CANVAS-GESTURE-001`、`CANVAS-SHAPE-TEXT-001`、`CANVAS-STYLE-001`、`CANVAS-PERSISTENCE-STYLE-001`、`CANVAS-TOOLBAR-STYLE-001` に記録する。
 
-`fix-canvas-line-arrow-placement-movement-563d27c2` は、直線・矢印の座標生成、移動時の挙動に関する実装 task であり、現在進行中である。この設計は次を前提とするが、座標式や Fabric adapter の実装を決めない。
+`npm run lint`、型検査、build、`git diff --check` の成功は静的検証であり、browser runtime PASS の代替ではない。runtime 結果が得られた場合は `IMPLEMENTATION_STATUS.md`、`CURRENT_STATUS.md`、`HANDOFF_2026-07-19.md`、`TEST_SCENARIOS.md` を証跡に合わせて同期する。
 
-- 空白から開始した直線・矢印が pointer down / pointer up のページ座標に対応する。
-- `選択`で直線・矢印を移動したとき、線分または矢印全体が同じ移動量で移動する。
-- toolbar は `line` / `arrow` の値と役割を提供し、`x`、`y`、`points`、矢尻の構造を直接変更しない。
-- 既存 target 上からの新規作成 guard は、座標修正 task の pointer target 判定と矛盾しないよう、同 task 完了後に editor へ統合する。
+## 8. 今回の対象外
 
-線・矢印の作成と移動の回帰が確定するまでは、同じ `note-canvas-editor.tsx` の `mouse:*` handler や `createDraggedElement` を toolbar task から編集しない。
+次は v2 toolbar の設計・実装・受け入れ条件に含めない。
 
-## 7. 表示、tooltip、focus、キーボード
+- snap、grid、guides、smart handles
+- connector routing、waypoint、orthogonal connector
+- layer panel、z-order 専用 UI、group / ungroup、rotate
+- minimap、infinite canvas、ページ一覧
+- 複数選択、multi-select 操作、整列
+- rich text、font family、full font / fill / stroke palette（単色の color input は 5.2 の範囲）、破線、矢尻の種類
+- 画像、ファイル添付、貼り付け asset、export / print toolbar
+- stroke の partial eraser、line / arrow / shape / text の部分消去
+- server-side Undo、autosave、draft、409 競合、共同編集
 
-### 7.1 Active / hover / focus
+現行の whole-object eraser と、将来検討する自由線 partial eraser は別機能である。partial eraser は CANVAS_PARTIAL_ERASER_DESIGN.md に従う別 task とし、v2 の消しゴム button の意味を変更しない。
 
-状態は三つを混同しない。
+## 9. 現行契約と QA 観点
 
-| 状態 | 表現 | 支援技術 |
-| --- | --- | --- |
-| active tool | accent 色の背景または枠、`選択中`を示す視覚的 marker。色だけに依存しない | tool button に `aria-pressed="true"` |
-| hover | hover で背景をわずかに変化し、tool の詳細説明を表示 | hover できない端末でもラベルは残る |
-| keyboard focus | 2 px 以上の高コントラスト outline と十分な offset | `:focus-visible`。active と別の枠で表示 |
+以下は現行 toolbar の契約と browser runtime QA の確認観点であり、実施済み判定の一覧ではない。静的実装確認と runtime の判定は `doc/implementation/IMPLEMENTATION_STATUS.md`、実施結果は `doc/testing/TEST_SCENARIOS.md` を正本とする。
 
-tool button の accessible name は `選択`や`直線`のような短い名前にし、詳細説明は `aria-describedby` で参照する。Undo / Redo は toggle ではないため `aria-pressed` を付けない。disabled は opacity だけでなく、native `disabled` と tooltip / name で理由を伝える。
+### 9.1 見た目
 
-tooltip は pointer hover では短い遅延後、keyboard focus では即時に表示する。画面端で切れない位置に出し、tooltip の文章を唯一の操作説明にしない。touch では長押しを必須にせず、短い表示ラベルと status で理解できるようにする。
+- [ ] toolbar が Canvas 本文列の上に表示され、Cornell の Cue 30% / 本文 70%、Summary、Canvas の紙面位置を変更していない。
+- [ ] 文字だけのカテゴリ見出しを横一列に置かず、選択、描画 rail、全体消去、履歴、用紙の境界が背景・余白・separator で判別できる。
+- [ ] すべての tool button に SVG / CSS icon と短い可視 label があり、label-only の平置きから移行している。
+- [ ] 選択、全体消去、Undo / Redo、描画 tool の primary / secondary の重みが、面・marker・余白の差で見える。
+- [ ] active は icon / label の色だけでなく marker または border と aria-pressed で分かる。active tool は一つだけである。
+- [ ] paper panel が drawing rail の中に入らず、幅・高さ・px・適用と「用紙そのものの寸法」という説明が視覚的に分離されている。
+- [ ] hover、focus、disabled、invalid の見た目が default と区別でき、focus ring が active marker に埋もれない。
+- [ ] desktop、tablet、narrow で button の途中折り返しや page-wide horizontal overflow がない。
 
-toolbar には `role="toolbar"`、各 group には `role="group"` と日本語 `aria-label` を付ける。MVP は custom roving tabindex を採用せず、通常の Tab / Shift+Tab で各 button と用紙入力へ順番に到達できる構成を推奨する。これにより、描画 tool を隠したまま arrow key 操作へ依存せず、数値入力も同じ tab 順で到達できる。
+### 9.2 操作
 
-### 7.2 MVP キーボード契約
+- [ ] 初期 tool は選択で、tool を選ぶと別 tool を選ぶまで sticky に active である。
+- [ ] 選択、ペン、直線、矢印、四角、円、文字をそれぞれの group / rail から一回の操作で選べる。
+- [ ] tool 切替、hover、focus、tooltip 表示だけでは CanvasDocumentV1、history、親フォームの値が変わらない。
+- [ ] 消しゴム（全体）は click / なぞりで hit した object 全体を削除し、partial erase や mask を行わない。no-hit は no-op である。
+- [ ] Undo / Redo は canUndo / canRedo と連動し、disabled button をクリックして無意味な history を増やさない。
+- [ ] 用紙サイズ input は整数 320〜4000px、Enter または適用で更新でき、不正値は document を更新せず field error を出す。
+- [ ] narrow の drawing rail だけが横 scroll し、rail 外の選択・全体消去・履歴・用紙へ横 scroll なしで到達できる。
+- [ ] pen、line、arrow、rect、ellipse、text は空白と既存のアプリ所有 Canvas 要素上のどちらからも新規作成でき、未知 metadata の一時 object 上では開始しない。
+- [ ] line、arrow、rect、ellipse は一定の移動量を超えた場合だけ作成し、クリック／ダブルクリックだけでは不要な図形を作らない。
+- [ ] `select`、`rect`、`ellipse` の対象図形のダブルクリックで図形内文字編集に入り、図形外形を表示したまま、確定・キャンセル後も他要素を失わない。
+- [ ] Canvas の描画 gesture、text editing、Delete / Backspace、Cmd/Ctrl+Z、Cmd/Ctrl+Shift+Z を toolbar markup の変更で壊していない。
+- [ ] 線幅 1〜20px（既定 1px）、文字サイズ 8〜96px（既定 12px）、色、文字配置 left / center / right が選択中・図形内文字編集中に即時反映される。
 
-| 操作 | 条件 | 挙動 |
-| --- | --- | --- |
-| Tab / Shift+Tab | toolbar または用紙 group | DOM の表示順で次の control へ移動 |
-| Enter / Space | tool button / Undo / Redo / 適用 button に focus | button の通常 click と同じ。ツール選択、履歴、用紙適用を行う |
-| Cmd/Ctrl+Z | Canvas viewport に focus、text editing ではない | Canvas Undo |
-| Cmd/Ctrl+Shift+Z | Canvas viewport に focus、text editing ではない | Canvas Redo |
-| Delete / Backspace | Canvas viewport に focus、`選択`で object が選択されている | 選択 object を削除し、一つの履歴へ commit |
-| Escape | drag / text draft / erase session または selection がある | 未 commit 操作を破棄し、必要なら選択解除して `選択`へ戻る |
-| Enter | 幅または高さ input に focus | 現在値を検証し、両方が有効なら用紙サイズを適用 |
+### 9.3 アクセシビリティ
 
-Canvas shortcut は Canvas に focus がある場合だけ処理する。toolbar button、幅・高さ input、Cue / Summary、通常の text editing が focus のときは、それらの browser 操作を奪わない。単一英字の `V/P/L/A/R/T/E` shortcut は、IME、文章入力、将来の text editing と衝突しやすいため今回の MVP では導入しない。必要になった場合は、フォーカス条件と日本語入力中の除外を別 task で設計する。
+- [ ] root に role="toolbar"、aria-label、aria-orientation があり、各 group に role="group" と日本語 aria-label がある。
+- [ ] button は button type="button" で、visible label、aria-label、必要な aria-describedby、tool button の aria-pressed を持つ。
+- [ ] icon は aria-hidden="true" で、意味を icon の形だけに依存しない。
+- [ ] hover と keyboard focus で tooltip / 説明を確認でき、touch では visible label が意味を伝える。
+- [ ] 全 button、input、disclosure に Tab で到達でき、Enter / Space、Enter 適用が機能する。DOM の論理順と見た目の group 順が大きく矛盾しない。
+- [ ] focus-visible は 2px 以上で、active、hover、disabled と同時に視認できる。focus を色だけで表現しない。
+- [ ] active は aria-pressed、disabled は native disabled、用紙の invalid は aria-invalid と aria-describedby / role="alert" で表現する。
+- [ ] current tool、no-op、全体消去結果など、画面上で伝わりにくい状態は status / aria-live に通知できる。通知だけで操作の意味を置き換えない。
+- [ ] narrow で label を icon-only の tooltip のみに隠さず、rail 内でも label と focus 位置を確認できる。
 
-### 7.3 Status / assistive text
+### 9.4 既存機能回帰
 
-Canvas 本体の補助テキストは、現在の tool、用紙寸法、text element の有無を既存どおり読み上げられるようにする。これに加え、次のような状態を `aria-live="polite"` の一つの status へ通知する。
+- [ ] CanvasDocumentV1 の schemaVersion、page.background、elements の保存・復元形式を変更していない。
+- [ ] 1200 × 800 の既定値、320〜4000px の整数範囲、用紙変更時に x、y、width、height、points、style、rotation、text、z を不変にする契約が保たれている。
+- [ ] 用紙サイズ変更だけでは Canvas text 由来の searchText が変わらない。
+- [ ] standalone text の文字配置は `style.textAlign`、図形内文字の文字配置は `textStyle.textAlign` に保存される。inline 編集の確定・キャンセルで他の Canvas 要素は保持される。
+- [ ] ペン、直線、矢印、四角、円、文字の作成、select による移動 / resize、whole erase、Undo / Redo が回帰していない。
+- [ ] Canvas の横 scroll とページ全体の縦 scroll が独立しており、Canvas 上から Summary / footer へ戻れる。
+- [ ] Cue、Summary、保存、閲覧、legacy markdown body mode に関する既存 UI を変更していない。
+- [ ] npm run lint、必要な type check / build、対象 route の browser runtime QA を分けて報告する。browser を実行できない場合は未確認とし、PASS と書き換えない。
 
-- `現在のツール: 選択`、`現在のツール: 矢印`。
-- `描画は空白から開始してください。移動やサイズ変更は「選択」を使います。`
-- `Undo は利用できません`、`Redo は利用できません`（連続操作で毎回読み上げない）。
-- `用紙サイズを 1200 × 800 px に適用しました`、または入力エラー。
-- `消しゴム（全体）で 1 個のオブジェクトを削除しました`。
+## 10. 設計・実装履歴
 
-pointer move ごとに live status を更新しない。focus、tool 切替、gesture 完了、エラーなど意味のある状態変化だけを通知する。
-
-## 8. 用紙サイズ、Undo / Redo、保存との関係
-
-### 8.1 用紙サイズ
-
-- group 名は `用紙サイズ`、補助文は `表示倍率ではなく用紙そのものの幅と高さ（px）` とする。
-- 幅・高さは現在の `page.width` / `page.height` を初期値として表示し、整数 320〜4000 px を受け付ける。
-- 適用はボタンまたは input 上の Enter で行う。空欄、整数以外、範囲外は inline error、`aria-invalid`、`role="alert"` で伝える。
-- 適用前に両方を検証し、片方が不正なら document、履歴、親フォームを変更しない。
-- 適用成功は Canvas document の一つの history entry とする。Undo で寸法を戻し、Redo で再適用できる。
-- resize は element の `x`、`y`、`width`、`height`、`points`、`style`、`rotation`、`z` を変更しない。ページ外へ出た要素も削除・移動・縮小しない。
-- `Fit`、`50%`、`100%`、`200%`は用紙サイズ group に置かない。将来 zoom を追加する場合も、表示倍率の別 group として設計する。
-
-### 8.2 Undo / Redo
-
-- Undo / Redo は desktop、tablet、mobile で常時見える主要操作とする。
-- disabled は `canUndo` / `canRedo` に一致させ、disabled button を click しても status や履歴を不要に増やさない。
-- 一つの描画 gesture、オブジェクト単位の消しゴム gesture、既存要素の移動 / resize、用紙サイズ適用をそれぞれ最大一つの document history entry とする。
-- tool 選択、tooltip 表示、focus 移動、描画開始をキャンセルした no-op は履歴へ積まない。
-- Canvas の Undo / Redo は、Cue / Summary の text input、タグ、ノート全体の明示保存履歴とは統合しない。
-
-### 8.3 ページスクロール
-
-toolbar は本文列の通常 flow に置き、Canvas を覆う fixed overlay にしない。toolbar の折り返しや mobile rail の local overflow によって、ページ全体の縦 scroll を抑止してはならない。
-
-- Canvas が大きいときは既存の `.note-canvas-horizontal-scroll` で用紙を左右に見る。
-- Canvas 上から wheel、trackpad、touch を使って Summary / footer へ縦に戻れる現行のページ scroll を維持する。
-- toolbar の responsive 変更で `preventDefault`、常時 `touch-action: none`、ページ全体の `overflow-x` を再導入しない。
-- mobile の横 scroll は toolbar の描画 rail と Canvas 用紙の局所領域だけに閉じ込める。ページ全体に横 scrollbar を出さない。
-
-## 9. レスポンシブ方針
-
-| viewport | 推奨配置 | 操作上の注意 |
-| --- | --- | --- |
-| 1024 px 以上 | 全 group を表示。用紙 group は右端。必要なら group 境界で 2 行に折り返す | ラベルと group 名を見せ、主要操作を画面内に残す |
-| 641〜1023 px | 描画 group のまとまりを保った 2 行構成。履歴は toolbar 上段または末尾に常時表示 | 個別 button の途中で折り返さない。focus 順は DOM 順を保つ |
-| 640 px 以下 | 主要 strip に `選択`、`消しゴム（全体）`、`Undo`、`Redo`。描画 group は toolbar 内 local horizontal rail。用紙は disclosure | page-wide horizontal overflow を出さない。44 px 以上の touch target を確保し、active tool status を見せる |
-
-desktop では短いラベルと任意の icon を併用できる。mobile で icon-only へ圧縮する場合も、選択中の tool 名、`aria-label`、focus tooltip を必ず残す。ただし MVP の第一実装では、ラベルを短く保ったまま local overflow させる方を推奨し、アイコンだけに依存しない。
-
-toolbar の背景、group 境界、active、focus、disabled、error の design token は既存の paper palette と `globals.css` の focus 規則に合わせる。Canvas 本体の紙面、Cue の 30%、本文 70% の比率、Summary の位置は変更しない。
-
-## 10. 現在進行中の線・矢印修正との依存関係
-
-### 10.1 独立して実装できる範囲
-
-次は `fix-canvas-line-arrow-placement-movement-563d27c2` の完了を待たずに、toolbar の UI task として実装できる。
-
-- `note-canvas-toolbar.tsx` 内の group 分割、表示順、ラベル、説明文、`aria-label`、`aria-pressed`、disabled 表示。
-- 選択 / 描く / 線 / 図形 / 文字 / 消去 / 履歴 / 用紙の視覚的な区切り。
-- tooltip の hover / focus 表示、active と focus ring の CSS、ボタンの touch target。
-- Undo / Redo と用紙サイズ group の desktop / mobile 配置。
-- 用紙サイズ input の helper、エラー表示、Enter 適用の既存 contract を壊さない responsive CSS。
-- toolbar の `role="toolbar"`、nested group、通常 Tab 順。Canvas の pointer 座標や Fabric object は触らない。
-
-### 10.2 依存する範囲
-
-次は、線・矢印の修正 task が完了し、変更内容と回帰結果を確認してから実装する。
-
-- 既存オブジェクト上からの line / arrow の新規作成 guard。
-- line / arrow の pointer down target、preview、pointer up、select 移動に関する status と受け入れ確認。
-- 描画 tool 切替時の selection 解除と、Fabric `mouse:*` event の no-op 処理。
-- `Escape` で未完了の line / arrow draft を破棄する処理。
-- line / arrow を選択して移動した後も duplicate や座標ずれがないことの runtime QA。
-
-依存範囲を実装する Worker は、進行中 task の変更中ファイルを同時に編集しない。特に `note-canvas-editor.tsx` の `pointFromPointer`、`createDraggedElement`、Fabric の `mouse:down` / `mouse:move` / `mouse:up` handler は、線・矢印 task の完了後に再読してから変更する。
-
-## 11. 次の UI coding task の分割案
-
-### CANVAS-TB-001: Toolbar information architecture
-
-**目的:** 現行の機能を変えず、toolbar のグループ、ラベル、active、tooltip、focus、履歴、用紙 group を実装する。
-
-**候補ファイル:**
-
-- `src/app/notes/_components/note-canvas-toolbar.tsx`
-- `src/app/globals.css`
-
-**含める:**
-
-- 5 つの描画役割（描く / 線 / 図形 / 文字）と、選択・消去・履歴・用紙の group 分割。
-- `消しゴム（全体）`の表示名と説明。partial eraser の placeholder や新規 mode は追加しない。
-- active `aria-pressed`、disabled、hover / focus tooltip、current-tool status の入口。
-- desktop / tablet / mobile の group 境界、local overflow、44 px touch target。
-- 既存の callback、tool union、page dimension validation、Undo / Redo callback の互換性。
-
-**含めない:** Canvas event handler、座標計算、Fabric adapter、schema、API、partial eraser。
-
-**完了条件:**
-
-- 8 tool と Undo / Redo / 用紙サイズが、推奨 group と順序で到達できる。
-- 選択中の tool が色だけでなく枠または marker と `aria-pressed` で分かる。
-- hover と keyboard focus で tool の説明が確認できる。
-- width / height input、適用、inline error、Canvas 内横 scroll の既存操作を壊さない。
-
-### CANVAS-TB-002: Selection / drawing boundary
-
-**目的:** toolbar の役割表示と Canvas の pointer 操作を接続し、既存要素上の誤操作で新規図形を作らない。
-
-**前提:** `fix-canvas-line-arrow-placement-movement-563d27c2` が完了し、線・矢印の作成 / 移動回帰が確認済みであること。
-
-**候補ファイル:**
-
-- `src/app/notes/_components/note-canvas-editor.tsx`
-- 必要最小限の `src/app/notes/_components/note-canvas-toolbar.tsx`
-- 必要に応じて既存の Canvas assistive status の表示領域
-
-**含める:**
-
-- `select`でのみ既存要素を選択・移動・resize する境界。
-- pen / line / arrow / rect / ellipse は空白開始だけを commit し、既存 target 開始は no-op にする。
-- text は空白で新規作成、既存 text で編集、他の既存要素では新規作成しない。
-- erase は既存どおり object whole erase とし、no-hit では履歴を増やさない。
-- Escape、Delete / Backspace、Canvas focus 中の Undo / Redo、text / input との shortcut 非干渉。
-- no-op 理由、現在の tool、成功した whole erase を status へ通知する。
-
-**含めない:** line / arrow の座標式を再設計すること、矢尻の新 schema、partial eraser、multi-select、snap。
-
-**完了条件:** 下記の受け入れシナリオ TB-02〜TB-06 を、線・矢印修正後の挙動と一緒に通過する。
-
-### CANVAS-TB-003: Responsive / accessibility regression QA
-
-**目的:** toolbar の実ブラウザ到達性と、紙面の scroll / Canvas 操作が壊れていないことを確認する。
-
-**候補ファイル:**
-
-- 実装済み toolbar / editor / `src/app/globals.css`
-- 必要な確認記録のみ `doc/testing/TEST_SCENARIOS.md`
-
-**確認 viewport:** 375 px、768 px、1280 px、1440 px。Canvas page は既定 1200 × 800 と、許容範囲の小さい / 大きい値を使う。
-
-**含める:** Tab 順、focus ring、active state、disabled state、tooltip、狭幅 local overflow、ページ縦 scroll、用紙サイズ入力、Undo / Redo、mouse / touch / pen の基本操作。
-
-**含めない:** runtime で未実装の draw.io 機能を要求すること、Canvas の保存形式や API の変更。
-
-## 12. 受け入れシナリオ
-
-UI coding task は、少なくとも次のシナリオを確認する。線・矢印に関するシナリオは `fix-canvas-line-arrow-placement-movement-563d27c2` の完了後に実施する。
-
-| ID | 操作 | 期待結果 |
-| --- | --- | --- |
-| TB-01 | Canvas editor を開く | toolbar が本文列の上に表示され、`選択`が初期 active。Canvas、Cue / Summary、paper layout の位置は変わらない |
-| TB-02 | 選択、ペン、直線、矢印、四角、円、テキストを順番に選ぶ | 各 tool が所属 group から見つかり、active marker と `aria-pressed=true` が一つだけ移る。tool 切替だけでは document / history が変わらない |
-| TB-03 | 各 tool button へ Tab で移動し、Enter / Space、hover、focus を試す | 通常の DOM 順で到達でき、説明が表示され、visible focus ring が active marker と別に見える。touch ではラベルだけで意味が分かる |
-| TB-04 | `選択`で既存の線、矢印、図形、テキストを click / drag / resize する | 既存 object だけが選択・移動・resize され、新規 element は作成されない。Delete / Backspace で選択 object を一度だけ削除できる |
-| TB-05 | ペン / 直線 / 矢印 / 四角 / 円を、空白から開始して既存 object の上を通過させる | 空白から始めた一つの gesture は一つの object として作成され、途中で他の object に触れても描画は継続する |
-| TB-06 | ペン / 直線 / 矢印 / 四角 / 円を、既存 object の上から drag する | 新規 object が作成されず、既存 object も移動・変形されない。document、親フォーム、history は変更され、status が「選択を使う」旨を示す |
-| TB-07 | 既存 text 上でテキスト tool を使い、既存図形上で同じ操作をする | 既存 text は編集に入り、既存図形上では新規 text を作らず status を示す |
-| TB-08 | 消しゴム（全体）で線、矢印、四角、円、テキストを click / なぞりする | hit した object 全体だけが削除され、部分的な切断や mask は起きない。一 gesture 一履歴で、Undo / Redo で元に戻せる。no-hit は no-op |
-| TB-09 | Canvas viewport に focus を置いて Cmd/Ctrl+Z、Cmd/Ctrl+Shift+Z を押す | Canvas の Undo / Redo が動く。toolbar button、width / height、Cue / Summary、text editing 中では browser の通常 undo を奪わない |
-| TB-10 | Undo / Redo が空の状態、または新しい操作後に toolbar を見る | 利用できない button は native disabled。新規操作後は Redo が disabled になり、クリックで無意味な status / history を増やさない |
-| TB-11 | 幅または高さへ無効値を入力し、次に有効値を入力して適用する | 無効値は inline error と `aria-invalid`。有効値は page 寸法だけを更新し、element の座標・寸法・points・style は不変。用紙サイズ変更は Undo / Redo できる |
-| TB-12 | 1200 × 800 の用紙を viewport より狭い / 広い寸法へ変え、Canvas 上で wheel / trackpad / touch scroll する | 大きな用紙は Canvas 内で横スクロールでき、Canvas の上からページを縦スクロールして Summary / footer へ戻れる。ページ全体の横 overflow は発生しない |
-| TB-13 | 375 / 768 / 1280 / 1440 px で toolbar を開く | desktop は group が見え、tablet は group 境界を保って折り返し、mobile は主要 strip と描画 local rail / 用紙 disclosure が使える。active tool と全 controls が keyboard / touch から到達できる |
-| TB-14 | 進行中の line / arrow 修正後に、空白から作成して select で移動する | pointer 位置と保存された座標が一致し、移動時の offset / duplicate がない。TB-06 の既存 object 上開始 guard も同時に通る |
-
-## 13. 完了条件チェックリスト
-
-次の UI coding task の完了時に、Worker は次を報告する。
-
-- [ ] toolbar group、表示順、ラベル、tooltip / accessible name、active / focus / disabled が本設計と一致する。
-- [ ] `選択`、描画 tool、`消しゴム（全体）`の役割境界が UI と操作で一致する。
-- [ ] 既存 object 上からの pen / line / arrow / shape の誤操作で新規 object が増えない。
-- [ ] line / arrow の座標・移動は `fix-canvas-line-arrow-placement-movement-563d27c2` の結果と整合し、toolbar 側で座標を再計算していない。
-- [ ] Undo / Redo、用紙サイズ、Canvas 本文、オブジェクト全体消去、Canvas 内横 scroll、ページ縦 scroll が回帰していない。
-- [ ] Cmd/Ctrl+Z、Cmd/Ctrl+Shift+Z、Delete / Backspace、Escape、Tab、Enter / Space の focus 条件が守られる。
-- [ ] 375 / 768 / 1280 / 1440 px でページ全体の意図しない横 overflow がなく、touch target と focus ring が確認できる。
-- [ ] `npm run lint`、必要な type check / build、対象 route の runtime QA 結果を分けて報告する。ブラウザ確認ができない場合は未確認とする。
-- [ ] `src/app/notes/_components/note-canvas-toolbar.tsx`、必要最小限の editor / CSS 以外を変更していない。
-- [ ] schema、migration、API、DB、依存関係、生成物に変更がない。
-
-## 14. 対象ファイルと変更境界
-
-### 14.1 今回の設計 task
-
-作成・更新する文書は次のとおり。
-
-- `doc/designs/CANVAS_TOOLBAR_DESIGN.md`（本書）
-- `doc/README.md`（設計書一覧と Primary Entry Point の最小追記）
-
-コード、設定、依存関係、DB、Prisma、API、テスト実装、画像、生成物、進行中 Worker の変更中ファイルは変更しない。
-
-### 14.2 次の UI coding task の候補
-
-| 責務 | 第一候補 | 条件 |
-| --- | --- | --- |
-| Toolbar markup / group / props | `src/app/notes/_components/note-canvas-toolbar.tsx` | CANVAS-TB-001。既存 `CanvasNoteTool` と callback を維持 |
-| toolbar visual / responsive / focus | `src/app/globals.css` | CANVAS-TB-001 / 003。paper token と page scroll を維持 |
-| tool state と pointer guard | `src/app/notes/_components/note-canvas-editor.tsx` | CANVAS-TB-002。線・矢印修正 task 後に着手 |
-| viewer | `src/app/notes/_components/note-canvas-viewer.tsx` | 今回は原則変更なし。閲覧 toolbar が必要になった別 task で判断 |
-| Canvas schema / adapter / server | `src/shared/canvas/**`, `src/app/spikes/canvas/_lib/**`, `src/server/**` | 今回の toolbar 情報設計では変更しない |
-| 受け入れ記録 | `doc/testing/TEST_SCENARIOS.md` | runtime QA の結果を追加する場合だけ |
-
-## 15. 参照した設計と判断の引き継ぎ
-
-- `AGENTS.md`: Canvas 本文、用紙サイズ、ページスクロール、Canvas JSON 保存の製品仕様。
-- `doc/implementation/MVP_CONTRACT.md`: 現行 MVP の保存・削除・画面契約。toolbar redesign はこの契約を変更しない。
-- `summary/20260718/1113-freestyle-canvas-policy.md`: Cue / Summary を残し、本文だけを bounded Canvas にする MVP 方針、tool の初期範囲。
-- `summary/20260718/1320-canvas-library-spike.md`: Fabric adapter、toolbar、focus、responsive、scroll の検証観点。
-- `doc/designs/CANVAS_PARTIAL_ERASER_DESIGN.md`: 現行 whole erase と将来の自由線 partial erase を分ける判断。
-- `summary/20260718/2223-fix-fabric-page-scroll-over-canvas.md` ほか直近 Canvas scroll summary: Canvas 上の通常ページ縦 scroll と local horizontal scroll を維持する判断。
-- `src/app/notes/_components/note-canvas-toolbar.tsx`: 現在の tool union、button state、用紙入力、Undo / Redo の実装。
-- `src/app/notes/_components/note-canvas-editor.tsx`: 現在の Fabric tool state、gesture、history、keyboard の実装。
-- `src/app/globals.css`: 現在の toolbar group、active / disabled / focus、Canvas viewport overflow の style。
-
-本書で確定したのは、次の実装 Worker が迷わず分割できる UI の契約である。線・矢印の座標・移動修正、部分消去、Canvas の保存形式はそれぞれの設計・実装 task の責務として残す。
+2026-07-19 時点で、v2 の toolbar 設計と実装同期は完了している。以前の実装着手前の比較情報は §2 に履歴として残し、旧 Worker task 名、実装依頼手順、変更ファイル制限は現行の作業指示として扱わない。現行の残課題は §7.2 とテストシナリオに記載した browser runtime QA である。

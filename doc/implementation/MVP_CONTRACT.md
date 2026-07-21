@@ -1,7 +1,7 @@
 # 現行 MVP 契約
 
-更新日: 2026-07-18
-状態: D-01〜D-05 決定済みの現行 MVP 契約
+更新日: 2026-07-19
+状態: Canvas 操作・スタイル・図形内文字・重ね描き・用紙寸法の契約反映済み。browser runtime QA 未確認
 
 ## 1. 位置づけと正本
 
@@ -164,13 +164,25 @@ MVP のタグ API は `GET /api/tags` のみです。request body / query はな
 - Canvas の保存形式は `CanvasDocumentV1` とし、`page.width` / `page.height` は可変の整数 px とする。
 - 既定の用紙サイズは幅 1200px、高さ 800px。各寸法の許容範囲は 320〜4000px（境界値を含む）。`schemaVersion` は `1`、`page.background` は `paper` とする。
 - 本文領域には幅・高さの数値入力と適用操作を置く。入力値は用紙そのものの寸法であり、表示倍率ではない。
-- Fit / 50% / 100% / 200% は表示用の倍率操作として内部に残る場合があるが、用紙サイズの選択肢・保存値・API 入力にはしない。表示倍率と `page.width` / `page.height` を別 state と責務で扱う。
+- Fit / 50% / 100% / 200% は表示倍率を表す概念であり、用紙サイズの選択肢ではない。現行 MVP UI に倍率操作はなく、保存値・API 入力は `page.width` / `page.height` の用紙寸法だけを扱う。将来倍率 UI を追加する場合も、表示倍率と page 寸法を別 state と責務で扱う。
 - 用紙サイズの変更は `page.width` / `page.height` のみを更新する。既存要素の `x`, `y`, `width`, `height`, `points`, `style`、`rotation`、`text`、`z` は自動変更しない。
 - 用紙を小さくして要素が境界外になる場合も、要素を削除・移動・縮小・クリップして保存しない。境界外の要素データはそのまま保持し、後から用紙を広げたときも同じ位置・寸法で復元する。
 - 保存・復元は既存の Canvas JSON 保存領域を利用する。用紙サイズ変更だけを理由に Notebook の新しいカラムや Prisma migration を追加しない。
 - 既存の `schemaVersion=1` かつ 1200x800 の Canvas document はそのまま有効なデータとして復元し、既存要素を自動変換しない。未知の schema version や寸法範囲外は validation error とする。
 
-### 6.2 Markdown と Summary Preview
+### 6.2 Canvas 本文の操作・スタイル
+
+- `select` は既存 Canvas 要素の選択・移動・resize を担う。`erase` は hit した stroke、line、arrow、rect、ellipse、text を object 単位で全体消去する。tool は sticky で、選択した tool を別 tool へ切り替えるまで継続して使える。
+- `pen` / `line` / `arrow` / `rect` / `ellipse` / `text` は、空白だけでなく既存のアプリ所有 Canvas 要素上からも新規作成を開始できる。既存要素上からの重ね描きは、`select` による既存要素の操作とは別の役割である。
+- 新規 gesture の開始対象は、空白または保存済み `CanvasElementV1` に対応するアプリ所有 object に限る。Fabric の一時 preview、図形内文字の編集 overlay、metadata が欠落または未知の object を新規 gesture の対象にしない。
+- `line` / `arrow` / `rect` / `ellipse` の図形・線作成は一定のドラッグ量を超えた場合だけ開始・確定する。小さなクリック／ダブルクリックの gesture は不要な図形を作らず、確定しない。
+- `select` / `rect` / `ellipse` で対象図形をダブルクリックすると図形内文字編集に入る。編集中も図形外形を表示し、確定時は対象 shape の `text` と `textStyle` を更新し、キャンセル時は元の図形内文字へ戻す。どちらの場合も、既存のペン線・線・矢印・図形・standalone text など他要素を失わない。
+- `text` の通常クリックは standalone text の新規作成であり、図形内文字編集とは別の経路である。図形ダブルクリックの inline 編集と、移動量を超えた図形の重ね描きを同じ gesture として扱わない。
+- toolbar の style input は、選択中または新規作成／図形内文字編集中の対象へ即時表示反映する。線幅は整数 1〜20px（既定 1px）、文字サイズは整数 8〜96px（既定 12px）、色は stroke または text の対象に適用し、文字配置は `left` / `center` / `right` の左寄せ・中央寄せ・右寄せを受け付ける。
+- standalone text の文字サイズ・色・文字配置は `style.fontSize`・`style.fill`・`style.textAlign` に保存し、図形内文字は `textStyle.fontSize`・`textStyle.fill`・`textStyle.textAlign` に保存する。線幅と線色は `style.strokeWidth`・`style.stroke` に保存する。これは既存の `CanvasDocumentV1` JSON 境界であり、新しい DB/API 保存領域を追加しない。
+- Canvas の Undo / Redo は client-side history snapshot であり、DB/API の Undo ではない。tool 切替、入力 focus、小さな no-op gesture は Canvas document の保存値を変更しない。
+
+### 6.3 Markdown と Summary Preview
 
 - Cue と Summary は Markdown として編集・保存します。基本記法と GFM のチェックボックスを表示対象とします。Canvas 本文は Markdown Preview ではなく、Canvas viewer/editor で表示します。
 - `bodyMode=markdown` の既存ノートでは従来の本文 Markdown を安全にレンダリングし、`bodyMode=canvas` のノートでは保存済み Canvas document を詳細・編集・復習で復元します。
@@ -227,10 +239,8 @@ MVP の route、API、データ、保存、削除、復習、Markdown、端末�
 2. 製品全体のロードマップや Phase 2 の位置づけが変わる場合は [`AGENTS.md`](../../AGENTS.md) を更新する。既存の将来要件を現行 MVP として扱うかどうかをここで明示する。
 3. [`doc/README.md`](../README.md) の設計書一覧と Primary Entry Points を更新する。
 4. 影響する詳細書を更新する。対象は必要に応じて `doc/api/MVP_API_DESIGN.md`、`doc/data/MVP_DATA_DESIGN.md`、`doc/screens/`、`doc/testing/TEST_SCENARIOS.md`、`README.md` です。
-5. 実装状態の正誤は、仕様変更と混ぜずに後続の [`DOC-001`](../../summary/20260716/current-spec-design-task-list.md) で `doc/implementation/IMPLEMENTATION_STATUS.md` をコード・schema・route・証跡に照合して更新する。
+5. 実装状態と受け入れ結果は、仕様変更と混ぜずに `doc/implementation/IMPLEMENTATION_STATUS.md` と `doc/testing/TEST_SCENARIOS.md` へ、現行コードと実際の証跡に基づいて反映する。静的確認と browser runtime QA は別の判定として保持する。
 
-## 11. この契約に続く task
+## 11. 現行契約の保守メモ
 
-今回の仕様更新 task は、`AGENTS.md`、本契約、API / data / screen / test の正本、実装状況サマリへ Canvas 用紙サイズ契約を反映します。コード、設定、依存関係、Prisma schema、DB、UI、API 実装、テストコード、画像、生成物は変更しません。
-
-次の記録 task は **DOC-001「実装状況サマリを実態へ修正」** です。DOC-001 で、現行コードがこの MVP 契約のどの項目を実装済み・部分実装・未実装・仕様のみとして満たすかを、推測せずに修正します。
+2026-07-19 時点で、Canvas の用紙寸法、表示倍率との分離、要素データ不変、toolbar、重なり、図形内文字、style の契約は本書へ反映済みです。現行コードの静的確認は `doc/implementation/IMPLEMENTATION_STATUS.md`、受け入れシナリオと未実施の runtime QA は `doc/testing/TEST_SCENARIOS.md`、再開時の要約は `HANDOFF_2026-07-19.md` を参照します。browser runtime の結果が得られた場合は、未確認を PASS に置き換えず証跡に合わせて各文書を更新します。

@@ -21,27 +21,58 @@ export type CanvasElementType =
 
 export type CanvasPoint = [number, number];
 
+export type CanvasTextAlign = "left" | "center" | "right";
+
 export type CanvasElementStyle = {
   stroke?: string;
   fill?: string;
   strokeWidth?: number;
   fontSize?: number;
   fontFamily?: string;
+  textAlign?: CanvasTextAlign;
 };
 
-export type CanvasElementV1 = {
+export type CanvasElementTextStyle = {
+  fill?: string;
+  fontSize?: number;
+  fontFamily?: string;
+  textAlign?: CanvasTextAlign;
+};
+
+type CanvasElementBaseV1 = {
   id: string;
-  type: CanvasElementType;
   x: number;
   y: number;
   width: number;
   height: number;
   rotation: number;
   points?: CanvasPoint[];
-  text?: string;
   style: CanvasElementStyle;
   z: number;
 };
+
+type CanvasShapeElementV1 = CanvasElementBaseV1 & {
+  type: "rect" | "ellipse";
+  text?: string;
+  textStyle?: CanvasElementTextStyle;
+};
+
+type CanvasStandaloneTextElementV1 = CanvasElementBaseV1 & {
+  type: "text";
+  text: string;
+  textStyle?: never;
+};
+
+type CanvasDrawingElementV1 = CanvasElementBaseV1 & {
+  type: "stroke" | "line" | "arrow";
+  text?: never;
+  textStyle?: never;
+};
+
+export type CanvasElementV1 =
+  | CanvasShapeElementV1
+  | CanvasStandaloneTextElementV1
+  | CanvasDrawingElementV1;
 
 export type CanvasDocumentV1 = {
   schemaVersion: typeof CANVAS_SCHEMA_VERSION;
@@ -76,6 +107,8 @@ const ELEMENT_TYPES: CanvasElementType[] = [
   "text",
 ];
 const POINT_ELEMENT_TYPES: CanvasElementType[] = ["stroke", "line", "arrow"];
+const CANVAS_TEXT_ALIGNS: CanvasTextAlign[] = ["left", "center", "right"];
+const TEXT_STYLE_FIELDS = ["fill", "fontSize", "fontFamily", "textAlign"] as const;
 
 export function createElementId(prefix = "element") {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
@@ -272,6 +305,21 @@ function asOptionalFiniteNumber(value: unknown, field: string) {
   return asFiniteNumber(value, field);
 }
 
+function asOptionalTextAlign(value: unknown, field: string) {
+  if (value === undefined) return undefined;
+  if (
+    typeof value !== "string" ||
+    !CANVAS_TEXT_ALIGNS.includes(value as CanvasTextAlign)
+  ) {
+    invalid(`${field} must be left, center, or right`);
+  }
+  return value as CanvasTextAlign;
+}
+
+function hasOwnField(value: Record<string, unknown>, field: string) {
+  return Object.prototype.hasOwnProperty.call(value, field);
+}
+
 function normalizeStyle(value: unknown, field: string): CanvasElementStyle {
   if (value === undefined) return {};
   if (!isRecord(value)) invalid(`${field} must be an object`);
@@ -282,14 +330,45 @@ function normalizeStyle(value: unknown, field: string): CanvasElementStyle {
   const fontFamily = asOptionalString(value.fontFamily, `${field}.fontFamily`);
   const strokeWidth = asOptionalFiniteNumber(value.strokeWidth, `${field}.strokeWidth`);
   const fontSize = asOptionalFiniteNumber(value.fontSize, `${field}.fontSize`);
+  const textAlign = asOptionalTextAlign(value.textAlign, `${field}.textAlign`);
 
   if (stroke !== undefined) style.stroke = stroke;
   if (fill !== undefined) style.fill = fill;
   if (fontFamily !== undefined) style.fontFamily = fontFamily;
   if (strokeWidth !== undefined) style.strokeWidth = strokeWidth;
   if (fontSize !== undefined) style.fontSize = fontSize;
+  if (textAlign !== undefined) style.textAlign = textAlign;
 
   return style;
+}
+
+function normalizeTextStyle(
+  value: unknown,
+  field: string,
+): CanvasElementTextStyle | undefined {
+  if (value === undefined) return undefined;
+  if (!isRecord(value) || Array.isArray(value)) {
+    invalid(`${field} must be an object`);
+  }
+
+  for (const key of Object.keys(value)) {
+    if (!(TEXT_STYLE_FIELDS as readonly string[]).includes(key)) {
+      invalid(`${field}.${key} is not supported`);
+    }
+  }
+
+  const textStyle: CanvasElementTextStyle = {};
+  const fill = asOptionalString(value.fill, `${field}.fill`);
+  const fontSize = asOptionalFiniteNumber(value.fontSize, `${field}.fontSize`);
+  const fontFamily = asOptionalString(value.fontFamily, `${field}.fontFamily`);
+  const textAlign = asOptionalTextAlign(value.textAlign, `${field}.textAlign`);
+
+  if (fill !== undefined) textStyle.fill = fill;
+  if (fontSize !== undefined) textStyle.fontSize = fontSize;
+  if (fontFamily !== undefined) textStyle.fontFamily = fontFamily;
+  if (textAlign !== undefined) textStyle.textAlign = textAlign;
+
+  return textStyle;
 }
 
 function asPoints(value: unknown, field: string): CanvasPoint[] {
@@ -353,17 +432,58 @@ export function validateCanvasDocument(value: unknown): CanvasDocumentV1 {
     }
 
     const elementType = type as CanvasElementType;
-    const element: CanvasElementV1 = {
+    const style = normalizeStyle(rawElement.style, `elements[${index}].style`);
+    if (elementType !== "text" && style.textAlign !== undefined) {
+      invalid(`elements[${index}].style.textAlign is only supported for text elements`);
+    }
+    const commonElement = {
       id: asRequiredString(rawElement.id, `elements[${index}].id`),
-      type: elementType,
       x: asFiniteNumber(rawElement.x, `elements[${index}].x`),
       y: asFiniteNumber(rawElement.y, `elements[${index}].y`),
       width: asFiniteNumber(rawElement.width, `elements[${index}].width`),
       height: asFiniteNumber(rawElement.height, `elements[${index}].height`),
       rotation: asFiniteNumber(rawElement.rotation, `elements[${index}].rotation`),
-      style: normalizeStyle(rawElement.style, `elements[${index}].style`),
+      style,
       z: asFiniteNumber(rawElement.z, `elements[${index}].z`),
     };
+
+    let element: CanvasElementV1;
+
+    if (elementType === "rect" || elementType === "ellipse") {
+      const text = asOptionalString(rawElement.text, `elements[${index}].text`);
+      const textStyle = normalizeTextStyle(
+        rawElement.textStyle,
+        `elements[${index}].textStyle`,
+      );
+      element = {
+        ...commonElement,
+        type: elementType,
+        ...(text !== undefined ? { text } : {}),
+        ...(textStyle !== undefined ? { textStyle } : {}),
+      };
+    } else if (elementType === "text") {
+      if (hasOwnField(rawElement, "textStyle")) {
+        invalid(`elements[${index}].textStyle is not supported for text elements`);
+      }
+      if (typeof rawElement.text !== "string") {
+        invalid(`elements[${index}].text must be a string`);
+      }
+      element = {
+        ...commonElement,
+        type: elementType,
+        text: rawElement.text,
+      };
+    } else {
+      if (hasOwnField(rawElement, "text")) {
+        invalid(`elements[${index}].text is not supported for ${elementType} elements`);
+      }
+      if (hasOwnField(rawElement, "textStyle")) {
+        invalid(
+          `elements[${index}].textStyle is not supported for ${elementType} elements`,
+        );
+      }
+      element = { ...commonElement, type: elementType };
+    }
 
     if (element.width <= 0 || element.height <= 0) {
       invalid(`elements[${index}] dimensions must be positive`);
@@ -372,13 +492,6 @@ export function validateCanvasDocument(value: unknown): CanvasDocumentV1 {
     if (POINT_ELEMENT_TYPES.includes(element.type)) {
       element.points = asPoints(rawElement.points, `elements[${index}].points`);
       pointCount += element.points.length;
-    }
-
-    if (element.type === "text") {
-      if (typeof rawElement.text !== "string") {
-        invalid(`elements[${index}].text must be a string`);
-      }
-      element.text = rawElement.text;
     }
 
     return element;
@@ -420,7 +533,12 @@ export function cloneCanvasDocument(document: CanvasDocumentV1) {
 
 export function extractCanvasSearchText(document: CanvasDocumentV1) {
   return document.elements
-    .filter((element) => element.type === "text")
+    .filter(
+      (element) =>
+        element.type === "text" ||
+        element.type === "rect" ||
+        element.type === "ellipse",
+    )
     .slice()
     .sort((a, b) => a.z - b.z)
     .map((element) => element.text?.trim() ?? "")

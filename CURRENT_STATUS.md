@@ -1,14 +1,14 @@
 # CURRENT_STATUS
 
-確認日: 2026-07-18
+確認日: 2026-07-19
 
 ## 位置づけ
 
 この文書は、後続の Manager / Worker が現在地を誤認しないための、リポジトリ直下の現状サマリです。
 
-参照した主な情報源は `AGENTS.md`, `HANDOFF_2026-06-22.md`, `doc/README.md`, `doc/implementation/IMPLEMENTATION_STATUS.md`, `doc/implementation/MVP_IMPLEMENTATION_TASKS.md`, `doc/testing/TEST_SCENARIOS.md`, `prisma/schema.prisma`, `src/app/**`, `src/lib/**`, `scripts/**`, `package.json` です。
+参照した主な情報源は `AGENTS.md`, `HANDOFF_2026-07-19.md`, `doc/implementation/MVP_CONTRACT.md`, `doc/designs/CANVAS_TOOLBAR_DESIGN.md`, `doc/implementation/IMPLEMENTATION_STATUS.md`, `doc/README.md`, `doc/implementation/MVP_IMPLEMENTATION_TASKS.md`, `doc/testing/TEST_SCENARIOS.md`, `prisma/schema.prisma`, `src/app/**`, `src/lib/**`, `scripts/**`, `package.json` です。
 
-重要: `AGENTS.md` は最終仕様の正本です。一方で、現コードは `doc/testing/TEST_SCENARIOS.md` が定義する MVP 寄りの構成に近く、`doc/implementation/IMPLEMENTATION_STATUS.md` には現コードより進んだ内容が含まれている可能性があります。この文書では、現コードで確認できたものだけを実装済みとして扱います。
+重要: `AGENTS.md` は製品全体の仕様・ロードマップの正本です。現行 MVP の実装・受け入れ判断は `doc/implementation/MVP_CONTRACT.md` を優先します。この文書では、現コードで確認できたものを「実装済み（静的確認）」として扱い、ブラウザ実機 QA がないものを runtime PASS とは扱いません。
 
 ## 設計済みの範囲
 
@@ -65,7 +65,7 @@
 - `NotebookTag`
 - `Cue`
 
-Canvas 本文の共有契約は `CanvasDocumentV1` です。既定の用紙サイズは 1200x800px、幅・高さは 320〜4000px の整数 px、既存要素は用紙サイズ変更時に変形しません。
+Canvas 本文の共有契約は `CanvasDocumentV1` です。`schemaVersion=1`、既定の用紙サイズは 1200x800px、幅・高さは 320〜4000px の整数 px、既存要素の geometry は用紙サイズ変更時に変形しません。
 
 現 schema は MVP 寄りです。最終仕様の `NotebookDraftState`, `NotebookReviewProgress`, `SoftDeleteBuffer`, `BackupLog`, `CueCard`, `NoteCard`, `NoteCueLink` は確認できません。
 
@@ -128,7 +128,11 @@ Canvas 本文の共有契約は `CanvasDocumentV1` です。既定の用紙サ�
 - `remark-gfm` と `rehype-sanitize` が使われています。
 - preview の checkbox は `readOnly`, `tabIndex={-1}`, `preventDefault` で表示専用にされています。
 - `@uiw/react-md-editor` の利用は確認できません。
-- Canvas editor / viewer は `CanvasDocumentV1` を読み書きし、Canvas text 要素を `searchText` として保存します。現在のコードには 320〜4000px の Canvas document validation がありますが、本文領域の用紙サイズ数値入力・適用 UI は未実装です。
+- Canvas editor / viewer は `CanvasDocumentV1` を読み書きし、Canvas text 要素を `searchText` として保存します。用紙の幅・高さは 1200x800px を既定値とする 320〜4000px の整数入力で、適用時は page だけを更新し、既存要素の `x`, `y`, `width`, `height`, `points`, `style` などを変更しません。保存済み `document.page` を editor / viewer の DOM・Fabric 実寸へ反映します。
+- Canvas toolbar は draw.io 風に操作、描く、線、図形、文字、スタイル、消去、履歴、用紙を分け、tool は sticky、消去は object 単位の whole-object eraser、Undo / Redo は client history です。
+- style controls は線幅 1〜20px（既定 1px）、文字サイズ 8〜96px（既定 12px）、color input、文字配置 `left` / `center` / `right` を持ち、standalone text は `style`、図形内文字は `textStyle` に保存します。
+- `rect` / `ellipse` のダブルクリックは図形内文字編集です。編集中も図形外形を表示し、確定・キャンセル後に既存のペン線・線・矢印・図形・standalone text を保持します。通常の `text` クリックによる standalone text 作成とは別経路です。
+- `pen` / `line` / `arrow` / `rect` / `ellipse` / `text` は空白または既知の app-owned Canvas 要素上から開始できます。未知 metadata object、preview、inline editor overlay は遮断し、図形は 4px の移動閾値を超えるまで確定しません。Fabric path 作成時には app-owned metadata と基準座標を付与して保存変換へ渡します。
 
 ### バックアップ
 
@@ -139,7 +143,7 @@ Canvas 本文の共有契約は `CanvasDocumentV1` です。既定の用紙サ�
 
 ## 現コードで未実装または未確認の範囲
 
-以下は `AGENTS.md` の最終仕様にはありますが、今回の現コード確認では実装を確認できませんでした。
+以下は `AGENTS.md` の最終仕様にはありますが、今回の現コード確認では実装を確認できないか、ブラウザ実機での挙動をまだ確認できていません。
 
 - `NotebookDraftState` / `NotebookReviewProgress` / `SoftDeleteBuffer` / `BackupLog` テーブル。
 - `CueCard` / `NoteCard` / `NoteCueLink` のカードモデル。
@@ -148,7 +152,7 @@ Canvas 本文の共有契約は `CanvasDocumentV1` です。既定の用紙サ�
 - ソフトデリート。現 `DELETE /api/notes/:id` は物理削除です。
 - 起動時クリーンアップバッチ。
 - `/tasks/review` 画面、`GET /api/review-tasks`, `PATCH /api/review-tasks/:notebookId`。
-- Canvas 本文の用紙サイズ入力・適用、保存後の可変 page 寸法での editor / viewer 復元、用紙サイズ変更時の要素不変挙動。共有 validation と JSON 保存・検索境界はあるが、UI と renderer は現状 1200x800 の定数を参照している。
+- Canvas のブラウザ実機 QA。用紙サイズ UI、実寸 renderer、geometry 不変、toolbar、style controls、図形内文字、重ね描き、drag threshold、path metadata、whole-object eraser、client history はコード上で実装済み（静的確認）だが、以下の runtime 項目は未確認です。
 - グローバルナビの復習タスク未完バッジ。
 - `/api/notes/export?from&to` の PDF エクスポート。
 - `/api/backups/retry`, `/api/backups/logs`。
@@ -163,13 +167,25 @@ Canvas 本文の共有契約は `CanvasDocumentV1` です。既定の用紙サ�
 - バックアップのアプリ起動時自動コピー。
 - README への migrate / seed / 操作デモ / スクリーンショット追記は今回未確認です。
 
+### Canvas の未確認（runtime QA）
+
+- 空白または既存の app-owned Canvas 要素上で、pen / line / arrow / rect / ellipse / text を作成し、既存要素の意図しない移動・resize・変形が起きないこと。未知 metadata object が新規 gesture を開始させないこと。
+- 小さなクリック／ダブルクリックが no-op になり、一定のドラッグ量を超えたときだけ line / arrow / rect / ellipse が作成されること。
+- 図形内文字編集で外形が表示されたままになること、確定・キャンセル後に元の shape と既存のペン線・他要素が保持されること、Fabric lifecycle error が発生しないこと。
+- 線幅・文字サイズ・色・文字配置が選択中／図形内文字編集中に即時反映され、保存・再読込後に `style` / `textStyle` として復元されること。
+- toolbar の keyboard / responsive / focus 到達性、Canvas pointer 操作、wheel / trackpad / touch によるページ縦 scroll と広い用紙の局所横 scroll が契約どおりであること。
+
+### 2026-07-19 の検証境界
+
+`HANDOFF_2026-07-19.md` に記録された `npm run lint`、`npx tsc --noEmit --pretty false`、`npm run build`、`git diff --check` の PASS は、コード・型・build・差分の静的検証です。Canvas の pointer 操作、保存・再読込、wheel / touch、responsive QA の browser runtime PASS を意味しません。
+
 ## `AGENTS.md` 最終仕様と現コードの主な差分
 
 | 項目 | `AGENTS.md` 最終仕様 | 現コードで確認できた状態 |
 | --- | --- | --- |
 | DB | Draft / ReviewProgress / SoftDeleteBuffer / BackupLog / NoteCard 系まで含む | Notebook / NotebookCanvas / Tag / NotebookTag / Cue の MVP 寄り |
-| ノート本文 | CanvasDocumentV1 のフリー入力本文、将来 NoteCard へ拡張 | NotebookCanvas JSON は接続済み。可変 page UI は未完了。既存 Markdown body も互換保持 |
-| Canvas 本文 | `CanvasDocumentV1` の page 寸法を数値入力で変更し、要素 geometry を不変に保つ | `NotebookCanvas` / `CanvasDocumentV1` の保存・検索境界はあるが、editor / viewer の可変 page 対応と寸法 UI は未完了 |
+| ノート本文 | CanvasDocumentV1 のフリー入力本文、将来 NoteCard へ拡張 | NotebookCanvas JSON、可変 page UI、editor / viewer 実寸反映まで静的確認済み。既存 Markdown body も互換保持 |
+| Canvas 本文 | `CanvasDocumentV1` の page 寸法を数値入力で変更し、要素 geometry を不変に保つ | 保存・検索境界、寸法 UI、実寸 renderer、geometry 不変は静的確認済み。pointer、保存・再読込、responsive は未確認 |
 | Cue | CueCard モデル、D&D 並び替え、削除確認 | Cue モデル、フォーム上の追加/削除のみ |
 | 削除 | ソフトデリート + Undo 5 秒 | `delete` による物理削除 |
 | 自動保存 | 3 秒アイドル + 最短 6 秒 + 409 制御 | 未確認。手動保存のみ |
@@ -182,168 +198,51 @@ Canvas 本文の共有契約は `CanvasDocumentV1` です。既定の用紙サ�
 | タグ管理 | autocomplete、新規作成、色、名称変更、削除 | 編集フォーム内の自由入力、保存時 upsert、一覧側は select 候補 |
 | ショートカット | Cmd/Ctrl 系保存・追加・undo/redo | 未確認 |
 
-## ドキュメント間の同期ズレ
+## 文書の参照関係と現在の残課題
 
-### `doc/implementation/IMPLEMENTATION_STATUS.md`
+### 正本と役割
 
-この文書は現コードより進んだ内容を実装済みとして書いている可能性が高いです。特に以下は現コード確認と食い違います。
+- 現行 MVP の route、API、保存・削除・復習、Canvas 契約は `doc/implementation/MVP_CONTRACT.md` を正本とします。
+- Canvas toolbar の visual / interaction / style 契約は `doc/designs/CANVAS_TOOLBAR_DESIGN.md`、コード上の実装済み・未実装・browser runtime 未確認の判定は `doc/implementation/IMPLEMENTATION_STATUS.md`、受け入れ項目と証跡は `doc/testing/TEST_SCENARIOS.md` を参照します。
+- 2026-07-19 時点で、Canvas の設計・実装状況・受け入れシナリオの docs 同期は完了しています。完了済みの docs 同期作業を、未完了の作業や次の作業として扱いません。
 
-- 「ソフトデリート＋ Undo バッファ」実装済みと書かれていますが、現 schema に `SoftDeleteBuffer` はなく、`DELETE /api/notes/:id` は物理削除です。
-- 「ドラフト版の楽観ロック」「version / autosaveVersion 分離」実装済みと書かれていますが、現 schema に draft state や version 列はありません。
-- 「復習タスク API」実装済みと書かれていますが、`src/app/api/review-tasks` は確認できません。
-- 「Undo API」実装済みと書かれていますが、`src/app/api/undo` は確認できません。
-- 「PDF エクスポート」実装済みと書かれていますが、`src/app/api/notes/export` は確認できません。
-- 「バックアップ API（再試行）」実装済みと書かれていますが、現コードは `GET/POST /api/backups` で、`POST /api/backups/retry` は確認できません。
-- 「復習タスク画面」実装済みと書かれていますが、`src/app/tasks/review` は確認できません。
-- 「ノートカード追加・D&D 並び替え」「Cmd/Ctrl+S」「3 秒アイドル自動保存」実装済みと書かれていますが、今回確認した `NoteEditor` では未確認です。
+### 現行 MVP 契約との差分
 
-後続作業では、`IMPLEMENTATION_STATUS.md` を根拠に「実装済み」と判断せず、必ず現コードで裏取りしてください。
+- 新規 `nextReviewDate = noteDate + 7日` の初期値は現行 form に未実装です。これは契約上の要件と実装差分として保持し、実装済みへ変更しません。
+- autosave / draft / 409 optimistic lock、soft delete / Undo、専用復習 task、NoteCard / D&D、PDF export、タグ管理 UI、バックアップ高度機能などは現行 MVP 外または未実装の Phase 2 / ロードマップ項目です。
+- Canvas の用紙サイズ UI、実寸 renderer、geometry 不変、toolbar、style、図形内文字、重ね描き、drag threshold、whole-object eraser、path metadata はコード上で静的確認済みです。これを browser runtime PASS とは扱いません。
 
-### `doc/testing/TEST_SCENARIOS.md`
+### 現在の主な残課題: Canvas browser runtime QA
 
-`TEST_SCENARIOS.md` は現コードとかなり近い MVP 前提で整理されていますが、最終仕様とは意図的にズレています。
+以下は実機確認がないため、すべて未確認のままです。
 
-- MVP 確認対象は `/backup` ですが、`AGENTS.md` の最終仕様は `/notes/backup` です。
-- MVP では物理削除を確認対象にしていますが、`AGENTS.md` の最終仕様はソフトデリート + Undo です。
-- MVP では手動復習予定を確認対象にしていますが、`AGENTS.md` の最終仕様は `NotebookReviewProgress` と `/tasks/review` です。
-- MVP では Cue / Summary の `textarea + Markdown preview` と中央 Canvas 本文を確認対象にしていますが、`AGENTS.md` の最終仕様では高機能 Markdown editor と Canvas の可変用紙 UI を追加で求めています。
+- Canvas の初期表示、pointer による空白・既存要素上の作成、重なり時の既存要素保持。
+- クリック／ダブルクリックの no-op、4px drag threshold、standalone text と図形内文字の gesture 分離。
+- 図形内文字の外形表示、確定・キャンセル、既存要素保持、Fabric lifecycle error の有無。
+- 線幅・文字サイズ・色・文字配置の即時反映と保存・再読込後の `style` / `textStyle` 復元。
+- 用紙寸法変更後の保存・再読込、page 外要素、Canvas text 検索、wheel / trackpad / touch の縦・局所横 scroll。
+- 375 / 768 / 1280 / 1440px の toolbar responsive、keyboard / touch 到達性、focus、ARIA、tooltip、page-wide horizontal overflow。
 
-これは単純な誤りというより、「MVP と最終仕様の層が違う」ことによるズレです。次の作業では、MVP 継続か最終仕様への拡張かを先に決める必要があります。
+静的検証の `npm run lint`、`npx tsc --noEmit --pretty false`、`npm run build`、`git diff --check` は runtime QA の PASS を意味しません。実施結果は `doc/testing/TEST_SCENARIOS.md` の Canvas シナリオへ記録し、必要に応じてこの文書と `IMPLEMENTATION_STATUS.md`、handoff を証跡に合わせて更新します。
 
-## 重要な分岐点
+### Phase 2 / 将来設計の扱い
 
-### 1. 何を決める必要があるか
-
-次の実装方針を「MVP を安定させる」か「`AGENTS.md` 最終仕様へ拡張する」か。
-
-### 選択肢
-
-| 選択肢 | 内容 |
-| --- | --- |
-| A: MVP 安定化 | 現 schema / 現 UI を前提に、`doc/testing/TEST_SCENARIOS.md` の MVP 項目を通す |
-| B: 最終仕様へ拡張 | Draft / Undo / ReviewProgress / NoteCard / PDF などを `AGENTS.md` に合わせて追加する |
-
-### 各選択肢の影響
-
-| 観点 | A: MVP 安定化 | B: 最終仕様へ拡張 |
-| --- | --- | --- |
-| 手戻り | 少ない | DB/API/UI の再設計が必要 |
-| 早く動くもの | 作りやすい | 時間がかかる |
-| 最終仕様との差 | 残る | 縮まる |
-| Worker 分割 | 小さく切りやすい | 依存順を厳密に切る必要がある |
-| リスク | ドキュメント差分が残る | migration と UI 変更の影響が大きい |
-
-### Manager 推奨
-
-まず **A: MVP 安定化** を推奨します。
-
-理由は、現コードが MVP 前提でかなり組まれており、いきなり最終仕様の Draft / Undo / NoteCard へ進むと DB と UI の変更範囲が大きくなるためです。MVP の lint/build/API/主要手動フローを安定させたうえで、最終仕様との差分を Phase 2 task として順に切る方が判断しやすいです。
-
-### 2. 何を決める必要があるか
-
-バックアップ画面の正式ルートを `/backup` のままにするか、最終仕様どおり `/notes/backup` へ寄せるか。
-
-### 選択肢
-
-| 選択肢 | 内容 |
-| --- | --- |
-| A: `/backup` 継続 | 現コードと `TEST_SCENARIOS.md` を維持する |
-| B: `/notes/backup` へ変更 | `AGENTS.md` の最終仕様へ合わせる |
-| C: 両方対応 | `/backup` を互換 redirect にし、正式ルートを `/notes/backup` にする |
-
-### 各選択肢の影響
-
-| 観点 | A | B | C |
-| --- | --- | --- | --- |
-| 変更量 | 最小 | 中 | 中 |
-| 最終仕様との一致 | 低い | 高い | 高い |
-| 既存テスト観点との一致 | 高い | 低い | 中 |
-| 利用者影響 | なし | URL 変更 | 小さい |
-
-### Manager 推奨
-
-Phase 2 に進むタイミングで **C: 両方対応** を推奨します。今すぐ MVP 安定化を優先するなら `/backup` 継続でよいですが、最終仕様へ寄せる際は `/backup` を redirect として残すと混乱が少ないです。
-
-### 3. 何を決める必要があるか
-
-削除仕様を現 MVP の物理削除のままにするか、最終仕様のソフトデリート + Undo に変更するか。
-
-### 選択肢
-
-| 選択肢 | 内容 |
-| --- | --- |
-| A: 物理削除を維持 | 現 `DELETE` のまま進める |
-| B: Notebook のみソフトデリート | `deletedAt` を使い、まずノート単位だけ Undo 可能にする |
-| C: Notebook / Cue / NoteCard まで含めて最終仕様化 | `SoftDeleteBuffer` と周辺モデルを一括で整える |
-
-### 各選択肢の影響
-
-| 観点 | A | B | C |
-| --- | --- | --- | --- |
-| 実装量 | 最小 | 中 | 大 |
-| データ復旧性 | 低い | 中 | 高い |
-| 最終仕様との一致 | 低い | 中 | 高い |
-| 依存関係 | 少ない | Undo UI/API が必要 | NoteCard 設計にも依存 |
-
-### Manager 推奨
-
-MVP 安定化後に **B: Notebook のみソフトデリート** を最初の Phase 2 task として切るのを推奨します。いきなり C へ進むと NoteCard など未実装モデルにも波及し、差分が大きくなります。
-
-## 次に切るべき Worker task 候補と推奨順
-
-1. `current-status-sync-implementation-status`
-   - 目的: `doc/implementation/IMPLEMENTATION_STATUS.md` を現コードに合わせて修正する。
-   - 理由: 現状、最も誤認リスクが高い文書です。今回作成した `CURRENT_STATUS.md` を起点に、実装済み/未実装を再分類するのがよいです。
-
-2. `mvp-verification-lint-build`
-   - 目的: `npm run lint`, `npm run build`, 必要に応じて `npm run prisma:generate` を実行し、MVP 現コードの壊れを洗い出す。
-   - 理由: 実装範囲の棚卸し後は、まず現コードがビルド可能かを確認する必要があります。
-
-3. `mvp-api-smoke-test`
-   - 目的: `GET/POST/PATCH/DELETE /api/notes`, `POST /api/notes/:id/review`, `GET /api/tags`, `GET/POST /api/backups` の最小疎通を確認する。
-   - 理由: UI より先に DB/API の実挙動を固めると、後続 UI 修正の前提が安定します。
-
-4. `mvp-test-scenarios-sync`
-   - 目的: `doc/testing/TEST_SCENARIOS.md` を現コードと最終仕様のどちらに合わせるか整理し、必要なら MVP / Phase 2 の境界を更新する。
-   - 理由: 現状は MVP と最終仕様の違いが表現されていますが、`AGENTS.md` 更新後の最終判断との整合を再確認した方がよいです。
-
-5. `readme-setup-prisma-backup-update`
-   - 目的: README にセットアップ、Prisma generate/migrate、バックアップ、主要ルートを追記する。
-   - 理由: 受け入れ条件に README 更新があり、次の利用者/Worker の立ち上がりに効きます。
-
-6. `phase2-soft-delete-undo-design-task`
-   - 目的: `SoftDeleteBuffer` と Undo を実装する前に、Notebook のみから始めるか、Cue/NoteCard まで含めるかを設計タスクとして決める。
-   - 理由: DB migration を伴うため、仕様判断なしに実装へ入ると手戻りが大きいです。
-
-7. `phase2-review-tasks-design-task`
-   - 目的: 現 `nextReviewDate/reviewedAt` 方式から `NotebookReviewProgress` + `/tasks/review` 方式へ移行する設計を固める。
-   - 理由: 復習仕様は MVP と最終仕様でデータモデルが大きく違います。
-
-8. `phase2-note-card-dnd-design-task`
-   - 目的: 現 `Notebook.body` 方式から NoteCard / CueCard / NoteCueLink 方式へ移行する範囲と migration 方針を決める。
-   - 理由: UI と DB の両方に影響する最大級の変更です。
-
-9. `future-ai-quiz-generation-design`
-   - 目的: AI 自動復習クイズ生成は、ノート詳細の復習モード内で解く想起支援機能として扱う将来構想です。復習タスク画面は今日復習すべきノートへ誘導する入口とし、復習時は Cornell Method に合わせて左側の Cue / キーワード / 質問を表示し、右側本文を隠す前提にします。AI クイズは左側 Cue を出題軸・ヒントにしつつ、右側本文やサマリーの理解を問います。左側に見えている語句そのものが答えになる問題は極力避けます。
-   - 出題・答え合わせ方針: 初期形式は一問一答と穴埋めを中心にします。選択式は、答えが長い場合や理解確認に向く場合に限る拡張形式として検討し、誤答選択肢の品質管理と誤学習防止を設計条件に含めます。採点ではなく答え合わせを目的とし、解答後に正答、根拠、解説を表示します。一問一答 / 穴埋めでは厳密な自動採点を必須にせず、選択式を採用する場合のみ選択肢ベースの正誤判定を検討します。
-   - 生成・保存方針: 初期の生成タイミングはユーザーが「クイズ生成」ボタンを押したときにし、保存しないオンデマンド生成から始めます。保存後バックグラウンド生成は、将来 Vercel など外部展開やジョブ基盤を検討する段階で再評価します。将来保存する場合は、同じクイズの固定再利用ではなく、生成を続けてクイズ候補プールを増やし、復習時にランダムまたは条件付きで 5〜10 問を出題します。
-   - 実現方式: 外部 API は使いません。将来の実現方式は、Rust API 実装が完了した後、Rust 側で Local LLM を扱う方針を第一候補にします。初期はモデル自体を学習させず、ノート、Cue、サマリー、生成クイズ、復習結果を蓄積して Local LLM に渡す知識ベースを育てます。十分なデータが蓄積された段階で、モデル自体の追加学習 / fine-tuning に挑戦する余地を残します。
-   - 理由: 想起支援としての設計、ローカル AI の性能、モデル配布方法、ストレージ、生成品質、採点方式、誤学習防止を先に比較する必要があります。MVP 安定化や既存 Phase 2 より優先する実装タスクではありません。
-
-10. `future-ai-cue-suggestion-design`
-   - 目的: Local LLM による Cue / キーワード / 質問の不足候補提案は、ノート整理時または復習前の整理支援として扱う将来構想です。Cornell Method では、ユーザー自身が重要点を選んで左側を整理する行為が学習体験として重要なため、AI は左側を自動入力しません。
-   - 体験方針: ユーザーが先に本文、サマリー、Cue / キーワード / 質問を書いた後、AI が本文・サマリー・既存 Cue を見て、不足していそうな重要概念、問いに変換できる論点、既存 Cue と重複しないキーワードを候補として出します。候補は `追加` / `編集して追加` / `無視` でき、自動採用はしません。
-   - AI クイズとの関係: AI クイズは復習時の想起支援、AI Cue 候補提案はノート整理時または復習前の整理支援です。両者は別の将来構想として扱い、MVP 安定化や既存 Phase 2 より優先する実装タスクではありません。
+- `doc/designs/CANVAS_PARTIAL_ERASER_DESIGN.md` の部分消しゴムは将来設計として保持し、現行の whole-object eraser と混同しません。
+- `AGENTS.md` にある autosave、Undo、専用復習 task、カード分割、PDF などのロードマップと、過去の QA 記録は各設計・テスト・summary に履歴として保持します。現行 MVP の実装済み判定には繰り上げません。
 
 ## 次回作業時の最小 Next Read
 
-次回この整理を起点に作業する場合は、まず以下を読んでください。
+次回は次の順で、現在の docs と直近 Canvas 同期 summary を起点にします。
 
-1. `CURRENT_STATUS.md`
-2. `AGENTS.md`
-3. `doc/testing/TEST_SCENARIOS.md`
-4. 実装作業なら対象に応じて `prisma/schema.prisma`, `src/app/api/**`, `src/app/notes/_components/**`
-5. 実装状況文書を直す task なら `doc/implementation/IMPLEMENTATION_STATUS.md`
+1. `HANDOFF_2026-07-19.md`
+2. `summary/20260719/2143-sync-canvas-interaction-design-contract-20260719-5b6bd3a6-summary.md`
+3. `summary/20260719/2153-sync-canvas-implementation-status-20260719-7ac6f95e-summary.md`
+4. `summary/20260719/2200-sync-canvas-acceptance-scenarios-20260719-62f6da35-summary.md`
+5. `doc/implementation/MVP_CONTRACT.md`
+6. `doc/designs/CANVAS_TOOLBAR_DESIGN.md`
+7. `doc/implementation/IMPLEMENTATION_STATUS.md`
+8. `doc/testing/TEST_SCENARIOS.md`
+9. runtime QA または実装確認が必要な場合だけ、対象の `src/app/notes/_components/**`、Canvas adapter、共有 Canvas 契約を読む。
 
 ## 今回の確認で実行した主なコマンド
 

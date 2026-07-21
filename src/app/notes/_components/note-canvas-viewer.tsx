@@ -122,7 +122,13 @@ export function NoteCanvasViewer({ document }: NoteCanvasViewerProps) {
   }, [pageHeight, pageWidth, ready]);
 
   const textElements = validDocument.elements
-    .filter((element) => element.type === "text" && element.text?.trim())
+    .filter(
+      (element) =>
+        (element.type === "text" ||
+          element.type === "rect" ||
+          element.type === "ellipse") &&
+        element.text?.trim(),
+    )
     .sort((a, b) => a.z - b.z);
 
   return (

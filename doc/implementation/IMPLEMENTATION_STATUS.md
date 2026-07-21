@@ -1,15 +1,18 @@
 # 実装状況サマリ
 
-更新日: 2026-07-18
+更新日: 2026-07-19
 
 ## 判定基準
 
 現行 MVP の実装・受け入れ判断は `doc/implementation/MVP_CONTRACT.md` を正本とする。`AGENTS.md` にあるドラフト、Undo、専用復習タスク、PDF、カード分割などの記述は製品ロードマップであり、この文書では現行 MVP と分けて扱う。
 
-- **実装済み**: 現在の route、UI、Prisma schema、サービス、または確認可能な検証記録で実在を確認できるもの。
+- **実装済み（静的確認）**: 現在の route、UI、Prisma schema、サービス、または確認可能な静的検証記録でコード上の実在を確認できるもの。ブラウザ実機 QA の完了を意味しない。
 - **部分実装**: 一部のコードは存在するが、MVP 契約の挙動または画面状態を満たしていないもの。
 - **未実装**: 現行 MVP の契約に含まれるが、必要なコードまたは route がないもの。
+- **未確認（runtime QA）**: 静的な実装は確認できるが、ブラウザでの pointer、wheel、touch、保存・再読込、responsive などの実機確認記録がないもの。
 - **Phase 2 / 仕様のみ**: 現行 MVP の対象外であり、仕様・ロードマップにだけ存在するもの。依存関係や型名だけでは実装済みと判定しない。
+
+静的検証の `PASS` は runtime の `PASS` に繰り上げない。ブラウザ実機 QA の証跡がない項目は、コードが存在していても「未確認（runtime QA）」として記録する。
 
 ## 1. 現在の判定
 
@@ -21,7 +24,7 @@
 - 復習モードの本文と Summary は初期非表示になる。本文を表示した後に Summary を開ける。
 - 削除は確認後に物理削除する。`deletedAt` は schema に残る互換フィールドであり、Undo / soft delete の実装を意味しない。
 - 専用復習タスク、ドラフト自動保存、NoteCard、D&D、PDF export などの route・model・UI は存在しない。
-- Canvas の共有 validation、JSON 保存・復元、Canvas text 要素由来の `searchText` はコード上にある。一方、本文領域の幅・高さ数値入力、適用操作、保存済み page 寸法を使った editor / viewer の可変描画、用紙サイズ変更時の要素不変挙動は未完了である。
+- Canvas は、`CanvasDocumentV1`（既定 page 1200x800、各 320〜4000px）の共有 validation、JSON 保存・復元、Canvas text 要素由来の `searchText`、幅・高さ数値入力と適用操作、保存済み `page` 寸法による editor / viewer の実寸描画、page 寸法だけを更新して要素 geometry を保持する処理、draw.io 風 toolbar、sticky tool、whole-object eraser、client history、style controls、図形内文字、既存要素上の重ね描き、図形ドラッグ閾値、Fabric path metadata までコード上で実装されている。これらは静的実装確認であり、pointer / wheel / touch、保存・再読込、responsive を含むブラウザ実機 QA は未確認である。
 
 ## 2. 画面と route
 
@@ -79,7 +82,7 @@ route handler の export と一致する一覧は次のとおり。これ以外�
 
 ## 5. 機能別の実装状況
 
-### 5.1 実装済み
+### 5.1 実装済み（静的確認）
 
 | 機能 | 実装内容 | 根拠 |
 | --- | --- | --- |
@@ -93,7 +96,16 @@ route handler の export と一致する一覧は次のとおり。これ以外�
 | 確認後の削除 | 詳細画面で `window.confirm` を表示し、確定後に物理削除して `/notes` へ戻る。削除後の Undo / 個別復元は保証しない。 | `src/app/notes/_components/note-detail-modes.tsx`, `src/app/api/notes/[id]/route.ts`, `prisma/schema.prisma` |
 | 手動バックアップ | `/backup` と `POST /api/backups`、`npm run backup:copy` で DB を `backup/` へコピーし、最新 3 世代を保持する。 | `src/app/backup/page.tsx`, `src/app/api/backups/route.ts`, `src/server/backup/infrastructure/local-sqlite-backup-provider.js`, `package.json` |
 | API validation / error | Zod による body/query validation と `{ code, message, errors? }` 形式の route response。 | `src/modules/notes/contracts/note.schema.ts`, `src/shared/http/api-error.ts`, `src/shared/http/route-response.ts` |
-| Canvas persistence / search | `CanvasDocumentV1` の validation、`NotebookCanvas.documentJson` 保存・復元、text 要素から `searchText` を生成し一覧 query に含める処理。page 寸法 validation は 320〜4000px の整数。 | `src/shared/canvas/canvas-document.ts`, `src/modules/notes/contracts/note.schema.ts`, `src/server/notes/infrastructure/command.repository.ts`, `src/server/notes/infrastructure/read.repository.ts`, `src/server/notes/presenters/notes.mapper.ts` |
+| Canvas persistence / search | 実装済み（静的確認）。`CanvasDocumentV1` の validation、既定 page 1200x800、`NotebookCanvas.documentJson` 保存・復元、text 要素から `searchText` を生成し一覧 query に含める処理。page 寸法 validation は 320〜4000px の整数。 | `src/shared/canvas/canvas-document.ts`, `src/modules/notes/contracts/note.schema.ts`, `src/server/notes/infrastructure/command.repository.ts`, `src/server/notes/infrastructure/read.repository.ts`, `src/server/notes/presenters/notes.mapper.ts` |
+| Canvas 用紙サイズ UI / 実寸 renderer | 実装済み（静的確認）。toolbar の幅・高さ `type=number` 入力、整数・320〜4000px validation、適用 / Enter 操作、保存済み `document.page` を使う editor / viewer の DOM・Fabric 寸法反映。 | `src/app/notes/_components/note-canvas-toolbar.tsx`, `src/app/notes/_components/note-canvas-editor.tsx`, `src/app/notes/_components/note-canvas-viewer.tsx`, `src/app/spikes/canvas/_lib/fabric-adapter.ts` |
+| Canvas 用紙サイズ変更の要素不変挙動 | 実装済み（静的確認）。page の `width` / `height` だけを history / document に反映し、既存要素の `x`, `y`, `width`, `height`, `points`, `style` などを再配置・縮小・削除しない。 | `src/app/notes/_components/note-canvas-editor.tsx`, `src/shared/canvas/canvas-document.ts`, `doc/implementation/MVP_CONTRACT.md` §6.1 |
+| Canvas draw.io 風 toolbar | 実装済み（静的確認）。操作、描く、線、図形、文字、消去、履歴、用紙の group、active state、ARIA、tooltip / description、用紙サイズ入力を持つ。 | `src/app/notes/_components/note-canvas-toolbar.tsx`, `HANDOFF_2026-07-19.md` §4.5 |
+| Canvas tool state / eraser / history | 実装済み（静的確認）。tool は sticky、消去は stroke / line / arrow / rect / ellipse / text の whole-object eraser、Undo / Redo は Canvas の client history snapshot。 | `src/app/notes/_components/note-canvas-editor.tsx`, `src/app/notes/_components/note-canvas-toolbar.tsx`, `HANDOFF_2026-07-19.md` §6.4 |
+| Canvas style controls | 実装済み（静的確認）。線幅 1〜20px（既定 1px）、文字サイズ 8〜96px（既定 12px）、color input、文字配置 `left` / `center` / `right` を提供し、選択中または図形内文字編集中に表示へ即時反映する。 | `src/app/notes/_components/note-canvas-toolbar.tsx`, `src/app/notes/_components/note-canvas-editor.tsx`, `src/app/spikes/canvas/_lib/fabric-adapter.ts`, `doc/implementation/MVP_CONTRACT.md` §6.2 |
+| Canvas text save boundary | 実装済み（静的確認）。standalone text は `style.fontSize` / `style.fill` / `style.textAlign`、図形内文字は `textStyle.fontSize` / `textStyle.fill` / `textStyle.textAlign` に保存する。 | `src/shared/canvas/canvas-document.ts`, `src/app/notes/_components/note-canvas-editor.tsx`, `src/app/spikes/canvas/_lib/fabric-adapter.ts`, `doc/implementation/MVP_CONTRACT.md` §6.2 |
+| Canvas shape inline text | 実装済み（静的確認）。`select` / `rect` / `ellipse` の対象図形をダブルクリックすると、図形外形を表示したまま inline editor を開き、確定・キャンセル後も元の shape と既存のペン線・他要素を保持する。 | `src/app/notes/_components/note-canvas-editor.tsx`, `src/app/spikes/canvas/_lib/fabric-adapter.ts`, `doc/implementation/MVP_CONTRACT.md` §6.2 |
+| Canvas overlap / drag threshold | 実装済み（静的確認）。pen / line / arrow / rect / ellipse / text は空白または既知の app-owned Canvas 要素上から開始でき、未知 metadata object、preview、inline editor overlay は遮断する。line / arrow / rect / ellipse は 4px の移動閾値を超えた場合だけ作成する。 | `src/app/notes/_components/note-canvas-editor.tsx`, `doc/designs/CANVAS_TOOLBAR_DESIGN.md` §5.1、`HANDOFF_2026-07-19.md` §6.4 |
+| Fabric path metadata / geometry | 実装済み（静的確認）。`path:created` の path object に app-owned `canvasElement` metadata と基準座標を付与し、adapter が points、bounds、移動後 transform を `CanvasDocumentV1` へ戻す。 | `src/app/notes/_components/note-canvas-editor.tsx`, `src/app/spikes/canvas/_lib/fabric-adapter.ts`, `HANDOFF_2026-07-19.md` §6.3・§6.4 |
 
 ### 5.2 部分実装または MVP 契約との差分
 
@@ -103,9 +115,22 @@ route handler の export と一致する一覧は次のとおり。これ以外�
 | 新規 `nextReviewDate` 初期値 | 新規フォームは `initial?.nextReviewDate ?? ""` で初期化され、`noteDate + 7日` の計算がない。空欄保存は `null` になる。 | 未実装（現行 MVP 要件） | `src/modules/notes/model/note-editor-form.ts:66-76`, `src/server/notes/infrastructure/command.repository.ts:76-78`, `doc/implementation/MVP_CONTRACT.md:57-59` |
 | 復習の次回日管理 | `POST /api/notes/:id/review` は存在し、`reviewedAt` とユーザー入力の `nextReviewDate` / `null` を更新する。日付の自動再計算はない。 | 実装済み。ただし初期値の不足は上記の未実装 | `src/app/api/notes/[id]/review/route.ts`, `src/server/notes/infrastructure/command.repository.ts:168-195` |
 | 依存ライブラリに対する高度 UI | `@dnd-kit/*`、`@uiw/react-md-editor`、`react-day-picker` は `package.json` にあるが、現行画面は native textarea / date input と手動 Cue 操作を使う。 | MVP の実装済みとは数えない | `package.json`, `src/app/notes/_components/note-editor.tsx`, `src/app/notes/_components/notes-list.tsx` |
-| Canvas 用紙サイズ UI / renderer | 現在の editor / viewer は `CANVAS_PAGE` の 1200x800 と表示倍率 state を参照する。幅・高さの数値入力、適用操作、保存済み `document.page` に基づく可変描画、既存要素を不変にしたままの resize は未実装。 | 部分実装 | `src/app/notes/_components/note-canvas-editor.tsx`, `src/app/notes/_components/note-canvas-viewer.tsx`, `src/app/notes/_components/note-canvas-toolbar.tsx`, `src/shared/canvas/canvas-document.ts` |
 
-### 5.3 Phase 2 / 仕様のみ
+### 5.3 未確認（静的実装とは別のブラウザ QA）
+
+Canvas の次の項目は、コード上の実装を確認できるが、2026-07-19 時点でブラウザ実機の完了証跡がない。静的実装の存在だけで PASS にはしない。
+
+| 確認項目 | 未確認の範囲 | 判定 | 根拠 |
+| --- | --- | --- | --- |
+| Canvas pointer / overlap | 空白または既知の app-owned Canvas 要素上で pen / line / arrow / rect / ellipse / text を作成し、既存要素の意図しない移動・resize・変形が起きないこと。未知 metadata object、preview、inline editor overlay が新規 gesture を開始させないこと。 | 未確認（runtime QA） | `HANDOFF_2026-07-19.md` §7.1、`doc/implementation/MVP_CONTRACT.md` §6.2、`doc/designs/CANVAS_TOOLBAR_DESIGN.md` §9.2 |
+| Canvas drag threshold / gesture separation | 小さなクリック／ダブルクリックが no-op になり、一定のドラッグ量を超えたときだけ line / arrow / rect / ellipse が作成されること。standalone text 作成、図形ダブルクリック編集、図形作成が混同されないこと。 | 未確認（runtime QA） | `HANDOFF_2026-07-19.md` §7.1、`doc/implementation/MVP_CONTRACT.md` §6.2、`doc/designs/CANVAS_TOOLBAR_DESIGN.md` §9.2 |
+| Canvas shape inline text lifecycle | 図形内文字編集中の外形表示、確定・キャンセル、既存のペン線・線・矢印・図形・standalone text の保持、Fabric lifecycle error 不発生を確認すること。 | 未確認（runtime QA） | `HANDOFF_2026-07-19.md` §7.1、`doc/implementation/MVP_CONTRACT.md` §6.2 |
+| Canvas style controls / persistence | 線幅 1〜20px・既定 1px、文字サイズ 8〜96px・既定 12px、色、文字配置 `left` / `center` / `right` が選択中または図形内文字編集中に即時反映され、保存・再読込後に `style` / `textStyle` として復元されること。 | 未確認（runtime QA） | `HANDOFF_2026-07-19.md` §7.1、`doc/implementation/MVP_CONTRACT.md` §6.2 |
+| Canvas 保存・再読込 | 用紙サイズ変更後の `POST` / `PATCH`、詳細画面での page / 要素復元、既存 element geometry の不変、Canvas text 検索の実データ確認。 | 未確認（runtime QA） | `HANDOFF_2026-07-19.md` §2.3・§7.1、`doc/implementation/MVP_CONTRACT.md` §6.1 |
+| Canvas wheel / trackpad / touch | ページ縦 scroll が Summary / footer まで通ること、広い用紙だけが局所横 scroll になること、Canvas pointer 操作と scroll が干渉しないこと。 | 未確認（runtime QA） | `HANDOFF_2026-07-19.md` §2.3・§7.1、`doc/designs/CANVAS_TOOLBAR_DESIGN.md` §5.6 |
+| Canvas toolbar keyboard / responsive / focus | 375 / 768 / 1280 / 1440px で toolbar group、active state、focus ring、tooltip / accessible description、drawing rail、用紙入力へ keyboard / touch で到達できること。 | 未確認（runtime QA） | `HANDOFF_2026-07-19.md` §2.3・§7.1、`doc/designs/CANVAS_TOOLBAR_DESIGN.md` §6・§9.3 |
+
+### 5.4 Phase 2 / 仕様のみ
 
 以下は仕様上の将来機能であり、現行コードに対応する route・Prisma model・保存処理・UI はない。
 
@@ -120,21 +145,22 @@ route handler の export と一致する一覧は次のとおり。これ以外�
 | バックアップ高度機能 | 起動時自動コピー、`BackupLog`、`POST /api/backups/retry`、ログ UI、自動復元 | `prisma/schema.prisma` にログ model なし、`src/app/api/backups/route.ts` は GET/POST のみ。現行は手動作成・一覧のみ。 |
 | 高度なキーボード操作 / A11y | Cmd/Ctrl+N、Undo/Redo、D&D のキーボード操作、モーダル focus trap、詳細な ARIA 制御 | `src/app/notes` に該当 keydown / D&D / focus trap 実装なし。Cue 追加等の通常ボタン操作と一部の入力 ARIA は実装済み。 |
 
-### 5.4 Canvas 用紙サイズの後続実装入口
+### 5.5 Canvas 実装・検証境界（後続確認入口）
 
-用紙サイズ UI を実装する Worker は、次の責務境界を正本として読む。
+用紙サイズと Canvas の保存・描画を後続確認するときは、現行 MVP 契約 §6.1 と次の責務分担を正本として読む。コード上の実装確認とブラウザ実機 QA の残りを分ける。
 
-| 参照ファイル | 確認する責務 | 現在の未決／未実装 |
+| 参照ファイル | 静的に確認できる責務 | 残る runtime / 後続確認 |
 | --- | --- | --- |
-| `src/shared/canvas/canvas-document.ts` | `CanvasDocumentV1`、既定値、320〜4000px validation、serialize/restore、`extractCanvasSearchText` | page 寸法の既存要素不変更新 helper は未定義 |
-| `src/modules/notes/contracts/note.schema.ts` | `bodyMode` と `canvas` の相互排他、Canvas validation の API 入力境界 | field 単位の page 寸法エラー表示形式は UI task で確定する |
-| `src/server/notes/infrastructure/command.repository.ts` | `documentJson` / `searchText` の create・upsert 保存 | resize 用の別 API や DB column は作らない |
-| `src/server/notes/infrastructure/read.repository.ts` | Canvas `searchText` を含む一覧検索 | page 寸法だけでは検索結果を変えないことを確認する |
-| `src/app/notes/_components/note-canvas-editor.tsx` | 編集操作、表示倍率、Fabric への document 反映 | `CANVAS_PAGE` 定数ではなく保存済み `document.page` を使い、幅・高さ数値入力を追加する |
-| `src/app/notes/_components/note-canvas-viewer.tsx` | 保存済み Canvas の閲覧 renderer | 保存済み `document.page` と表示用 Fit scale を分離する |
-| `src/app/notes/_components/note-canvas-toolbar.tsx` | 現在の Fit / 50% / 100% / 200% 表示操作 | これらを用紙サイズ操作と混同しない UI 配置へ分離する |
+| `src/shared/canvas/canvas-document.ts` | `CanvasDocumentV1`、既定 1200x800、320〜4000px validation、serialize / restore、`extractCanvasSearchText`。 | 無効値入力・境界値・壊れた document のブラウザ / API 実機確認。 |
+| `src/modules/notes/contracts/note.schema.ts` | `bodyMode` と `canvas` の相互排他、Canvas validation の API 入力境界。 | API の field error 表示と保存時の実機確認。 |
+| `src/server/notes/infrastructure/command.repository.ts` | `documentJson` / `searchText` の create・update 保存。page 寸法変更用の別 API / DB column はない。 | 保存・再読込後の page、要素 geometry、`searchText` の実データ確認。 |
+| `src/server/notes/infrastructure/read.repository.ts` / `src/server/notes/presenters/notes.mapper.ts` | Canvas `searchText` を一覧検索に含め、保存済み JSON を復元する。 | 一覧検索と詳細復元のブラウザ実機確認。 |
+| `src/app/notes/_components/note-canvas-editor.tsx` | toolbar から page を更新し、DOM / Fabric を `document.page` の実寸に反映する。page 更新時は要素データを変更せず、sticky tool、重ね描き、drag threshold、図形内文字、style 即時反映、whole-object erase、client history を扱う。 | pointer 操作、移動・resize、図形内文字 lifecycle、style、消しゴム、保存・再読込、wheel / touch の実機確認。 |
+| `src/app/notes/_components/note-canvas-viewer.tsx` | 保存済み `document.page` を使って viewer の用紙を実寸描画する。 | 閲覧・復習時の表示、page 外要素の復元、responsive の実機確認。 |
+| `src/app/notes/_components/note-canvas-toolbar.tsx` | 用紙の幅・高さ入力、整数・範囲 validation、適用 / Enter、tool group、sticky tool の active state、線幅・文字サイズ・color・文字配置 controls、ARIA。 | 375 / 768 / 1280 / 1440px の keyboard / touch 到達性、focus、tooltip、local rail、style の即時反映と保存境界の実機確認。 |
+| `src/app/spikes/canvas/_lib/fabric-adapter.ts` | app-owned `CanvasDocumentV1` と Fabric object の変換、page 寸法・座標の反映、path metadata、points / bounds / transform の復元、shape inline text の renderer。 | pointer で作成・移動・resize した geometry、path の保存・再読込、shape inline text lifecycle の実機確認。 |
 
-用紙サイズ変更の保存は既存の `NotebookCanvas.documentJson` 更新で完結する。page 寸法用の Prisma migration、Canvas document の自動変換、要素の自動再配置はこの実装 task の前提にしない。
+用紙サイズ変更は既存 `NotebookCanvas.documentJson` の page 更新だけで完結する。寸法専用の Prisma migration、Canvas document の自動変換、要素の自動再配置は追加しない。page 寸法だけを変更しても `searchText` の元である text 要素は変わらない。
 
 ## 6. セットアップ・運用コマンド
 
@@ -157,7 +183,7 @@ route handler の export と一致する一覧は次のとおり。これ以外�
 
 以下はリポジトリに残る確認記録であり、仕様上のチェック項目を実装済みの証拠として扱う範囲を限定する。
 
-注記: 2026-07-16 の記録は UI-PAPER-015 適用前の静的照合結果です。復習時 Summary の現在状態は本書 §5.2 と現行コードを正とし、過去の判定は履歴として保持します。
+注記: 2026-07-16 の記録は UI-PAPER-015 適用前の静的照合結果です。復習時 Summary の現在状態は本書 §5.2 と現行コードを正とし、過去の判定は履歴として保持します。Canvas については、静的実装確認とブラウザ実機 QA を別の判定として記録します。
 
 | 日付 | 確認範囲 | 結果 | 証跡 |
 | --- | --- | --- | --- |
@@ -167,6 +193,19 @@ route handler の export と一致する一覧は次のとおり。これ以外�
 | 2026-07-05 | `npm run backup:copy` と最新 3 世代保持 | PASS | `summary/20260705/backup-copy-command-verification-report.md` |
 | 2026-07-04〜2026-07-05 | Prisma validate/generate、`npm run lint`、`npm run build` | PASS | `doc/testing/TEST_SCENARIOS.md` の検証記録、`summary/20260705/mvp-ui-flow-reverification-report.md`, `summary/20260705/manager-fix-ui009-note-editor-tag-candidates-summary.md`, `summary/20260705/manager-fix-ui014-edit-save-state-summary.md` |
 | 2026-07-16 | `nextReviewDate + 7日` 初期値、既存未設定値の非補完、復習 Summary 初期非表示 | 未実施。静的照合では初期値と Summary 非表示に差分あり | `doc/testing/TEST_SCENARIOS.md` の 2026-07-16 記録、本文書 §5.2 |
-| 2026-07-18 | Canvas 用紙サイズの数値入力、既定 1200x800、320〜4000px 検証、保存後復元、resize 時の要素不変、表示倍率との分離 | 未実施。共有 validation / JSON 保存境界は確認済みだが、editor / viewer の可変 page UI と runtime resize は未確認 | `doc/testing/TEST_SCENARIOS.md` の `CANVAS-DIMENSION-001`、本文書 §5.2・§5.4 |
+| 2026-07-19 | Canvas 用紙サイズの数値入力、既定 1200x800、320〜4000px 検証、保存境界、editor / viewer の実寸描画、resize 時の要素不変、toolbar、Canvas text `searchText` | 静的実装確認済み。ブラウザ実機 QA は未確認 | `HANDOFF_2026-07-19.md` §2.3・§3.6・§4.2・§4.5、`doc/implementation/MVP_CONTRACT.md` §6.1、本文書 §5.1・§5.5 |
+| 2026-07-19 | Canvas の style controls、text alignment、shape inline text、既存要素上の重ね描き、図形 drag threshold、whole-object eraser、client history、Fabric path metadata | 静的実装確認済み。ブラウザ実機 QA は未確認 | `HANDOFF_2026-07-19.md` §5.4・§6.4、`doc/implementation/MVP_CONTRACT.md` §6.2、本文書 §5.1 |
+| 2026-07-19 | Canvas の pointer / wheel / trackpad / touch、保存・再読込、responsive QA | 未確認。静的コードの存在を runtime PASS の根拠にしない | `HANDOFF_2026-07-19.md` §2.3・§7.1、`doc/testing/TEST_SCENARIOS.md` の `CANVAS-DIMENSION-001`、本文書 §5.3 |
 
-この文書の更新ではコード、設定、schema、DB、UI、API、テスト、画像、生成物を変更しない。最終確認では対象ファイルが `doc/implementation/IMPLEMENTATION_STATUS.md` のみであることと `git diff --check` を確認する。
+### 7.1 2026-07-19 静的検証証跡
+
+Handoff に記録された次の結果は、コード・型・build・差分の静的確認として扱う。ブラウザ実機 QA の PASS ではない。
+
+| コマンド | 結果 | 判定の意味 | 証跡 |
+| --- | --- | --- | --- |
+| `npm run lint` | PASS | ESLint の静的検査に成功 | `HANDOFF_2026-07-19.md` §2.3 |
+| `npx tsc --noEmit --pretty false` | PASS | TypeScript 型検査に成功 | `HANDOFF_2026-07-19.md` §2.3 |
+| `npm run build` | PASS | Next.js webpack build、TypeScript、route 生成に成功 | `HANDOFF_2026-07-19.md` §2.3 |
+| `git diff --check` | PASS | whitespace error なし | `HANDOFF_2026-07-19.md` §2.3、および文書更新時の再確認 |
+
+この文書はコード、設定、schema、DB、UI、API、テスト、画像、生成物を変更せず、実装状況と検証証跡を記録する。更新時は作業前後の `git status --short` と `git diff --check` を確認する。

@@ -997,87 +997,290 @@ body {
   min-width: 0;
 }
 
+.note-canvas-toolbar,
+.note-canvas-toolbar * {
+  box-sizing: border-box;
+}
+
 .note-canvas-toolbar {
-  display: flex;
+  display: grid;
+  grid-template-areas:
+    "operation drawing style erase history"
+    "paper paper paper paper paper";
+  grid-template-columns: auto minmax(0, 1fr) auto auto auto;
+  align-items: stretch;
   min-width: 0;
   max-width: 100%;
-  align-items: center;
-  gap: 0.45rem;
-  flex-wrap: wrap;
-  border-block: 1px solid var(--paper-line);
+  gap: 0.55rem;
+  border: 1px solid var(--paper-line-strong);
+  border-radius: 0.8rem;
   background: var(--paper-soft);
-  padding: 0.6rem 0.65rem;
+  padding: 0.65rem;
+  box-shadow: 0 2px 7px rgb(47 54 49 / 5%);
 }
 
 .note-canvas-toolbar-group {
   display: flex;
   min-width: 0;
-  flex: 0 0 auto;
   align-items: center;
-  gap: 0.3rem;
   flex-wrap: nowrap;
-  border-inline-start: 1px solid var(--paper-line);
-  padding-inline-start: 0.55rem;
+  gap: 0.35rem;
+  border: 1px solid var(--paper-line);
+  border-radius: 0.65rem;
+  background: rgb(255 253 248 / 72%);
+  padding: 0.3rem;
 }
 
-.note-canvas-toolbar > .note-canvas-toolbar-group:first-child {
-  border-inline-start: 0;
-  padding-inline-start: 0;
+.note-canvas-toolbar-group--operation {
+  grid-area: operation;
+  align-self: center;
+  border-color: var(--paper-line-strong);
+  background: var(--paper);
+  padding-inline: 0.45rem;
+  box-shadow: 0 1px 3px rgb(47 54 49 / 8%);
 }
 
-.note-canvas-toolbar-group-label {
-  color: var(--paper-ink-soft);
-  font-size: 0.64rem;
-  font-weight: 800;
-  letter-spacing: 0.04em;
-  line-height: 1.2;
-  white-space: nowrap;
+.note-canvas-toolbar-group--erase {
+  grid-area: erase;
+  border-color: rgb(164 72 72 / 38%);
+  background: rgb(164 72 72 / 8%);
 }
 
 .note-canvas-toolbar-drawing-rail {
+  grid-area: drawing;
   display: flex;
   min-width: 0;
   max-width: 100%;
-  flex: 1 1 24rem;
-  align-items: center;
+  align-items: stretch;
   overflow-x: auto;
-  overflow-y: hidden;
+  overflow-y: clip;
   overscroll-behavior-inline: contain;
   scrollbar-width: thin;
-  border-inline-start: 1px solid var(--paper-line);
-  padding-inline-start: 0.55rem;
+  border: 1px solid var(--paper-line-strong);
+  border-radius: 0.7rem;
+  background: rgb(250 247 239 / 78%);
+  padding: 0.25rem;
 }
 
 .note-canvas-toolbar-drawing-rail-inner {
   display: flex;
   min-width: max-content;
-  align-items: center;
-  gap: 0.35rem;
+  align-items: stretch;
+  gap: 0;
+}
+
+.note-canvas-toolbar-drawing-rail-inner > .note-canvas-toolbar-group {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  padding: 0;
 }
 
 .note-canvas-toolbar-drawing-rail-inner
-  > .note-canvas-toolbar-group:first-child {
-  border-inline-start: 0;
-  padding-inline-start: 0;
+  > .note-canvas-toolbar-group + .note-canvas-toolbar-group {
+  border-inline-start: 1px solid var(--paper-line-strong);
+  margin-inline-start: 0.35rem;
+  padding-inline-start: 0.45rem;
+}
+
+.note-canvas-toolbar-drawing-rail .note-canvas-tool-button {
+  border-color: transparent;
+  background: transparent;
+}
+
+.note-canvas-toolbar-drawing-rail .note-canvas-toolbar-tooltip {
+  display: none;
+}
+
+.note-canvas-toolbar-drawing-rail button:focus-visible {
+  outline-offset: 1px;
+}
+
+.note-canvas-toolbar-group--style {
+  grid-area: style;
+  align-self: center;
+  gap: 0.45rem;
+  border-color: var(--paper-line-strong);
+  background: rgb(250 247 239 / 88%);
+}
+
+.note-canvas-style-field {
+  color: var(--paper-ink-soft);
+  font-size: 0.7rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.note-canvas-style-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.22rem;
+}
+
+.note-canvas-style-field[data-disabled="true"] {
+  opacity: 0.52;
+}
+
+.note-canvas-style-alignment {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 0.2rem;
+  white-space: nowrap;
+}
+
+.note-canvas-style-alignment[data-disabled="true"] {
+  opacity: 0.52;
+}
+
+.note-canvas-style-field-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.18rem;
+}
+
+.note-canvas-style-field input[type="number"] {
+  width: 3.3rem;
+  min-height: 2.25rem;
+  border: 1px solid var(--paper-line);
+  border-radius: 0.35rem;
+  background: var(--paper);
+  padding: 0.25rem 0.3rem;
+  color: var(--paper-ink);
+  font: inherit;
+  font-weight: 700;
+  line-height: 1.2;
+  text-align: right;
+}
+
+.note-canvas-style-color {
+  width: 2.25rem;
+  height: 2.25rem;
+  min-height: 2.25rem;
+  border: 1px solid var(--paper-line);
+  border-radius: 0.35rem;
+  background: var(--paper);
+  padding: 0.2rem;
+  cursor: pointer;
+}
+
+.note-canvas-style-field input:disabled {
+  cursor: not-allowed;
+  background: var(--paper-soft);
+}
+
+.note-canvas-style-color:disabled {
+  cursor: not-allowed;
+}
+
+.note-canvas-toolbar-group--history {
+  grid-area: history;
+  align-self: center;
+  border-color: var(--paper-line-strong);
+  background: rgb(250 247 239 / 88%);
 }
 
 .note-canvas-paper-size {
-  align-items: center;
-  flex-wrap: wrap;
-  row-gap: 0.35rem;
+  grid-area: paper;
+  display: block;
+  align-self: stretch;
+  justify-self: stretch;
+  width: 100%;
   max-width: 100%;
-  margin-inline-start: auto;
+  min-width: 0;
+  overflow: visible;
+  border-color: var(--paper-line-strong);
+  background: var(--paper);
+  box-shadow: inset 0 0 0 2px var(--paper-soft);
+  padding: 0.45rem 0.55rem;
 }
 
-.note-canvas-paper-size-label,
+.note-canvas-paper-size-summary {
+  display: none;
+  align-items: center;
+  min-height: 2.75rem;
+  gap: 0.45rem;
+  color: var(--paper-ink);
+  cursor: pointer;
+  font-size: 0.76rem;
+  font-weight: 800;
+  list-style: none;
+}
+
+.note-canvas-paper-size-summary::-webkit-details-marker {
+  display: none;
+}
+
+.note-canvas-paper-size-summary-label,
+.note-canvas-paper-size-summary-dimensions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  white-space: nowrap;
+}
+
+.note-canvas-paper-size-summary-dimensions {
+  color: var(--paper-ink-soft);
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+
+.note-canvas-paper-size-summary-chevron {
+  width: 0.55rem;
+  height: 0.55rem;
+  margin-inline-start: auto;
+  border-inline-end: 2px solid currentColor;
+  border-block-end: 2px solid currentColor;
+  transform: rotate(45deg) translateY(-0.12rem);
+  transition: transform 150ms ease;
+}
+
+.note-canvas-paper-size[open]
+  .note-canvas-paper-size-summary-chevron {
+  transform: rotate(225deg) translate(-0.08rem, -0.08rem);
+}
+
+.note-canvas-paper-size-content {
+  display: grid;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  gap: 0.35rem;
+}
+
+.note-canvas-paper-size-helper {
+  grid-column: 1 / -1;
+  max-width: 26rem;
+  margin: 0;
+  color: var(--paper-ink-soft);
+  font-size: 0.68rem;
+  line-height: 1.35;
+}
+
+.note-canvas-paper-fields {
+  display: flex;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  align-items: end;
+  justify-content: flex-start;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
 .note-canvas-size-field {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 0.25rem;
   color: var(--paper-ink-soft);
   font-size: 0.72rem;
   font-weight: 700;
   white-space: nowrap;
 }
 
-.note-canvas-size-field {
+.note-canvas-size-field-control {
   display: inline-flex;
   align-items: center;
   gap: 0.2rem;
@@ -1095,6 +1298,12 @@ body {
   font: inherit;
   font-weight: 600;
   line-height: 1.2;
+}
+
+.note-canvas-size-field-unit {
+  color: var(--paper-ink-soft);
+  font-size: 0.68rem;
+  font-weight: 700;
 }
 
 .note-canvas-size-field input[aria-invalid="true"] {
@@ -1115,6 +1324,11 @@ body {
 
 .note-canvas-toolbar button {
   position: relative;
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
   min-height: 2.75rem;
   border: 1px solid var(--paper-line);
   border-radius: 0.4rem;
@@ -1130,6 +1344,26 @@ body {
     box-shadow 150ms ease, color 150ms ease;
 }
 
+.note-canvas-tool-icon {
+  display: inline-flex;
+  flex: 0 0 1.125rem;
+  width: 1.125rem;
+  height: 1.125rem;
+  align-items: center;
+  justify-content: center;
+}
+
+.note-canvas-toolbar-icon {
+  display: block;
+  width: 1.125rem;
+  height: 1.125rem;
+}
+
+.note-canvas-tool-label {
+  display: inline-block;
+  white-space: nowrap;
+}
+
 .note-canvas-toolbar button:hover:not(:disabled) {
   border-color: var(--paper-accent);
   background: #fff2df;
@@ -1137,11 +1371,55 @@ body {
 }
 
 .note-canvas-toolbar .note-canvas-tool-button[data-active="true"] {
+  isolation: isolate;
   border-color: var(--paper-accent-deep);
   background: #fff2df;
   box-shadow: inset 0 -0.22rem 0 var(--paper-accent-deep);
   color: var(--paper-accent-deep);
   font-weight: 800;
+}
+
+.note-canvas-toolbar .note-canvas-tool-button[data-active="true"]::before {
+  position: absolute;
+  right: 0.45rem;
+  bottom: -0.12rem;
+  left: 0.45rem;
+  height: 0.18rem;
+  border-radius: 999px;
+  background: currentColor;
+  content: "";
+  z-index: 1;
+}
+
+.note-canvas-toolbar .note-canvas-alignment-button {
+  width: 2.15rem;
+  min-height: 2.25rem;
+  padding: 0.25rem;
+}
+
+.note-canvas-toolbar .note-canvas-alignment-button[data-active="true"] {
+  border-color: var(--paper-accent-deep);
+  background: #fff2df;
+  color: var(--paper-accent-deep);
+  box-shadow: inset 0 -0.18rem 0 var(--paper-accent-deep);
+}
+
+.note-canvas-toolbar-group--operation .note-canvas-tool-button[data-active="true"] {
+  border-width: 2px;
+  box-shadow: inset 0 -0.25rem 0 var(--paper-accent-deep),
+    0 1px 3px rgb(152 73 44 / 18%);
+}
+
+.note-canvas-toolbar-group--erase .note-canvas-tool-button {
+  border-color: rgb(164 72 72 / 42%);
+}
+
+.note-canvas-toolbar-group--erase
+  .note-canvas-tool-button[data-active="true"] {
+  border-color: var(--paper-danger);
+  background: rgb(164 72 72 / 13%);
+  box-shadow: inset 0 -0.22rem 0 var(--paper-danger);
+  color: var(--paper-danger);
 }
 
 .note-canvas-toolbar button:disabled {
@@ -1152,11 +1430,45 @@ body {
   opacity: 0.55;
 }
 
+.note-canvas-toolbar-tooltip {
+  position: absolute;
+  top: calc(100% + 0.45rem);
+  left: 50%;
+  z-index: 5;
+  width: max-content;
+  max-width: min(19rem, calc(100vw - 1.5rem));
+  border: 1px solid var(--paper-line-strong);
+  border-radius: 0.35rem;
+  background: var(--paper-ink);
+  padding: 0.35rem 0.5rem;
+  color: var(--paper);
+  font-size: 0.68rem;
+  font-weight: 600;
+  line-height: 1.35;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transform: translate(-50%, -0.2rem);
+  transition: opacity 120ms ease, transform 120ms ease, visibility 120ms ease;
+}
+
+.note-canvas-toolbar button:hover:not(:disabled)
+  .note-canvas-toolbar-tooltip,
+.note-canvas-toolbar button:focus-visible .note-canvas-toolbar-tooltip {
+  opacity: 1;
+  visibility: visible;
+  transform: translate(-50%, 0);
+}
+
 .note-canvas-toolbar button:focus-visible,
+.note-canvas-toolbar input:focus-visible,
+.note-canvas-paper-size-summary:focus-visible,
 .note-canvas-viewport:focus-visible {
   outline: 2px solid var(--paper-accent-deep);
   outline-offset: 3px;
-  z-index: 1;
+  z-index: 2;
 }
 
 .note-canvas-toolbar-visually-hidden,
@@ -1175,6 +1487,117 @@ body {
 
 .note-canvas-toolbar-status {
   pointer-events: none;
+}
+
+.note-canvas-paper-apply {
+  border-color: var(--paper-accent);
+  background: #fff8ec;
+}
+
+@media (max-width: 1099px) and (min-width: 641px) {
+  .note-canvas-toolbar {
+    grid-template-areas:
+      "operation drawing"
+      "style style"
+      "erase history"
+      "paper paper";
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .note-canvas-toolbar-group--paper-size {
+    justify-self: stretch;
+  }
+
+  .note-canvas-paper-fields {
+    justify-content: flex-start;
+  }
+}
+
+@media (max-width: 640px) {
+  .note-canvas-toolbar {
+    grid-template-areas:
+      "operation operation"
+      "drawing drawing"
+      "style style"
+      "erase history"
+      "paper paper";
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 0.5rem;
+    padding: 0.5rem;
+  }
+
+  .note-canvas-toolbar-group--operation {
+    justify-self: start;
+  }
+
+  .note-canvas-toolbar-drawing-rail {
+    width: 100%;
+    padding: 0.25rem;
+  }
+
+  .note-canvas-toolbar-group--style {
+    flex-wrap: wrap;
+  }
+
+  .note-canvas-toolbar-group--erase,
+  .note-canvas-toolbar-group--history {
+    min-width: 0;
+  }
+
+  .note-canvas-toolbar-group--erase .note-canvas-tool-button,
+  .note-canvas-toolbar-group--history .note-canvas-toolbar-action {
+    min-width: 0;
+    flex: 1 1 0;
+    padding-inline: 0.35rem;
+  }
+
+  .note-canvas-paper-size {
+    width: 100%;
+    padding: 0.35rem 0.5rem;
+  }
+
+  .note-canvas-paper-size-summary {
+    display: flex;
+  }
+
+  .note-canvas-paper-size:not([open]) > .note-canvas-paper-size-content {
+    display: none;
+  }
+
+  .note-canvas-paper-size[open] > .note-canvas-paper-size-content {
+    display: grid;
+    padding-block: 0.45rem 0.15rem;
+  }
+
+  .note-canvas-paper-fields {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: stretch;
+    justify-content: stretch;
+  }
+
+  .note-canvas-size-field {
+    min-width: 0;
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .note-canvas-size-field-label {
+    align-self: flex-start;
+  }
+
+  .note-canvas-size-field-control {
+    width: 100%;
+  }
+
+  .note-canvas-size-field input {
+    width: 100%;
+  }
+
+  .note-canvas-paper-apply {
+    grid-column: 1 / -1;
+    justify-self: start;
+  }
 }
 
 .note-canvas-viewport {
@@ -1249,35 +1672,6 @@ body {
   clip: rect(0 0 0 0);
   white-space: nowrap;
   clip-path: inset(50%);
-}
-
-@media (max-width: 640px) {
-  .note-canvas-toolbar {
-    align-items: center;
-    row-gap: 0.5rem;
-  }
-
-  .note-canvas-toolbar-drawing-rail {
-    flex-basis: 100%;
-    order: 0;
-    border-block-start: 1px solid var(--paper-line);
-    border-inline-start: 0;
-    padding-block-start: 0.5rem;
-    padding-inline-start: 0;
-  }
-
-  .note-canvas-toolbar-group--paper-size {
-    flex-basis: 100%;
-    margin-inline-start: 0;
-    border-block-start: 1px solid var(--paper-line);
-    border-inline-start: 0;
-    padding-block-start: 0.5rem;
-    padding-inline-start: 0;
-  }
-
-  .note-canvas-toolbar-group--paper-size .note-canvas-paper-size-label {
-    flex-basis: 100%;
-  }
 }
 
 .note-paper-editor--create .note-paper-meta-grid {

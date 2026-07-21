@@ -46,7 +46,7 @@ MVP の初期データに seed は使いません。検証用データは `/note
 - [ ] `/notes/new` の Canvas 用紙サイズで小数、0、負数、320 未満、4000 超、空欄などの無効値が適用・保存できず field error が表示される
 - [ ] `/notes/new` の Canvas 用紙サイズ変更時に既存要素の `x`, `y`, `width`, `height`, `points`, `style` が変わらない
 - [ ] `/notes/new` の Canvas 用紙を小さくして要素が境界外になっても、要素が削除・移動・縮小されない
-- [ ] `/notes/new` の `Fit` / `50%` / `100%` / `200%` が表示される場合も、表示倍率として用紙サイズ入力・保存値と分離されている
+- [ ] `/notes/new` の現行 UI に `Fit` / `50%` / `100%` / `200%` の表示倍率操作がないことを確認する。将来倍率操作を追加する場合も、表示倍率は用紙サイズ入力・保存値と分離する
 - [ ] `/notes/new` のサマリー Markdown preview に入力内容が反映される
 - [ ] `/notes/new` で保存中は保存ボタンが disabled になり `保存中...` が表示される
 - [ ] `/notes/new` で保存 API が失敗した場合、フォーム上部に error alert が表示される
@@ -63,6 +63,88 @@ MVP の初期データに seed は使いません。検証用データは `/note
 - [ ] 既存 Canvas document を開くだけで用紙サイズや要素の保存値が書き換えられない
 - [ ] Canvas の用紙サイズだけを変更しても Canvas text 由来の `searchText` は変わらず、一覧の同じ検索語で同じノートが検索できる
 - [ ] 詳細閲覧・編集・復習の各表示が保存済み Canvas document を使い、復習時の本文マスク／表示切替が Canvas JSON を変更しない
+
+#### Canvas 操作・スタイル・図形内文字（2026-07-19 追加）
+
+以下の 6 項目は、既存の `CANVAS-DIMENSION-001`（用紙サイズ、保存・復元、resize 前後の要素不変）と責務を分けて確認する。コード・設計との静的照合結果は根拠欄に残すが、ブラウザ実機の pointer、touch、保存・再読込、viewport 証跡がない場合は `PASS` に繰り上げない。
+
+- [ ] `CANVAS-INTERACTION-001` 空白および既存要素上からの Canvas 要素作成と gesture 開始対象の安全境界
+  - 対象 route / 画面状態: `/notes/new` の編集状態、および `/notes/[id]` の編集状態。Canvas 本文を表示し、空白と 6 種類の基準要素（pen stroke、line、arrow、rect、ellipse、standalone text）を同一用紙に用意する。
+  - 操作:
+    1. `pen`、`line`、`arrow`、`rect`、`ellipse`、`text` を順に選び、Canvas の空白から各要素を 1 件ずつ作成する。standalone text は文字を入力して確定する。
+    2. 同じ 6 ツールを順に選び、基準要素の上を pointer down の開始点として新しい stroke、line、arrow、rect、ellipse、standalone text を追加する。少なくとも pen stroke、line、arrow、rect、ellipse、standalone text の各上で新規 gesture を行う。
+    3. line / arrow / rect / ellipse の drag preview が表示されている間、一時 preview を新規 gesture の対象にしようとする。図形内文字の inline editor overlay を表示した状態でも、overlay またはその周辺から別の新規 gesture を開始しようとする。必要なら metadata がない一時 object / unknown object を使った検証用 fixture または DevTools の観察を併用する。
+  - 期待結果:
+    - 空白から 6 種類の要素を作成でき、既存のアプリ所有要素上からも同じ tool で新しい要素を追加できる。
+    - 重ね描き後も既存要素の id、位置、寸法、points、style、rotation、text、z が意図せず移動・resize・変形・消失しない。新規要素だけが追加される。
+    - metadata がない object、`isCanvasPreview` の一時 preview、図形内文字の inline editor overlay 上では新規 gesture が開始されず、preview が保存済み要素へ混入しない。既存 document に変更がないことを確認できる。
+  - 未確認時の判定: 空白・6 種類の基準要素上・preview / overlay 境界の実機操作と document 比較の証跡が揃わない限り `未実施` とする。静的に `isCanvasDrawingTarget` 等を確認しただけでは `PASS` にしない。
+
+- [ ] `CANVAS-GESTURE-001` クリック／ダブルクリックと 4px drag threshold の切り分け
+  - 対象 route / 画面状態: `/notes/new` または `/notes/[id]` の編集状態。Canvas document の要素数と各要素の geometry を操作前に記録する。
+  - 操作:
+    1. `line`、`arrow`、`rect`、`ellipse` の各 tool で空白をクリックし、同じ場所をダブルクリックする。pointer の移動がない操作と、開始点から 4px 未満（判定用 3px）の微小 drag をそれぞれ行う。
+    2. 4px の実装閾値を十分に超える drag（判定用 5px 以上）を各 tool で行い、pointer move 中の preview と pointer up 後の確定要素を確認する。境界値を試した場合は実際の移動量と結果を記録する。
+    3. `text` tool の通常クリックで standalone text を作成し、別の図形を `select`、`rect`、`ellipse` のいずれかでダブルクリックして inline text editor を開く。さらに `rect` / `ellipse` の tool で十分な drag を行い、新規図形を作成する。
+  - 期待結果:
+    - line / arrow / rect / ellipse のクリック、ダブルクリック、4px 未満の微小 drag は preview も確定要素も作らず、要素数・document が変わらない。小さな不要図形や極小 geometry が残らない。
+    - 4px の閾値を超える drag だけが preview を表示し、pointer up で 1 件の新規要素を確定する。click の no-op、図形作成、inline 編集の経路が混同されない。
+    - standalone text の通常クリックは standalone text の入力になり、図形のダブルクリックは対象図形の inline editor になり、十分な図形 drag は新規 shape になる。
+  - 未確認時の判定: クリック／ダブルクリック、3px 未満、4px 閾値超過、standalone text、shape inline text、十分な shape drag の全パターンを同一手順で実機確認できない限り `未実施` とする。閾値や要素数の記録がない静的確認は `PASS` の根拠にしない。
+
+- [ ] `CANVAS-SHAPE-TEXT-001` 図形内文字の inline editor、表示、確定・キャンセル、Fabric lifecycle
+  - 対象 route / 画面状態: `/notes/new` または `/notes/[id]` の編集状態。pen stroke、line、arrow、rect、ellipse、standalone text を先に配置し、rect と ellipse を図形内文字の対象にする。
+  - 操作:
+    1. `select`、`rect`、`ellipse` の各 tool を使って、rect と ellipse をそれぞれダブルクリックする。inline text editor に入り、文字を入力する。
+    2. 編集中に図形の外形、既存の図形内表示文字、inline editor の表示を観察する。既存文字がある図形では、表示文字と editor の二重描画がないことを確認する。
+    3. 片方の編集を別操作への移行または blur で確定し、別の試行では `Escape` またはキャンセル相当の操作で取り消す。確定後・キャンセル後に、対象 shape と先に配置した pen stroke、line、arrow、別図形、standalone text を比較する。
+    4. inline editor の文字配置を toolbar の `left` / `center` / `right` へ変更する。入力欄へ再フォーカスせず、toolbar 操作直後の図形内文字の表示を確認する。
+    5. ブラウザ console と画面の error alert を確認し、編集開始、確定、キャンセル、別要素選択の各 lifecycle を繰り返す。
+  - 期待結果:
+    - rect / ellipse の外形は inline 編集中も表示され、既存の図形内文字だけが overlay と二重描画されない。
+    - 確定時は対象 shape の文字だけが更新され、キャンセル時は元の文字・style へ戻る。対象 shape と他の Canvas 要素が保持される。
+    - `exitEditing`、`onDeselect` の cleanup が安全に完了し、`undefined` の `fire` など Fabric lifecycle error、未解放 overlay、孤立した編集 object が発生しない。
+    - inline 編集中の文字配置変更は再フォーカスなしで表示へ反映される。
+  - 未確認時の判定: rect / ellipse の両方について tool 別のダブルクリック、確定、キャンセル、他要素保持、console error 無し、再フォーカス無しの配置反映を確認できない限り `未実施` とする。コード上の lifecycle 保護だけでは `PASS` にしない。
+
+- [ ] `CANVAS-STYLE-001` style controls の入力制約、対象別の色・文字配置、即時反映
+  - 対象 route / 画面状態: `/notes/new` または `/notes/[id]` の編集状態。stroke 系要素、standalone text、rect / ellipse と図形内文字を用意し、選択中と inline 編集中の両方を確認する。
+  - 操作:
+    1. toolbar の線幅と文字サイズを、対象なし／stroke 選択／text 選択の各状態で確認する。既定値を記録し、線幅は 1、20、0、21、1.5、空欄、文字サイズは 8、96、7、97、12.5、空欄を入力して blur または Enter で適用する。
+    2. pen、line、arrow、rect、ellipse または選択中の stroke 系要素へ color input を適用し、線色が変わることを確認する。standalone text を選択中に同じ color input を適用し、文字色が変わることを確認する。
+    3. rect / ellipse の inline text editor 中にも color input を適用し、shape の外形色ではなく図形内文字色へ反映されることを確認する。
+    4. standalone text と shape inline text のそれぞれで `left`、`center`、`right` を順に選択する。図形内文字の編集中は入力欄へ戻らずに alignment button を操作する。
+  - 期待結果:
+    - 線幅の既定値は 1px、許容範囲は整数 1〜20px、文字サイズの既定値は 12px、許容範囲は整数 8〜96px である。
+    - 小数、空欄、範囲外の値は document や対象 object へ適用されず、field error / `aria-invalid` または既存値維持として確認できる。
+    - color input は stroke 対象では線色、standalone text と shape inline text では文字色として反映される。文字配置は両方で left / center / right を選択できる。
+    - 選択中の object と図形内文字編集中の text は、線幅・文字サイズ・色・文字配置の変更が入力直後に Canvas 表示へ反映される。
+  - 未確認時の判定: 各境界値・無効値、stroke / standalone text / shape inline text の色、両方の文字配置、再フォーカスなしの即時反映を実機で確認できない限り `未実施` とする。toolbar の min / max や静的 handler 確認だけでは `PASS` にしない。
+
+- [ ] `CANVAS-PERSISTENCE-STYLE-001` style / textStyle の保存境界と保存・再読込回帰
+  - 対象 route / 画面状態: `/notes/new` の編集・明示保存、`/notes/[id]` の閲覧・編集・再読込、および対応する `POST /api/notes`、`PATCH /api/notes/:id`、`GET /api/notes/:id`。
+  - 操作:
+    1. standalone text に font size、fill、textAlign を設定し、rect / ellipse の図形内文字にも別の font size、fill、textAlign を設定する。line / arrow / rect / ellipse と pen stroke には線幅・線色を設定する。
+    2. 保存前の Canvas document と、明示保存の response または `GET /api/notes/:id` の Canvas JSON を記録する。standalone text、shape inline text、stroke 系要素の保存フィールドをそれぞれ確認する。
+    3. `/notes/[id]` を再読込して閲覧・編集を開き、style、textStyle、文字、既存要素、page 寸法が保存前と同じ表示・値で復元されることを確認する。
+    4. 既存要素を保持したまま用紙だけを 1920 x 1080 など別寸法へ変更して保存し、再読込後に変更前後の `style`、`text`、geometry（`x`、`y`、`width`、`height`、`points` 等）、`searchText` を比較する。
+  - 期待結果:
+    - standalone text の font size、fill、textAlign は `style.fontSize`、`style.fill`、`style.textAlign` に入り、shape inline text の同じ値は `textStyle.fontSize`、`textStyle.fill`、`textStyle.textAlign` に入る。線幅・線色は element の `style.strokeWidth`、`style.stroke` に入る。
+    - 保存・再読込後も style、textStyle、text、既存要素、page width / height が復元される。Fabric 固有の一時 preview / editor overlay は保存 JSON に入らない。
+    - 用紙サイズだけを変更した場合は、style、text、geometry、`searchText` が不要に変化しない。用紙サイズ変更の責務は既存 `CANVAS-DIMENSION-001` と共有し、寸法専用の新規 DB / API を前提にしない。
+  - 未確認時の判定: API response または GET の JSON、再読込表示、用紙だけを変更した前後の比較のいずれかが欠ける場合は `未実施` とする。static save boundary の照合は runtime の保存・復元 `PASS` にはしない。
+
+- [ ] `CANVAS-TOOLBAR-STYLE-001` toolbar の responsive、keyboard / touch 到達性、状態表示、Canvas scroll 回帰
+  - 対象 route / 画面状態: `/notes/new` と `/notes/[id]` の編集状態。Canvas toolbar、Canvas 本体、Summary、footer が同一ページに存在する状態。
+  - 操作:
+    1. viewport を 375px、768px、1280px、1440px に切り替える。Tab / Shift+Tab で style input、left / center / right button、用紙の disclosure・幅・高さ・適用、各 tool group の全 controls へ到達する。各 viewport で touch 操作も行う。
+    2. tool を切り替え、stroke 系 object を選択し、standalone text と shape inline text を編集する。active tool、style target、alignment の visual state と `aria-pressed`、group / toolbar の accessible name、field の `aria-invalid` / alert、current tool status を確認する。
+    3. Canvas pointer 操作後にページを縦 scroll し、Summary と footer まで到達する。用紙を本文列より広くして Canvas の局所横 scroll を行い、ページ全体の横 scroll は発生しないことを確認する。
+  - 期待結果:
+    - 4 viewport すべてで style input、alignment buttons、用紙入力、tool group を keyboard / touch から操作でき、狭幅でも drawing rail の局所 scroll に閉じ込められる。page-wide horizontal overflow は発生しない。
+    - active tool は視覚と ARIA の両方で一つだけ確認でき、style target と alignment の状態も視覚・ARIA の両方で判別できる。用紙入力の invalid は field と alert で判別できる。
+    - Canvas pointer 操作後もページ縦 scroll は阻害されず、広い用紙だけが Canvas 本体の局所横 scroll になり、Summary / footer へ到達できる。
+  - 未確認時の判定: 375 / 768 / 1280 / 1440px の全 viewport、keyboard と touch、状態の visual / ARIA、縦・局所横 scroll の証跡がない限り `未実施` とする。静的 DOM / CSS 照合だけでは `PASS` にしない。
 
 ### 3. ノート一覧
 
@@ -173,7 +255,7 @@ MVP の初期データに seed は使いません。検証用データは `/note
 - [ ] 375px 前後で Cue 削除ボタンを押して対象 Cue を削除できる
 - [ ] 375px 前後で Cue の textarea にフォーカスして入力できる
 - [ ] 375px 前後で Canvas 本文の操作面、幅・高さ入力、`適用` に到達できる
-- [ ] 375px 前後で Canvas の表示倍率操作が用紙サイズ入力と混同されない
+- [ ] 375px 前後で現行 UI に表示倍率操作がなく、Canvas の幅・高さ入力が用紙そのものの寸法として表示される
 - [ ] 375px 前後で Summary の textarea → Preview → 次回復習日 → キャンセル / 保存の順序が維持される
 - [ ] 375px 前後でキャンセル操作を実行できる
 - [ ] 375px 前後で保存操作を実行できる
@@ -290,7 +372,13 @@ MVP の初期データに seed は使いません。検証用データは `/note
 | MVP-GAP-001 | 新規 `nextReviewDate = noteDate + 7日` 初期値 | `/notes/new`（新規作成） | 静的照合（viewport / fixture なし） | 2026-07-16 | fixture なし。実装コード、現行 MVP 契約、実装状況を照合 | FAIL（静的照合） | `doc/implementation/IMPLEMENTATION_STATUS.md` §1・§5.2、`doc/implementation/MVP_CONTRACT.md` §4.1 |
 | MVP-GAP-002 | 復習開始時の Summary 初期非表示と Cue → 本文 → Summary の順序 | `/notes/[id]`（復習） | 静的照合（viewport / fixture なし） | 2026-07-16 | fixture なし。実装コード、現行 MVP 契約、実装状況を照合。runtime 未実施とは別に、Summary 初期非表示の未達を記録 | FAIL（静的照合） | `doc/implementation/IMPLEMENTATION_STATUS.md` §1・§5.2、`doc/implementation/MVP_CONTRACT.md` §4.3・§6 |
 | MVP-GAP-003 | 概要の Markdown preview / sanitize | `/notes/new`、`/notes/[id]`（編集・閲覧） | 静的照合（viewport / fixture なし） | 2026-07-16 | fixture なし。概要の保存は確認できるが、本文 / Summary と同じ Markdown preview / sanitize ではない | FAIL（静的照合） | `doc/implementation/IMPLEMENTATION_STATUS.md` §1・§5.2、`doc/implementation/MVP_CONTRACT.md` §2・§6 |
-| CANVAS-DIMENSION-001 | Canvas の既定 1200x800、320〜4000px の整数入力、保存後復元、resize 前後の要素データ不変、表示倍率との分離 | `/notes/new`、`/notes/[id]`（編集・閲覧・復習）、`/api/notes` | 実装・runtime 未確認 | 2026-07-18 | fixture なし。共有 Canvas validation / JSON persistence の静的確認はあるが、可変 page UI と resize 後の runtime 確認は未実施 | 未実施 | 本更新の Canvas 契約、`src/shared/canvas/canvas-document.ts`、`doc/implementation/IMPLEMENTATION_STATUS.md` §5.4 |
+| CANVAS-DIMENSION-001 | Canvas の既定 1200x800、320〜4000px の整数入力、保存後復元、resize 前後の要素データ不変、表示倍率との分離 | `/notes/new`、`/notes/[id]`（編集・閲覧・復習）、`/api/notes` | 静的実装確認済み・runtime 未確認 | 2026-07-18 | fixture なし。共有 Canvas validation / JSON persistence、可変 page UI、実寸 renderer、resize 後の要素不変は静的確認済みだが、browser runtime の入力・保存・再読込は未実施 | 未実施 | `doc/implementation/MVP_CONTRACT.md` §6.1、`src/shared/canvas/canvas-document.ts`、`doc/implementation/IMPLEMENTATION_STATUS.md` §5.1・§5.5 |
+| CANVAS-INTERACTION-001 | 空白および既存の pen stroke、line、arrow、rect、ellipse、standalone text 上からの新規作成、preview / inline editor overlay / metadata 欠落 object の gesture 遮断 | `/notes/new`、`/notes/[id]`（編集） | ブラウザ runtime（予定 viewport 1280px、pointer / touch。未実施） | 2026-07-19 | fixture 未作成。後続 QA で空白と 6 種類の基準要素を用意する。今回は操作・保存・比較・overlay 境界の runtime 証跡なし | 未実施 | `summary/20260719/2143-sync-canvas-interaction-design-contract-20260719-5b6bd3a6-summary.md`、`summary/20260719/2153-sync-canvas-implementation-status-20260719-7ac6f95e-summary.md`、`HANDOFF_2026-07-19.md` §7.1、`doc/implementation/MVP_CONTRACT.md` §6.2、`src/app/notes/_components/note-canvas-editor.tsx` |
+| CANVAS-GESTURE-001 | line / arrow / rect / ellipse のクリック・ダブルクリック no-op、4px drag threshold、standalone text・shape inline text・shape drag の gesture 分離 | `/notes/new`、`/notes/[id]`（編集） | ブラウザ runtime（予定 viewport 1280px、pointer。未実施） | 2026-07-19 | fixture 未作成。3px 未満と 5px 以上の比較、要素数・geometry の記録は後続 QA で行う。今回は runtime 証跡なし | 未実施 | `summary/20260719/2143-sync-canvas-interaction-design-contract-20260719-5b6bd3a6-summary.md`、`HANDOFF_2026-07-19.md` §7.1、`doc/designs/CANVAS_TOOLBAR_DESIGN.md` §9.2、`src/app/notes/_components/note-canvas-editor.tsx` |
+| CANVAS-SHAPE-TEXT-001 | rect / ellipse の図形内文字 inline editor、外形と文字の表示、確定・キャンセル、他要素保持、Fabric lifecycle error 無し、配置の即時反映 | `/notes/new`、`/notes/[id]`（編集） | ブラウザ runtime（予定 viewport 1280px、pointer / keyboard。未実施） | 2026-07-19 | fixture 未作成。pen stroke、line、arrow、別図形、standalone text を含む基準 document は後続 QA で作成する。console / error 証跡なし | 未実施 | `summary/20260719/2143-sync-canvas-interaction-design-contract-20260719-5b6bd3a6-summary.md`、`HANDOFF_2026-07-19.md` §7.1、`doc/implementation/MVP_CONTRACT.md` §6.2、`src/app/notes/_components/note-canvas-editor.tsx`、`src/app/spikes/canvas/_lib/fabric-adapter.ts` |
+| CANVAS-STYLE-001 | 線幅・文字サイズの既定値と整数範囲、無効値拒否、stroke / text の色、standalone text / shape inline text の left・center・right、選択中・編集中の即時反映 | `/notes/new`、`/notes/[id]`（編集） | ブラウザ runtime（予定 viewport 1280px、pointer / keyboard。未実施） | 2026-07-19 | fixture 未作成。境界値・無効値、stroke / standalone text / shape inline text の対象別確認は後続 QA で行う。今回は runtime 証跡なし | 未実施 | `summary/20260719/2153-sync-canvas-implementation-status-20260719-7ac6f95e-summary.md`、`HANDOFF_2026-07-19.md` §7.1、`doc/implementation/MVP_CONTRACT.md` §6.2、`doc/implementation/IMPLEMENTATION_STATUS.md` §5.1、`src/app/notes/_components/note-canvas-toolbar.tsx`、`src/app/notes/_components/note-canvas-editor.tsx` |
+| CANVAS-PERSISTENCE-STYLE-001 | standalone text の `style`、shape inline text の `textStyle`、線幅・線色の保存境界、保存・再読込、用紙だけ変更した場合の style / text / geometry / searchText 不変 | `/notes/new`、`/notes/[id]`（編集・閲覧）、`/api/notes` | ブラウザ runtime + Notes API response / 再読込（予定 viewport 1280px、未実施） | 2026-07-19 | fixture 未作成。明示保存、`GET /api/notes/:id`、page 寸法だけの変更前後比較は後続 QA で行う。今回は保存・再読込の実データ証跡なし | 未実施 | `summary/20260719/2153-sync-canvas-implementation-status-20260719-7ac6f95e-summary.md`、`HANDOFF_2026-07-19.md` §7.1・§6.2、`doc/implementation/MVP_CONTRACT.md` §6.1・§6.2、`doc/implementation/IMPLEMENTATION_STATUS.md` §5.1、`src/shared/canvas/canvas-document.ts`、`src/app/spikes/canvas/_lib/fabric-adapter.ts` |
+| CANVAS-TOOLBAR-STYLE-001 | style input、alignment button、用紙入力、tool group の responsive / keyboard / touch 到達性、active・style target・alignment の visual / ARIA 状態、ページ縦 scroll と用紙局所横 scroll | `/notes/new`、`/notes/[id]`（編集） | ブラウザ runtime（375 / 768 / 1280 / 1440px、keyboard / touch。未実施） | 2026-07-19 | fixture 未作成。全 viewport の focus、ARIA、pointer 後の Summary / footer 到達、page-wide overflow の測定は後続 QA で行う。今回は screenshot / runtime metrics なし | 未実施 | `summary/20260719/2143-sync-canvas-interaction-design-contract-20260719-5b6bd3a6-summary.md`、`HANDOFF_2026-07-19.md` §7.1・§6.5・§6.6、`doc/designs/CANVAS_TOOLBAR_DESIGN.md` §6・§9.3、`doc/implementation/IMPLEMENTATION_STATUS.md` §5.3、`src/app/notes/_components/note-canvas-toolbar.tsx` |
 | PHASE2-BOUNDARY | 自動保存、Undo / soft delete、専用復習タスク、NoteCard / D&D、PDF、タグ管理 UI 等 | `/tasks/review`、`/notes/backup`、export 等（MVP 外） | 静的な契約照合。runtime 対象外 | 2026-07-16 | fixture なし。Phase 2 の未実施項目として扱い、MVP の PASS 集計には含めない | 未実施 | `doc/implementation/MVP_CONTRACT.md` §2・§9、本文書「Phase 2 / 将来確認」 |
 
 注記: 2026-07-18 の概要項目削除より前に実施した `NTE030-VIEW-1440`、`MVP-GAP-002`、`MVP-GAP-003` は、当時の画面・契約に対する履歴記録です。現在の受け入れ対象には含めず、過去の確認結果・未達理由を改変せずに保持します。
