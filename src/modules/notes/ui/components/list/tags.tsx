@@ -1,7 +1,7 @@
-import type { NoteTag } from "@/modules/notes/remote";
+import type { TagDto } from "@/modules/notes/contracts";
 
 type NotesListTagsProps = {
-  availableTags: NoteTag[];
+  availableTags: TagDto[];
   selectedTags: string[];
   tagToAdd: string;
   tagsLoading: boolean;

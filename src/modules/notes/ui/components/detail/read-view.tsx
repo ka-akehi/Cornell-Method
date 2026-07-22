@@ -1,6 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
+import type { NoteDetailResponse } from "@/modules/notes/contracts";
 import {
   NoteDetailBody,
   NoteDetailCueList,
@@ -8,7 +9,6 @@ import {
   NoteDetailMetadata,
   NoteDetailSection,
 } from "./display";
-import type { NoteDetailResponse } from "@/modules/notes/remote";
 import { MarkdownPreview } from "@/shared/markdown";
 
 type ReadMode = "view" | "review";

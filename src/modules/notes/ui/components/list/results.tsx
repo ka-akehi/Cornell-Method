@@ -1,4 +1,4 @@
-import type { NotesListResponse } from "@/modules/notes/remote";
+import type { NotesListResponse } from "@/modules/notes/contracts";
 import { NotesListCard } from "./card";
 import {
   NotesListEmpty,

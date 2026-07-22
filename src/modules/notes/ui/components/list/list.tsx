@@ -12,9 +12,8 @@ import {
 import {
   fetchNotesList,
   fetchTagOptions,
-  type NoteTag,
-  type NotesListResponse,
 } from "@/modules/notes/remote";
+import type { NotesListResponse, TagDto } from "@/modules/notes/contracts";
 import { isDateRangeInvalid } from "@/modules/notes/model";
 import { NotesListError } from "./feedback";
 import { NotesListFilters, getDateRangeError } from "./filters";
@@ -28,7 +27,7 @@ export function NotesList() {
   const [tagToAdd, setTagToAdd] = useState("");
   const [reviewDue, setReviewDue] = useState(false);
   const [notes, setNotes] = useState<NotesListResponse | null>(null);
-  const [tagOptions, setTagOptions] = useState<NoteTag[]>([]);
+  const [tagOptions, setTagOptions] = useState<TagDto[]>([]);
   const [notesLoading, setNotesLoading] = useState(false);
   const [tagsLoading, setTagsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);

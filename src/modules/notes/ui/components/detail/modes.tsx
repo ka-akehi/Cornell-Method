@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import type { NoteDetailResponse } from "@/modules/notes/contracts";
 import {
   completeReview,
   deleteNote as deleteRemoteNote,
@@ -12,9 +13,6 @@ import { AppChromeModeReporter } from "@/shared/ui/app-chrome-state";
 import { NoteDetailReviewActions, NoteDetailViewActions } from "./actions";
 import { NoteEditor } from "../editor/editor";
 import { NoteDetailReadView } from "./read-view";
-import type { NoteDetailResponse } from "@/modules/notes/remote";
-
-export type { NoteDetailResponse as NoteDetail } from "@/modules/notes/remote";
 
 type Mode = "view" | "edit" | "review";
 

@@ -1,10 +1,3 @@
-export type {
-  NoteTag,
-  NotebookListItem,
-  NotesListResponse,
-  NoteDetailResponse,
-  ReviewNoteResponse,
-} from "./types";
 export { NotesRemoteError } from "./error";
 export {
   fetchNotesList,

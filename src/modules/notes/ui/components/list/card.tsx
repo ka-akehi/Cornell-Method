@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { formatDate, formatSource, getReviewStatus } from "@/modules/notes/model";
-import type { NotebookListItem } from "@/modules/notes/remote";
+import type { NotebookListItem } from "@/modules/notes/contracts";
 
 type NotesListCardProps = {
   note: NotebookListItem;

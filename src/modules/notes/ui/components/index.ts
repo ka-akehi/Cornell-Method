@@ -7,8 +7,6 @@ export { NoteDetailModes } from "./detail/modes";
 export type {
   NoteDetailModesProps,
 } from "./detail/modes";
-export type { NoteDetailResponse as NoteDetail } from "@/modules/notes/remote";
-
 export { NoteCanvasEditor } from "./canvas/editor";
 export { NoteCanvasViewer } from "./canvas/viewer";
 export { NoteCanvasSurface } from "./canvas/surface";
