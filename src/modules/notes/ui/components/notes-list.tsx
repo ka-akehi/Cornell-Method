@@ -1,7 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { type FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import {
+  type FormEvent,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   fetchNotesList,
   fetchTagOptions,
@@ -26,6 +33,7 @@ export function NotesList() {
   const [tagsLoading, setTagsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [dateError, setDateError] = useState<string | null>(null);
+  const notesRequestIdRef = useRef(0);
 
   const selectedTagSet = useMemo(() => new Set(selectedTags), [selectedTags]);
 
@@ -36,8 +44,11 @@ export function NotesList() {
 
   const loadNotes = useCallback(
     async (page = 1) => {
+      const requestId = ++notesRequestIdRef.current;
+
       if (isDateRangeInvalid(from, to)) {
         setDateError("開始日は終了日以前の日付を指定してください。");
+        setNotesLoading(false);
         return;
       }
 
@@ -48,22 +59,26 @@ export function NotesList() {
       const trimmedQuery = query.trim();
 
       try {
-        setNotes(
-          await fetchNotesList({
-            query: trimmedQuery || undefined,
-            from: from || undefined,
-            to: to || undefined,
-            tag: selectedTags,
-            reviewDue,
-            page,
-          }),
-        );
+        const nextNotes = await fetchNotesList({
+          query: trimmedQuery || undefined,
+          from: from || undefined,
+          to: to || undefined,
+          tag: selectedTags,
+          reviewDue,
+          page,
+        });
+
+        if (requestId !== notesRequestIdRef.current) return;
+        setNotes(nextNotes);
       } catch (caught) {
+        if (requestId !== notesRequestIdRef.current) return;
         setError(
           caught instanceof Error ? caught.message : "読み込みに失敗しました",
         );
       } finally {
-        setNotesLoading(false);
+        if (requestId === notesRequestIdRef.current) {
+          setNotesLoading(false);
+        }
       }
     },
     [from, query, reviewDue, selectedTags, to],
