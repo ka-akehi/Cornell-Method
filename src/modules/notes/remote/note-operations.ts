@@ -1,5 +1,7 @@
 import type {
   NotebookInput,
+  NoteDetailResponse,
+  NotesListResponse,
   NotesQuery,
 } from "@/modules/notes/contracts";
 import { NotesRemoteError } from "./error";
@@ -9,11 +11,6 @@ import {
   notesApiBase,
   requestJson,
 } from "./transport";
-import type {
-  NoteDetailResponse,
-  NotesListResponse,
-} from "./types";
-
 export async function fetchNotesList(
   query: Partial<NotesQuery>,
 ): Promise<NotesListResponse> {

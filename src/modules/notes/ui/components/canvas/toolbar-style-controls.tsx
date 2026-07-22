@@ -13,7 +13,7 @@ import {
   type CanvasStyleChange,
   type CanvasStyleControlValues,
   type CanvasStyleTarget,
-} from "@/modules/notes/model/canvas-toolbar.types";
+} from "@/modules/notes/ui/canvas";
 import { CanvasTextAlignmentControls } from "./toolbar-alignment-controls";
 import {
   CanvasIntegerStyleInput,

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { BackupEntryDto } from "@/modules/backup/contracts";
 import { createBackup, fetchBackups } from "@/modules/backup/remote";
 
@@ -21,26 +21,43 @@ export function BackupPage() {
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const backupsRequestIdRef = useRef(0);
+  const isMountedRef = useRef(false);
 
   const loadBackups = useCallback(async () => {
+    const requestId = ++backupsRequestIdRef.current;
+
     setLoading(true);
     setError(null);
 
     try {
-      setBackups(await fetchBackups());
+      const nextBackups = await fetchBackups();
+
+      if (requestId !== backupsRequestIdRef.current) return;
+      setBackups(nextBackups);
     } catch (caught) {
+      if (requestId !== backupsRequestIdRef.current) return;
+
       setError(
         caught instanceof Error
           ? caught.message
           : "バックアップ一覧の取得に失敗しました。",
       );
     } finally {
-      setLoading(false);
+      if (requestId === backupsRequestIdRef.current) {
+        setLoading(false);
+      }
     }
   }, []);
 
   useEffect(() => {
+    isMountedRef.current = true;
     void loadBackups();
+
+    return () => {
+      isMountedRef.current = false;
+      backupsRequestIdRef.current += 1;
+    };
   }, [loadBackups]);
 
   async function handleCreateBackup() {
@@ -50,16 +67,22 @@ export function BackupPage() {
 
     try {
       const json = await createBackup();
+      if (!isMountedRef.current) return;
+
       setSuccess(`${json.backup.file} を作成しました。`);
       await loadBackups();
     } catch (caught) {
+      if (!isMountedRef.current) return;
+
       setError(
         caught instanceof Error
           ? caught.message
           : "バックアップの作成に失敗しました。",
       );
     } finally {
-      setCreating(false);
+      if (isMountedRef.current) {
+        setCreating(false);
+      }
     }
   }
 
@@ -88,7 +111,7 @@ export function BackupPage() {
             type="button"
             className="inline-flex min-h-10 items-center rounded-md bg-amber-500 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-amber-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-500 disabled:cursor-not-allowed disabled:bg-stone-300"
             onClick={handleCreateBackup}
-            disabled={creating}
+            disabled={creating || loading}
           >
             {creating ? "作成中..." : "バックアップ作成"}
           </button>

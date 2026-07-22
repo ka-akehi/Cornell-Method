@@ -1,7 +1,6 @@
-import type { NoteBodyMode, TagDto } from "@/modules/notes/contracts";
 import type { CanvasDocumentV1 } from "@/shared/canvas";
-
-export type NoteTag = TagDto;
+import type { NoteBodyMode } from "./notebook.schema";
+import type { TagDto } from "./tag.schema";
 
 export type NotebookListItem = {
   id: string;
@@ -16,7 +15,7 @@ export type NotebookListItem = {
   hasSummary: boolean;
   nextReviewDate: string | null;
   reviewedAt: string | null;
-  tags: NoteTag[];
+  tags: TagDto[];
 };
 
 export type NotesListResponse = {
@@ -39,7 +38,7 @@ export type NoteDetailResponse = {
   nextReviewDate: string | null;
   reviewedAt: string | null;
   cues: Array<{ id: string; text: string; order: number }>;
-  tags: NoteTag[];
+  tags: TagDto[];
 };
 
 export type ReviewNoteResponse = {

@@ -1,8 +1,8 @@
 import type {
+  ReviewNoteResponse,
   ReviewUpdateInput,
 } from "@/modules/notes/contracts";
 import { jsonHeaders, requestJson } from "./transport";
-import type { ReviewNoteResponse } from "./types";
 
 export async function completeReview(
   id: string,

@@ -1,5 +1,5 @@
 import type { FormEvent } from "react";
-import type { NoteTag } from "@/modules/notes/remote";
+import type { TagDto } from "@/modules/notes/contracts";
 import { isDateRangeInvalid } from "@/modules/notes/model";
 import { NotesListTags } from "./tags";
 
@@ -9,7 +9,7 @@ type NotesListFiltersProps = {
   to: string;
   selectedTags: string[];
   tagToAdd: string;
-  availableTags: NoteTag[];
+  availableTags: TagDto[];
   tagsLoading: boolean;
   notesLoading: boolean;
   reviewDue: boolean;

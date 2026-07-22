@@ -5,7 +5,10 @@ import { useRouter } from "next/navigation";
 import type { ApiFieldError } from "@/shared/http/client";
 import { todayDateString } from "@/shared/date";
 import { AppChromeModeReporter } from "@/shared/ui/app-chrome-state";
-import type { NotebookInput } from "@/modules/notes/contracts";
+import type {
+  NoteDetailResponse,
+  NotebookInput,
+} from "@/modules/notes/contracts";
 import {
   createInitialNoteEditorForm,
   noteEditorFormToPayload,
@@ -16,7 +19,6 @@ import {
   createNote,
   NotesRemoteError,
   updateNote,
-  type NoteDetailResponse,
 } from "@/modules/notes/remote";
 import { NoteEditorBodySection } from "./body";
 import { NoteEditorCueSection } from "./cues";

@@ -2,7 +2,7 @@
 
 import type { ReactNode } from "react";
 import { NoteCanvasViewer } from "../canvas/viewer";
-import type { NoteDetailResponse } from "@/modules/notes/remote";
+import type { NoteDetailResponse } from "@/modules/notes/contracts";
 import {
   formatDate,
   formatDateTime,

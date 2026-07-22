@@ -22,14 +22,16 @@ import {
   CANVAS_MAX_STROKE_WIDTH,
   CANVAS_MIN_FONT_SIZE,
   CANVAS_MIN_STROKE_WIDTH,
-  type CanvasNoteTool,
   type CanvasStyleChange,
   type CanvasStyleControlValues,
-  type CanvasStyleDefaults,
   type CanvasStyleTarget,
   type NoteCanvasEditorProps,
   type SelectedCanvasStyle,
-} from "@/modules/notes/lib/canvas-editor-contract";
+} from "@/modules/notes/ui/canvas";
+import type {
+  CanvasNoteTool,
+  CanvasStyleDefaults,
+} from "@/modules/notes/lib/canvas-editor-types";
 import {
   EMPTY_CANVAS_DOCUMENT,
   extractCanvasEditorText,
@@ -40,7 +42,7 @@ import {
   getDrawingStyleTarget,
   isCanvasTextAlign,
   isColorInputValue,
-} from "@/modules/notes/lib/canvas-editor-style";
+} from "@/modules/notes/ui/canvas";
 import { useNoteCanvasRuntime } from "@/modules/notes/ui/hooks";
 import { NoteCanvasSurface } from "./surface";
 import { NoteCanvasToolbar } from "./toolbar";

@@ -1,8 +1,7 @@
-import type { TagOptionsResponse } from "@/modules/notes/contracts";
+import type { TagDto, TagOptionsResponse } from "@/modules/notes/contracts";
 import { requestJson } from "./transport";
-import type { NoteTag } from "./types";
 
-export async function fetchTagOptions(): Promise<NoteTag[]> {
+export async function fetchTagOptions(): Promise<TagDto[]> {
   return requestJson<TagOptionsResponse>(
     "/api/tags",
     {},
