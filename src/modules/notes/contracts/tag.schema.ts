@@ -18,3 +18,14 @@ export const tagSchema = z.object({
 });
 
 export type TagInput = z.infer<typeof tagSchema>;
+
+export const tagDtoSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  color: z.string().nullable(),
+});
+
+export const tagOptionsResponseSchema = z.array(tagDtoSchema);
+
+export type TagDto = z.infer<typeof tagDtoSchema>;
+export type TagOptionsResponse = z.infer<typeof tagOptionsResponseSchema>;

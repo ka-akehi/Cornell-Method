@@ -2,17 +2,18 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import {
-  createContext,
-  useCallback,
-  useContext,
-  useEffect,
-  useMemo,
-  useState,
-} from "react";
+import { useCallback, useState } from "react";
 import type { ReactNode } from "react";
+import {
+  AppChromeStateProvider,
+  type AppChromeMode,
+} from "@/shared/ui/app-chrome-state";
 
-export type AppChromeMode = "create" | "edit" | "view" | "review";
+export {
+  AppChromeModeReporter as AppChromeState,
+  useAppChromeState,
+} from "@/shared/ui/app-chrome-state";
+export type { AppChromeMode } from "@/shared/ui/app-chrome-state";
 
 export const APP_CHROME_MODE_LABELS: Record<AppChromeMode, string> = {
   create: "作成中",
@@ -21,49 +22,11 @@ export const APP_CHROME_MODE_LABELS: Record<AppChromeMode, string> = {
   review: "復習中",
 };
 
-type AppChromeStateContextValue = {
-  state: AppChromeMode | null;
-  setState: (state: AppChromeMode | null) => void;
-};
-
-const AppChromeStateContext = createContext<AppChromeStateContextValue | null>(
-  null,
-);
-
 function getPathState(pathname: string | null): AppChromeMode | null {
   if (pathname === "/notes/new") return "create";
   if (pathname?.startsWith("/notes/") && pathname !== "/notes/new") {
     return "view";
   }
-  return null;
-}
-
-export function useAppChromeState() {
-  const context = useContext(AppChromeStateContext);
-
-  if (!context) {
-    throw new Error(
-      "useAppChromeState must be used within the app chrome component.",
-    );
-  }
-
-  return context;
-}
-
-/**
- * The chrome badge is the canonical live announcement for a page mode.
- * Consumers that render the same mode in a paper kicker should keep that
- * kicker visual-only with aria-hidden or omit the repeated label.
- */
-export function AppChromeState({ state }: { state: AppChromeMode }) {
-  const { setState } = useAppChromeState();
-
-  useEffect(() => {
-    setState(state);
-
-    return () => setState(null);
-  }, [setState, state]);
-
   return null;
 }
 
@@ -94,14 +57,10 @@ export function AppChrome({ children }: AppChromeProps) {
   );
 
   const state = override?.pathname === pathname ? override.state : pathState;
-  const contextValue = useMemo(
-    () => ({ state, setState }),
-    [setState, state],
-  );
   const stateLabel = state ? APP_CHROME_MODE_LABELS[state] : null;
 
   return (
-    <AppChromeStateContext.Provider value={contextValue}>
+    <AppChromeStateProvider state={state} setState={setState}>
       <div className="flex min-h-screen flex-col">
         <header className="app-chrome-header sticky top-0 z-10">
           <div className="app-chrome-inner">
@@ -168,6 +127,6 @@ export function AppChrome({ children }: AppChromeProps) {
         </header>
         <main className="app-main">{children}</main>
       </div>
-    </AppChromeStateContext.Provider>
+    </AppChromeStateProvider>
   );
 }

@@ -1,0 +1,183 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import type { ApiFieldError } from "@/shared/http/client";
+import { indexedFieldError, type NoteEditorTag } from "@/modules/notes/model";
+import { fetchTagOptions } from "@/modules/notes/remote";
+
+export function NoteEditorTagInput({
+  tags,
+  onChange,
+  error,
+  fieldErrors,
+}: {
+  tags: NoteEditorTag[];
+  onChange: (tags: NoteEditorTag[]) => void;
+  error?: string;
+  fieldErrors: ApiFieldError[];
+}) {
+  const [input, setInput] = useState("");
+  const [localError, setLocalError] = useState<string | null>(null);
+  const [tagCandidates, setTagCandidates] = useState<NoteEditorTag[]>([]);
+  const [loadingCandidates, setLoadingCandidates] = useState(true);
+  const [candidateError, setCandidateError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let ignore = false;
+
+    async function loadCandidates() {
+      setLoadingCandidates(true);
+      setCandidateError(null);
+
+      try {
+        const data = await fetchTagOptions();
+        if (!ignore) setTagCandidates(data);
+      } catch {
+        if (!ignore) setCandidateError("タグ候補の読み込みに失敗しました。");
+      } finally {
+        if (!ignore) setLoadingCandidates(false);
+      }
+    }
+
+    void loadCandidates();
+
+    return () => {
+      ignore = true;
+    };
+  }, []);
+
+  function addTagValue(tag: NoteEditorTag) {
+    const name = tag.name.trim();
+    setLocalError(null);
+
+    if (!name) return;
+    if (tags.length >= 12) {
+      setLocalError("タグは12件以内で入力してください。");
+      return;
+    }
+    if (tags.some((tag) => tag.name === name)) {
+      setLocalError("同じタグは追加できません。");
+      return;
+    }
+
+    onChange([...tags, { ...tag, name }]);
+    setInput("");
+  }
+
+  function addTag() {
+    addTagValue({ name: input, color: null });
+  }
+
+  function addCandidate(candidateId: string) {
+    const candidate = tagCandidates.find((tag) => tag.id === candidateId);
+    if (!candidate) return;
+
+    addTagValue(candidate);
+    setInput("");
+  }
+
+  const availableCandidates = tagCandidates.filter(
+    (candidate) => !tags.some((tag) => tag.name === candidate.name),
+  );
+
+  return (
+    <div className="min-w-0 space-y-1">
+      <span className="block text-sm font-medium text-stone-700">タグ</span>
+      {tags.length > 0 && (
+        <div className="flex flex-wrap gap-1">
+          {tags.map((tag, index) => (
+            <span
+              key={`${tag.id ?? tag.name}-${index}`}
+              className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs text-amber-900"
+            >
+              <span className="min-w-0 break-all">{tag.name}</span>
+              <button
+                type="button"
+                onClick={() => onChange(tags.filter((_, tagIndex) => tagIndex !== index))}
+                className="shrink-0 text-amber-700 hover:text-red-600"
+                aria-label={`${tag.name}を削除`}
+              >
+                ×
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+      <div className="grid min-w-0 gap-1.5 sm:grid-cols-2">
+        <div className="min-w-0 space-y-1">
+          <label
+            htmlFor="tag-candidate-select"
+            className="block text-[0.6875rem] font-medium text-stone-600"
+          >
+            既存タグから追加
+          </label>
+          <select
+            id="tag-candidate-select"
+            value=""
+            disabled={loadingCandidates || availableCandidates.length === 0}
+            onChange={(event) => addCandidate(event.target.value)}
+            className="w-full min-w-0 rounded-lg border border-stone-200 bg-white px-2.5 py-1.5 text-sm text-stone-900 shadow-sm outline-none transition focus:border-amber-500 focus:ring-2 focus:ring-amber-100 disabled:cursor-not-allowed disabled:bg-stone-50 disabled:text-stone-400"
+          >
+            <option value="">
+              {loadingCandidates
+                ? "タグ候補を読み込み中"
+                : availableCandidates.length > 0
+                  ? "タグ候補を選択"
+                  : "追加できる既存タグはありません"}
+            </option>
+            {availableCandidates.map((tag) => (
+              <option key={tag.id ?? tag.name} value={tag.id}>
+                {tag.name}
+              </option>
+            ))}
+          </select>
+          {candidateError && (
+            <p className="text-xs leading-5 text-amber-700">{candidateError}</p>
+          )}
+        </div>
+        <div className="min-w-0 space-y-1">
+          <label
+            htmlFor="tag-input"
+            className="block text-[0.6875rem] font-medium text-stone-600"
+          >
+            新規タグを追加
+          </label>
+          <div className="flex min-w-0 gap-2">
+            <input
+              id="tag-input"
+              value={input}
+              onChange={(event) => setInput(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  addTag();
+                }
+              }}
+              className="min-w-0 flex-1 rounded-lg border border-stone-200 bg-white px-2.5 py-1.5 text-sm text-stone-900 shadow-sm outline-none transition placeholder:text-stone-400 focus:border-amber-500 focus:ring-2 focus:ring-amber-100"
+              placeholder="タグ名を入力"
+            />
+            <button
+              type="button"
+              onClick={addTag}
+              className="shrink-0 rounded-lg border border-stone-300 px-2.5 py-1.5 text-sm font-medium text-stone-700 transition hover:bg-stone-50"
+            >
+              追加
+            </button>
+          </div>
+        </div>
+      </div>
+      <p className="text-[0.6875rem] leading-5 text-stone-500">最大12件。Enter でも追加できます。</p>
+      {(error || localError) && (
+        <p className="break-words text-xs leading-5 text-red-600">{localError ?? error}</p>
+      )}
+      {tags.map((_, index) => {
+        const itemError = indexedFieldError(fieldErrors, "tags", index);
+        return itemError ? (
+          <p key={index} className="break-words text-xs leading-5 text-red-600">
+            タグ {index + 1}: {itemError}
+          </p>
+        ) : null;
+      })}
+    </div>
+  );
+}

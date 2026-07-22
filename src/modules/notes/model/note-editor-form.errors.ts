@@ -1,4 +1,4 @@
-import type { ApiFieldError } from "@/shared/http";
+import type { ApiFieldError } from "@/shared/http/client";
 
 export function fieldError(errors: ApiFieldError[], field: string) {
   return errors.find((error) => error.field === field)?.message;

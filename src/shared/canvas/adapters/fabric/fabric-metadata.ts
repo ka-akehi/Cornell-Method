@@ -14,6 +14,21 @@ export type FabricMetadata = {
   baseTop: number;
 };
 
+const CANVAS_ELEMENT_METADATA_KEY = "canvasElement";
+const CANVAS_PREVIEW_KEY = "isCanvasPreview";
+const CANVAS_SHAPE_TEXT_EDITOR_KEY = "isCanvasShapeTextEditor";
+
+function isCanvasElementType(value: unknown): value is CanvasElementV1["type"] {
+  return (
+    value === "stroke" ||
+    value === "line" ||
+    value === "arrow" ||
+    value === "rect" ||
+    value === "ellipse" ||
+    value === "text"
+  );
+}
+
 export function attachFabricMetadata(
   object: FabricObjectLike,
   element: CanvasElementV1,
@@ -21,7 +36,7 @@ export function attachFabricMetadata(
 ) {
   object.set({
     id: element.id,
-    canvasElement: {
+    [CANVAS_ELEMENT_METADATA_KEY]: {
       element: cloneCanvasDocument({
         schemaVersion: 1,
         page: { ...CANVAS_PAGE },
@@ -34,8 +49,42 @@ export function attachFabricMetadata(
   return object;
 }
 
-export function getFabricMetadata(object: FabricObjectLike) {
-  return object.get("canvasElement") as FabricMetadata | undefined;
+export function readCanvasElementMetadata(object?: FabricObjectLike) {
+  const metadata = object?.get(CANVAS_ELEMENT_METADATA_KEY);
+  return metadata && typeof metadata === "object"
+    ? (metadata as FabricMetadata)
+    : undefined;
+}
+
+export function readCanvasElement(object?: FabricObjectLike) {
+  return readCanvasElementMetadata(object)?.element;
+}
+
+export function readCanvasElementType(object?: FabricObjectLike) {
+  const type = readCanvasElement(object)?.type;
+  return isCanvasElementType(type) ? type : undefined;
+}
+
+export function isCanvasElementObject(object?: FabricObjectLike) {
+  return readCanvasElementType(object) !== undefined;
+}
+
+export function isCanvasPreviewObject(object?: FabricObjectLike) {
+  return object?.get(CANVAS_PREVIEW_KEY) === true;
+}
+
+export function markCanvasPreviewObject(object: FabricObjectLike) {
+  object.set({ [CANVAS_PREVIEW_KEY]: true });
+  return object;
+}
+
+export function isCanvasShapeTextEditorObject(object?: FabricObjectLike) {
+  return object?.get(CANVAS_SHAPE_TEXT_EDITOR_KEY) === true;
+}
+
+export function markCanvasShapeTextEditorObject(object: FabricObjectLike) {
+  object.set({ [CANVAS_SHAPE_TEXT_EDITOR_KEY]: true });
+  return object;
 }
 
 type FabricCanvasElementOwner = {
@@ -49,7 +98,7 @@ function findFabricCanvasElementOwner(object?: FabricObjectLike) {
 
   while (current && !visited.has(current)) {
     visited.add(current);
-    const metadata = getFabricMetadata(current);
+    const metadata = readCanvasElementMetadata(current);
     if (metadata?.element) {
       return {
         object: current,
@@ -60,6 +109,30 @@ function findFabricCanvasElementOwner(object?: FabricObjectLike) {
   }
 
   return null;
+}
+
+export function isCanvasDrawingTarget(event: FabricEventLike) {
+  const targets = [event.target, ...(event.subTargets ?? [])].filter(
+    (target): target is FabricObjectLike => target !== undefined,
+  );
+
+  // No target means the pointer is on empty Canvas space. Every persisted
+  // Canvas element is a valid drawing surface; an object with missing or
+  // unknown app metadata remains blocked so temporary/non-Canvas objects do
+  // not become part of a new drawing gesture.
+  return targets.length === 0 || targets.every(isCanvasElementObject);
+}
+
+export function isCanvasShapeTextEditorTarget(
+  event: Pick<FabricEventLike, "target" | "subTargets">,
+  editor?: FabricObjectLike,
+) {
+  const targets = [event.target, ...(event.subTargets ?? [])];
+  return targets.some(
+    (target) =>
+      (editor !== undefined && target === editor) ||
+      isCanvasShapeTextEditorObject(target),
+  );
 }
 
 export function resolveFabricShapeTarget(

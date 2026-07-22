@@ -1,5 +1,4 @@
 import type { ReviewUpdateInput } from "@/modules/notes/contracts";
-import type { NotebookReviewUpdateRecord } from "@/server/notes/presenters";
 import { prisma } from "@/server/infrastructure/prisma";
 import { findExistingNote } from "./note-existence.repository";
 
@@ -11,7 +10,7 @@ export async function reviewNoteRecord(
   id: string,
   input: ReviewUpdateInput,
   reviewedAt: Date,
-): Promise<NotebookReviewUpdateRecord | null> {
+) {
   const existing = await findExistingNote(id);
 
   if (!existing) {

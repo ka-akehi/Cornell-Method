@@ -1,20 +1,6 @@
 import Link from "next/link";
-import {
-  NoteDetailModes,
-  type NoteDetail,
-} from "../_components/note-detail-modes";
-import { fetchNoteDetail } from "@/modules/notes/remote";
-
-async function getNotebook(id: string): Promise<NoteDetail | null> {
-  const base =
-    process.env.NEXT_PUBLIC_BASE_URL ??
-    process.env.VERCEL_URL ??
-    "http://localhost:3000";
-  return fetchNoteDetail(id, {
-    baseUrl: base,
-    cache: "no-store",
-  });
-}
+import { NoteDetailModes } from "@/modules/notes/ui/components";
+import { getNoteDetail } from "@/server/notes/application";
 
 export default async function NoteDetailPage({
   params,
@@ -22,7 +8,7 @@ export default async function NoteDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const notebook = await getNotebook(id);
+  const notebook = await getNoteDetail(id);
 
   if (!notebook) {
     return (

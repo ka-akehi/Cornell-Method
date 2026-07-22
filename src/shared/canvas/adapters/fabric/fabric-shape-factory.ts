@@ -8,6 +8,7 @@ import {
   DEFAULT_TEXT_FONT_SIZE,
   SHAPE_TEXT_PADDING,
 } from "./fabric-style";
+import { markCanvasShapeTextEditorObject } from "./fabric-metadata";
 import type { FabricApiLike, FabricObjectLike } from "./fabric-types";
 
 type CanvasShapeElementV1 = Extract<
@@ -128,14 +129,15 @@ export function createFabricShapeTextEditor(
   fabric: FabricApiLike,
   element: CanvasShapeElementV1,
 ): FabricObjectLike {
-  return new fabric.Textbox(element.text ?? "", {
-    ...shapeTextOptions(element),
-    left: element.x + element.width / 2,
-    top: element.y + element.height / 2,
-    angle: element.rotation,
-    editable: true,
-    selectable: true,
-    evented: true,
-    isCanvasShapeTextEditor: true,
-  });
+  return markCanvasShapeTextEditorObject(
+    new fabric.Textbox(element.text ?? "", {
+      ...shapeTextOptions(element),
+      left: element.x + element.width / 2,
+      top: element.y + element.height / 2,
+      angle: element.rotation,
+      editable: true,
+      selectable: true,
+      evented: true,
+    }),
+  );
 }

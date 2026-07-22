@@ -6,7 +6,11 @@ import {
   type CanvasPageDimensions,
   type CanvasPoint,
 } from "@/shared/canvas/canvas-document";
-import { getFabricMetadata } from "./fabric-metadata";
+import {
+  isCanvasPreviewObject,
+  isCanvasShapeTextEditorObject,
+  readCanvasElementMetadata,
+} from "./fabric-metadata";
 import {
   DEFAULT_SHAPE_TEXT_ALIGN,
   DEFAULT_STANDALONE_TEXT_ALIGN,
@@ -23,7 +27,7 @@ function translatePointList(
 ): CanvasPoint[] | undefined {
   if (!element.points?.length) return undefined;
   const base = getElementBounds(element);
-  const metadata = getFabricMetadata(object);
+  const metadata = readCanvasElementMetadata(object);
   const left = readFabricNumber(object, "left", metadata?.baseLeft ?? base.x);
   const top = readFabricNumber(object, "top", metadata?.baseTop ?? base.y);
   const scaleX = readFabricNumber(object, "scaleX", 1);
@@ -40,13 +44,10 @@ function fabricObjectToElement(
   object: FabricObjectLike,
   z: number,
 ): CanvasElementV1 | null {
-  if (
-    object.get("isCanvasPreview") === true ||
-    object.get("isCanvasShapeTextEditor") === true
-  ) {
+  if (isCanvasPreviewObject(object) || isCanvasShapeTextEditorObject(object)) {
     return null;
   }
-  const metadata = getFabricMetadata(object);
+  const metadata = readCanvasElementMetadata(object);
   if (!metadata?.element) return null;
 
   const base = metadata.element;

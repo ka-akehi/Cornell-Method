@@ -1,4 +1,4 @@
-import { decodeApiErrorResponse } from "@/shared/http";
+import { decodeApiErrorResponse } from "@/shared/http/client";
 import { NotesRemoteError } from "./error";
 
 export function jsonHeaders() {

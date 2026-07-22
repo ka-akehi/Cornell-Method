@@ -1,7 +1,7 @@
 import type {
   ApiErrorBody,
   ApiFieldError,
-} from "@/shared/http";
+} from "@/shared/http/client";
 
 export class NotesRemoteError extends Error {
   readonly status: number;

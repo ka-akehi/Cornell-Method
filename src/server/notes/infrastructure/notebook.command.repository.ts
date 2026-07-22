@@ -2,7 +2,6 @@ import { prisma } from "@/server/infrastructure/prisma";
 import type {
   NotebookInput,
 } from "@/modules/notes/contracts";
-import type { NotebookWithDetailRelations } from "@/server/notes/presenters";
 import { findNoteDetail } from "./read.repository";
 import { prepareCanvasPersistence } from "./canvas.persistence";
 import {
@@ -21,7 +20,7 @@ function dateFromDateOnly(value: string) {
 
 export async function createNoteRecord(
   input: NotebookInput,
-): Promise<NotebookWithDetailRelations> {
+) {
   const canvas = prepareCanvasPersistence(input);
   const notebookId = await prisma.$transaction(async (tx) => {
     const notebook = await tx.notebook.create({
@@ -57,7 +56,7 @@ export async function createNoteRecord(
 export async function updateNoteRecord(
   id: string,
   input: NotebookInput,
-): Promise<NotebookWithDetailRelations | null> {
+) {
   const existing = await findExistingNote(id);
 
   if (!existing) {

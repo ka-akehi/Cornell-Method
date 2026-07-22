@@ -1,3 +1,5 @@
+import type { NoteBodyMode } from "@/modules/notes/contracts";
+
 type TagRelation = {
   tag: {
     id: string;
@@ -14,7 +16,7 @@ export function dateTimeString(date: Date | null) {
   return date ? date.toISOString() : null;
 }
 
-export function bodyModeString(bodyMode: string) {
+export function bodyModeString(bodyMode: string): NoteBodyMode {
   if (bodyMode === "markdown" || bodyMode === "canvas") {
     return bodyMode;
   }

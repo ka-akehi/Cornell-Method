@@ -1,4 +1,4 @@
-import { NoteEditor } from "../_components/note-editor";
+import { NoteEditor } from "@/modules/notes/ui/components";
 
 export default function NewNotePage() {
   return (

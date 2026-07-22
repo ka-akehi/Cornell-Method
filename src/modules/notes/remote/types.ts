@@ -1,13 +1,7 @@
-import type {
-  NoteBodyMode,
-} from "@/modules/notes/contracts";
+import type { NoteBodyMode, TagDto } from "@/modules/notes/contracts";
 import type { CanvasDocumentV1 } from "@/shared/canvas";
 
-export type NoteTag = {
-  id: string;
-  name: string;
-  color: string | null;
-};
+export type NoteTag = TagDto;
 
 export type NotebookListItem = {
   id: string;
