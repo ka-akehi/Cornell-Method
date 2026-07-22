@@ -1,10 +1,7 @@
 import type { ReviewUpdateInput } from "@/modules/notes/contracts";
+import { dateOnlyToUtcDate } from "@/shared/date";
 import { prisma } from "@/server/infrastructure/prisma";
 import { findExistingNote } from "./note-existence.repository";
-
-function dateFromDateOnly(value: string) {
-  return new Date(`${value}T00:00:00.000Z`);
-}
 
 export async function reviewNoteRecord(
   id: string,
@@ -22,7 +19,7 @@ export async function reviewNoteRecord(
     data: {
       reviewedAt,
       nextReviewDate: input.nextReviewDate
-        ? dateFromDateOnly(input.nextReviewDate)
+        ? dateOnlyToUtcDate(input.nextReviewDate)
         : null,
     },
     select: {

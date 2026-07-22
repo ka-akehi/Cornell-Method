@@ -1,7 +1,7 @@
 import type {
   CanvasElementType,
   CanvasTextAlign,
-} from "@/shared/canvas/canvas-document";
+} from "@/shared/canvas/canvas-document-types";
 import type { FabricObjectLike, FabricStyleChange } from "./fabric-types";
 
 export const DEFAULT_STROKE = "#2f5544";

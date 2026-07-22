@@ -1,5 +1,5 @@
 import type { CanvasTextAlign } from "@/shared/canvas";
-import type { CanvasNoteTool } from "./note-canvas-toolbar.types";
+import type { CanvasNoteTool } from "./canvas-toolbar.types";
 
 export type ToolbarIconName =
   | "pointer"

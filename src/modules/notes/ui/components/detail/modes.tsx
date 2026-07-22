@@ -9,17 +9,17 @@ import {
 } from "@/modules/notes/remote";
 import { normalizeSourceType } from "@/modules/notes/model";
 import { AppChromeModeReporter } from "@/shared/ui/app-chrome-state";
-import { NoteDetailReviewActions, NoteDetailViewActions } from "./note-detail-actions";
-import { NoteEditor } from "./note-editor";
-import { NoteDetailReadView } from "./note-detail-read-view";
-import type { NoteDetail } from "./note-detail-types";
+import { NoteDetailReviewActions, NoteDetailViewActions } from "./actions";
+import { NoteEditor } from "../editor/editor";
+import { NoteDetailReadView } from "./read-view";
+import type { NoteDetailResponse } from "@/modules/notes/remote";
 
-export type { NoteDetail } from "./note-detail-types";
+export type { NoteDetailResponse as NoteDetail } from "@/modules/notes/remote";
 
 type Mode = "view" | "edit" | "review";
 
 export type NoteDetailModesProps = {
-  initialNote: NoteDetail;
+  initialNote: NoteDetailResponse;
 };
 
 export function NoteDetailModes({ initialNote }: NoteDetailModesProps) {

@@ -42,8 +42,8 @@ import {
   isColorInputValue,
 } from "@/modules/notes/lib/canvas-editor-style";
 import { useNoteCanvasRuntime } from "@/modules/notes/ui/hooks";
-import { NoteCanvasSurface } from "./note-canvas-surface";
-import { NoteCanvasToolbar } from "./note-canvas-toolbar";
+import { NoteCanvasSurface } from "./surface";
+import { NoteCanvasToolbar } from "./toolbar";
 
 export function NoteCanvasEditor({
   initialDocument,

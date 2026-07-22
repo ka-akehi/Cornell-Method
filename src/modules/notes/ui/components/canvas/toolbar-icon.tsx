@@ -1,4 +1,4 @@
-import type { ToolbarIconName } from "./note-canvas-toolbar-definitions";
+import type { ToolbarIconName } from "@/modules/notes/model/canvas-toolbar-definitions";
 
 export function ToolbarIcon({ name }: { name: ToolbarIconName }) {
   let iconContent;

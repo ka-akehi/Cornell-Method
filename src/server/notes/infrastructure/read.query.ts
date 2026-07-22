@@ -1,19 +1,8 @@
 import { Prisma } from "@prisma/client";
 import type { NotesQuery } from "@/modules/notes/contracts";
+import { dateOnlyToUtcDate, todayDateString } from "@/shared/date";
 
 export const PAGE_SIZE = 50;
-
-function dateFromDateOnly(value: string) {
-  return new Date(`${value}T00:00:00.000Z`);
-}
-
-function todayDate() {
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = String(now.getMonth() + 1).padStart(2, "0");
-  const day = String(now.getDate()).padStart(2, "0");
-  return dateFromDateOnly(`${year}-${month}-${day}`);
-}
 
 export function buildNotesWhere(input: NotesQuery): Prisma.NotebookWhereInput {
   const where: Prisma.NotebookWhereInput = {
@@ -32,8 +21,8 @@ export function buildNotesWhere(input: NotesQuery): Prisma.NotebookWhereInput {
 
   if (input.from || input.to) {
     where.noteDate = {
-      ...(input.from ? { gte: dateFromDateOnly(input.from) } : {}),
-      ...(input.to ? { lte: dateFromDateOnly(input.to) } : {}),
+      ...(input.from ? { gte: dateOnlyToUtcDate(input.from) } : {}),
+      ...(input.to ? { lte: dateOnlyToUtcDate(input.to) } : {}),
     };
   }
 
@@ -49,7 +38,7 @@ export function buildNotesWhere(input: NotesQuery): Prisma.NotebookWhereInput {
 
   if (input.reviewDue) {
     where.nextReviewDate = {
-      lte: todayDate(),
+      lte: dateOnlyToUtcDate(todayDateString()),
     };
   }
 

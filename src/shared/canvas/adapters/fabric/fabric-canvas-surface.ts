@@ -1,32 +1,25 @@
-import type { CanvasPageDimensions } from "./canvas-document";
-import type { FabricCanvasLike } from "./adapters/fabric";
+import type { CanvasPageDimensions } from "../../canvas-document-types";
+import type { FabricCanvasLike } from "./fabric-types";
 
-export type CanvasSurfaceDimensionStyle = {
-  width: string;
-  height: string;
-};
-
-export type CanvasSurfaceDimensionTargets = {
+export type FabricCanvasSurfaceDimensionTargets = {
   canvas: FabricCanvasLike | null;
   canvasElement?: HTMLCanvasElement | null;
   surface: HTMLDivElement | null;
 };
 
-export function getCanvasSurfaceDimensionStyle(
-  dimensions: CanvasPageDimensions,
-): CanvasSurfaceDimensionStyle {
+function applyDimensionStyle(
+  element: HTMLElement | HTMLCanvasElement,
+  style: { width: string; height: string },
+) {
+  element.style.width = style.width;
+  element.style.height = style.height;
+}
+
+function getCanvasSurfaceDimensionStyle(dimensions: CanvasPageDimensions) {
   return {
     width: `${dimensions.width}px`,
     height: `${dimensions.height}px`,
   };
-}
-
-function applyDimensionStyle(
-  element: HTMLElement | HTMLCanvasElement,
-  style: CanvasSurfaceDimensionStyle,
-) {
-  element.style.width = style.width;
-  element.style.height = style.height;
 }
 
 /**
@@ -34,7 +27,7 @@ function applyDimensionStyle(
  * same physical size. Zoom is intentionally not involved in this operation.
  */
 export function applyCanvasSurfaceDimensions(
-  targets: CanvasSurfaceDimensionTargets,
+  targets: FabricCanvasSurfaceDimensionTargets,
   dimensions: CanvasPageDimensions,
 ) {
   const { canvas, canvasElement, surface } = targets;

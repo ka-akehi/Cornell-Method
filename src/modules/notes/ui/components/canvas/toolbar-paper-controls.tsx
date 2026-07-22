@@ -6,7 +6,7 @@ import {
   CANVAS_MIN_PAGE_DIMENSION,
   type CanvasPageDimensions,
 } from "@/shared/canvas";
-import { ToolbarIcon } from "./note-canvas-toolbar-icon";
+import { ToolbarIcon } from "./toolbar-icon";
 
 type CanvasPaperSizeControlsProps = {
   pageDimensions: CanvasPageDimensions;

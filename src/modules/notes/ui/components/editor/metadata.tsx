@@ -8,8 +8,8 @@ import {
   type NoteEditorTag,
   type SourceType,
 } from "@/modules/notes/model";
-import { NoteEditorTagInput } from "./note-editor-tags";
-import { TextInput, TitleInput } from "./note-editor-inputs";
+import { NoteEditorTagInput } from "./tags";
+import { TextInput, TitleInput } from "./inputs";
 
 export function NoteEditorMetadataSection({
   shell,

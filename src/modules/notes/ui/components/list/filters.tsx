@@ -1,7 +1,7 @@
 import type { FormEvent } from "react";
 import type { NoteTag } from "@/modules/notes/remote";
 import { isDateRangeInvalid } from "@/modules/notes/model";
-import { NotesListTags } from "./notes-list-tags";
+import { NotesListTags } from "./tags";
 
 type NotesListFiltersProps = {
   query: string;

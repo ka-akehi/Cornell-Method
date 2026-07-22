@@ -3,9 +3,9 @@
 import { useId } from "react";
 import type {
   CanvasNoteTool,
-} from "./note-canvas-toolbar.types";
-import type { ToolGroupDefinition } from "./note-canvas-toolbar-definitions";
-import { ToolbarIcon } from "./note-canvas-toolbar-icon";
+} from "@/modules/notes/model/canvas-toolbar.types";
+import type { ToolGroupDefinition } from "@/modules/notes/model/canvas-toolbar-definitions";
+import { ToolbarIcon } from "./toolbar-icon";
 
 type CanvasToolGroupProps = {
   group: ToolGroupDefinition;

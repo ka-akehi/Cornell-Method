@@ -3,7 +3,7 @@
 import type { ApiFieldError } from "@/shared/http/client";
 import { fieldError } from "@/modules/notes/model";
 import { MarkdownField } from "@/shared/markdown";
-import { TextInput } from "./note-editor-inputs";
+import { TextInput } from "./inputs";
 
 export function NoteEditorSummarySection({
   summary,

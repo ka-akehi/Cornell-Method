@@ -5,9 +5,9 @@ import type {
   CanvasStyleChange,
   CanvasStyleControlValues,
   CanvasStyleTarget,
-} from "./note-canvas-toolbar.types";
-import { TEXT_ALIGNMENT_OPTIONS } from "./note-canvas-toolbar-definitions";
-import { ToolbarIcon } from "./note-canvas-toolbar-icon";
+} from "@/modules/notes/model/canvas-toolbar.types";
+import { TEXT_ALIGNMENT_OPTIONS } from "@/modules/notes/model/canvas-toolbar-definitions";
+import { ToolbarIcon } from "./toolbar-icon";
 
 type CanvasTextAlignmentControlsProps = {
   styleTarget: CanvasStyleTarget;

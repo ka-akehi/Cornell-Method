@@ -5,10 +5,7 @@ import type {
   PointerEventHandler,
   RefObject,
 } from "react";
-import {
-  getCanvasSurfaceDimensionStyle,
-  type CanvasPageDimensions,
-} from "@/shared/canvas";
+import type { CanvasPageDimensions } from "@/shared/canvas";
 
 type NoteCanvasSurfaceProps = {
   mode: "editor" | "viewer";
@@ -37,7 +34,10 @@ export function NoteCanvasSurface({
   onPointerDown,
   onKeyDown,
 }: NoteCanvasSurfaceProps) {
-  const dimensionStyle = getCanvasSurfaceDimensionStyle(pageDimensions);
+  const dimensionStyle = {
+    width: `${pageDimensions.width}px`,
+    height: `${pageDimensions.height}px`,
+  };
   const isViewer = mode === "viewer";
 
   return (

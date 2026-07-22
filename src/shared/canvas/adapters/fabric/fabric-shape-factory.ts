@@ -1,4 +1,4 @@
-import type { CanvasElementV1 } from "@/shared/canvas/canvas-document";
+import type { CanvasElementV1 } from "@/shared/canvas/canvas-document-types";
 import {
   DEFAULT_SHAPE_TEXT_ALIGN,
   DEFAULT_STROKE,

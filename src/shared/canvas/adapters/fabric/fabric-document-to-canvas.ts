@@ -1,6 +1,4 @@
-import {
-  type CanvasDocumentV1,
-} from "@/shared/canvas/canvas-document";
+import type { CanvasDocumentV1 } from "@/shared/canvas/canvas-document-types";
 import { createFabricObject } from "./fabric-object-factory";
 import type { FabricApiLike, FabricCanvasLike } from "./fabric-types";
 

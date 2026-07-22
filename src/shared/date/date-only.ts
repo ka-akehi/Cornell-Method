@@ -6,6 +6,10 @@ export function todayDateString() {
   return `${year}-${month}-${day}`;
 }
 
+export function dateOnlyToUtcDate(value: string) {
+  return new Date(`${value}T00:00:00.000Z`);
+}
+
 export function addDaysToDateString(value: string, days: number) {
   const [year, month, day] = value.split("-").map(Number);
   const date = new Date(Date.UTC(year, month - 1, day));
