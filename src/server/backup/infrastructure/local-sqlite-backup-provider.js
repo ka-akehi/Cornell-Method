@@ -14,21 +14,38 @@ class BackupError extends Error {
 }
 
 function databaseUrlToPath(databaseUrl, projectRoot) {
-  const url = databaseUrl || DEFAULT_DATABASE_URL;
+  const url = databaseUrl ?? DEFAULT_DATABASE_URL;
+
+  if (typeof url !== "string" || url.trim() === "") {
+    throw new BackupError("DATABASE_URL が空です");
+  }
 
   if (!url.startsWith("file:")) {
     throw new BackupError("DATABASE_URL は file: 形式の SQLite パスを指定してください");
   }
 
-  let sqlitePath;
-  if (url.startsWith("file://")) {
-    sqlitePath = decodeURIComponent(new URL(url).pathname);
-  } else {
-    sqlitePath = decodeURIComponent(url.slice("file:".length).split("?")[0]);
+  const sqlitePath = url.slice("file:".length);
+
+  if (sqlitePath.includes("?") || sqlitePath.includes("#")) {
+    throw new BackupError(
+      "DATABASE_URL の SQLite file: URL に query または fragment は指定できません",
+    );
   }
 
-  if (!sqlitePath) {
+  if (sqlitePath.startsWith("//") && !sqlitePath.startsWith("///")) {
+    throw new BackupError(
+      "DATABASE_URL の SQLite file: URL に authority は指定できません",
+    );
+  }
+
+  if (!sqlitePath || sqlitePath.trim() === "") {
     throw new BackupError("DATABASE_URL の SQLite ファイルパスが空です");
+  }
+
+  if (sqlitePath === ":memory:") {
+    throw new BackupError(
+      "DATABASE_URL の SQLite インメモリパスは使用できません",
+    );
   }
 
   return path.isAbsolute(sqlitePath)
@@ -68,11 +85,85 @@ function parseBackupFileName(file) {
   };
 }
 
+function isPathInsideOrEqual(candidatePath, directoryPath) {
+  const relativePath = path.relative(directoryPath, candidatePath);
+
+  return (
+    relativePath === "" ||
+    (relativePath !== ".." &&
+      !relativePath.startsWith(`..${path.sep}`) &&
+      !path.isAbsolute(relativePath))
+  );
+}
+
+function realPathIfExists(file) {
+  try {
+    return fs.realpathSync(file);
+  } catch (error) {
+    if (error && typeof error === "object" && error.code === "ENOENT") {
+      return null;
+    }
+
+    throw error;
+  }
+}
+
+function assertSourceOutsideBackupDirectory(dbPath, dir) {
+  const lexicalDbPath = path.resolve(dbPath);
+  const lexicalBackupDir = path.resolve(dir);
+
+  if (isPathInsideOrEqual(lexicalDbPath, lexicalBackupDir)) {
+    throw new BackupError(
+      `SQLite DB source must be outside the backup directory: ${dbPath}`,
+    );
+  }
+
+  const canonicalDbPath = realPathIfExists(lexicalDbPath);
+  const canonicalBackupDir = realPathIfExists(lexicalBackupDir);
+
+  if (
+    canonicalDbPath &&
+    canonicalBackupDir &&
+    isPathInsideOrEqual(canonicalDbPath, canonicalBackupDir)
+  ) {
+    throw new BackupError(
+      `SQLite DB source resolves inside the backup directory: ${dbPath}`,
+    );
+  }
+}
+
 function backupEntry(projectRoot, file) {
   const fullPath = path.join(backupDir(projectRoot), file);
-  const stats = fs.statSync(fullPath);
+  let stats;
+
+  try {
+    stats = fs.lstatSync(fullPath);
+  } catch (error) {
+    if (hasErrorCode(error, "ENOENT")) {
+      return null;
+    }
+
+    throw error;
+  }
+
   const parsedFileName = parseBackupFileName(file);
-  const createdAt = parsedFileName?.createdAt || stats.mtime.toISOString();
+  if (parsedFileName === null || !stats.isFile()) {
+    return null;
+  }
+
+  try {
+    // lstatSync above excludes symlinks; statSync preserves the provider's
+    // error behavior if the regular file disappears or becomes unreadable.
+    stats = fs.statSync(fullPath);
+  } catch (error) {
+    if (hasErrorCode(error, "ENOENT")) {
+      return null;
+    }
+
+    throw error;
+  }
+
+  const createdAt = parsedFileName.createdAt || stats.mtime.toISOString();
   const parsedSortTime = new Date(createdAt).getTime();
 
   return {
@@ -80,9 +171,9 @@ function backupEntry(projectRoot, file) {
     createdAt,
     path: relativeBackupPath(file),
     sortTime: Number.isNaN(parsedSortTime) ? stats.mtime.getTime() : parsedSortTime,
-    hasMilliseconds: parsedFileName?.hasMilliseconds ?? false,
-    suffix: parsedFileName?.suffix ?? 0,
-    timestamp: parsedFileName?.timestamp ?? null,
+    hasMilliseconds: parsedFileName.hasMilliseconds,
+    suffix: parsedFileName.suffix,
+    timestamp: parsedFileName.timestamp,
   };
 }
 
@@ -92,21 +183,11 @@ function allBackupEntries(projectRoot) {
     return [];
   }
 
-  const entries = [];
-
-  fs.readdirSync(dir)
+  return fs
+    .readdirSync(dir)
     .filter((file) => file.endsWith(".db"))
-    .forEach((file) => {
-      try {
-        entries.push(backupEntry(projectRoot, file));
-      } catch (error) {
-        if (!hasErrorCode(error, "ENOENT")) {
-          throw error;
-        }
-      }
-    });
-
-  return entries
+    .map((file) => backupEntry(projectRoot, file))
+    .filter(Boolean)
     .sort(
       (a, b) =>
         b.sortTime - a.sortTime ||
@@ -126,7 +207,7 @@ function toPublicBackupEntry(entry) {
 
 function resolveDatabasePath(options = {}) {
   const projectRoot = options.projectRoot || process.cwd();
-  return databaseUrlToPath(options.databaseUrl || process.env.DATABASE_URL, projectRoot);
+  return databaseUrlToPath(options.databaseUrl ?? process.env.DATABASE_URL, projectRoot);
 }
 
 function listBackups(options = {}) {
@@ -241,6 +322,10 @@ function createBackup(options = {}) {
     projectRoot,
     databaseUrl: options.databaseUrl,
   });
+  const dir = backupDir(projectRoot);
+
+  assertSourceOutsideBackupDirectory(dbPath, dir);
+
   if (!fs.existsSync(dbPath)) {
     throw new BackupError(`SQLite DB file not found: ${dbPath}`);
   }
@@ -250,7 +335,6 @@ function createBackup(options = {}) {
     throw new BackupError(`SQLite DB path is not a file: ${dbPath}`);
   }
 
-  const dir = backupDir(projectRoot);
   fs.mkdirSync(dir, { recursive: true });
 
   const timestamp = timestampForFileName();

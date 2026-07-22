@@ -163,6 +163,7 @@ MVP の初期データに seed は使いません。検証用データは `/note
 - [ ] `/notes` で To の日付フィルタが効く
 - [ ] `/notes` で From > To の場合に validation error が表示される
 - [ ] `/notes` でタグフィルタが OR 条件で効く
+- [ ] `/notes` でカンマを含むタグ名（例: `alpha,beta`）を選ぶと、1 件の完全一致タグとして検索できる
 - [ ] `/notes` でタグフィルタの重複追加が防止される
 - [ ] `/notes` でタグ候補取得中、タグ select が追加不可状態になる
 - [ ] `/notes` で復習対象フィルタを有効にすると `nextReviewDate` が今日以前のノートだけが表示される
@@ -296,7 +297,11 @@ MVP の初期データに seed は使いません。検証用データは `/note
 - [ ] `GET /api/notes` が `query` を受け取り一覧を返す
 - [ ] `GET /api/notes` が `from` を受け取り一覧を絞り込む
 - [ ] `GET /api/notes` が `to` を受け取り一覧を絞り込む
+- [ ] `GET /api/notes?tags=alpha%2Cbeta` が `alpha,beta` という 1 件のタグを完全一致で検索する
+- [ ] `GET /api/notes?tags=alpha&tags=beta` が通常タグ `alpha` または `beta` の OR 条件で検索する
 - [ ] `GET /api/notes` が `tag` を受け取り OR 条件で一覧を絞り込む
+- [ ] `GET /api/notes?tag=alpha,beta` が legacy CSV として `alpha` または `beta` の OR 条件で検索する
+- [ ] canonical `tags` の空要素、前後空白、重複が検索条件から除外され、value 内のカンマは分割されない
 - [ ] `GET /api/notes` が `reviewDue=true` を受け取り復習対象を返す
 - [ ] `GET /api/notes` が `page`, `totalPages`, `totalCount`, `data` を返す
 - [ ] `POST /api/notes` が Notebook を作成する

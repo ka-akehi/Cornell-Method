@@ -1,4 +1,4 @@
-name: Trigger Codex P2/P3 review after standard review
+name: Trigger Codex P2/P3 review before merge
 
 on:
   pull_request_target:
@@ -7,6 +7,7 @@ on:
       - reopened
       - ready_for_review
       - synchronize
+      - closed
   schedule:
     - cron: "*/5 * * * *"
   workflow_dispatch:
@@ -24,20 +25,20 @@ on:
 permissions:
   contents: read
   issues: write
-  pull-requests: read
+  pull-requests: write
 
 concurrency:
   group: codex-p2-p3-review-${{ github.event.pull_request.number || inputs.pr_number || 'scheduled-scan' }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   trigger-p2-p3-review:
-    name: Trigger P2/P3 review after Codex standard review
+    name: Gate merge and trigger P2/P3 review
     runs-on: ubuntu-latest
     timeout-minutes: 12
 
     steps:
-      - name: Wait for standard review and post the deep-review command
+      - name: Wait for standard review, gate merge, and post deep-review command
         uses: actions/github-script@v9
         env:
           DISPATCH_PR_NUMBER: ${{ inputs.pr_number || '' }}
@@ -47,6 +48,7 @@ jobs:
           script: |
             const { owner, repo } = context.repo;
             const eventName = context.eventName;
+            const eventAction = context.payload.action;
             const sleep = (milliseconds) =>
               new Promise((resolve) => setTimeout(resolve, milliseconds));
 
@@ -58,8 +60,18 @@ jobs:
               return normalizeLogin(login) === "chatgpt-codex-connector";
             }
 
+            function isTrustedRequestAuthor(login) {
+              const normalized = normalizeLogin(login);
+              return normalized === "github-actions" || normalized === owner.toLowerCase();
+            }
+
             function isForced() {
               return String(process.env.FORCE_REVIEW ?? "false").toLowerCase() === "true";
+            }
+
+            if (eventName === "pull_request_target" && eventAction === "closed") {
+              core.info("The PR was closed or merged. This run only cancels an in-progress poll.");
+              return;
             }
 
             async function resolvePullRequestNumbers() {
@@ -93,7 +105,7 @@ jobs:
               return openPullRequests.map((pullRequest) => pullRequest.number);
             }
 
-            async function hasRequestMarker(pullRequestNumber, marker) {
+            async function findTrustedRequestComment(pullRequestNumber, marker) {
               const comments = await github.paginate(
                 github.rest.issues.listComments,
                 {
@@ -104,10 +116,36 @@ jobs:
                 },
               );
 
-              return comments.some(
+              return comments.find(
                 (comment) =>
-                  typeof comment.body === "string" && comment.body.includes(marker),
+                  isTrustedRequestAuthor(comment.user?.login) &&
+                  typeof comment.body === "string" &&
+                  comment.body.includes(marker),
               );
+            }
+
+            async function convertToDraft(pullRequest) {
+              if (pullRequest.draft) {
+                return false;
+              }
+
+              const result = await github.graphql(
+                `mutation ConvertPullRequestToDraft($pullRequestId: ID!) {
+                  convertPullRequestToDraft(input: { pullRequestId: $pullRequestId }) {
+                    pullRequest {
+                      id
+                      isDraft
+                    }
+                  }
+                }`,
+                { pullRequestId: pullRequest.node_id },
+              );
+
+              if (!result.convertPullRequestToDraft?.pullRequest?.isDraft) {
+                throw new Error("GitHub did not confirm that the PR was converted to draft.");
+              }
+
+              return true;
             }
 
             async function inspectPullRequest(pullRequestNumber, allowPolling) {
@@ -126,7 +164,10 @@ jobs:
               const shortHeadSha = headSha.slice(0, 12);
               const marker = `<!-- codex-p2-p3-review:${headSha} -->`;
 
-              if (!isForced() && (await hasRequestMarker(pullRequestNumber, marker))) {
+              if (
+                !isForced() &&
+                (await findTrustedRequestComment(pullRequestNumber, marker))
+              ) {
                 core.info(`The P2/P3 review was already requested for ${shortHeadSha}.`);
                 return;
               }
@@ -250,10 +291,35 @@ jobs:
                 return;
               }
 
-              if (!isForced() && (await hasRequestMarker(pullRequestNumber, marker))) {
+              if (
+                !isForced() &&
+                (await findTrustedRequestComment(pullRequestNumber, marker))
+              ) {
                 core.info(`Another run already requested P2/P3 review for ${shortHeadSha}.`);
                 return;
               }
+
+              const convertedToDraft = await convertToDraft(latestPullRequest.data);
+              const gatedPullRequest = await github.rest.pulls.get({
+                owner,
+                repo,
+                pull_number: pullRequestNumber,
+              });
+
+              if (
+                gatedPullRequest.data.state !== "open" ||
+                gatedPullRequest.data.head.sha !== headSha ||
+                !gatedPullRequest.data.draft
+              ) {
+                core.info(
+                  `PR #${pullRequestNumber} could not be held in draft at ${shortHeadSha}.`,
+                );
+                return;
+              }
+
+              const gateMessage = convertedToDraft
+                ? "P2/P3レビュー完了前のマージを防ぐため、このPRをDraftへ戻しました。"
+                : "このPRはDraft状態のため、P2/P3レビュー完了前にはマージできません。";
 
               const command = [
                 "@codex",
@@ -268,7 +334,11 @@ jobs:
                 `- 完了シグナル: ${completion.kind}`,
                 `- シグナル参照先: ${completion.url}`,
                 "",
-                "同じHEADを対象に、標準レビューでは省略されるP2・P3の深掘りレビューを実施してください。コードは変更しないでください。",
+                gateMessage,
+                "レビュー結果を確認して必要な対応を行った後、PR作成者が手動でReady for reviewへ戻してください。",
+                "CodexはPRをReady for reviewへ変更せず、コードも変更しないでください。",
+                "",
+                "同じHEADを対象に、標準レビューでは省略されるP2・P3の深掘りレビューを実施してください。",
                 "",
                 "重点観点:",
                 "- 現行MVP契約とPhase 2境界",
@@ -298,7 +368,7 @@ jobs:
               });
 
               core.info(
-                `Posted the Codex P2/P3 review command to PR #${pullRequestNumber} for ${shortHeadSha}.`,
+                `Held PR #${pullRequestNumber} in draft and posted the Codex P2/P3 review command for ${shortHeadSha}.`,
               );
             }
 

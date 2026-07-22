@@ -6,7 +6,15 @@ export function buildNotesQuery(input: Partial<NotesQuery>) {
   if (input.query) params.set("query", input.query);
   if (input.from) params.set("from", input.from);
   if (input.to) params.set("to", input.to);
-  if (input.tag && input.tag.length > 0) params.set("tag", input.tag.join(","));
+  if (input.tag && input.tag.length > 0) {
+    const tags = Array.from(
+      new Set(input.tag.map((tag) => tag.trim()).filter(Boolean)),
+    );
+
+    for (const tag of tags) {
+      params.append("tags", tag);
+    }
+  }
   if (input.reviewDue) params.set("reviewDue", "true");
   params.set("page", String(input.page ?? 1));
 
