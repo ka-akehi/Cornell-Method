@@ -1,6 +1,6 @@
 # 現行 MVP 契約
 
-更新日: 2026-07-19
+更新日: 2026-07-22
 状態: Canvas 操作・スタイル・図形内文字・重ね描き・用紙寸法の契約反映済み。browser runtime QA 未確認
 
 ## 1. 位置づけと正本
@@ -243,4 +243,4 @@ MVP の route、API、データ、保存、削除、復習、Markdown、端末�
 
 ## 11. 現行契約の保守メモ
 
-2026-07-19 時点で、Canvas の用紙寸法、表示倍率との分離、要素データ不変、toolbar、重なり、図形内文字、style の契約は本書へ反映済みです。現行コードの静的確認は `doc/implementation/IMPLEMENTATION_STATUS.md`、受け入れシナリオと未実施の runtime QA は `doc/testing/TEST_SCENARIOS.md`、再開時の要約は `HANDOFF_2026-07-19.md` を参照します。browser runtime の結果が得られた場合は、未確認を PASS に置き換えず証跡に合わせて各文書を更新します。
+2026-07-19 時点で、Canvas の用紙寸法、表示倍率との分離、要素データ不変、toolbar、重なり、図形内文字、style の契約は本書へ反映済みです。2026-07-22 の strict Target Architecture 移行では、この機能契約と受け入れ判定を変更していません。現行コードの静的確認は `doc/implementation/IMPLEMENTATION_STATUS.md`、受け入れシナリオと未実施の runtime QA は `doc/testing/TEST_SCENARIOS.md`、再開時の要約は `HANDOFF_2026-07-22.md`、strict 移行後の構成と最新 build の根拠は `summary/20260722/strict-architecture-final-review-after-ui-migration-20260722.md` と `summary/20260722/fresh-build-verification-20260722.md` を参照します。browser runtime の結果が得られた場合は、未確認を PASS に置き換えず証跡に合わせて各文書を更新します。

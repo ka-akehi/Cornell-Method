@@ -486,7 +486,9 @@
   background: #fff8ec;
 }
 
-@media (max-width: 1099px) and (min-width: 641px) {
+/* Keep the two-column rail layout until the 70% Cornell body column has
+   enough room for every max-content toolbar group beside the drawing rail. */
+@media (max-width: 1439px) and (min-width: 641px) {
   .note-canvas-toolbar {
     grid-template-areas:
       "operation drawing"

@@ -57,7 +57,10 @@ export function AppChrome({ children }: AppChromeProps) {
   );
 
   const state = override?.pathname === pathname ? override.state : pathState;
-  const stateLabel = state ? APP_CHROME_MODE_LABELS[state] : null;
+  const visibleState = state === "create" ? null : state;
+  const stateLabel = visibleState
+    ? APP_CHROME_MODE_LABELS[visibleState]
+    : null;
 
   return (
     <AppChromeStateProvider state={state} setState={setState}>
@@ -110,10 +113,10 @@ export function AppChrome({ children }: AppChromeProps) {
               </nav>
               <div
                 className="app-chrome-state-slot shrink-0"
-                data-state={state ?? "idle"}
-                role={state ? "status" : undefined}
-                aria-live="polite"
-                aria-atomic="true"
+                data-state={visibleState ?? "idle"}
+                role={visibleState ? "status" : undefined}
+                aria-live={visibleState ? "polite" : undefined}
+                aria-atomic={visibleState ? "true" : undefined}
               >
                 {stateLabel ? (
                   <span className="app-chrome-state-badge">
