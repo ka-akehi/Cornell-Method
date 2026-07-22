@@ -26,6 +26,12 @@ MVP の主な機能:
 npm install
 ```
 
+`DATABASE_URL` は Prisma CLI、Next runtime、`npm run backup:copy` で共有します。プロジェクトルートの `.env` に設定でき、shell で明示した `DATABASE_URL` は `.env` より優先されます。未指定の場合は、3 つとも `file:./dev.db` を使います。空文字・空白のみ・非 `file:` URL・パスが空の `file:` URL は、別 DB へ fallback せずエラー終了します。`.env` が存在するのに読み込めない場合も fallback せずエラー終了します。custom path を使う場合も、同じプロジェクトルート基準の SQLite URL を設定してください。`file:./relative.db`、`file:/absolute/path.db`、`file:///absolute/path.db` の relative / absolute URL を使用でき、query (`?`)・fragment (`#`) と `file://host/path` の authority は非対応として明示的に拒否します。パス中の `%20` などの percent encoding は decode せず、`encoded%20name.db` という実ファイル名として扱います。
+
+```env
+DATABASE_URL="file:./prisma/dev.db"
+```
+
 Prisma Client を生成し、SQLite DB を作成します。
 
 ```bash
@@ -34,12 +40,6 @@ npm run prisma:migrate
 ```
 
 MVP では seed は不要です。`package.json` に seed script はなく、初期データは `/notes/new` の UI または `POST /api/notes` から作成します。
-
-`DATABASE_URL` は未指定の場合、`prisma.config.ts` の設定により `file:./dev.db` を使います。明示したい場合は、プロジェクトルートに `.env` を作り、次のように指定してください。
-
-```env
-DATABASE_URL="file:./dev.db"
-```
 
 開発サーバーを起動します。
 
@@ -62,7 +62,7 @@ http://localhost:3000/notes
 | `npm run lint` | ESLint を実行 |
 | `npm run prisma:generate` | Prisma Client を生成 |
 | `npm run prisma:migrate` | Prisma migration を適用し SQLite DB を作成 / 更新 |
-| `npm run backup:copy` | SQLite DB ファイルを `backup/` 配下へコピー |
+| `npm run backup:copy` | プロジェクトルートの `.env`（shell の `DATABASE_URL` があればそちらを優先）と同じ SQLite DB を `backup/` 配下へコピー |
 | `npm run diagrams:build` | Mermaid 図を `.mmd` に抽出し、SVG を生成 |
 
 ## 主要画面
@@ -174,6 +174,8 @@ npm run prisma:generate
 
 - 画面から作成: `/backup`
 - コマンドで作成: `npm run backup:copy`
+
+`npm run backup:copy` は開始時にプロジェクト直下の `.env` を読み込みます。shell の `DATABASE_URL` は上書きされず、空・空白・非 `file:` URL・空 path の URL、query / fragment 付き URL、authority 付き `file://` URL や、custom path の DB が存在しない場合は fallback の `dev.db` をコピーせずエラーになります。runtime と同じく、percent-encoded path は decode せず URL の文字列どおりの実ファイル名を対象にします。
 
 仕様:
 
