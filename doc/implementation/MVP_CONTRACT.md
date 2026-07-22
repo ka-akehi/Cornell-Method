@@ -130,10 +130,13 @@ MVP の目的は、ローカル個人利用で、Cornell Method のノートを�
 | Query | 内容 |
 | --- | --- |
 | `query` | title、既存 Markdown mode の body、summary、Cue text、Canvas `searchText` の部分一致 |
-| `tag` | タグ名のカンマ区切り。複数タグは OR 条件、重複・空要素は除外 |
+| `tags` | canonical transport。タグ名を repeated query parameter で指定する（例: `tags=alpha%2Cbeta&tags=読書`）。各 value は 1 件の完全一致タグとして扱い、trim 後に空要素・重複を除外する。value 内のカンマは分割しない |
+| `tag` | legacy transport。タグ名のカンマ区切り。複数タグは OR 条件、重複・空要素は除外する。既存の `tag=読書,英語` 呼び出しとの後方互換のために受け付ける |
 | `from` / `to` | `noteDate` の開始日・終了日。片側指定可 |
 | `reviewDue` | `true` の場合、`nextReviewDate` が今日以前のノート |
 | `page` | 1 始まり。1 ページ 50 件 |
+
+一覧 UI からの検索は `tags` を canonical とし、選択したタグごとに同じ parameter を 1 回ずつ送信します。`tags` と legacy `tag` が同時に指定された場合は、それぞれの方式で正規化したタグを OR 条件として統合します。
 
 response は `{ page, totalPages, totalCount, data }` です。並び順は `noteDate desc, updatedAt desc` 固定です。`from > to` や無効な日付は `400 invalid_query` とし、0 件は `200` の空配列で返します。
 
