@@ -3,8 +3,8 @@
 import { useId } from "react";
 import type {
   CanvasNoteTool,
-} from "@/modules/notes/model/canvas-toolbar.types";
-import type { ToolGroupDefinition } from "@/modules/notes/model/canvas-toolbar-definitions";
+  ToolGroupDefinition,
+} from "@/modules/notes/ui/canvas";
 import { ToolbarIcon } from "./toolbar-icon";
 
 type CanvasToolGroupProps = {

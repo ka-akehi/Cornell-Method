@@ -9,12 +9,15 @@ import type {
 } from "@/shared/canvas/adapters/fabric";
 import type {
   CanvasNoteTool,
+  CanvasStyleDefaults,
+} from "@/modules/notes/lib/canvas-editor-types";
+import type {
   CanvasStyleChange,
   CanvasStyleControlValues,
-  CanvasStyleDefaults,
   SelectedCanvasStyle,
-} from "@/modules/notes/lib/canvas-editor-contract";
-import type { RuntimeRef } from "../canvas/shape-text-editor-session";
+} from "./canvas-editor-types";
+
+export type RuntimeRef<T> = { current: T };
 
 export type CanvasRuntimeOptions = {
   initialDocument: CanvasDocumentV1 | null;

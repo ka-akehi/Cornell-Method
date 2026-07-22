@@ -27,7 +27,8 @@ import {
 import type {
   CanvasRuntimeOptions,
   CanvasRuntimeResult,
-} from "./canvas-runtime-contract";
+  CanvasStyleChange,
+} from "../canvas";
 import {
   DRAW_DRAG_THRESHOLD,
   createDraggedElement,
@@ -40,17 +41,16 @@ import {
   isEditingStandaloneText,
   readFabricString,
   readSelectedCanvasStyle,
-} from "@/modules/notes/lib/canvas-editor-style";
+} from "../canvas";
 import {
   createShapeTextEditorSessionController,
   type ShapeTextEditSession,
   type ShapeTextEditorSessionController,
 } from "../canvas/shape-text-editor-session";
 import type {
-  CanvasStyleChange,
   CanvasStyleDefaults,
   DragDraft,
-} from "@/modules/notes/lib/canvas-editor-contract";
+} from "@/modules/notes/lib/canvas-editor-types";
 
 type EraseSession = {
   deletedObjects: Set<FabricObjectLike>;

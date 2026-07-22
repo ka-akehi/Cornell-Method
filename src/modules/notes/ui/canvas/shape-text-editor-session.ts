@@ -20,22 +20,23 @@ import {
   readFabricInteractionState,
   shapeTextStyleForEditing,
   textStylesEqual,
-} from "@/modules/notes/lib/canvas-editor-style";
+} from "./fabric-style-bridge";
 import {
   isShapeElement,
   replaceShapeText,
 } from "@/modules/notes/lib/canvas-editor-document";
 import type {
   CanvasNoteTool,
+  CanvasStyleDefaults,
+  ShapeCanvasElement,
+} from "@/modules/notes/lib/canvas-editor-types";
+import type {
   CanvasStyleChange,
   CanvasStyleControlValues,
-  CanvasStyleDefaults,
   FabricInteractionState,
   SelectedCanvasStyle,
-  ShapeCanvasElement,
-} from "@/modules/notes/lib/canvas-editor-contract";
-
-export type RuntimeRef<T> = { current: T };
+} from "./canvas-editor-types";
+import type { RuntimeRef } from "./canvas-runtime-types";
 
 export type EditableFabricTextObject = FabricObjectLike & {
   enterEditing?: () => void;

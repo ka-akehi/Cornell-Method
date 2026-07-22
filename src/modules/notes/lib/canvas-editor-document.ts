@@ -4,7 +4,7 @@ import {
   type CanvasElementTextStyle,
   type CanvasElementV1,
 } from "@/shared/canvas";
-import type { ShapeCanvasElement } from "./canvas-editor-contract";
+import type { ShapeCanvasElement } from "./canvas-editor-types";
 
 export const EMPTY_CANVAS_DOCUMENT = createEmptyCanvasDocument();
 

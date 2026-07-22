@@ -3,27 +3,11 @@
 import {
   findToolDefinition,
   getToolGroup,
-} from "@/modules/notes/model/canvas-toolbar-definitions";
+} from "@/modules/notes/ui/canvas";
 import { CanvasHistoryActions, CanvasToolGroup } from "./toolbar-actions";
 import { CanvasPaperSizeControls } from "./toolbar-paper-controls";
 import { CanvasStyleControls } from "./toolbar-style-controls";
-import type { NoteCanvasToolbarProps } from "@/modules/notes/model/canvas-toolbar.types";
-
-export {
-  CANVAS_DEFAULT_FONT_SIZE,
-  CANVAS_DEFAULT_STROKE_WIDTH,
-  CANVAS_MAX_FONT_SIZE,
-  CANVAS_MAX_STROKE_WIDTH,
-  CANVAS_MIN_FONT_SIZE,
-  CANVAS_MIN_STROKE_WIDTH,
-} from "@/modules/notes/model/canvas-toolbar.types";
-export type {
-  CanvasNoteTool,
-  CanvasStyleChange,
-  CanvasStyleControlValues,
-  CanvasStyleTarget,
-  NoteCanvasToolbarProps,
-} from "@/modules/notes/model/canvas-toolbar.types";
+import type { NoteCanvasToolbarProps } from "@/modules/notes/ui/canvas";
 
 export function NoteCanvasToolbar({
   tool,

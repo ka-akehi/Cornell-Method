@@ -1,25 +1,10 @@
 import type { CanvasPageDimensions } from "@/shared/canvas";
+import type { CanvasNoteTool } from "@/modules/notes/lib/canvas-editor-types";
 import type {
-  CanvasNoteTool,
   CanvasStyleChange,
   CanvasStyleControlValues,
   CanvasStyleTarget,
-} from "@/modules/notes/lib/canvas-editor-contract";
-
-export {
-  CANVAS_DEFAULT_FONT_SIZE,
-  CANVAS_DEFAULT_STROKE_WIDTH,
-  CANVAS_MAX_FONT_SIZE,
-  CANVAS_MAX_STROKE_WIDTH,
-  CANVAS_MIN_FONT_SIZE,
-  CANVAS_MIN_STROKE_WIDTH,
-} from "@/modules/notes/lib/canvas-editor-contract";
-export type {
-  CanvasNoteTool,
-  CanvasStyleChange,
-  CanvasStyleControlValues,
-  CanvasStyleTarget,
-} from "@/modules/notes/lib/canvas-editor-contract";
+} from "./canvas-editor-types";
 
 export type NoteCanvasToolbarProps = {
   tool: CanvasNoteTool;

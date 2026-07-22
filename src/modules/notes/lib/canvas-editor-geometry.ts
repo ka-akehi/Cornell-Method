@@ -7,7 +7,7 @@ import type {
   CanvasNoteTool,
   CanvasStyleDefaults,
   Point,
-} from "./canvas-editor-contract";
+} from "./canvas-editor-types";
 
 export const DRAW_DRAG_THRESHOLD = 4;
 

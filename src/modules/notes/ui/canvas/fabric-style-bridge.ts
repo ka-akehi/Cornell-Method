@@ -18,17 +18,21 @@ import type {
   CanvasElementType,
   CanvasTextAlign,
 } from "@/shared/canvas";
+import type {
+  CanvasNoteTool,
+  CanvasStyleDefaults,
+  ShapeCanvasElement,
+} from "@/modules/notes/lib/canvas-editor-types";
+import type {
+  CanvasStyleChange,
+  CanvasStyleTarget,
+  FabricInteractionState,
+  SelectedCanvasStyle,
+} from "./canvas-editor-types";
 import {
   CANVAS_DEFAULT_FONT_SIZE,
   CANVAS_DEFAULT_STROKE_WIDTH,
-  type CanvasNoteTool,
-  type CanvasStyleChange,
-  type CanvasStyleDefaults,
-  type CanvasStyleTarget,
-  type SelectedCanvasStyle,
-  type ShapeCanvasElement,
-  type FabricInteractionState,
-} from "./canvas-editor-contract";
+} from "./canvas-editor-types";
 
 export { readFabricString };
 
