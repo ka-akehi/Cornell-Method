@@ -56,9 +56,71 @@ function timestampFromFileName(file) {
   return `${match[1]}T${match[2]}:${match[3]}:${match[4]}.000Z`;
 }
 
+function isPathInsideOrEqual(candidatePath, directoryPath) {
+  const relativePath = path.relative(directoryPath, candidatePath);
+
+  return (
+    relativePath === "" ||
+    (relativePath !== ".." &&
+      !relativePath.startsWith(`..${path.sep}`) &&
+      !path.isAbsolute(relativePath))
+  );
+}
+
+function realPathIfExists(file) {
+  try {
+    return fs.realpathSync(file);
+  } catch (error) {
+    if (error && typeof error === "object" && error.code === "ENOENT") {
+      return null;
+    }
+
+    throw error;
+  }
+}
+
+function assertSourceOutsideBackupDirectory(dbPath, dir) {
+  const lexicalDbPath = path.resolve(dbPath);
+  const lexicalBackupDir = path.resolve(dir);
+
+  if (isPathInsideOrEqual(lexicalDbPath, lexicalBackupDir)) {
+    throw new BackupError(
+      `SQLite DB source must be outside the backup directory: ${dbPath}`,
+    );
+  }
+
+  const canonicalDbPath = realPathIfExists(lexicalDbPath);
+  const canonicalBackupDir = realPathIfExists(lexicalBackupDir);
+
+  if (
+    canonicalDbPath &&
+    canonicalBackupDir &&
+    isPathInsideOrEqual(canonicalDbPath, canonicalBackupDir)
+  ) {
+    throw new BackupError(
+      `SQLite DB source resolves inside the backup directory: ${dbPath}`,
+    );
+  }
+}
+
 function backupEntry(projectRoot, file) {
   const fullPath = path.join(backupDir(projectRoot), file);
-  const stats = fs.statSync(fullPath);
+  let stats;
+
+  try {
+    stats = fs.lstatSync(fullPath);
+  } catch (error) {
+    if (error && typeof error === "object" && error.code === "ENOENT") {
+      return null;
+    }
+
+    throw error;
+  }
+
+  if (timestampFromFileName(file) === null || !stats.isFile()) {
+    return null;
+  }
+
   const createdAt = timestampFromFileName(file) || stats.mtime.toISOString();
 
   return {
@@ -77,8 +139,8 @@ function allBackupEntries(projectRoot) {
 
   return fs
     .readdirSync(dir)
-    .filter((file) => file.endsWith(".db"))
     .map((file) => backupEntry(projectRoot, file))
+    .filter(Boolean)
     .sort((a, b) => b.sortTime - a.sortTime || b.file.localeCompare(a.file));
 }
 
@@ -121,6 +183,9 @@ function createBackup(options = {}) {
     projectRoot,
     databaseUrl: options.databaseUrl,
   });
+  const dir = backupDir(projectRoot);
+
+  assertSourceOutsideBackupDirectory(dbPath, dir);
 
   if (!fs.existsSync(dbPath)) {
     throw new BackupError(`SQLite DB file not found: ${dbPath}`);
@@ -131,12 +196,24 @@ function createBackup(options = {}) {
     throw new BackupError(`SQLite DB path is not a file: ${dbPath}`);
   }
 
-  const dir = backupDir(projectRoot);
   fs.mkdirSync(dir, { recursive: true });
 
   const timestamp = new Date().toISOString().slice(0, 19).replace(/:/g, "-");
   const file = `${timestamp}.db`;
   const dest = path.join(dir, file);
+
+  let destinationStats;
+  try {
+    destinationStats = fs.lstatSync(dest);
+  } catch (error) {
+    if (!(error && typeof error === "object" && error.code === "ENOENT")) {
+      throw error;
+    }
+  }
+
+  if (destinationStats && !destinationStats.isFile()) {
+    throw new BackupError(`Backup destination is not a regular file: ${dest}`);
+  }
 
   fs.copyFileSync(dbPath, dest);
   pruneBackups({ projectRoot });
