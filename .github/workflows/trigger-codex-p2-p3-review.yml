@@ -1,0 +1,304 @@
+name: Trigger Codex P2/P3 review after standard review
+
+on:
+  pull_request:
+    types:
+      - opened
+      - reopened
+      - ready_for_review
+      - synchronize
+  pull_request_review:
+    types:
+      - submitted
+  issue_comment:
+    types:
+      - created
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: Pull request number to inspect
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: read
+
+concurrency:
+  group: codex-p2-p3-review-${{ github.event.pull_request.number || github.event.issue.number || inputs.pr_number }}
+  cancel-in-progress: false
+
+jobs:
+  trigger-p2-p3-review:
+    name: Trigger P2/P3 review after Codex standard review
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+
+    steps:
+      - name: Wait for the standard review and post the deep-review command
+        uses: actions/github-script@v9
+        env:
+          DISPATCH_PR_NUMBER: ${{ inputs.pr_number || '' }}
+        with:
+          retries: 3
+          script: |
+            const { owner, repo } = context.repo;
+            const eventName = context.eventName;
+            const sleep = (milliseconds) =>
+              new Promise((resolve) => setTimeout(resolve, milliseconds));
+
+            function normalizeLogin(login) {
+              return String(login ?? "").replace(/\[bot\]$/i, "").toLowerCase();
+            }
+
+            function isCodexConnector(login) {
+              return normalizeLogin(login) === "chatgpt-codex-connector";
+            }
+
+            let pullRequestNumber;
+
+            if (eventName === "workflow_dispatch") {
+              pullRequestNumber = Number(process.env.DISPATCH_PR_NUMBER);
+            } else if (eventName === "pull_request_review") {
+              pullRequestNumber = context.payload.pull_request?.number;
+
+              if (!isCodexConnector(context.payload.review?.user?.login)) {
+                core.info("The submitted review was not authored by Codex.");
+                return;
+              }
+            } else if (eventName === "pull_request") {
+              pullRequestNumber = context.payload.pull_request?.number;
+            } else if (eventName === "issue_comment") {
+              if (!context.payload.issue?.pull_request) {
+                core.info("The comment was not posted to a pull request.");
+                return;
+              }
+
+              if (context.payload.comment?.user?.type === "Bot") {
+                core.info("Bot comments do not start the polling path.");
+                return;
+              }
+
+              const firstNonEmptyLine = String(context.payload.comment?.body ?? "")
+                .split(/\r?\n/)
+                .map((line) => line.trim())
+                .find(Boolean);
+
+              if (!/^@codex\s+review\b/i.test(firstNonEmptyLine ?? "")) {
+                core.info("The comment was not a manual @codex review request.");
+                return;
+              }
+
+              pullRequestNumber = context.payload.issue.number;
+            }
+
+            if (!Number.isInteger(pullRequestNumber) || pullRequestNumber < 1) {
+              core.setFailed("A valid pull request number could not be resolved.");
+              return;
+            }
+
+            const initialPullRequest = await github.rest.pulls.get({
+              owner,
+              repo,
+              pull_number: pullRequestNumber,
+            });
+
+            if (initialPullRequest.data.state !== "open") {
+              core.info(`PR #${pullRequestNumber} is not open.`);
+              return;
+            }
+
+            const headSha = initialPullRequest.data.head.sha;
+            const shortHeadSha = headSha.slice(0, 12);
+            const marker = `<!-- codex-p2-p3-review:${headSha} -->`;
+
+            const existingComments = await github.paginate(
+              github.rest.issues.listComments,
+              {
+                owner,
+                repo,
+                issue_number: pullRequestNumber,
+                per_page: 100,
+              },
+            );
+
+            if (
+              existingComments.some(
+                (comment) =>
+                  typeof comment.body === "string" &&
+                  comment.body.includes(marker),
+              )
+            ) {
+              core.info(`The P2/P3 review was already requested for ${shortHeadSha}.`);
+              return;
+            }
+
+            const headCommit = await github.rest.repos.getCommit({
+              owner,
+              repo,
+              ref: headSha,
+            });
+            const headCommitDate = new Date(
+              headCommit.data.commit.committer?.date ??
+                headCommit.data.commit.author?.date ??
+                initialPullRequest.data.created_at,
+            ).getTime();
+
+            async function findStandardReviewCompletion() {
+              const reviews = await github.paginate(
+                github.rest.pulls.listReviews,
+                {
+                  owner,
+                  repo,
+                  pull_number: pullRequestNumber,
+                  per_page: 100,
+                },
+              );
+
+              const matchingReview = reviews
+                .filter(
+                  (review) =>
+                    isCodexConnector(review.user?.login) &&
+                    review.commit_id === headSha &&
+                    review.state !== "PENDING",
+                )
+                .sort(
+                  (left, right) =>
+                    new Date(right.submitted_at ?? 0).getTime() -
+                    new Date(left.submitted_at ?? 0).getTime(),
+                )[0];
+
+              if (matchingReview) {
+                return {
+                  kind: "pull request review",
+                  url:
+                    matchingReview.html_url ??
+                    initialPullRequest.data.html_url,
+                };
+              }
+
+              const reactions = await github.paginate(
+                github.rest.reactions.listForIssue,
+                {
+                  owner,
+                  repo,
+                  issue_number: pullRequestNumber,
+                  per_page: 100,
+                },
+              );
+
+              const matchingThumbsUp = reactions
+                .filter(
+                  (reaction) =>
+                    isCodexConnector(reaction.user?.login) &&
+                    reaction.content === "+1" &&
+                    new Date(reaction.created_at ?? 0).getTime() >= headCommitDate,
+                )
+                .sort(
+                  (left, right) =>
+                    new Date(right.created_at ?? 0).getTime() -
+                    new Date(left.created_at ?? 0).getTime(),
+                )[0];
+
+              if (matchingThumbsUp) {
+                return {
+                  kind: "thumbs-up reaction (no standard findings)",
+                  url: initialPullRequest.data.html_url,
+                };
+              }
+
+              return null;
+            }
+
+            const shouldPoll =
+              eventName === "pull_request" || eventName === "issue_comment";
+            const maximumAttempts = shouldPoll ? 30 : 1;
+            let completion = null;
+
+            for (let attempt = 1; attempt <= maximumAttempts; attempt += 1) {
+              completion = await findStandardReviewCompletion();
+
+              if (completion) {
+                core.info(
+                  `Detected Codex standard-review completion via ${completion.kind}.`,
+                );
+                break;
+              }
+
+              if (attempt < maximumAttempts) {
+                core.info(
+                  `Standard review is not complete for ${shortHeadSha}; waiting (${attempt}/${maximumAttempts}).`,
+                );
+                await sleep(20_000);
+              }
+            }
+
+            if (!completion) {
+              core.info(
+                `No standard-review completion signal was found for ${shortHeadSha}.`,
+              );
+              return;
+            }
+
+            const latestPullRequest = await github.rest.pulls.get({
+              owner,
+              repo,
+              pull_number: pullRequestNumber,
+            });
+
+            if (
+              latestPullRequest.data.state !== "open" ||
+              latestPullRequest.data.head.sha !== headSha
+            ) {
+              core.info(
+                "The pull request was closed or its head changed while waiting. A newer event must handle it.",
+              );
+              return;
+            }
+
+            const command = [
+              "@codex",
+              "",
+              marker,
+              "",
+              "$cornell-code-review を使用してください。",
+              "",
+              "標準のCodex Code Review（P0/P1）の完了を確認しました。",
+              `- 対象PR: #${pullRequestNumber}`,
+              `- 検証対象HEAD: ${headSha}`,
+              `- 完了シグナル: ${completion.kind}`,
+              `- シグナル参照先: ${completion.url}`,
+              "",
+              "同じHEADを対象に、標準レビューでは省略されるP2・P3の深掘りレビューを実施してください。コードは変更しないでください。",
+              "",
+              "重点観点:",
+              "- 現行MVP契約とPhase 2境界",
+              "- Next.js App RouterのServer / Client / Route Handler境界",
+              "- React state、Effect、stale closure、Custom Hookとcomponent責務",
+              "- TypeScript、Zod、DTO、date-only / datetime、nullの契約",
+              "- Target Architectureの配置と依存方向",
+              "- Prisma transaction、SQLite、CanvasDocumentV1、Markdown sanitize、backup",
+              "- 境界値、競合、エラー処理、パフォーマンス、回帰テスト、アクセシビリティ",
+              "",
+              "出力ルール:",
+              "- P2は `## Findings` 配下に `### [P2]` として記載する",
+              "- P3は `## Non-blocking improvements` 配下に `### [P3]` として分離する",
+              "- P3は変更行に結び付く具体的な保守性・可読性改善だけとし、Nit、表記の好み、根拠のない共通化は除外する",
+              "- 各P2にはLocation、Trigger、Impact、Evidence、Suggested fix、Test、Review heuristic、Confidenceを含める",
+              "- 各P3にはLocation、Current cost、Suggested improvement、Benefit、Review heuristicを含める",
+              "- 標準レビューが見落としたP0/P1を発見した場合は `## Escalated P0/P1 findings` に分離し、マージブロッキングとして明示する",
+              "- 指摘がない区分は明示的に `該当なし` とする",
+              "- 最後にContract and scope assessment、Architecture assessment、Verification、Verdictを記載する",
+            ].join("\n");
+
+            await github.rest.issues.createComment({
+              owner,
+              repo,
+              issue_number: pullRequestNumber,
+              body: command,
+            });
+
+            core.info(
+              `Posted the Codex P2/P3 review command to PR #${pullRequestNumber} for ${shortHeadSha}.`,
+            );
