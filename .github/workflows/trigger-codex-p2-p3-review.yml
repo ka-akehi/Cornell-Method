@@ -1,4 +1,4 @@
-name: Trigger Codex P2/P3 review before merge
+name: Trigger Codex P2/P3 review after standard review
 
 on:
   pull_request_target:
@@ -25,7 +25,7 @@ on:
 permissions:
   contents: read
   issues: write
-  pull-requests: write
+  pull-requests: read
 
 concurrency:
   group: codex-p2-p3-review-${{ github.event.pull_request.number || inputs.pr_number || 'scheduled-scan' }}
@@ -33,12 +33,12 @@ concurrency:
 
 jobs:
   trigger-p2-p3-review:
-    name: Gate merge and trigger P2/P3 review
+    name: Trigger P2/P3 review for an open PR
     runs-on: ubuntu-latest
     timeout-minutes: 12
 
     steps:
-      - name: Wait for standard review, gate merge, and post deep-review command
+      - name: Wait for standard review and post deep-review command
         uses: actions/github-script@v9
         env:
           DISPATCH_PR_NUMBER: ${{ inputs.pr_number || '' }}
@@ -70,7 +70,7 @@ jobs:
             }
 
             if (eventName === "pull_request_target" && eventAction === "closed") {
-              core.info("The PR was closed or merged. This run only cancels an in-progress poll.");
+              core.info("The PR was closed or merged. Cancelling any in-progress poll.");
               return;
             }
 
@@ -124,28 +124,12 @@ jobs:
               );
             }
 
-            async function convertToDraft(pullRequest) {
-              if (pullRequest.draft) {
-                return false;
-              }
-
-              const result = await github.graphql(
-                `mutation ConvertPullRequestToDraft($pullRequestId: ID!) {
-                  convertPullRequestToDraft(input: { pullRequestId: $pullRequestId }) {
-                    pullRequest {
-                      id
-                      isDraft
-                    }
-                  }
-                }`,
-                { pullRequestId: pullRequest.node_id },
+            function isOpenAtHead(pullRequest, headSha) {
+              return (
+                pullRequest.state === "open" &&
+                pullRequest.merged_at == null &&
+                pullRequest.head?.sha === headSha
               );
-
-              if (!result.convertPullRequestToDraft?.pullRequest?.isDraft) {
-                throw new Error("GitHub did not confirm that the PR was converted to draft.");
-              }
-
-              return true;
             }
 
             async function inspectPullRequest(pullRequestNumber, allowPolling) {
@@ -155,7 +139,10 @@ jobs:
                 pull_number: pullRequestNumber,
               });
 
-              if (initialPullRequest.data.state !== "open") {
+              if (
+                initialPullRequest.data.state !== "open" ||
+                initialPullRequest.data.merged_at != null
+              ) {
                 core.info(`PR #${pullRequestNumber} is not open.`);
                 return;
               }
@@ -251,6 +238,19 @@ jobs:
               let completion = null;
 
               for (let attempt = 1; attempt <= maximumAttempts; attempt += 1) {
+                const currentPullRequest = await github.rest.pulls.get({
+                  owner,
+                  repo,
+                  pull_number: pullRequestNumber,
+                });
+
+                if (!isOpenAtHead(currentPullRequest.data, headSha)) {
+                  core.info(
+                    `PR #${pullRequestNumber} was closed, merged, or its HEAD changed while waiting.`,
+                  );
+                  return;
+                }
+
                 completion = await findStandardReviewCompletion();
 
                 if (completion) {
@@ -281,12 +281,9 @@ jobs:
                 pull_number: pullRequestNumber,
               });
 
-              if (
-                latestPullRequest.data.state !== "open" ||
-                latestPullRequest.data.head.sha !== headSha
-              ) {
+              if (!isOpenAtHead(latestPullRequest.data, headSha)) {
                 core.info(
-                  `PR #${pullRequestNumber} was closed or its head changed while waiting.`,
+                  `PR #${pullRequestNumber} was closed, merged, or its HEAD changed before the deep-review request.`,
                 );
                 return;
               }
@@ -298,28 +295,6 @@ jobs:
                 core.info(`Another run already requested P2/P3 review for ${shortHeadSha}.`);
                 return;
               }
-
-              const convertedToDraft = await convertToDraft(latestPullRequest.data);
-              const gatedPullRequest = await github.rest.pulls.get({
-                owner,
-                repo,
-                pull_number: pullRequestNumber,
-              });
-
-              if (
-                gatedPullRequest.data.state !== "open" ||
-                gatedPullRequest.data.head.sha !== headSha ||
-                !gatedPullRequest.data.draft
-              ) {
-                core.info(
-                  `PR #${pullRequestNumber} could not be held in draft at ${shortHeadSha}.`,
-                );
-                return;
-              }
-
-              const gateMessage = convertedToDraft
-                ? "P2/P3レビュー完了前のマージを防ぐため、このPRをDraftへ戻しました。"
-                : "このPRはDraft状態のため、P2/P3レビュー完了前にはマージできません。";
 
               const command = [
                 "@codex",
@@ -334,11 +309,9 @@ jobs:
                 `- 完了シグナル: ${completion.kind}`,
                 `- シグナル参照先: ${completion.url}`,
                 "",
-                gateMessage,
-                "レビュー結果を確認して必要な対応を行った後、PR作成者が手動でReady for reviewへ戻してください。",
-                "CodexはPRをReady for reviewへ変更せず、コードも変更しないでください。",
-                "",
+                "このPRがopenで、HEADが上記SHAと一致していることを確認しました。",
                 "同じHEADを対象に、標準レビューでは省略されるP2・P3の深掘りレビューを実施してください。",
+                "コード、PR状態、ブランチは変更しないでください。",
                 "",
                 "重点観点:",
                 "- 現行MVP契約とPhase 2境界",
@@ -360,6 +333,19 @@ jobs:
                 "- 最後にContract and scope assessment、Architecture assessment、Verification、Verdictを記載する",
               ].join("\n");
 
+              const finalPullRequest = await github.rest.pulls.get({
+                owner,
+                repo,
+                pull_number: pullRequestNumber,
+              });
+
+              if (!isOpenAtHead(finalPullRequest.data, headSha)) {
+                core.info(
+                  `PR #${pullRequestNumber} was closed, merged, or its HEAD changed immediately before posting.`,
+                );
+                return;
+              }
+
               await github.rest.issues.createComment({
                 owner,
                 repo,
@@ -368,7 +354,7 @@ jobs:
               });
 
               core.info(
-                `Held PR #${pullRequestNumber} in draft and posted the Codex P2/P3 review command for ${shortHeadSha}.`,
+                `Posted the Codex P2/P3 review command to open PR #${pullRequestNumber} for ${shortHeadSha}.`,
               );
             }
 
