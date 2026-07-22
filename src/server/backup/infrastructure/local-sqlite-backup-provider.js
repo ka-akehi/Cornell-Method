@@ -14,21 +14,38 @@ class BackupError extends Error {
 }
 
 function databaseUrlToPath(databaseUrl, projectRoot) {
-  const url = databaseUrl || DEFAULT_DATABASE_URL;
+  const url = databaseUrl ?? DEFAULT_DATABASE_URL;
+
+  if (typeof url !== "string" || url.trim() === "") {
+    throw new BackupError("DATABASE_URL が空です");
+  }
 
   if (!url.startsWith("file:")) {
     throw new BackupError("DATABASE_URL は file: 形式の SQLite パスを指定してください");
   }
 
-  let sqlitePath;
-  if (url.startsWith("file://")) {
-    sqlitePath = decodeURIComponent(new URL(url).pathname);
-  } else {
-    sqlitePath = decodeURIComponent(url.slice("file:".length).split("?")[0]);
+  const sqlitePath = url.slice("file:".length);
+
+  if (sqlitePath.includes("?") || sqlitePath.includes("#")) {
+    throw new BackupError(
+      "DATABASE_URL の SQLite file: URL に query または fragment は指定できません",
+    );
   }
 
-  if (!sqlitePath) {
+  if (sqlitePath.startsWith("//") && !sqlitePath.startsWith("///")) {
+    throw new BackupError(
+      "DATABASE_URL の SQLite file: URL に authority は指定できません",
+    );
+  }
+
+  if (!sqlitePath || sqlitePath.trim() === "") {
     throw new BackupError("DATABASE_URL の SQLite ファイルパスが空です");
+  }
+
+  if (sqlitePath === ":memory:") {
+    throw new BackupError(
+      "DATABASE_URL の SQLite インメモリパスは使用できません",
+    );
   }
 
   return path.isAbsolute(sqlitePath)
@@ -92,7 +109,7 @@ function toPublicBackupEntry(entry) {
 
 function resolveDatabasePath(options = {}) {
   const projectRoot = options.projectRoot || process.cwd();
-  return databaseUrlToPath(options.databaseUrl || process.env.DATABASE_URL, projectRoot);
+  return databaseUrlToPath(options.databaseUrl ?? process.env.DATABASE_URL, projectRoot);
 }
 
 function listBackups(options = {}) {
