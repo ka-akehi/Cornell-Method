@@ -1,5 +1,5 @@
 import { todayDateString } from "@/shared/date";
-import type { SourceType } from "./note-editor-form";
+import type { SourceType } from "./note-editor-form.types";
 
 export type ReviewStatusDisplay = {
   label: string;
