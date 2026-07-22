@@ -14,7 +14,7 @@ import type {
   CanvasStyleDefaults,
   SelectedCanvasStyle,
 } from "@/modules/notes/lib/canvas-editor-contract";
-import type { RuntimeRef } from "./shape-text-editor-session";
+import type { RuntimeRef } from "../canvas/shape-text-editor-session";
 
 export type CanvasRuntimeOptions = {
   initialDocument: CanvasDocumentV1 | null;

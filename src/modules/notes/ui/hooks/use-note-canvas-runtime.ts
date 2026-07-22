@@ -45,7 +45,7 @@ import {
   createShapeTextEditorSessionController,
   type ShapeTextEditSession,
   type ShapeTextEditorSessionController,
-} from "./shape-text-editor-session";
+} from "../canvas/shape-text-editor-session";
 import type {
   CanvasStyleChange,
   CanvasStyleDefaults,
