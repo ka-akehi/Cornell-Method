@@ -4,6 +4,17 @@ import {
   emptyStringToUndefined,
 } from "./schema-helpers";
 
+function normalizeTags(tags: string[]) {
+  return Array.from(
+    new Set(tags.map((tag) => tag.trim()).filter(Boolean)),
+  );
+}
+
+const exactTagsSchema = z.preprocess(
+  (value) => (value === undefined || value === null ? [] : value),
+  z.array(z.string()).transform(normalizeTags),
+);
+
 const commaSeparatedTagsSchema = z
   .preprocess((value) => {
     if (Array.isArray(value)) {
@@ -48,6 +59,7 @@ const pageQuerySchema = z.preprocess(
 export const notesQuerySchema = z
   .object({
     query: z.preprocess(emptyStringToUndefined, z.string().trim().optional()),
+    tags: exactTagsSchema,
     tag: commaSeparatedTagsSchema.default([]),
     from: z.preprocess(emptyStringToUndefined, dateStringSchema.optional()),
     to: z.preprocess(emptyStringToUndefined, dateStringSchema.optional()),
@@ -62,6 +74,10 @@ export const notesQuerySchema = z
         message: "開始日は終了日以前の日付を入力してください",
       });
     }
-  });
+  })
+  .transform(({ tags, tag, ...input }) => ({
+    ...input,
+    tag: normalizeTags([...tags, ...tag]),
+  }));
 
 export type NotesQuery = z.infer<typeof notesQuerySchema>;

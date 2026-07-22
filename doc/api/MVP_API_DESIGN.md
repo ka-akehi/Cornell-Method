@@ -1,6 +1,6 @@
 # MVP API 設計案
 
-確認日: 2026-07-18
+確認日: 2026-07-22
 
 ## 位置づけ
 
@@ -168,13 +168,14 @@ Canvas JSON は既存の `NotebookCanvas.documentJson` 保存領域を利用し�
 | パラメータ | 必須 | 仕様 |
 | --- | --- | --- |
 | `query` | 任意 | title, legacy `bodyMode=markdown` の body, summary, cue.text, Canvas text 要素から生成した `searchText` を部分一致検索 |
-| `tag` | 任意 | タグ名。複数指定時はカンマ区切り。重複と空要素は除外 |
+| `tags` | 任意 | canonical transport。タグ名を repeated query parameter で指定する。各 value は trim 後に空要素・重複を除外し、カンマを含む value も 1 件の完全一致タグとして扱う。例: `tags=alpha%2Cbeta&tags=読書` |
+| `tag` | 任意 | legacy transport。タグ名のカンマ区切り。複数タグは OR 条件で、重複と空要素を除外する。例: `tag=読書,英語` |
 | `from` | 任意 | `noteDate` の開始日。`YYYY-MM-DD` |
 | `to` | 任意 | `noteDate` の終了日。`YYYY-MM-DD` |
 | `reviewDue` | 任意 | `true` の場合、`nextReviewDate` が今日以前のノートのみ。未指定 / 空文字 / `false` は false |
 | `page` | 任意 | 1 始まりの整数。未指定時 1 |
 
-`tags` ではなく `tag` を使う。MVP 現コードでは `tag=読書,英語` の形を正とする。
+一覧 UI / remote は `tags` を canonical とし、選択タグごとに `tags` を append する。API route は `tags` の各 value を分割せずに exact tag name として扱う。既存の `tag=tag1,tag2` 呼び出しは legacy CSV として引き続き OR 検索でき、両方の parameter がある場合は各方式で正規化した値を OR 条件として統合する。
 
 ### Success Response
 

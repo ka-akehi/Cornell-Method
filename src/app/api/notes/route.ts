@@ -16,6 +16,7 @@ export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
     const parsed = notesQuerySchema.safeParse({
       query: searchParams.get("query") ?? undefined,
+      tags: searchParams.getAll("tags"),
       tag: searchParams.get("tag") ?? undefined,
       from: searchParams.get("from") ?? undefined,
       to: searchParams.get("to") ?? undefined,
