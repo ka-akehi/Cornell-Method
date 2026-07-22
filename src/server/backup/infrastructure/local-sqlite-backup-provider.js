@@ -46,14 +46,14 @@ function relativeBackupPath(file) {
 
 function timestampFromFileName(file) {
   const match = file.match(
-    /^(\d{4}-\d{2}-\d{2})T(\d{2})-(\d{2})-(\d{2})(?:\.\d{3}Z?)?\.db$/,
+    /^(\d{4}-\d{2}-\d{2})T(\d{2})-(\d{2})-(\d{2})(?:\.(\d{3})Z?)?\.db$/,
   );
 
   if (!match) {
     return null;
   }
 
-  return `${match[1]}T${match[2]}:${match[3]}:${match[4]}.000Z`;
+  return `${match[1]}T${match[2]}:${match[3]}:${match[4]}.${match[5] ?? "000"}Z`;
 }
 
 function backupEntry(projectRoot, file) {
@@ -115,6 +115,28 @@ function pruneBackups(options = {}) {
   return staleEntries.map(toPublicBackupEntry);
 }
 
+function copyBackupFile(dbPath, dir) {
+  const timestamp = new Date().toISOString().slice(0, 19).replace(/:/g, "-");
+  let collision = 0;
+
+  while (true) {
+    const collisionPart =
+      collision === 0 ? "" : `.${String(collision).padStart(3, "0")}Z`;
+    const file = `${timestamp}${collisionPart}.db`;
+    const dest = path.join(dir, file);
+
+    try {
+      fs.copyFileSync(dbPath, dest, fs.constants.COPYFILE_EXCL);
+      return file;
+    } catch (error) {
+      if (!error || typeof error !== "object" || error.code !== "EEXIST") {
+        throw error;
+      }
+      collision += 1;
+    }
+  }
+}
+
 function createBackup(options = {}) {
   const projectRoot = options.projectRoot || process.cwd();
   const dbPath = resolveDatabasePath({
@@ -134,11 +156,7 @@ function createBackup(options = {}) {
   const dir = backupDir(projectRoot);
   fs.mkdirSync(dir, { recursive: true });
 
-  const timestamp = new Date().toISOString().slice(0, 19).replace(/:/g, "-");
-  const file = `${timestamp}.db`;
-  const dest = path.join(dir, file);
-
-  fs.copyFileSync(dbPath, dest);
+  const file = copyBackupFile(dbPath, dir);
   pruneBackups({ projectRoot });
 
   return {
