@@ -1,1 +1,5 @@
-export { addDaysToDateString, todayDateString } from "./date-only";
+export {
+  addDaysToDateString,
+  dateOnlyToUtcDate,
+  todayDateString,
+} from "./date-only";

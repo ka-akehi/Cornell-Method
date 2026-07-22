@@ -1,8 +1,8 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { NoteCanvasViewer } from "./note-canvas-viewer";
-import type { NoteDetail } from "./note-detail-types";
+import { NoteCanvasViewer } from "../canvas/viewer";
+import type { NoteDetailResponse } from "@/modules/notes/remote";
 import {
   formatDate,
   formatDateTime,
@@ -33,7 +33,7 @@ function tagStyle(color: string | null) {
   };
 }
 
-function NoteDetailTags({ tags }: { tags: NoteDetail["tags"] }) {
+function NoteDetailTags({ tags }: { tags: NoteDetailResponse["tags"] }) {
   if (tags.length === 0) {
     return <span className="text-sm text-stone-500">タグなし</span>;
   }
@@ -53,7 +53,7 @@ function NoteDetailTags({ tags }: { tags: NoteDetail["tags"] }) {
   );
 }
 
-export function NoteDetailCueList({ cues }: { cues: NoteDetail["cues"] }) {
+export function NoteDetailCueList({ cues }: { cues: NoteDetailResponse["cues"] }) {
   if (cues.length === 0) {
     return (
       <p className="border border-dashed border-stone-300/80 bg-transparent px-3 py-3 text-sm text-stone-500">
@@ -91,7 +91,7 @@ export function NoteDetailCueList({ cues }: { cues: NoteDetail["cues"] }) {
   );
 }
 
-export function NoteDetailBody({ note }: { note: NoteDetail }) {
+export function NoteDetailBody({ note }: { note: NoteDetailResponse }) {
   if (note.bodyMode === "canvas") {
     return <NoteCanvasViewer document={note.canvas} />;
   }
@@ -109,7 +109,7 @@ export function NoteDetailHeading({ title }: { title: string }) {
   );
 }
 
-export function NoteDetailMetadata({ note }: { note: NoteDetail }) {
+export function NoteDetailMetadata({ note }: { note: NoteDetailResponse }) {
   return (
     <div className="min-w-0">
       <dl className="flex min-w-0 flex-wrap items-start gap-x-8 gap-y-3 border-b border-stone-300/70 py-3 text-sm">

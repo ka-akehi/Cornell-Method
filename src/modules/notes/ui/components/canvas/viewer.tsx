@@ -2,17 +2,17 @@
 
 import { useEffect, useRef, useState } from "react";
 import {
-  applyCanvasSurfaceDimensions,
   cloneCanvasDocument,
   createEmptyCanvasDocument,
   type CanvasDocumentV1,
 } from "@/shared/canvas";
 import {
+  applyCanvasSurfaceDimensions,
   fabricDocumentToCanvas,
   type FabricApiLike,
   type FabricCanvasLike,
 } from "@/shared/canvas/adapters/fabric";
-import { NoteCanvasSurface } from "./note-canvas-surface";
+import { NoteCanvasSurface } from "./surface";
 
 type NoteCanvasViewerProps = {
   document: CanvasDocumentV1 | null;

@@ -1,4 +1,4 @@
-import type { CanvasTextAlign } from "@/shared/canvas/canvas-document";
+import type { CanvasTextAlign } from "@/shared/canvas/canvas-document-types";
 
 export type FabricEventLike = {
   e: PointerEvent;

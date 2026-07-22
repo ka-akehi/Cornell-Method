@@ -10,6 +10,7 @@ import {
   readFabricNumber,
   readFabricString,
   readFabricTextAlign,
+  readCanvasElement,
   type FabricObjectLike,
 } from "@/shared/canvas/adapters/fabric";
 import type {
@@ -17,7 +18,6 @@ import type {
   CanvasElementType,
   CanvasTextAlign,
 } from "@/shared/canvas";
-import { readCanvasElement } from "./canvas-editor-document";
 import {
   CANVAS_DEFAULT_FONT_SIZE,
   CANVAS_DEFAULT_STROKE_WIDTH,

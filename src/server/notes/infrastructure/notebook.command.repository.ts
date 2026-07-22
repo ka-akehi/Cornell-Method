@@ -1,4 +1,5 @@
 import { prisma } from "@/server/infrastructure/prisma";
+import { dateOnlyToUtcDate } from "@/shared/date";
 import type {
   NotebookInput,
 } from "@/modules/notes/contracts";
@@ -14,10 +15,6 @@ import {
 } from "./relations.repository";
 import { findExistingNote } from "./note-existence.repository";
 
-function dateFromDateOnly(value: string) {
-  return new Date(`${value}T00:00:00.000Z`);
-}
-
 export async function createNoteRecord(
   input: NotebookInput,
 ) {
@@ -26,14 +23,14 @@ export async function createNoteRecord(
     const notebook = await tx.notebook.create({
       data: {
         title: input.title,
-        noteDate: dateFromDateOnly(input.noteDate),
+        noteDate: dateOnlyToUtcDate(input.noteDate),
         sourceType: input.sourceType ?? null,
         sourceTitle: input.sourceTitle,
         bodyMode: input.bodyMode,
         body: input.bodyMode === "canvas" ? "" : input.body,
         summary: input.summary,
         nextReviewDate: input.nextReviewDate
-          ? dateFromDateOnly(input.nextReviewDate)
+          ? dateOnlyToUtcDate(input.nextReviewDate)
           : null,
       },
     });
@@ -68,14 +65,14 @@ export async function updateNoteRecord(
       where: { id },
       data: {
         title: input.title,
-        noteDate: dateFromDateOnly(input.noteDate),
+        noteDate: dateOnlyToUtcDate(input.noteDate),
         sourceType: input.sourceType ?? null,
         sourceTitle: input.sourceTitle,
         bodyMode: input.bodyMode,
         body: input.bodyMode === "canvas" ? "" : input.body,
         summary: input.summary,
         nextReviewDate: input.nextReviewDate
-          ? dateFromDateOnly(input.nextReviewDate)
+          ? dateOnlyToUtcDate(input.nextReviewDate)
           : null,
       },
     });

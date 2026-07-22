@@ -1,10 +1,10 @@
 import { z } from "zod";
+import { todayDateString } from "@/shared/date";
 import { canvasDocumentSchema } from "./canvas.schema";
 import { cueSchema } from "./cue.schema";
 import {
   dateStringSchema,
   nullableDateStringSchema,
-  todayDateString,
 } from "./date.schema";
 import { emptyStringToUndefined } from "./schema-helpers";
 import { tagSchema } from "./tag.schema";

@@ -13,12 +13,12 @@ import {
   type CanvasStyleChange,
   type CanvasStyleControlValues,
   type CanvasStyleTarget,
-} from "./note-canvas-toolbar.types";
-import { CanvasTextAlignmentControls } from "./note-canvas-toolbar-alignment-controls";
+} from "@/modules/notes/model/canvas-toolbar.types";
+import { CanvasTextAlignmentControls } from "./toolbar-alignment-controls";
 import {
   CanvasIntegerStyleInput,
   parseIntegerStyleValue,
-} from "./note-canvas-toolbar-style-input";
+} from "./toolbar-style-input";
 
 type IntegerStyleInputKey = "strokeWidth" | "fontSize";
 type IntegerStyleInputValues = Record<IntegerStyleInputKey, string>;

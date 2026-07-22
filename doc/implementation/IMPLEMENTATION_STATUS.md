@@ -33,9 +33,9 @@
 | Route | 実装状況 | 根拠 |
 | --- | --- | --- |
 | `/` | `/notes` へ redirect | `src/app/page.tsx` |
-| `/notes` | 一覧、フリーワード・日付・タグ・復習対象フィルタ、ページング | `src/app/notes/page.tsx`, `src/modules/notes/ui/components/notes-list.tsx` |
-| `/notes/new` | 明示保存の新規作成フォーム。Canvas 本文モードを初期化する | `src/app/notes/new/page.tsx`, `src/modules/notes/ui/components/note-editor.tsx`, `src/modules/notes/ui/components/note-canvas-editor.tsx` |
-| `/notes/[id]` | Canvas / 既存 Markdown の閲覧・編集・復習モード、確認後削除 | `src/app/notes/[id]/page.tsx`, `src/modules/notes/ui/components/note-detail-modes.tsx`, `src/modules/notes/ui/components/note-canvas-editor.tsx`, `src/modules/notes/ui/components/note-canvas-viewer.tsx` |
+| `/notes` | 一覧、フリーワード・日付・タグ・復習対象フィルタ、ページング | `src/app/notes/page.tsx`, `src/modules/notes/ui/components/list/list.tsx` |
+| `/notes/new` | 明示保存の新規作成フォーム。Canvas 本文モードを初期化する | `src/app/notes/new/page.tsx`, `src/modules/notes/ui/components/editor/editor.tsx`, `src/modules/notes/ui/components/canvas/editor.tsx` |
+| `/notes/[id]` | Canvas / 既存 Markdown の閲覧・編集・復習モード、確認後削除 | `src/app/notes/[id]/page.tsx`, `src/modules/notes/ui/components/detail/modes.tsx`, `src/modules/notes/ui/components/canvas/editor.tsx`, `src/modules/notes/ui/components/canvas/viewer.tsx` |
 | `/backup` | 手動バックアップ作成、最新一覧、更新・成功・失敗表示 | `src/app/backup/page.tsx` |
 
 共通ナビゲーションは `/notes`、`/notes/new`、`/backup` の 3 つを提供する。`/tasks/review` と `/notes/backup` は現行 MVP の route ではない。根拠は `src/app/layout.tsx`、`doc/implementation/MVP_CONTRACT.md` §3。
@@ -78,7 +78,7 @@ route handler の export と一致する一覧は次のとおり。これ以外�
 | `NotebookTag` | `notebookId` + `tagId` の複合主キーによる多対多関連。両方の削除は cascade。 |
 | `Cue` | `id`, `notebookId`, `text`, `order`, `createdAt`, `updatedAt`。Notebook の Cue リスト。 |
 
-`Notebook.deletedAt` は schema と一覧・詳細取得の `where deletedAt: null` に存在するが、削除処理は `prisma.notebook.delete` を呼ぶ物理削除である。`SoftDeleteBuffer`、`NotebookDraftState`、`NotebookReviewProgress`、`BackupLog`、`NoteCard`、`CueCard`、`NoteCueLink` の Prisma model はない。現行の `src/modules/notes/model/note-editor-form.ts` と `src/modules/notes/ui/components/note-editor.tsx` は Cue リストと Canvas 本文を扱い、`CueCard` / `NoteCard` の保存処理・UI・route には接続していない。
+`Notebook.deletedAt` は schema と一覧・詳細取得の `where deletedAt: null` に存在するが、削除処理は `prisma.notebook.delete` を呼ぶ物理削除である。`SoftDeleteBuffer`、`NotebookDraftState`、`NotebookReviewProgress`、`BackupLog`、`NoteCard`、`CueCard`、`NoteCueLink` の Prisma model はない。現行の `src/modules/notes/model/note-editor-form.ts` と `src/modules/notes/ui/components/editor/editor.tsx` は Cue リストと Canvas 本文を扱い、`CueCard` / `NoteCard` の保存処理・UI・route には接続していない。
 
 ## 5. 機能別の実装状況
 
@@ -86,23 +86,23 @@ route handler の export と一致する一覧は次のとおり。これ以外�
 
 | 機能 | 実装内容 | 根拠 |
 | --- | --- | --- |
-| 明示保存 | 新規は `POST /api/notes` 成功後に `/notes/[id]` へ遷移、編集は `PATCH` 成功後に閲覧へ戻る。自動保存は行わない。 | `src/modules/notes/ui/components/note-editor.tsx`, `src/modules/notes/remote/index.ts` |
+| 明示保存 | 新規は `POST /api/notes` 成功後に `/notes/[id]` へ遷移、編集は `PATCH` 成功後に閲覧へ戻る。自動保存は行わない。 | `src/modules/notes/ui/components/editor/editor.tsx`, `src/modules/notes/remote/index.ts` |
 | ノート CRUD | タイトル、学習日、学習元、Canvas または legacy Markdown 本文、Summary、復習日を保存・取得・更新・削除。 | `src/app/api/notes/route.ts`, `src/app/api/notes/[id]/route.ts`, `src/server/notes/infrastructure/notebook.command.repository.ts`, `src/server/notes/infrastructure/review.command.repository.ts` |
-| Cue | Cue の追加・削除、`order` 保存、詳細表示、更新時の全置換。空 Cue はフォームから payload に含めない。 | `src/modules/notes/ui/components/note-editor.tsx`, `src/modules/notes/model/note-editor-form.ts`, `src/server/notes/infrastructure/relations.repository.ts` |
-| タグ | 既存候補の取得、新規タグの保存時自動作成、1 ノート最大 12 件、同一ノート内の重複防止、一覧 OR フィルタ。 | `src/modules/notes/ui/components/note-editor.tsx`, `src/app/api/tags/route.ts`, `src/modules/notes/contracts/note.schema.ts` |
-| 一覧検索 | タイトル・legacy Markdown 本文・Summary・Cue・Canvas `searchText` の部分一致、日付範囲、タグ、`reviewDue`、ページング、空状態・loading・error 表示。 | `src/modules/notes/ui/components/notes-list.tsx`, `src/server/notes/infrastructure/read.repository.ts` |
-| 詳細モード | `/notes/[id]` 内で閲覧・編集・復習を切り替える。復習時は本文を隠す／表示する操作がある。 | `src/modules/notes/ui/components/note-detail-modes.tsx` |
-| Markdown 表示 | Cue / Summary の textarea と preview、GFM、sanitize、preview checkbox の表示専用化。legacy Markdown body mode は互換表示する。Canvas 本文は Canvas viewer/editor で表示する。 | `src/shared/markdown/markdown-field.tsx`, `package.json`, `src/modules/notes/ui/components/note-canvas-viewer.tsx` |
-| 確認後の削除 | 詳細画面で `window.confirm` を表示し、確定後に物理削除して `/notes` へ戻る。削除後の Undo / 個別復元は保証しない。 | `src/modules/notes/ui/components/note-detail-modes.tsx`, `src/app/api/notes/[id]/route.ts`, `prisma/schema.prisma` |
+| Cue | Cue の追加・削除、`order` 保存、詳細表示、更新時の全置換。空 Cue はフォームから payload に含めない。 | `src/modules/notes/ui/components/editor/editor.tsx`, `src/modules/notes/model/note-editor-form.ts`, `src/server/notes/infrastructure/relations.repository.ts` |
+| タグ | 既存候補の取得、新規タグの保存時自動作成、1 ノート最大 12 件、同一ノート内の重複防止、一覧 OR フィルタ。 | `src/modules/notes/ui/components/editor/editor.tsx`, `src/app/api/tags/route.ts`, `src/modules/notes/contracts/note.schema.ts` |
+| 一覧検索 | タイトル・legacy Markdown 本文・Summary・Cue・Canvas `searchText` の部分一致、日付範囲、タグ、`reviewDue`、ページング、空状態・loading・error 表示。 | `src/modules/notes/ui/components/list/list.tsx`, `src/server/notes/infrastructure/read.repository.ts` |
+| 詳細モード | `/notes/[id]` 内で閲覧・編集・復習を切り替える。復習時は本文を隠す／表示する操作がある。 | `src/modules/notes/ui/components/detail/modes.tsx` |
+| Markdown 表示 | Cue / Summary の textarea と preview、GFM、sanitize、preview checkbox の表示専用化。legacy Markdown body mode は互換表示する。Canvas 本文は Canvas viewer/editor で表示する。 | `src/shared/markdown/markdown-field.tsx`, `package.json`, `src/modules/notes/ui/components/canvas/viewer.tsx` |
+| 確認後の削除 | 詳細画面で `window.confirm` を表示し、確定後に物理削除して `/notes` へ戻る。削除後の Undo / 個別復元は保証しない。 | `src/modules/notes/ui/components/detail/modes.tsx`, `src/app/api/notes/[id]/route.ts`, `prisma/schema.prisma` |
 | 手動バックアップ | `/backup` と `POST /api/backups`、`npm run backup:copy` で DB を `backup/` へコピーし、最新 3 世代を保持する。 | `src/app/backup/page.tsx`, `src/app/api/backups/route.ts`, `src/server/backup/infrastructure/local-sqlite-backup-provider.js`, `package.json` |
 | API validation / error | Zod による body/query validation と `{ code, message, errors? }` 形式の route response。 | `src/modules/notes/contracts/note.schema.ts`, `src/shared/http/api-error.ts`, `src/shared/http/route-response.ts` |
-| Canvas persistence / search | 実装済み（静的確認）。`CanvasDocumentV1` の validation、既定 page 1200x800、`NotebookCanvas.documentJson` 保存・復元、text 要素から `searchText` を生成し一覧 query に含める処理。page 寸法 validation は 320〜4000px の整数。 | `src/shared/canvas/canvas-document.ts`, `src/modules/notes/contracts/note.schema.ts`, `src/server/notes/infrastructure/canvas.persistence.ts`, `src/server/notes/infrastructure/notebook.command.repository.ts`, `src/server/notes/infrastructure/read.repository.ts`, `src/server/notes/presenters/detail.mapper.ts` |
-| Canvas 用紙サイズ UI / 実寸 renderer | 実装済み（静的確認）。toolbar の幅・高さ `type=number` 入力、整数・320〜4000px validation、適用 / Enter 操作、保存済み `document.page` を使う editor / viewer の DOM・Fabric 寸法反映。 | `src/modules/notes/ui/components/note-canvas-toolbar.tsx`, `src/modules/notes/ui/components/note-canvas-editor.tsx`, `src/modules/notes/ui/components/note-canvas-viewer.tsx`, `src/modules/notes/ui/hooks/use-note-canvas-runtime.ts`, `src/shared/canvas/canvas-surface.ts` |
-| Canvas 用紙サイズ変更の要素不変挙動 | 実装済み（静的確認）。page の `width` / `height` だけを history / document に反映し、既存要素の `x`, `y`, `width`, `height`, `points`, `style` などを再配置・縮小・削除しない。 | `src/modules/notes/ui/components/note-canvas-editor.tsx`, `src/shared/canvas/canvas-document.ts`, `doc/implementation/MVP_CONTRACT.md` §6.1 |
-| Canvas draw.io 風 toolbar | 実装済み（静的確認）。操作、描く、線、図形、文字、消去、履歴、用紙の group、active state、ARIA、tooltip / description、用紙サイズ入力を持つ。 | `src/modules/notes/ui/components/note-canvas-toolbar.tsx`, `HANDOFF_2026-07-22.md` §4.2 |
-| Canvas tool state / eraser / history | 実装済み（静的確認）。tool は sticky、消しゴムは stroke / line / arrow / rect / ellipse / text を object 単位で消去する whole-object eraser、Undo / Redo は Canvas の client history snapshot。 | `src/modules/notes/ui/components/note-canvas-editor.tsx`, `src/modules/notes/ui/hooks/use-note-canvas-runtime.ts`, `src/shared/canvas/canvas-history.ts`, `HANDOFF_2026-07-22.md` §4.1 |
-| Canvas style controls | 実装済み（静的確認）。線幅 1〜20px（既定 1px）、文字サイズ 8〜96px（既定 12px）、color input、文字配置 `left` / `center` / `right` を提供し、選択中または図形内文字編集中に表示へ即時反映する。 | `src/modules/notes/ui/components/note-canvas-toolbar-style-controls.tsx`, `src/modules/notes/ui/hooks/use-note-canvas-runtime.ts`, `src/shared/canvas/adapters/fabric/fabric-style.ts`, `doc/implementation/MVP_CONTRACT.md` §6.2 |
-| Canvas text save boundary | 実装済み（静的確認）。standalone text は `style.fontSize` / `style.fill` / `style.textAlign`、図形内文字は `textStyle.fontSize` / `textStyle.fill` / `textStyle.textAlign` に保存する。 | `src/shared/canvas/canvas-document.ts`, `src/modules/notes/ui/hooks/use-note-canvas-runtime.ts`, `src/shared/canvas/adapters/fabric/fabric-canvas-to-document.ts`, `doc/implementation/MVP_CONTRACT.md` §6.2 |
+| Canvas persistence / search | 実装済み（静的確認）。`CanvasDocumentV1` の validation、既定 page 1200x800、`NotebookCanvas.documentJson` 保存・復元、text 要素から `searchText` を生成し一覧 query に含める処理。page 寸法 validation は 320〜4000px の整数。 | `src/shared/canvas/index.ts`（公開 facade。実体は `canvas-document-*` の責務別ファイル）、`src/modules/notes/contracts/note.schema.ts`, `src/server/notes/infrastructure/canvas.persistence.ts`, `src/server/notes/infrastructure/notebook.command.repository.ts`, `src/server/notes/infrastructure/read.repository.ts`, `src/server/notes/presenters/detail.mapper.ts` |
+| Canvas 用紙サイズ UI / 実寸 renderer | 実装済み（静的確認）。toolbar の幅・高さ `type=number` 入力、整数・320〜4000px validation、適用 / Enter 操作、保存済み `document.page` を使う editor / viewer の DOM・Fabric 寸法反映。 | `src/modules/notes/ui/components/canvas/toolbar.tsx`, `src/modules/notes/ui/components/canvas/editor.tsx`, `src/modules/notes/ui/components/canvas/viewer.tsx`, `src/modules/notes/ui/hooks/use-note-canvas-runtime.ts`, `src/shared/canvas/adapters/fabric/fabric-canvas-surface.ts` |
+| Canvas 用紙サイズ変更の要素不変挙動 | 実装済み（静的確認）。page の `width` / `height` だけを history / document に反映し、既存要素の `x`, `y`, `width`, `height`, `points`, `style` などを再配置・縮小・削除しない。 | `src/modules/notes/ui/components/canvas/editor.tsx`, `src/shared/canvas/index.ts`（公開 facadeと責務別実装）、`doc/implementation/MVP_CONTRACT.md` §6.1 |
+| Canvas draw.io 風 toolbar | 実装済み（静的確認）。操作、描く、線、図形、文字、消去、履歴、用紙の group、active state、ARIA、tooltip / description、用紙サイズ入力を持つ。 | `src/modules/notes/ui/components/canvas/toolbar.tsx`, `HANDOFF_2026-07-22.md` §4.2 |
+| Canvas tool state / eraser / history | 実装済み（静的確認）。tool は sticky、消しゴムは stroke / line / arrow / rect / ellipse / text を object 単位で消去する whole-object eraser、Undo / Redo は Canvas の client history snapshot。 | `src/modules/notes/ui/components/canvas/editor.tsx`, `src/modules/notes/ui/hooks/use-note-canvas-runtime.ts`, `src/shared/canvas/canvas-history.ts`, `HANDOFF_2026-07-22.md` §4.1 |
+| Canvas style controls | 実装済み（静的確認）。線幅 1〜20px（既定 1px）、文字サイズ 8〜96px（既定 12px）、color input、文字配置 `left` / `center` / `right` を提供し、選択中または図形内文字編集中に表示へ即時反映する。 | `src/modules/notes/ui/components/canvas/toolbar-style-controls.tsx`, `src/modules/notes/ui/hooks/use-note-canvas-runtime.ts`, `src/shared/canvas/adapters/fabric/fabric-style.ts`, `doc/implementation/MVP_CONTRACT.md` §6.2 |
+| Canvas text save boundary | 実装済み（静的確認）。standalone text は `style.fontSize` / `style.fill` / `style.textAlign`、図形内文字は `textStyle.fontSize` / `textStyle.fill` / `textStyle.textAlign` に保存する。 | `src/shared/canvas/index.ts`（公開 facadeと責務別実装）、`src/modules/notes/ui/hooks/use-note-canvas-runtime.ts`, `src/shared/canvas/adapters/fabric/fabric-canvas-to-document.ts`, `doc/implementation/MVP_CONTRACT.md` §6.2 |
 | Canvas shape inline text | 実装済み（静的確認）。`select` / `rect` / `ellipse` の対象図形をダブルクリックすると、図形外形を表示したまま inline editor を開き、確定・キャンセル後も元の shape と既存のペン線・他要素を保持する。 | `src/modules/notes/ui/hooks/shape-text-editor-session.ts`, `src/shared/canvas/adapters/fabric/fabric-shape-factory.ts`, `doc/implementation/MVP_CONTRACT.md` §6.2 |
 | Canvas overlap / drag threshold | 実装済み（静的確認）。pen / line / arrow / rect / ellipse / text は空白または既知の app-owned Canvas 要素上から開始でき、未知 metadata object、preview、inline editor overlay は遮断する。line / arrow / rect / ellipse は 4px の移動閾値を超えた場合だけ作成する。 | `src/modules/notes/ui/hooks/use-note-canvas-runtime.ts`, `src/modules/notes/lib/canvas-editor-geometry.ts`, `doc/designs/CANVAS_TOOLBAR_DESIGN.md` §5.1、`HANDOFF_2026-07-22.md` §4.1 |
 | Fabric path metadata / geometry | 実装済み（静的確認）。`path:created` の path object に app-owned `canvasElement` metadata と基準座標を付与し、adapter が points、bounds、移動後 transform を `CanvasDocumentV1` へ戻す。 | `src/modules/notes/ui/hooks/use-note-canvas-runtime.ts`, `src/shared/canvas/adapters/fabric/fabric-metadata.ts`, `src/shared/canvas/adapters/fabric/fabric-canvas-to-document.ts`, `HANDOFF_2026-07-22.md` §4.1 |
@@ -111,10 +111,10 @@ route handler の export と一致する一覧は次のとおり。これ以外�
 
 | 契約項目 | 実際の挙動 | 判定 | 根拠 |
 | --- | --- | --- | --- |
-| 復習モードの本文・Summary | 本文と Summary は復習開始時に非表示で、本文を表示した後に Summary を開ける。表示・再非表示の状態は保存しない。 | 実装済み（runtime QA は別途確認） | `src/modules/notes/ui/components/note-detail-modes.tsx` |
+| 復習モードの本文・Summary | 本文と Summary は復習開始時に非表示で、本文を表示した後に Summary を開ける。表示・再非表示の状態は保存しない。 | 実装済み（runtime QA は別途確認） | `src/modules/notes/ui/components/detail/modes.tsx` |
 | 新規 `nextReviewDate` 初期値 | 新規フォームは `noteDate` を基準に `addDaysToDateString(noteDate, 7)` で初期化され、空欄化して保存することもできる。既存ノートは未設定値を補完せず、`noteDate` 変更時も明示された次回復習日を自動移動しない。 | 実装済み（静的確認。runtime QA は別途確認） | `src/modules/notes/model/note-editor-form.initial.ts:23-62`, `src/shared/date/date-only.ts:9-17`, `doc/implementation/MVP_CONTRACT.md:59-60` |
 | 復習の次回日管理 | `POST /api/notes/:id/review` は存在し、`reviewedAt` とユーザー入力の `nextReviewDate` / `null` を更新する。日付の自動再計算はない。 | 実装済み | `src/app/api/notes/[id]/review/route.ts`, `src/server/notes/infrastructure/review.command.repository.ts:9-33` |
-| 依存ライブラリに対する高度 UI | `@dnd-kit/*`、`@uiw/react-md-editor`、`react-day-picker` は `package.json` にあるが、現行画面は native textarea / date input と手動 Cue 操作を使う。 | MVP の実装済みとは数えない | `package.json`, `src/modules/notes/ui/components/note-editor.tsx`, `src/modules/notes/ui/components/notes-list.tsx` |
+| 依存ライブラリに対する高度 UI | `@dnd-kit/*`、`@uiw/react-md-editor`、`react-day-picker` は `package.json` にあるが、現行画面は native textarea / date input と手動 Cue 操作を使う。 | MVP の実装済みとは数えない | `package.json`, `src/modules/notes/ui/components/editor/editor.tsx`, `src/modules/notes/ui/components/list/list.tsx` |
 
 ### 5.3 Runtime 検証境界（API と Browser を分離）
 
@@ -144,10 +144,10 @@ API runtime の実リクエスト結果と、ブラウザ実機での pointer / 
 
 | 領域 | 未実装の機能 | 確認結果・根拠 |
 | --- | --- | --- |
-| Draft / autosave | `NotebookDraftState`、3 秒 autosave、差分保存、version、楽観ロック、409 UI、再試行バナー | `src/app/api/**`、`prisma/schema.prisma`、`src/modules/notes/ui/components/note-editor.tsx` に対応実装なし。`draft` prop は未使用の props に留まる。仕様は `doc/implementation/MVP_CONTRACT.md` §2・§9。 |
+| Draft / autosave | `NotebookDraftState`、3 秒 autosave、差分保存、version、楽観ロック、409 UI、再試行バナー | `src/app/api/**`、`prisma/schema.prisma`、`src/modules/notes/ui/components/editor/editor.tsx` に対応実装なし。`draft` prop は未使用の props に留まる。仕様は `doc/implementation/MVP_CONTRACT.md` §2・§9。 |
 | Undo / soft delete | `SoftDeleteBuffer`、5 秒 Snackbar、`POST /api/undo`、期限切れ purge、削除後復元 | `src/app/api` に Undo route なし。削除は `src/server/notes/infrastructure/notebook.command.repository.ts` の `prisma.notebook.delete`。仕様は `doc/implementation/MVP_CONTRACT.md` §4.2・§9。 |
 | 専用復習タスク | `/tasks/review`、`/api/review-tasks`、1 日後 / 1 週間後タスク、review status、未完了バッジ、自動予定 | `src/app` と `prisma/schema.prisma` に対応 page / route / model なし。現行 MVP は `GET /api/notes?reviewDue=true` と詳細画面内復習のみ。 |
-| Card / D&D | NoteCard、CueCard の永続化、複数本文カード、`NoteCueLink`、hidden flag、D&D 並び替え | `prisma/schema.prisma` に model なし。現行の `src/modules/notes/model/note-editor-form.ts` と `src/modules/notes/ui/components/note-editor.tsx` は Cue リストと Canvas 本文を扱い、D&D import / 実装はない。 |
+| Card / D&D | NoteCard、CueCard の永続化、複数本文カード、`NoteCueLink`、hidden flag、D&D 並び替え | `prisma/schema.prisma` に model なし。現行の `src/modules/notes/model/note-editor-form.ts` と `src/modules/notes/ui/components/editor/editor.tsx` は Cue リストと Canvas 本文を扱い、D&D import / 実装はない。 |
 | PDF / HTML export | 期間 export、`GET /api/notes/export`、Playwright PDF、1 ノート 1 ページ | export route と PDF 生成コードなし。`playwright` は `scripts/render-mermaid-diagrams.js` で図の SVG 生成に使われるだけで、PDF export の証拠ではない。根拠は `src/app/api/**`、`scripts/render-mermaid-diagrams.js`、`package.json`。 |
 | タグ管理 | `POST /api/tags`、名称変更、削除、右クリック管理 UI | `src/app/api/tags/route.ts` は `GET` のみ。Tag の作成はノート保存時の upsert に限る。 |
 | バックアップ高度機能 | 起動時自動コピー、`BackupLog`、`POST /api/backups/retry`、ログ UI、自動復元 | `prisma/schema.prisma` にログ model なし、`src/app/api/backups/route.ts` は GET/POST のみ。現行は手動作成・一覧のみ。 |
@@ -159,13 +159,13 @@ API runtime の実リクエスト結果と、ブラウザ実機での pointer / 
 
 | 参照ファイル | 静的に確認できる責務 | 残る runtime / 後続確認 |
 | --- | --- | --- |
-| `src/shared/canvas/canvas-document.ts` | `CanvasDocumentV1`、既定 1200x800、320〜4000px validation、serialize / restore、`extractCanvasSearchText`。 | 無効値入力・境界値・壊れた document のブラウザ / API 実機確認。 |
+| `src/shared/canvas/index.ts`（公開 facade。実体は `canvas-document-*` の責務別ファイル） | `CanvasDocumentV1`、既定 1200x800、320〜4000px validation、serialize / restore、`extractCanvasSearchText`。 | 無効値入力・境界値・壊れた document のブラウザ / API 実機確認。 |
 | `src/modules/notes/contracts/note.schema.ts` | `bodyMode` と `canvas` の相互排他、Canvas validation の API 入力境界。 | API の field error 表示と保存時の実機確認。 |
 | `src/server/notes/infrastructure/canvas.persistence.ts` / `src/server/notes/infrastructure/notebook.command.repository.ts` | `documentJson` / `searchText` の生成と create・update 保存。page 寸法変更用の別 API / DB column はない。 | Browser UI での保存・再読込は未確認。API の page、要素 geometry、`style` / `text`、`searchText` は 2026-07-21 に実データ確認済み。 |
 | `src/server/notes/infrastructure/read.repository.ts` / `src/server/notes/presenters/detail.mapper.ts` | Canvas `searchText` を一覧検索に含め、保存済み JSON を復元する。 | 一覧検索と詳細復元のブラウザ実機確認。 |
-| `src/modules/notes/ui/components/note-canvas-editor.tsx` / `src/modules/notes/ui/hooks/use-note-canvas-runtime.ts` | toolbar から page を更新し、DOM / Fabric を `document.page` の実寸に反映する。page 更新時は要素データを変更せず、sticky tool、重ね描き、drag threshold、図形内文字、style 即時反映、消しゴムの whole-object erase、client history を扱う。 | pointer 操作、移動・resize、図形内文字 lifecycle、style、消しゴム、保存・再読込、wheel / touch の実機確認。 |
-| `src/modules/notes/ui/components/note-canvas-viewer.tsx` | 保存済み `document.page` を使って viewer の用紙を実寸描画する。 | 閲覧・復習時の表示、page 外要素の復元、responsive の実機確認。 |
-| `src/modules/notes/ui/components/note-canvas-toolbar.tsx` | 用紙の幅・高さ入力、整数・範囲 validation、適用 / Enter、tool group、sticky tool の active state、線幅・文字サイズ・color・文字配置 controls、ARIA。 | 375 / 768 / 1280 / 1440px の keyboard / touch 到達性、focus、tooltip、local rail、style の即時反映と保存境界の実機確認。 |
+| `src/modules/notes/ui/components/canvas/editor.tsx` / `src/modules/notes/ui/hooks/use-note-canvas-runtime.ts` | toolbar から page を更新し、DOM / Fabric を `document.page` の実寸に反映する。page 更新時は要素データを変更せず、sticky tool、重ね描き、drag threshold、図形内文字、style 即時反映、消しゴムの whole-object erase、client history を扱う。 | pointer 操作、移動・resize、図形内文字 lifecycle、style、消しゴム、保存・再読込、wheel / touch の実機確認。 |
+| `src/modules/notes/ui/components/canvas/viewer.tsx` | 保存済み `document.page` を使って viewer の用紙を実寸描画する。 | 閲覧・復習時の表示、page 外要素の復元、responsive の実機確認。 |
+| `src/modules/notes/ui/components/canvas/toolbar.tsx` | 用紙の幅・高さ入力、整数・範囲 validation、適用 / Enter、tool group、sticky tool の active state、線幅・文字サイズ・color・文字配置 controls、ARIA。 | 375 / 768 / 1280 / 1440px の keyboard / touch 到達性、focus、tooltip、local rail、style の即時反映と保存境界の実機確認。 |
 | `src/shared/canvas/adapters/fabric/fabric-document-to-canvas.ts` / `src/shared/canvas/adapters/fabric/fabric-canvas-to-document.ts` / `src/shared/canvas/adapters/fabric/fabric-metadata.ts` / `src/shared/canvas/adapters/fabric/fabric-shape-factory.ts` | app-owned `CanvasDocumentV1` と Fabric object の変換、page 寸法・座標の反映、path metadata、points / bounds / transform の復元、shape inline text の renderer。 | pointer で作成・移動・resize した geometry、path の保存・再読込、shape inline text lifecycle の実機確認。 |
 
 用紙サイズ変更は既存 `NotebookCanvas.documentJson` の page 更新だけで完結する。寸法専用の Prisma migration、Canvas document の自動変換、要素の自動再配置は追加しない。page 寸法だけを変更しても `searchText` の元である text 要素は変わらない。

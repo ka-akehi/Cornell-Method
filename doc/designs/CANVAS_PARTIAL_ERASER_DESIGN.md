@@ -39,7 +39,7 @@
 
 | ファイル | 現行の責務 | 部分消去で注意する点 |
 | --- | --- | --- |
-| `src/shared/canvas/canvas-document.ts` | V1 の型、既定ページ、validation、serialize / restore、`searchText` 抽出 | 部分消去後もこの契約だけを通す。V1 に mask や gap の未知フィールドを足さない |
+| `src/shared/canvas/index.ts`（公開 facade。実体は `canvas-document-types.ts`、`canvas-document-defaults.ts`、`canvas-document-validation.ts`、`canvas-document-serialization.ts`、`canvas-document-search.ts`） | V1 の型、既定ページ、validation、serialize / restore、`searchText` 抽出 | 部分消去後もこの契約だけを通す。V1 に mask や gap の未知フィールドを足さない |
 | `src/app/spikes/canvas/_lib/fabric-adapter.ts` | V1 と Fabric オブジェクトの相互変換 | Fabric オブジェクトを正本にせず、分割処理はページ座標の V1 を入力にする |
 | `src/app/notes/_components/note-canvas-editor.tsx` | Fabric の描画、編集、現在の全体消去、ページサイズ、Canvas 履歴 | pointer move ごとに履歴を積まず、消去開始時の状態から pointer up 時に一度だけ commit する |
 | `src/app/notes/_components/note-canvas-viewer.tsx` | 保存済み V1 の read-only 描画と text の補助表示 | V1 の複数 stroke は特別な viewer 実装なしで描画できる。text の検索・補助表示は従来どおり |
@@ -606,7 +606,7 @@ V1 の分割 stroke は通常の複数 Polyline なので、`NoteCanvasViewer` �
 
 - `src/server/notes/infrastructure/command.repository.ts`
 - `src/server/notes/infrastructure/read.repository.ts`
-- `src/shared/canvas/canvas-document.ts`
+- `src/shared/canvas/index.ts`（公開 facade。Canvas document の実装は責務別ファイルに分割）
 - `prisma/schema.prisma` は変更せず、変更不要であることを確認する
 - `doc/testing/TEST_SCENARIOS.md` は、実装 task の証跡を追加する場合だけ更新対象にする
 

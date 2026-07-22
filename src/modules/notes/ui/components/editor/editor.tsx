@@ -18,10 +18,10 @@ import {
   updateNote,
   type NoteDetailResponse,
 } from "@/modules/notes/remote";
-import { NoteEditorBodySection } from "./note-editor-body";
-import { NoteEditorCueSection } from "./note-editor-cues";
-import { NoteEditorMetadataSection } from "./note-editor-metadata";
-import { NoteEditorSummarySection } from "./note-editor-summary";
+import { NoteEditorBodySection } from "./body";
+import { NoteEditorCueSection } from "./cues";
+import { NoteEditorMetadataSection } from "./metadata";
+import { NoteEditorSummarySection } from "./summary";
 
 export type NoteEditorSavedNote = NoteDetailResponse;
 

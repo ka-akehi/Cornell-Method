@@ -7,14 +7,14 @@ import {
   NoteDetailHeading,
   NoteDetailMetadata,
   NoteDetailSection,
-} from "./note-detail-display";
-import type { NoteDetail } from "./note-detail-types";
+} from "./display";
+import type { NoteDetailResponse } from "@/modules/notes/remote";
 import { MarkdownPreview } from "@/shared/markdown";
 
 type ReadMode = "view" | "review";
 
 type NoteDetailReadViewProps = {
-  note: NoteDetail;
+  note: NoteDetailResponse;
   mode: ReadMode;
   error: string | null;
   showBody: boolean;

@@ -5,6 +5,8 @@ import {
 import {
   createFabricShapeTextEditor,
   fabricCanvasToDocument,
+  isCanvasShapeTextEditorObject,
+  isCanvasShapeTextEditorTarget,
   resolveFabricShapeTarget,
   type FabricApiLike,
   type FabricCanvasLike,
@@ -20,8 +22,6 @@ import {
   textStylesEqual,
 } from "@/modules/notes/lib/canvas-editor-style";
 import {
-  isCanvasShapeTextEditor,
-  isCanvasShapeTextEditorTarget,
   isShapeElement,
   replaceShapeText,
 } from "@/modules/notes/lib/canvas-editor-document";
@@ -101,7 +101,7 @@ export type ShapeTextEditorSessionController = {
 function isShapeTextEditor(
   object: FabricObjectLike | undefined,
 ): object is EditableFabricTextObject {
-  return isCanvasShapeTextEditor(object);
+  return isCanvasShapeTextEditorObject(object);
 }
 
 function readShapeTextEditorRuntime(editor: EditableFabricTextObject) {

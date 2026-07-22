@@ -1,8 +1,8 @@
 import {
   CANVAS_PAGE,
-  cloneCanvasDocument,
   type CanvasElementV1,
-} from "@/shared/canvas/canvas-document";
+} from "@/shared/canvas/canvas-document-types";
+import { cloneCanvasDocument } from "@/shared/canvas/canvas-document-serialization";
 import type {
   FabricEventLike,
   FabricObjectLike,

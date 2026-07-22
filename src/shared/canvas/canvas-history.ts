@@ -1,8 +1,8 @@
 import {
   cloneCanvasDocument,
   serializeCanvasDocument,
-  type CanvasDocumentV1,
-} from "./canvas-document";
+} from "./canvas-document-serialization";
+import type { CanvasDocumentV1 } from "./canvas-document-types";
 
 export type CanvasHistoryState = {
   past: CanvasDocumentV1[];

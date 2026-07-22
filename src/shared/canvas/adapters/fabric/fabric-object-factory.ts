@@ -1,7 +1,5 @@
-import {
-  getElementBounds,
-  type CanvasElementV1,
-} from "@/shared/canvas/canvas-document";
+import type { CanvasElementV1 } from "@/shared/canvas/canvas-document-types";
+import { getElementBounds } from "@/shared/canvas/canvas-document-geometry";
 import { attachFabricMetadata } from "./fabric-metadata";
 import {
   DEFAULT_STANDALONE_TEXT_ALIGN,

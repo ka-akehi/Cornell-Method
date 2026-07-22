@@ -4,15 +4,6 @@ import {
   type CanvasElementTextStyle,
   type CanvasElementV1,
 } from "@/shared/canvas";
-import {
-  isCanvasDrawingTarget as isFabricCanvasDrawingTarget,
-  isCanvasShapeTextEditorObject as isFabricCanvasShapeTextEditorObject,
-  isCanvasShapeTextEditorTarget as isFabricCanvasShapeTextEditorTarget,
-  readCanvasElement as readFabricCanvasElement,
-  readCanvasElementType as readFabricCanvasElementType,
-  type FabricEventLike,
-  type FabricObjectLike,
-} from "@/shared/canvas/adapters/fabric";
 import type { ShapeCanvasElement } from "./canvas-editor-contract";
 
 export const EMPTY_CANVAS_DOCUMENT = createEmptyCanvasDocument();
@@ -27,29 +18,6 @@ export function withoutEmptyTextElements(document: CanvasDocumentV1) {
 
 export function isShapeElement(element: CanvasElementV1): element is ShapeCanvasElement {
   return element.type === "rect" || element.type === "ellipse";
-}
-
-export function readCanvasElementType(object: FabricObjectLike | undefined) {
-  return readFabricCanvasElementType(object);
-}
-
-export function readCanvasElement(object: FabricObjectLike | undefined) {
-  return readFabricCanvasElement(object);
-}
-
-export function isCanvasDrawingTarget(event: FabricEventLike) {
-  return isFabricCanvasDrawingTarget(event);
-}
-
-export function isCanvasShapeTextEditor(object: FabricObjectLike | undefined) {
-  return isFabricCanvasShapeTextEditorObject(object);
-}
-
-export function isCanvasShapeTextEditorTarget(
-  event: Pick<FabricEventLike, "target" | "subTargets">,
-  editor?: FabricObjectLike,
-) {
-  return isFabricCanvasShapeTextEditorTarget(event, editor);
 }
 
 export function replaceShapeText(

@@ -1,11 +1,11 @@
 import {
   CANVAS_PAGE,
-  getElementBounds,
   type CanvasDocumentV1,
   type CanvasElementV1,
   type CanvasPageDimensions,
   type CanvasPoint,
-} from "@/shared/canvas/canvas-document";
+} from "@/shared/canvas/canvas-document-types";
+import { getElementBounds } from "@/shared/canvas/canvas-document-geometry";
 import {
   isCanvasPreviewObject,
   isCanvasShapeTextEditorObject,

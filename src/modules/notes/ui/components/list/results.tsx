@@ -1,10 +1,10 @@
 import type { NotesListResponse } from "@/modules/notes/remote";
-import { NotesListCard } from "./notes-list-card";
+import { NotesListCard } from "./card";
 import {
   NotesListEmpty,
   NotesListLoading,
-} from "./notes-list-feedback";
-import { NotesListPagination } from "./notes-list-pagination";
+} from "./feedback";
+import { NotesListPagination } from "./pagination";
 
 type NotesListResultsProps = {
   notes: NotesListResponse | null;

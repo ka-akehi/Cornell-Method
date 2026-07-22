@@ -2,17 +2,19 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  applyCanvasSurfaceDimensions,
   cloneCanvasDocument,
   createElementId,
   getElementBounds,
   type CanvasDocumentV1,
 } from "@/shared/canvas";
 import {
+  applyCanvasSurfaceDimensions,
   attachFabricMetadata,
   createFabricObject,
   fabricCanvasToDocument,
   isCanvasPreviewObject,
+  isCanvasDrawingTarget,
+  isCanvasShapeTextEditorTarget,
   isCanvasShapeTextEditorObject,
   markCanvasPreviewObject,
   readCanvasElementType,
@@ -31,10 +33,6 @@ import {
   createDraggedElement,
   pointFromPointer,
 } from "@/modules/notes/lib/canvas-editor-geometry";
-import {
-  isCanvasDrawingTarget,
-  isCanvasShapeTextEditorTarget,
-} from "@/modules/notes/lib/canvas-editor-document";
 import {
   DEFAULT_FONT_FAMILY,
   applyFabricStyleChange,

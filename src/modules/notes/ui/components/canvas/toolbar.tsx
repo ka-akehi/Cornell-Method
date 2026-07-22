@@ -3,11 +3,11 @@
 import {
   findToolDefinition,
   getToolGroup,
-} from "./note-canvas-toolbar-definitions";
-import { CanvasHistoryActions, CanvasToolGroup } from "./note-canvas-toolbar-actions";
-import { CanvasPaperSizeControls } from "./note-canvas-toolbar-paper-controls";
-import { CanvasStyleControls } from "./note-canvas-toolbar-style-controls";
-import type { NoteCanvasToolbarProps } from "./note-canvas-toolbar.types";
+} from "@/modules/notes/model/canvas-toolbar-definitions";
+import { CanvasHistoryActions, CanvasToolGroup } from "./toolbar-actions";
+import { CanvasPaperSizeControls } from "./toolbar-paper-controls";
+import { CanvasStyleControls } from "./toolbar-style-controls";
+import type { NoteCanvasToolbarProps } from "@/modules/notes/model/canvas-toolbar.types";
 
 export {
   CANVAS_DEFAULT_FONT_SIZE,
@@ -16,14 +16,14 @@ export {
   CANVAS_MAX_STROKE_WIDTH,
   CANVAS_MIN_FONT_SIZE,
   CANVAS_MIN_STROKE_WIDTH,
-} from "./note-canvas-toolbar.types";
+} from "@/modules/notes/model/canvas-toolbar.types";
 export type {
   CanvasNoteTool,
   CanvasStyleChange,
   CanvasStyleControlValues,
   CanvasStyleTarget,
   NoteCanvasToolbarProps,
-} from "./note-canvas-toolbar.types";
+} from "@/modules/notes/model/canvas-toolbar.types";
 
 export function NoteCanvasToolbar({
   tool,
