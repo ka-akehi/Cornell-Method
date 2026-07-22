@@ -25,7 +25,7 @@ on:
 permissions:
   contents: read
   issues: write
-  pull-requests: read
+  pull-requests: write
 
 concurrency:
   group: codex-p2-p3-review-${{ github.event.pull_request.number || inputs.pr_number || 'scheduled-scan' }}
@@ -44,6 +44,7 @@ jobs:
           DISPATCH_PR_NUMBER: ${{ inputs.pr_number || '' }}
           FORCE_REVIEW: ${{ inputs.force || false }}
         with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
           retries: 3
           script: |
             const { owner, repo } = context.repo;
@@ -67,6 +68,14 @@ jobs:
 
             function isForced() {
               return String(process.env.FORCE_REVIEW ?? "false").toLowerCase() === "true";
+            }
+
+            function isOpenAtHead(pullRequest, headSha) {
+              return (
+                pullRequest.state === "open" &&
+                pullRequest.merged_at == null &&
+                pullRequest.head?.sha === headSha
+              );
             }
 
             if (eventName === "pull_request_target" && eventAction === "closed") {
@@ -121,14 +130,6 @@ jobs:
                   isTrustedRequestAuthor(comment.user?.login) &&
                   typeof comment.body === "string" &&
                   comment.body.includes(marker),
-              );
-            }
-
-            function isOpenAtHead(pullRequest, headSha) {
-              return (
-                pullRequest.state === "open" &&
-                pullRequest.merged_at == null &&
-                pullRequest.head?.sha === headSha
               );
             }
 
