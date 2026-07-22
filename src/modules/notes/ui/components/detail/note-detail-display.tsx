@@ -1,7 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { NoteCanvasViewer } from "./note-canvas-viewer";
+import { NoteCanvasViewer } from "../canvas/note-canvas-viewer";
 import type { NoteDetail } from "./note-detail-types";
 import {
   formatDate,

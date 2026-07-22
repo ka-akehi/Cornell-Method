@@ -10,7 +10,7 @@ import {
 import { normalizeSourceType } from "@/modules/notes/model";
 import { AppChromeModeReporter } from "@/shared/ui/app-chrome-state";
 import { NoteDetailReviewActions, NoteDetailViewActions } from "./note-detail-actions";
-import { NoteEditor } from "./note-editor";
+import { NoteEditor } from "../editor/note-editor";
 import { NoteDetailReadView } from "./note-detail-read-view";
 import type { NoteDetail } from "./note-detail-types";
 

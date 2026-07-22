@@ -3,7 +3,7 @@
 import { MarkdownField } from "@/shared/markdown";
 import type { ApiFieldError } from "@/shared/http/client";
 import { fieldError, type NoteEditorFormState } from "@/modules/notes/model";
-import { NoteCanvasEditor } from "./note-canvas-editor";
+import { NoteCanvasEditor } from "../canvas/note-canvas-editor";
 
 export function NoteEditorBodySection({
   bodyMode,
