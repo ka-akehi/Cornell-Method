@@ -250,3 +250,5 @@ MVP では次の機能は対象外です。
 2026-06-21 時点で `npm audit --audit-level=moderate` は moderate 3 件を報告します。対象は `brace-expansion` と Next.js 経由の `postcss` です。依存更新は MVP final verification では実施していません。
 
 このアプリはローカル個人利用前提です。認証なしで動作するため、共有環境や公開環境への配置は想定していません。
+
+test
