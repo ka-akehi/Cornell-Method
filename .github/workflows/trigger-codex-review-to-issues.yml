@@ -32,39 +32,76 @@ jobs:
             const pullRequestNumber = context.payload.issue.number;
             const sourceComment = context.payload.comment;
             const sourceCommentId = String(sourceComment.id);
-            const sourceReviewUrl = sourceComment.html_url;
+            const sourceReviewUrl =
+              sourceComment.html_url ?? context.payload.issue.html_url;
             const reviewBody = (sourceComment.body ?? "").replace(/\r\n/g, "\n");
+            const reviewLines = reviewBody.split("\n");
 
             // Only react to completed Code Review summaries. The same Codex bot also
             // posts task results, so filtering solely by author would create a loop.
-            const hasFindingsHeading =
-              /(^|\n)#{1,3}\s*(Findings|指摘)\s*$/im.test(reviewBody);
-            const hasCompletionHeading =
-              /(^|\n)#{1,3}\s*(Verdict|判定|Reviewed Scope|レビュー対象|Verification|検証)\s*$/im.test(
-                reviewBody,
-              );
-            const isFollowUpResult = reviewBody.includes(
+            const findingsHeadingIndex = reviewLines.findIndex((line) =>
+              /^#{1,3}\s*(Findings|指摘)\s*$/i.test(line.trim()),
+            );
+            const hasCompletionHeading = reviewLines.some((line) =>
+              /^#{1,3}\s*(Verdict|判定|Reviewed Scope|レビュー対象|Verification|検証)\s*$/i.test(
+                line.trim(),
+              ),
+            );
+            const isFollowUpCommand = reviewBody.includes(
               "<!-- codex-review-to-issues-trigger:",
             );
 
-            if (!hasFindingsHeading || !hasCompletionHeading || isFollowUpResult) {
+            if (
+              findingsHeadingIndex < 0 ||
+              !hasCompletionHeading ||
+              isFollowUpCommand
+            ) {
               core.info("The comment is not a completed Codex Code Review summary.");
               return;
             }
 
+            // Inspect only the Findings section. The rest of a documentation review
+            // may legitimately contain phrases such as "no findings" in examples.
+            const findingsHeading = reviewLines[findingsHeadingIndex].trim();
+            const findingsHeadingLevel =
+              findingsHeading.match(/^(#{1,3})/)?.[1].length ?? 2;
+            let findingsEndIndex = reviewLines.length;
+
+            for (let index = findingsHeadingIndex + 1; index < reviewLines.length; index += 1) {
+              const nextHeading = reviewLines[index].trim().match(/^(#{1,6})\s+\S/);
+              if (nextHeading && nextHeading[1].length <= findingsHeadingLevel) {
+                findingsEndIndex = index;
+                break;
+              }
+            }
+
+            const findingsSection = reviewLines
+              .slice(findingsHeadingIndex + 1, findingsEndIndex)
+              .join("\n")
+              .trim();
+            const hasExplicitPriorityFinding =
+              /(^|\n)\s*(?:#{1,6}\s*)?(?:[-*]\s*)?\[P[0-3]\]\s+/im.test(
+                findingsSection,
+              );
+
             // Do not spend another Codex task on a review that explicitly reports
-            // no findings. Reviews with any remaining finding continue below.
+            // no findings. An explicit P0-P3 heading takes precedence over a generic
+            // no-material-issues sentence in the same section.
             const noFindingPatterns = [
               /重大な問題は確認できませんでした/,
               /重大な問題は見つかりませんでした/,
               /重大な指摘は(?:確認できませんでした|ありません)/,
               /指摘(?:事項)?はありません/,
+              /^(?:なし|該当なし)[。.]?$/m,
               /\bno\s+(?:material|actionable|blocking|significant)\s+(?:issues?|findings?)\s+(?:were\s+)?(?:found|identified)\b/i,
               /\bno\s+findings?\b/i,
               /\bfindings?\s*:\s*none\b/i,
             ];
 
-            if (noFindingPatterns.some((pattern) => pattern.test(reviewBody))) {
+            if (
+              !hasExplicitPriorityFinding &&
+              noFindingPatterns.some((pattern) => pattern.test(findingsSection))
+            ) {
               core.info("The Codex review explicitly reports no findings.");
               return;
             }
