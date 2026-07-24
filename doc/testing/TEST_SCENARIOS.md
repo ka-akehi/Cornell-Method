@@ -403,7 +403,23 @@ in-app Browser で `http://localhost:3000` を操作し、2026-07-21 に未実�
 - `CANVAS-SHAPE-TEXT-001`: `部分実施`。rect commit、ellipse cancel、他要素保持、console errorなしを確認。全 tool 別経路と繰り返し lifecycle は未確認。
 - `CANVAS-STYLE-001`: `部分実施`。standalone / shape text の font size と alignment、無効値 7 / 12.5 を確認。色、線幅、全境界値、left / center / right の全組合せは未確認。
 - `CANVAS-PERSISTENCE-STYLE-001`: `部分実施`。明示保存、viewer / editor 再読込、GET JSON、`style` / `textStyle`、Canvas text 検索を確認。用紙変更前後の同一 JSON diff と page 外要素は未確認。
-- `CANVAS-TOOLBAR-STYLE-001`: `FAIL（部分実施）`。実効約1265pxで drawing rail collapse を確認。1440pxの局所横 scroll / page overflow は確認したが、375 / 768px、touch、全 keyboard / focus は未確認。
+- `CANVAS-TOOLBAR-STYLE-001`: `部分実施`。2026-07-24 の修正後確認では、375 / 768 / 1280 / 1440px の全 viewport で page-wide overflow はなく、全 drawing tool の pointer 到達、Tab / Shift+Tab、375px touch tap を確認した。1280px の rail collapse は再現しなかった。一方、touch の Canvas scroll 干渉、focus-visible の視覚確認、style target 選択後の alignment 即時反映は未確認。
+
+### Canvas toolbar runtime QA 追補（2026-07-24）
+
+2026-07-22 に実効約 1265px で確認された drawing rail collapse の CSS 修正後状態を、権限付き headless Playwright Chromium で再確認した。詳細は `summary/20260724/canvas-toolbar-browser-qa-runtime-20260724.md` を参照する。
+
+| 項目 | 2026-07-24 の記録 |
+| --- | --- |
+| viewport | requested / effective ともに 375 / 768 / 1280 / 1440px |
+| drawing rail | 375: `305 / 461px`、768: `346 / 461px`、1280: `679 / 679px`、1440: `79 / 461px`（client / scroll）。1280px の約 8px collapse は再現しなかった |
+| pointer | ペン、直線、矢印、四角、円、文字を全 viewport で順に click。各 tool の `data-active=true` / `aria-pressed=true` と local scroll 到達を確認 |
+| keyboard | 375 / 1280 / 1440px で実際の Tab / Shift+Tab を実行し、toolbar の論理順を往復 |
+| overflow / scroll | body / document の `scrollWidth` は各 viewport と一致。1920x1080 用紙では `.note-canvas-horizontal-scroll` のみ `scrollWidth=1920`。Summary / `.note-paper-footer` へ縦 scroll 可能 |
+| touch | 375px touch context でペン tap、active / pressed state、console error 0 を確認。Canvas scroll 干渉は未確認 |
+| console | error / warning 0 |
+
+今回の追補は responsive、pointer、keyboard、主要 overflow の範囲を確認したが、touch の scroll 干渉、focus-visible の視覚確認、選択対象に対する style alignment 即時反映は未確認であるため、シナリオ全体は `部分実施` のまま維持する。
 
 ## 受け入れ証跡マトリクス
 
@@ -436,7 +452,7 @@ in-app Browser で `http://localhost:3000` を操作し、2026-07-21 に未実�
 | CANVAS-SHAPE-TEXT-001 | rect / ellipse の図形内文字 inline editor、外形と文字の表示、確定・キャンセル、他要素保持、Fabric lifecycle error 無し、配置の即時反映 | `/notes/new`、`/notes/[id]`（編集） | ブラウザ runtime（予定 viewport 1280px、pointer / keyboard。未実施） | 2026-07-19 | fixture 未作成。pen stroke、line、arrow、別図形、standalone text を含む基準 document は後続 QA で作成する。console / error 証跡なし | 未実施 | `summary/20260719/2143-sync-canvas-interaction-design-contract-20260719-5b6bd3a6-summary.md`、`HANDOFF_2026-07-22.md` §4.3、`doc/implementation/MVP_CONTRACT.md` §6.2、`src/modules/notes/ui/hooks/shape-text-editor-session.ts`、`src/shared/canvas/adapters/fabric/fabric-shape-factory.ts` |
 | CANVAS-STYLE-001 | 線幅・文字サイズの既定値と整数範囲、無効値拒否、stroke / text の色、standalone text / shape inline text の left・center・right、選択中・編集中の即時反映 | `/notes/new`、`/notes/[id]`（編集） | ブラウザ runtime（予定 viewport 1280px、pointer / keyboard。未実施） | 2026-07-19 | fixture 未作成。境界値・無効値、stroke / standalone text / shape inline text の対象別確認は後続 QA で行う。今回は runtime 証跡なし | 未実施 | `summary/20260719/2153-sync-canvas-implementation-status-20260719-7ac6f95e-summary.md`、`HANDOFF_2026-07-22.md` §4.3、`doc/implementation/MVP_CONTRACT.md` §6.2、`doc/implementation/IMPLEMENTATION_STATUS.md` §5.1、`src/modules/notes/ui/components/canvas/toolbar-style-controls.tsx`、`src/modules/notes/ui/hooks/use-note-canvas-runtime.ts`、`src/shared/canvas/adapters/fabric/fabric-style.ts` |
 | CANVAS-PERSISTENCE-STYLE-001 | standalone text の `style`、shape inline text の `textStyle`、線幅・線色の保存境界、保存・再読込、用紙だけ変更した場合の style / text / geometry / searchText 不変 | `/notes/new`、`/notes/[id]`（編集・閲覧）、`/api/notes` | Browser runtime + Notes API response / 再読込（Browser UI 未実施） | 2026-07-19 | API の `GET /api/notes/:id`、page 寸法変更前後の geometry / `style` / `text`、Canvas text 検索は 2026-07-21 に確認。Browser UI の明示保存・再読込、standalone text / shape inline text の完全な `style` / `textStyle` 比較は未実施 | 未実施 | `summary/20260719/2153-sync-canvas-implementation-status-20260719-7ac6f95e-summary.md`、`HANDOFF_2026-07-22.md` §4.1・§4.3、`doc/implementation/MVP_CONTRACT.md` §6.1・§6.2、`doc/implementation/IMPLEMENTATION_STATUS.md` §5.1・§5.3、本文書の「Notes API runtime 検証記録（2026-07-21）」、`src/modules/notes/ui/components/canvas/editor.tsx`、`src/shared/canvas/adapters/fabric/fabric-canvas-to-document.ts`、`src/server/notes/infrastructure/canvas.persistence.ts` |
-| CANVAS-TOOLBAR-STYLE-001 | style input、alignment button、用紙入力、tool group の responsive / keyboard / touch 到達性、active・style target・alignment の visual / ARIA 状態、ページ縦 scroll と用紙局所横 scroll | `/notes/new`、`/notes/[id]`（編集） | ブラウザ runtime（375 / 768 / 1280 / 1440px、keyboard / touch。未実施） | 2026-07-19 | fixture 未作成。全 viewport の focus、ARIA、pointer 後の Summary / footer 到達、page-wide overflow の測定は後続 QA で行う。今回は screenshot / runtime metrics なし | 未実施 | `summary/20260719/2143-sync-canvas-interaction-design-contract-20260719-5b6bd3a6-summary.md`、`HANDOFF_2026-07-22.md` §4.3、`doc/designs/CANVAS_TOOLBAR_DESIGN.md` §6・§9.3、`doc/implementation/IMPLEMENTATION_STATUS.md` §5.3、`src/modules/notes/ui/components/canvas/toolbar.tsx`、`src/modules/notes/ui/components/canvas/toolbar-paper-controls.tsx` |
+| CANVAS-TOOLBAR-STYLE-001 | style input、alignment button、用紙入力、tool group の responsive / keyboard / touch 到達性、active・style target・alignment の visual / ARIA 状態、ページ縦 scroll と用紙局所横 scroll | `/notes/new`、`/notes/[id]`（編集） | Browser runtime（375 / 768 / 1280 / 1440px、keyboard / pointer / touch tap） | 2026-07-24 | fixture は作成せず、`/notes/new` の初期 Canvas を使用。各 viewport の rail width / scrollWidth、全 drawing tool click、Tab / Shift+Tab、1920x1080 用紙、Summary / footer scroll を記録 | 部分実施 | `summary/20260724/canvas-toolbar-browser-qa-runtime-20260724.md`、`doc/implementation/MVP_CONTRACT.md` §6.1・§6.2・§7、`src/app/styles/note-canvas-toolbar.css`、`src/modules/notes/ui/components/canvas/toolbar.tsx` |
 | PHASE2-BOUNDARY | 自動保存、Undo / soft delete、専用復習タスク、NoteCard / D&D、PDF、タグ管理 UI 等 | `/tasks/review`、`/notes/backup`、export 等（MVP 外） | 静的な契約照合。runtime 対象外 | 2026-07-16 | fixture なし。Phase 2 の未実施項目として扱い、MVP の PASS 集計には含めない | 未実施 | `doc/implementation/MVP_CONTRACT.md` §2・§9、本文書「Phase 2 / 将来確認」 |
 
 注記: 2026-07-18 の概要項目削除より前に実施した `NTE030-VIEW-1440`、`MVP-GAP-002`、`MVP-GAP-003` は、当時の画面・契約に対する履歴記録です。現在の受け入れ対象には含めず、過去の確認結果・未達理由を改変せずに保持します。

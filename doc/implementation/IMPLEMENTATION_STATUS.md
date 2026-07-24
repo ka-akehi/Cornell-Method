@@ -128,6 +128,10 @@ API runtime の実リクエスト結果と、ブラウザ実機での pointer / 
 
 2026-07-22 に in-app Browser で `http://localhost:3000` を操作し、基準 Canvas fixture の作成、図形内文字、style の一部、1920x1080 への用紙変更、明示保存、詳細・編集での再読込、Canvas text 検索を確認した。7 シナリオの一部に runtime 証跡ができたが、重ね描きの全組合せ、preview / overlay 境界、消しゴム、Undo / Redo、全 style 境界値・色、375 / 768px、touch、全 keyboard 経路は未確認であるため、シナリオ全体は PASS にしない。詳細は `summary/20260722/canvas-browser-qa-partial-20260722.md` と `doc/testing/TEST_SCENARIOS.md` の「Canvas runtime QA 追補（2026-07-22）」を参照する。
 
+#### Browser runtime follow-up（2026-07-24）
+
+権限付き headless Playwright Chromium で `http://127.0.0.1:3000/notes/new` を再確認した。375 / 768 / 1280 / 1440px の実効 viewport を個別に測定し、1280px の drawing rail collapse は再現しなかった。全 drawing tool の click、Tab / Shift+Tab、375px の touch tap、body / document の page-wide overflow 不在、1920x1080 用紙の局所 horizontal scroll、Summary / `.note-paper-footer` への縦 scrollを確認した。touch の Canvas scroll 干渉、focus-visible の視覚確認、style target 選択後の alignment 即時反映は未確認のため、`CANVAS-TOOLBAR-STYLE-001` は部分実施のままとする。詳細は `summary/20260724/canvas-toolbar-browser-qa-runtime-20260724.md` と `doc/testing/TEST_SCENARIOS.md` の「Canvas toolbar runtime QA 追補（2026-07-24）」を参照する。
+
 | 確認項目 | 未確認の範囲 | 判定 | 根拠 |
 | --- | --- | --- | --- |
 | Canvas pointer / overlap | 空白から pen / line / arrow / rect / ellipse / standalone text を作成できた。既知要素上の全組合せ、unknown metadata、preview、inline overlay の gesture 遮断は未確認。 | 部分実施（runtime QA） | `summary/20260722/canvas-browser-qa-partial-20260722.md` |
@@ -136,7 +140,7 @@ API runtime の実リクエスト結果と、ブラウザ実機での pointer / 
 | Canvas style controls / persistence | standalone text の `fontSize=96` / `textAlign=right`、shape `textStyle.fontSize=32` / `textAlign=left` を保存・再読込で確認した。文字サイズ 7 と 12.5 は既存値維持で拒否された。線幅・色・全配置・全境界値は未確認。 | 部分実施（runtime QA） | `summary/20260722/canvas-browser-qa-partial-20260722.md` |
 | Canvas browser 保存・再読込 | 1200x800 の新規 Canvas を 1920x1080 に変更し、明示保存後の詳細・編集・GET JSON で page、7 要素、`style` / `textStyle` / text を復元した。Canvas text 検索も 1 件一致した。page 外要素は未確認。 | 部分実施（runtime QA） | `summary/20260722/canvas-browser-qa-partial-20260722.md` |
 | Canvas wheel / trackpad / touch | ページ縦 scroll が Summary / footer まで通ること、広い用紙だけが局所横 scroll になること、Canvas pointer 操作と scroll が干渉しないこと。 | 未確認（runtime QA） | `HANDOFF_2026-07-22.md` §4.3、`doc/designs/CANVAS_TOOLBAR_DESIGN.md` §5.6 |
-| Canvas toolbar keyboard / responsive / focus | 実効約 1265px（1280px requested）で drawing rail の client width が約 8pxまで縮み、描画 tool が実質操作不能になる再現を確認した。実効 1425px（1440px requested）では rail 68pxで局所横 scroll により操作可能。Browser viewport override が縮小方向へ反映されず、375 / 768px、touch、全 keyboard 経路は未確認。 | FAIL（部分 runtime QA） | `summary/20260722/canvas-browser-qa-partial-20260722.md` |
+| Canvas toolbar keyboard / responsive / focus | 2026-07-22 は実効約 1265px で rail 約 8pxの collapse を確認したが、2026-07-24 の修正後再確認では 375 / 768 / 1280 / 1440px の rail が 305 / 346 / 679 / 79pxを確保し、全 drawing tool の click、Tab / Shift+Tab、page-wide overflow 不在、1920x1080 用紙の局所 scroll、375px touch tap を確認した。touch の Canvas scroll 干渉、focus-visible の視覚確認、style target 選択後の alignment 即時反映は未確認。 | 部分実施（修正後 runtime QA） | `summary/20260722/canvas-browser-qa-partial-20260722.md`、`summary/20260724/canvas-toolbar-browser-qa-runtime-20260724.md` |
 
 ### 5.4 Phase 2 / 仕様のみ
 
@@ -207,6 +211,7 @@ API runtime の実リクエスト結果と、ブラウザ実機での pointer / 
 | 2026-07-21 | 新規 `nextReviewDate = noteDate + 7日` 初期値、既存未設定値の非補完、明示値の保持 | 静的実装確認済み。月末・年末跨ぎを含む runtime QA は未確認 | `summary/20260721/1940-implement-new-note-review-date-default-20260721-24f5f31b-summary.md`, `src/modules/notes/model/note-editor-form.ts`, `src/shared/date/date-only.ts`, `doc/testing/TEST_SCENARIOS.md` |
 | 2026-07-21 | Notes API runtime: 一覧 / tags / backups、Canvas 作成・復元、page resize 後の element 不変、Canvas text 検索、review、物理削除 / 404、QA cleanup | PASS（API runtime のみ。Browser QA は未確認） | `doc/testing/TEST_SCENARIOS.md` の「Notes API runtime 検証記録（2026-07-21）」 |
 | 2026-07-22 | Canvas Browser runtime: 基準要素作成、drag threshold の一部、図形内文字、style 一部、1920x1080 保存・再読込、Canvas text 検索 | 部分実施。保存・復元経路は確認、実効約1265pxで drawing rail collapse を確認。7シナリオ全体は未完了 | `summary/20260722/canvas-browser-qa-partial-20260722.md`、`doc/testing/TEST_SCENARIOS.md` の「Canvas runtime QA 追補（2026-07-22）」 |
+| 2026-07-24 | Canvas toolbar 修正後 Browser runtime: 375 / 768 / 1280 / 1440px、全 drawing tool click、Tab / Shift+Tab、375px touch tap、1920x1080 用紙の局所 scroll、page-wide overflow、Summary / footer scroll | 部分実施。1280px の旧 rail collapse は再現せず、主要 toolbar 到達性を確認。touch scroll 干渉、focus-visible の視覚確認、style target alignment は未確認 | `summary/20260724/canvas-toolbar-browser-qa-runtime-20260724.md`、`doc/testing/TEST_SCENARIOS.md` の「Canvas toolbar runtime QA 追補（2026-07-24）」 |
 
 ### 7.1 2026-07-19 の静的検証結果と 2026-07-22 の再確認
 
