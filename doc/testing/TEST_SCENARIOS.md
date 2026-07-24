@@ -446,10 +446,12 @@ unknown target の実 pointer 操作は Browser backend 不在のため未確認
 | static source / Fabric event order | PASS。`mouse:down:before` が brush 開始より前に発火すること、blocked state の mouseup / pointercancel / touchcancel / unmount cleanup を確認 |
 | malformed metadata boundary | PASS。metadata 欠落、unknown type、element / style / points / geometry 不正、preview / editor object は保存変換から除外する実装を確認 |
 | `npm run lint` / `npx tsc --noEmit --pretty false` / `npm run build` / `git diff --check` | PASS |
-| Browser runtime unknown-target gesture | 未確認。`agent.browsers.list()` が `[]` のため pointer、Canvas object 数、保存 response、console / page error は取得できず |
+| Browser runtime unknown-target gesture | 未確認。`agent.browsers.list()` が `[]`、local server は `listen EPERM`、Playwright Chromium は MachPort permission error のため pointer、Canvas object 数、保存 response、console / page error は取得できず |
 | 判定 | `CANVAS-INTERACTION-001` は部分実施のまま。静的 hardening は確認済みだが、実機の unknown target 操作と保存 JSON の runtime PASS には繰り上げない |
 
 根拠: `summary/20260724/fix-canvas-unknown-target-pen-gesture-20260724-summary.md`、`summary/20260724/2336-harden-canvas-malformed-metadata-converter-20260724-e7e74449-summary.md`、`summary/20260724/2339-fix-canvas-unknown-target-pen-gesture-20260724-c4a0eeee-summary.md`。
+
+2026-07-25 に修正後の unknown-target pen runtime を再試行したが、Browser backend は引き続き利用できず、local server の listen と standalone Chromium も権限エラーで起動できなかった。arbitrary Fabric object の注入や恒久 fixture は作成していないため、runtime 証跡は追加されていない。詳細は `summary/20260725/verify-canvas-unknown-target-pen-gesture-runtime-20260725-summary.md` と `summary/20260725/0058-verify-canvas-unknown-target-pen-runtime-after-fix-20260725-cd69b918-summary.md` を参照する。
 
 ## 受け入れ証跡マトリクス
 
