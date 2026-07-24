@@ -33,6 +33,7 @@ task_status: blocked
 | パス | 内容 |
 |---|---|
 | `summary/20260725/verify-canvas-unknown-target-pen-gesture-runtime-20260725-summary.md` | Browser/runtime 試行結果と未確認範囲のみを記録 |
+| `doc/testing/TEST_SCENARIOS.md` | `CANVAS-INTERACTION-001` の再試行結果を追記。判定は `部分実施` のまま |
 
 アプリコード、設定、依存関係、lockfile、DB schema、API 契約、恒久 fixture、debug route は変更していない。
 
@@ -41,6 +42,7 @@ task_status: blocked
 | 試行 | 結果 |
 |---|---|
 | Browser skill setup / `agent.browsers.list()` | `No browser is available`。一覧は `[]` |
+| 2026-07-25 retry: in-app Browser selection / `agent.browsers.list()` | `Browser is not available: iab`。bootstrap troubleshooting 後に一覧を 1 回確認し、`[]`。発注者が開いたとされる URL の tab は取得できず |
 | `npm run dev -- --hostname 127.0.0.1 --port 3000` | `listen EPERM: operation not permitted 127.0.0.1:3000` で起動失敗 |
 | local Playwright Chromium launch | Chromium はローカルに存在するが、起動直後に `mach_port_rendezvous ... Permission denied (1100)` で終了。プロセス cleanup も `kill EPERM` |
 | 既存 server `lsof` / `curl` | listen 中の 3000 はなく、`curl` は接続失敗 |
@@ -51,7 +53,7 @@ task_status: blocked
 
 | ID | fact / assumption / unknown | 内容 | 根拠 |
 |---|---|---|---|
-| F-001 | fact | Browser backend は利用できず、一覧は `[]` だった。 | Browser skill setup |
+| F-001 | fact | Browser backend は利用できず、今回の in-app Browser 選択は `Browser is not available: iab`、一覧は `[]` だった。 | Browser skill setup / bootstrap troubleshooting |
 | F-002 | fact | local server は `listen EPERM`、Playwright Chromium は MachPort permission error で起動できなかった。 | Runtime attempts |
 | F-003 | unknown | unknown / preview / editor target 上の実 pointer 操作、Canvas object 数、保存 JSON は未確認。 | Browser / local runtime blocked |
 
@@ -83,12 +85,19 @@ task_status: blocked
 | コマンド | 結果 |
 |---|---|
 | 作業前 `git status --short` | PASS（clean） |
+| 作業後 `git status --short` | PASS。記録用の summary / `TEST_SCENARIOS.md` の 2 ファイルのみ変更 |
 | `npm run lint` | PASS |
 | `npx tsc --noEmit --pretty false` | PASS |
 | `git diff --check` | PASS |
 | Browser runtime | BLOCKED（backend `[]`） |
 | local app server | BLOCKED（listen `EPERM`） |
 | standalone Playwright Chromium | BLOCKED（macOS MachPort permission error） |
+
+## Runtime retry result (2026-07-25)
+
+今回の再試行でも in-app Browser backend は見えず、`http://127.0.0.1:3000/notes/new` の tab / viewport を取得できなかった。指定どおり通常の Chrome、standalone Playwright、debug route、恒久 fixture、source code の変更には切り替えていない。したがってこの試行で新たに確認できた Canvas 操作、要素数、保存 JSON、console / page error はない。
+
+`CANVAS-INTERACTION-001` は `部分実施` のままとし、runtime PASS へ繰り上げない。
 
 ## Next Read
 
