@@ -1,6 +1,9 @@
 import {
   CANVAS_PAGE,
   type CanvasElementV1,
+  type CanvasElementStyle,
+  type CanvasElementTextStyle,
+  type CanvasPoint,
 } from "@/shared/canvas/canvas-document-types";
 import { cloneCanvasDocument } from "@/shared/canvas/canvas-document-serialization";
 import type {
@@ -18,14 +21,134 @@ const CANVAS_ELEMENT_METADATA_KEY = "canvasElement";
 const CANVAS_PREVIEW_KEY = "isCanvasPreview";
 const CANVAS_SHAPE_TEXT_EDITOR_KEY = "isCanvasShapeTextEditor";
 
+const CANVAS_ELEMENT_TYPES = [
+  "stroke",
+  "line",
+  "arrow",
+  "rect",
+  "ellipse",
+  "text",
+] as const;
+const CANVAS_POINT_ELEMENT_TYPES = ["stroke", "line", "arrow"] as const;
+const CANVAS_TEXT_ALIGNS = ["left", "center", "right"] as const;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value);
+}
+
+function hasOwnField(value: Record<string, unknown>, field: string) {
+  return Object.prototype.hasOwnProperty.call(value, field);
+}
+
 function isCanvasElementType(value: unknown): value is CanvasElementV1["type"] {
   return (
-    value === "stroke" ||
-    value === "line" ||
-    value === "arrow" ||
-    value === "rect" ||
-    value === "ellipse" ||
-    value === "text"
+    typeof value === "string" &&
+    (CANVAS_ELEMENT_TYPES as readonly string[]).includes(value)
+  );
+}
+
+function isCanvasElementStyle(value: unknown): value is CanvasElementStyle {
+  if (!isRecord(value)) return false;
+
+  return (
+    (value.stroke === undefined || typeof value.stroke === "string") &&
+    (value.fill === undefined || typeof value.fill === "string") &&
+    (value.strokeWidth === undefined || isFiniteNumber(value.strokeWidth)) &&
+    (value.fontSize === undefined || isFiniteNumber(value.fontSize)) &&
+    (value.fontFamily === undefined || typeof value.fontFamily === "string") &&
+    (value.textAlign === undefined ||
+      (typeof value.textAlign === "string" &&
+        (CANVAS_TEXT_ALIGNS as readonly string[]).includes(value.textAlign)))
+  );
+}
+
+function isCanvasElementTextStyle(
+  value: unknown,
+): value is CanvasElementTextStyle | undefined {
+  if (value === undefined) return true;
+  if (!isRecord(value)) return false;
+
+  return (
+    (value.fill === undefined || typeof value.fill === "string") &&
+    (value.fontSize === undefined || isFiniteNumber(value.fontSize)) &&
+    (value.fontFamily === undefined || typeof value.fontFamily === "string") &&
+    (value.textAlign === undefined ||
+      (typeof value.textAlign === "string" &&
+        (CANVAS_TEXT_ALIGNS as readonly string[]).includes(value.textAlign)))
+  );
+}
+
+function isCanvasPoint(value: unknown): value is CanvasPoint {
+  return (
+    Array.isArray(value) &&
+    value.length === 2 &&
+    isFiniteNumber(value[0]) &&
+    isFiniteNumber(value[1])
+  );
+}
+
+function isCanvasPointList(value: unknown): value is CanvasPoint[] {
+  return Array.isArray(value) && value.length >= 2 && value.every(isCanvasPoint);
+}
+
+function isCanvasElement(value: unknown): value is CanvasElementV1 {
+  if (!isRecord(value) || !isCanvasElementType(value.type)) return false;
+  if (
+    typeof value.id !== "string" ||
+    value.id.length === 0 ||
+    !isFiniteNumber(value.x) ||
+    !isFiniteNumber(value.y) ||
+    !isFiniteNumber(value.width) ||
+    !isFiniteNumber(value.height) ||
+    !isFiniteNumber(value.rotation) ||
+    !isFiniteNumber(value.z) ||
+    value.width <= 0 ||
+    value.height <= 0 ||
+    !hasOwnField(value, "style") ||
+    !isCanvasElementStyle(value.style)
+  ) {
+    return false;
+  }
+
+  if (value.points !== undefined && !isCanvasPointList(value.points)) {
+    return false;
+  }
+
+  if (
+    (CANVAS_POINT_ELEMENT_TYPES as readonly string[]).includes(value.type) &&
+    !isCanvasPointList(value.points)
+  ) {
+    return false;
+  }
+
+  if (value.type !== "text" && value.style.textAlign !== undefined) {
+    return false;
+  }
+
+  if (value.type === "rect" || value.type === "ellipse") {
+    return (
+      (value.text === undefined || typeof value.text === "string") &&
+      isCanvasElementTextStyle(value.textStyle)
+    );
+  }
+
+  if (value.type === "text") {
+    return typeof value.text === "string" && !hasOwnField(value, "textStyle");
+  }
+
+  return !hasOwnField(value, "text") && !hasOwnField(value, "textStyle");
+}
+
+function isFabricMetadata(value: unknown): value is FabricMetadata {
+  if (!isRecord(value)) return false;
+  return (
+    isCanvasElement(value.element) &&
+    isFiniteNumber(value.baseLeft) &&
+    isFiniteNumber(value.baseTop)
   );
 }
 
@@ -51,9 +174,9 @@ export function attachFabricMetadata(
 
 export function readCanvasElementMetadata(object?: FabricObjectLike) {
   const metadata = object?.get(CANVAS_ELEMENT_METADATA_KEY);
-  return metadata && typeof metadata === "object"
-    ? (metadata as FabricMetadata)
-    : undefined;
+  // The converter and gesture-target allowlist share this validated
+  // app-owned boundary; temporary and malformed Fabric objects stay opaque.
+  return isFabricMetadata(metadata) ? metadata : undefined;
 }
 
 export function readCanvasElement(object?: FabricObjectLike) {
