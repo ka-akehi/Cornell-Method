@@ -132,10 +132,14 @@ API runtime の実リクエスト結果と、ブラウザ実機での pointer / 
 
 権限付き headless Playwright Chromium で `http://127.0.0.1:3000/notes/new` を再確認した。375 / 768 / 1280 / 1440px の実効 viewport を個別に測定し、1280px の drawing rail collapse は再現しなかった。全 drawing tool の click、Tab / Shift+Tab、375px の touch tap、body / document の page-wide overflow 不在、1920x1080 用紙の局所 horizontal scroll、Summary / `.note-paper-footer` への縦 scrollを確認した。touch の Canvas scroll 干渉、focus-visible の視覚確認、style target 選択後の alignment 即時反映は未確認のため、`CANVAS-TOOLBAR-STYLE-001` は部分実施のままとする。詳細は `summary/20260724/canvas-toolbar-browser-qa-runtime-20260724.md` と `doc/testing/TEST_SCENARIOS.md` の「Canvas toolbar runtime QA 追補（2026-07-24）」を参照する。
 
+#### Gesture runtime follow-up（2026-07-24）
+
+同じ local runtime で `CANVAS-INTERACTION-001` / `CANVAS-GESTURE-001` の pointer 境界を追加確認した。直線・矢印・四角・円の click、double-click、3px drag は保存要素 0 件、5px drag は各 1 件になり、4px 閾値の no-op / commit の切り分けを実測した。また、stroke、line、arrow、rect、ellipse、standalone text の各既存要素上から 6 tool で新規 gesture を開始し、基準 6 件 + 重ね描き 6 件の保存を確認した。preview / inline editor overlay / unknown metadata の遮断、厳密な 4px、shape inline text と shape drag の分離、保存後の再読込は未確認のため、両シナリオは部分実施のままとする。詳細は `summary/20260724/canvas-gesture-browser-qa-runtime-20260724.md` と `doc/testing/TEST_SCENARIOS.md` の「Canvas gesture runtime QA 追補（2026-07-24）」を参照する。
+
 | 確認項目 | 未確認の範囲 | 判定 | 根拠 |
 | --- | --- | --- | --- |
-| Canvas pointer / overlap | 空白から pen / line / arrow / rect / ellipse / standalone text を作成できた。既知要素上の全組合せ、unknown metadata、preview、inline overlay の gesture 遮断は未確認。 | 部分実施（runtime QA） | `summary/20260722/canvas-browser-qa-partial-20260722.md` |
-| Canvas drag threshold / gesture separation | line / arrow / rect / ellipse で click、3px drag、5px 超の drag を実行し、保存 JSON で確定要素を照合した。全 tool の double-click no-op と 4px 境界値は未確認。 | 部分実施（runtime QA） | `summary/20260722/canvas-browser-qa-partial-20260722.md` |
+| Canvas pointer / overlap | 空白から pen / line / arrow / rect / ellipse / standalone text を作成し、2026-07-24 に既知の 6 要素上から 6 tool の新規 gesture と保存 12 要素を確認した。unknown metadata、preview、inline overlay の gesture 遮断は未確認。 | 部分実施（runtime QA） | `summary/20260722/canvas-browser-qa-partial-20260722.md`、`summary/20260724/canvas-gesture-browser-qa-runtime-20260724.md` |
+| Canvas drag threshold / gesture separation | 2026-07-24 に line / arrow / rect / ellipse の click、double-click、3px drag、5px drag を実行し、保存 JSON で 0 件 / 1 件と type を照合した。厳密な 4px 境界、shape inline text と shape drag の分離は未確認。 | 部分実施（runtime QA） | `summary/20260722/canvas-browser-qa-partial-20260722.md`、`summary/20260724/canvas-gesture-browser-qa-runtime-20260724.md` |
 | Canvas shape inline text lifecycle | rect の文字確定、ellipse の文字キャンセル、配置変更、他要素保持、console error なしを確認した。rect / ellipse の全 tool 別経路と繰り返し lifecycle は未確認。 | 部分実施（runtime QA） | `summary/20260722/canvas-browser-qa-partial-20260722.md` |
 | Canvas style controls / persistence | standalone text の `fontSize=96` / `textAlign=right`、shape `textStyle.fontSize=32` / `textAlign=left` を保存・再読込で確認した。文字サイズ 7 と 12.5 は既存値維持で拒否された。線幅・色・全配置・全境界値は未確認。 | 部分実施（runtime QA） | `summary/20260722/canvas-browser-qa-partial-20260722.md` |
 | Canvas browser 保存・再読込 | 1200x800 の新規 Canvas を 1920x1080 に変更し、明示保存後の詳細・編集・GET JSON で page、7 要素、`style` / `textStyle` / text を復元した。Canvas text 検索も 1 件一致した。page 外要素は未確認。 | 部分実施（runtime QA） | `summary/20260722/canvas-browser-qa-partial-20260722.md` |
