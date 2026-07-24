@@ -437,6 +437,20 @@ in-app Browser で `http://localhost:3000` を操作し、2026-07-21 に未実�
 
 この追補により空白および既存要素上の作成、click / double-click / 3px / 5px の境界、未確定 preview の保存除外、同じ tool の inline editor overlay 遮断は確認できたが、残る境界条件があるため `CANVAS-INTERACTION-001` と `CANVAS-GESTURE-001` は `部分実施` のままとする。
 
+### Canvas metadata 境界 hardening 追補（2026-07-24）
+
+unknown target の実 pointer 操作は Browser backend 不在のため未確認のままだが、関連 Worker の静的検証と保存境界の実装確認を記録する。pen runtime は Fabric 7 の `mouse:down:before` で metadata 欠落・unknown・preview・shape text editor target の brush 開始を抑止し、異常な `path:created` を cleanup する。converter 側は malformed metadata を共有境界で検証し、正規の `CanvasElementV1` 以外を例外なしで除外する。空白および既知要素の pen target allowlist、既存の geometry / style / text 変換は維持する。
+
+| 項目 | 結果 |
+| --- | --- |
+| static source / Fabric event order | PASS。`mouse:down:before` が brush 開始より前に発火すること、blocked state の mouseup / pointercancel / touchcancel / unmount cleanup を確認 |
+| malformed metadata boundary | PASS。metadata 欠落、unknown type、element / style / points / geometry 不正、preview / editor object は保存変換から除外する実装を確認 |
+| `npm run lint` / `npx tsc --noEmit --pretty false` / `npm run build` / `git diff --check` | PASS |
+| Browser runtime unknown-target gesture | 未確認。`agent.browsers.list()` が `[]` のため pointer、Canvas object 数、保存 response、console / page error は取得できず |
+| 判定 | `CANVAS-INTERACTION-001` は部分実施のまま。静的 hardening は確認済みだが、実機の unknown target 操作と保存 JSON の runtime PASS には繰り上げない |
+
+根拠: `summary/20260724/fix-canvas-unknown-target-pen-gesture-20260724-summary.md`、`summary/20260724/2336-harden-canvas-malformed-metadata-converter-20260724-e7e74449-summary.md`、`summary/20260724/2339-fix-canvas-unknown-target-pen-gesture-20260724-c4a0eeee-summary.md`。
+
 ## 受け入れ証跡マトリクス
 
 上のチェックリストは確認項目の一覧であり、下表を確認済み範囲の正本とします。判定は記録単位の範囲に限ります。同じ section に含まれる未確認項目を、別の項目の PASS から推測して繰り上げません。`FAIL（静的照合）` は実装コードと現行 MVP 契約の照合で未達が確認されたもの、`未実施` は runtime 証跡がまだないものです。
