@@ -30,6 +30,8 @@ created_at: 2026-07-24 22:55 JST
 
 - 4 種図形 tool は click / double-click / 3px が no-op、5px が 1 件の確定要素になった。
 - 6 種の既存要素上から 6 tool の新規 gesture を開始し、12 要素の保存を確認した。
+- 図形 tool の inline editor を表示したまま同じ四角 tool で overlay から 70px drag しても、新規 rect は増えず、入力した `INLINE` だけが既存 rect に確定した。
+- 5px の line preview 中に pointer-up 前の保存 handler を実行した場合、保存応答の要素数は 0 件で、未確定 preview は保存へ混入しなかった。
 - 実行ケースの console / page error は 0 件だった。
 
 ## Runtime setup
@@ -65,19 +67,25 @@ click / double-click / 3px は no-op となり、5px のみ 1 件の確定要素
 - 既存要素上からの新規 gesture が、既存要素の消失や別 type への変換なしに確定した。
 - console error / page error は 0 件。
 
+### Preview / inline editor boundary
+
+- 四角 tool で図形を作成し、同じ tool の double-click で inline editor を開いた。hidden Fabric textarea が active であることを確認した。
+- overlay 上から同じ四角 tool の 70px drag を行った後に保存すると、保存要素は rect 1 件のみで、`text: "INLINE"` が保持された。新規 rect は作成されなかった。
+- 直線の 5px preview を pointer-up 前に保存 handler へ渡したケースでは、`canvas.elements` は 0 件だった。通常の pointer-up 後は 5px の確定 line になるため、preview と確定要素を分けて観察した。
+
 ### Cleanup
 
 一時ノートは全て `DELETE /api/notes/:id` で削除した。終了後に `GET /api/notes?query=Gesture` を再確認し、`totalCount=0` だった。
 
 ## Remaining Unknowns
 
-- 厳密な 4px 境界値、preview / inline editor overlay / unknown metadata の遮断
-- shape inline text と shape drag の分離、保存後の Browser 再読込表示
+- 厳密な 4px 境界値、metadata 欠落 / unknown object の遮断
+- 別 tool へ切り替えた直後の shape inline text と shape drag の分離、保存後の Browser 再読込表示
 
 ## Verdict
 
-- `CANVAS-INTERACTION-001`: `部分実施`。空白および既存の 6 種要素上からの新規作成は確認済み。`isCanvasPreview` preview、shape inline editor overlay、metadata 欠落 / unknown object の遮断は未確認。
-- `CANVAS-GESTURE-001`: `部分実施`。4 種図形の click / double-click no-op、3px no-op、5px 確定を確認済み。厳密な 4px 境界、shape inline text と shape drag の分離、保存後の再読込比較は未確認。
+- `CANVAS-INTERACTION-001`: `部分実施`。空白および既存の 6 種要素上からの新規作成、同じ tool の inline editor overlay からの新規要素遮断、未確定 preview の保存除外を確認済み。metadata 欠落 / unknown object の遮断は未確認。
+- `CANVAS-GESTURE-001`: `部分実施`。4 種図形の click / double-click no-op、3px no-op、5px 確定、同じ tool の shape inline text と drag の分離を確認済み。厳密な 4px 境界、別 tool へ切り替えた直後の分離、保存後の再読込比較は未確認。
 
 ## Worker fallback
 
@@ -94,4 +102,4 @@ click / double-click / 3px は no-op となり、5px のみ 1 件の確定要素
 
 - `doc/testing/TEST_SCENARIOS.md` の Canvas runtime QA 追補と受け入れ証跡マトリクス
 - `doc/implementation/IMPLEMENTATION_STATUS.md` §5.3 の Canvas runtime 記録
-- 未確認の shape inline text / preview / unknown metadata 境界
+- 未確認の exact 4px / unknown metadata / 別 tool 切り替え後の shape gesture 境界
