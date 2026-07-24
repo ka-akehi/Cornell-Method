@@ -56,6 +56,20 @@ type EraseSession = {
   deletedObjects: Set<FabricObjectLike>;
 };
 
+function isCanvasPreviewTarget(event: FabricEventLike) {
+  return [event.target, ...(event.subTargets ?? [])].some(
+    isCanvasPreviewObject,
+  );
+}
+
+function isCanvasPenDrawingTarget(event: FabricEventLike) {
+  return (
+    isCanvasDrawingTarget(event) &&
+    !isCanvasPreviewTarget(event) &&
+    !isCanvasShapeTextEditorTarget(event)
+  );
+}
+
 function errorMessage(error: unknown, fallback: string) {
   return error instanceof Error && error.message ? error.message : fallback;
 }
@@ -79,6 +93,7 @@ export function useNoteCanvasRuntime(
   const shapeTextEditSessionRef = useRef<ShapeTextEditSession | null>(null);
   const shapeTextControllerRef = useRef<ShapeTextEditorSessionController | null>(null);
   const draftPointsRef = useRef<Array<[number, number]>>([]);
+  const blockedPenGestureRef = useRef(false);
   const applyDocumentRef = useRef<(document: CanvasDocumentV1) => void>(() => undefined);
   const applyCanvasDimensionsRef = useRef<
     (pageDimensions?: CanvasRuntimeOptions["pageDimensions"]) => void
@@ -168,6 +183,16 @@ export function useNoteCanvasRuntime(
           callbacksRef.current.commitDocument(fabricCanvasToDocument(canvas));
         };
 
+        const resetBlockedPenGesture = () => {
+          const wasBlocked = blockedPenGestureRef.current;
+          blockedPenGestureRef.current = false;
+          draftPointsRef.current = [];
+          if (wasBlocked) {
+            nextCanvas.isDrawingMode =
+              callbacksRef.current.toolRef.current === "pen";
+          }
+        };
+
         const controller = createShapeTextEditorSessionController({
           canvas: nextCanvas,
           fabric: fabricModule,
@@ -205,6 +230,20 @@ export function useNoteCanvasRuntime(
         const onMouseDownBefore = (event: FabricEventLike) => {
           // Finish the overlay before Fabric clears the active object.
           controller.finishFromPointer(event);
+          resetBlockedPenGesture();
+
+          if (
+            callbacksRef.current.toolRef.current !== "pen" ||
+            isCanvasPenDrawingTarget(event)
+          ) {
+            return;
+          }
+
+          // Fabric 7 starts the free-drawing brush after this event and before
+          // mouse:down. Keep the brush disabled for this blocked gesture.
+          blockedPenGestureRef.current = true;
+          draftPointsRef.current = [];
+          nextCanvas.isDrawingMode = false;
         };
 
         const onMouseDown = (event: FabricEventLike) => {
@@ -222,10 +261,7 @@ export function useNoteCanvasRuntime(
             event.target !== undefined &&
             !currentCanvas.getObjects().includes(event.target) &&
             isCanvasShapeTextEditorTarget(event);
-          const isPreviewTarget = [
-            event.target,
-            ...(event.subTargets ?? []),
-          ].some(isCanvasPreviewObject);
+          const isPreviewTarget = isCanvasPreviewTarget(event);
           const canStartCanvasElement =
             (!isPreviewTarget && isCanvasDrawingTarget(event)) ||
             isDetachedShapeTextEditor;
@@ -240,7 +276,10 @@ export function useNoteCanvasRuntime(
           }
 
           if (activeTool === "pen") {
-            if (!canStartCanvasElement) {
+            if (
+              blockedPenGestureRef.current ||
+              !isCanvasPenDrawingTarget(event)
+            ) {
               draftPointsRef.current = [];
               return;
             }
@@ -356,6 +395,16 @@ export function useNoteCanvasRuntime(
         };
 
         const onMouseUp = () => {
+          if (blockedPenGestureRef.current) {
+            resetBlockedPenGesture();
+            canvas?.requestRenderAll?.();
+            return;
+          }
+
+          if (callbacksRef.current.toolRef.current === "pen") {
+            draftPointsRef.current = [];
+          }
+
           if (callbacksRef.current.toolRef.current === "select") {
             dragRef.current = null;
             return;
@@ -399,6 +448,13 @@ export function useNoteCanvasRuntime(
           draftPointsRef.current = [];
           // Fabric 7 emits path:created with { path }, not { target }.
           const pathObject = event.path ?? event.target;
+          if (blockedPenGestureRef.current) {
+            if (pathObject && canvas?.getObjects().includes(pathObject)) {
+              canvas.remove(pathObject);
+              canvas.requestRenderAll?.();
+            }
+            return;
+          }
           if (!pathObject || points.length < 2 || !canvas) return;
           const bounds = getElementBounds({
             x: Math.min(...points.map(([x]) => x)),
@@ -439,6 +495,16 @@ export function useNoteCanvasRuntime(
           commitCurrent();
         };
 
+        const onPointerCancel = () => {
+          if (
+            callbacksRef.current.toolRef.current !== "pen" &&
+            !blockedPenGestureRef.current
+          ) {
+            return;
+          }
+          resetBlockedPenGesture();
+        };
+
         const onObjectModified = (event: FabricEventLike) => {
           if (
             eraseSessionRef.current ||
@@ -474,6 +540,14 @@ export function useNoteCanvasRuntime(
         nextCanvas.on("selection:created", syncSelection);
         nextCanvas.on("selection:updated", syncSelection);
         nextCanvas.on("selection:cleared", syncSelection);
+        nextCanvas.upperCanvasEl.addEventListener(
+          "pointercancel",
+          onPointerCancel,
+        );
+        nextCanvas.upperCanvasEl.addEventListener(
+          "touchcancel",
+          onPointerCancel,
+        );
         setReady(true);
         callbacksRef.current.reportError(null);
         applyCanvasDimensionsRef.current();
@@ -486,6 +560,7 @@ export function useNoteCanvasRuntime(
           eraseSessionRef.current = null;
           dragRef.current = null;
           draftPointsRef.current = [];
+          blockedPenGestureRef.current = false;
           previewObjectRef.current = null;
           nextCanvas.off("mouse:down:before", onMouseDownBefore);
           nextCanvas.off("mouse:down", onMouseDown);
@@ -499,6 +574,14 @@ export function useNoteCanvasRuntime(
           nextCanvas.off("selection:created", syncSelection);
           nextCanvas.off("selection:updated", syncSelection);
           nextCanvas.off("selection:cleared", syncSelection);
+          nextCanvas.upperCanvasEl.removeEventListener(
+            "pointercancel",
+            onPointerCancel,
+          );
+          nextCanvas.upperCanvasEl.removeEventListener(
+            "touchcancel",
+            onPointerCancel,
+          );
           void nextCanvas.dispose();
         };
       } catch (error) {
