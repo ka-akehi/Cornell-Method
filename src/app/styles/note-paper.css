@@ -1,7 +1,6 @@
 /* The note routes use one continuous sheet instead of a stack of floating cards. */
 .note-paper-shell {
   --note-paper-outer-gutter: clamp(1rem, 3vw, 3rem);
-  --note-paper-rule-step: 2.25rem;
   width: min(
     100%,
     calc(
@@ -13,13 +12,6 @@
   border: 1px solid rgb(112 113 104 / 24%);
   border-radius: clamp(0.5rem, 1vw, 0.75rem);
   background-color: var(--paper);
-  background-image: repeating-linear-gradient(
-    to bottom,
-    transparent 0,
-    transparent calc(var(--note-paper-rule-step) - 1px),
-    var(--paper-rule) calc(var(--note-paper-rule-step) - 1px),
-    var(--paper-rule) var(--note-paper-rule-step)
-  );
   box-shadow: var(--paper-shadow);
   color: var(--paper-ink);
 }
@@ -131,17 +123,9 @@
 }
 
 .note-paper-cornell-grid {
-  --note-paper-cornell-rule-step: 2.25rem;
   column-gap: 0;
   border-top: 1px solid var(--paper-line-strong);
   border-bottom: 1px solid var(--paper-line-strong);
-  background-image: repeating-linear-gradient(
-    to bottom,
-    transparent 0,
-    transparent calc(var(--note-paper-cornell-rule-step) - 1px),
-    var(--paper-rule) calc(var(--note-paper-cornell-rule-step) - 1px),
-    var(--paper-rule) var(--note-paper-cornell-rule-step)
-  );
 }
 
 .note-paper-cornell-grid > :first-child {
