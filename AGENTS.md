@@ -224,10 +224,10 @@
 
 ## 9. 受け入れ条件
 
-- [ ] ノートの一覧 → 詳細 → 編集 → 保存 → 閲覧の操作デモ（動画 or GIF）
-- [ ] `npm run lint` が成功
-- [ ] Prisma migrate / seed 手順を README に記載
-- [ ] 主要画面のスクリーンショットを README へ追加
+- [x] ノートの一覧 → 詳細 → 編集 → 保存 → 閲覧の操作デモ（動画 or GIF）
+- [x] `npm run lint` が成功
+- [x] Prisma migrate / seed 手順を README に記載
+- [x] 主要画面のスクリーンショットを README へ追加
 
 ## 10. 未決事項 / ToDo
 

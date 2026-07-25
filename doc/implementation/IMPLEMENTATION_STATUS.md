@@ -1,6 +1,6 @@
 # 実装状況サマリ
 
-更新日: 2026-07-22
+更新日: 2026-07-25
 
 ## 判定基準
 
@@ -25,6 +25,7 @@
 - 削除は確認後に物理削除する。`deletedAt` は schema に残る互換フィールドであり、Undo / soft delete の実装を意味しない。
 - 専用復習タスク、ドラフト自動保存、NoteCard、D&D、PDF export などの route・model・UI は存在しない。
 - Canvas は、`CanvasDocumentV1`（既定 page 1200x800、各 320〜4000px）の共有 validation、JSON 保存・復元、Canvas text 要素由来の `searchText`、幅・高さ数値入力と適用操作、保存済み `page` 寸法による editor / viewer の実寸描画、page 寸法だけを更新して要素 geometry を保持する処理、draw.io 風 toolbar、sticky tool、消しゴム（触れた要素を object 単位で消去する whole-object eraser）、client history、style controls、図形内文字、既存要素上の重ね描き、図形ドラッグ閾値、Fabric path metadata までコード上で実装されている。2026-07-21 に API の Canvas 保存・復元境界を確認し、2026-07-25 は Worker の Browser backend `[]` / app-server `Operation not permitted` を補う Manager 側の権限付き headless Playwright Chromium で、寸法、style、保存・再読込、eraser、history、toolbar / touch の確認済み範囲を追加した。厳密な 4px 等を残す `CANVAS-INTERACTION-001` / `CANVAS-GESTURE-001` と、全体未確認の `CANVAS-SHAPE-TEXT-001` は部分実施のままである。
+- 2026-07-25 の最新 Manager fallback QA で、既存ノートの desktop edit は 1280 / 1440px、`nextReviewDate` は新規初期値・手動値保持・未設定維持の確認済み範囲を追加した。review 成功 UI、375 / 768px の mobile edit、wheel / trackpad 固有入力は未確認のままである。根拠は `summary/20260725/2230-mandatory-qa-manager-fallback-20260725.md`。
 
 ## 2. 画面と route
 
@@ -112,7 +113,8 @@ route handler の export と一致する一覧は次のとおり。これ以外�
 | 契約項目 | 実際の挙動 | 判定 | 根拠 |
 | --- | --- | --- | --- |
 | 復習モードの本文・Summary | 本文と Summary は復習開始時に非表示で、本文を表示した後に Summary を開ける。表示・再非表示の状態は保存しない。 | 実装済み（runtime QA は別途確認） | `src/modules/notes/ui/components/detail/modes.tsx` |
-| 新規 `nextReviewDate` 初期値 | 新規フォームは `noteDate` を基準に `addDaysToDateString(noteDate, 7)` で初期化され、空欄化して保存することもできる。既存ノートは未設定値を補完せず、`noteDate` 変更時も明示された次回復習日を自動移動しない。 | 実装済み（静的確認。runtime QA は別途確認） | `src/modules/notes/model/note-editor-form.initial.ts:23-62`, `src/shared/date/date-only.ts:9-17`, `doc/implementation/MVP_CONTRACT.md:59-60` |
+| 新規 `nextReviewDate` 初期値 | 新規フォームは `noteDate` を基準に `addDaysToDateString(noteDate, 7)` で初期化され、空欄化して保存することもできる。既存ノートは未設定値を補完せず、`noteDate` 変更時も明示された次回復習日を自動移動しない。2026-07-25 に初期値・手動値保持・未設定維持の UI subset を確認した。 | 実装済み（runtime 確認済み範囲。review 成功 UI は未確認） | `src/modules/notes/model/note-editor-form.initial.ts:23-62`, `src/shared/date/date-only.ts:9-17`, `summary/20260725/2230-mandatory-qa-manager-fallback-20260725.md`, `doc/implementation/MVP_CONTRACT.md:59-60` |
+| 既存ノート desktop edit | 既存ノートの title、noteDate、source、tag、Cue、Canvas、Summary、`nextReviewDate` を 1280 / 1440px で復元し、保存後再読込、キャンセル、主要 field 到達性、viewport-wide 横 overflow 不在を確認した。375 / 768px の mobile edit は未確認。 | runtime 確認済み（desktop 1280 / 1440px の範囲） | `summary/20260725/2230-mandatory-qa-manager-fallback-20260725.md` |
 | 復習の次回日管理 | `POST /api/notes/:id/review` は存在し、`reviewedAt` とユーザー入力の `nextReviewDate` / `null` を更新する。日付の自動再計算はない。 | 実装済み | `src/app/api/notes/[id]/review/route.ts`, `src/server/notes/infrastructure/review.command.repository.ts:9-33` |
 | 依存ライブラリに対する高度 UI | `@dnd-kit/*`、`@uiw/react-md-editor`、`react-day-picker` は `package.json` にあるが、現行画面は native textarea / date input と手動 Cue 操作を使う。 | MVP の実装済みとは数えない | `package.json`, `src/modules/notes/ui/components/editor/editor.tsx`, `src/modules/notes/ui/components/list/list.tsx` |
 
@@ -158,15 +160,26 @@ Worker task は Browser backend `[]` と app-server `Operation not permitted` �
 | Eraser / history | text / rect / ellipse / line の whole-object erase、非対象 geometry / style / text / points 保持、最終 object 数 `0`、空履歴 disabled、rect / text edit / page resize の Undo / Redo を確認。 | `PASS（確認済み範囲）` |
 | Toolbar / touch | 375 / 768 rail `305 / 461`・`346 / 461`、tool の `aria-label` / `aria-pressed` / `data-active`、Tab / Shift+Tab、focus-visible solid 2px、640x480 / invalid 319、page vertical scroll、1920x1080 paper の local horizontal scroll を確認。375 touch は `scrollY=1779`、1280 touch は `scrollLeft 0→1069` かつ page `scrollY` 不変を確認。 | `PASS（確認済み範囲）` |
 | Interaction / gesture | 3px / 5px、unknown target pen、shape tool switch は既存 summary の確認済み範囲を保持。厳密な 4px 等は今回も未確認。 | `部分実施` |
-| Shape inline text | rect / shape editor の style commit subset は確認済み。繰り返し lifecycle、shape inline text の全保存・再読込経路は未確認。 | `部分実施（style commit subset は PASS）` |
+| Shape inline text | rect commit、ellipse Escape cancel、font size / alignment の style、他要素保持、保存 request / GET、再読込の確認済み subset を追加。全 tool の反復 lifecycle は未確認。 | `部分実施（必須 subset は PASS）` |
+
+#### Existing desktop edit / nextReviewDate runtime（2026-07-25）
+
+最新の Manager fallback QA summary に基づき、既存ノートの desktop edit と `nextReviewDate` の runtime 範囲を更新する。desktop edit は 1280 / 1440px のみを確認し、375 / 768px の mobile edit を PASS にはしない。
+
+| 領域 | 2026-07-25 の確認済み範囲 | 判定 |
+| --- | --- | --- |
+| 既存ノート desktop edit | title、noteDate、source、tag、Cue、Canvas、Summary、`nextReviewDate` の復元、保存後再読込、キャンセル、主要 field 到達性、body / document の viewport-wide 横幅不在、console / page error 0。確認用ノートは DELETE 204、GET 404、一覧 query の残留 `totalCount=0`。 | `PASS（desktop 1280 / 1440px の確認済み範囲）` |
+| `nextReviewDate` | 新規 `2026-07-25` → `2026-08-01` の初期表示・保存、手動 `2026-08-05` の `noteDate` 変更後保持、空欄の再読込・`noteDate` 変更後維持。 | `部分実施（確認済み範囲。review 成功 UI は未確認）` |
+
+根拠: `summary/20260725/2230-mandatory-qa-manager-fallback-20260725.md`。
 
 | 確認項目 | 未確認の範囲 | 判定 | 根拠 |
 | --- | --- | --- | --- |
 | Canvas pointer / overlap | 空白から pen / line / arrow / rect / ellipse / standalone text を作成し、2026-07-24 に既知の 6 要素上から 6 tool の新規 gesture と保存 12 要素を確認した。未確定 preview と同じ tool の inline overlay 遮断も確認した。2026-07-25 に metadata 欠落、unknown type、preview、shape text editor object の pen 遮断、pointercancel cleanup、保存 `elements=[]` を Manager 直接 runtime で確認した。厳密な 4px、別 tool 切り替え後の分離、touch scroll 干渉などは未確認。 | 部分実施（runtime QA + static hardening; unknown-target subset PASS） | `summary/20260722/canvas-browser-qa-partial-20260722.md`、`summary/20260724/canvas-gesture-browser-qa-runtime-20260724.md`、`summary/20260725/canvas-unknown-target-pen-browser-qa-runtime-20260725.md`、`summary/20260724/fix-canvas-unknown-target-pen-gesture-20260724-summary.md`、`summary/20260724/2336-harden-canvas-malformed-metadata-converter-20260724-e7e74449-summary.md` |
 | Canvas drag threshold / gesture separation | 2026-07-24 に line / arrow / rect / ellipse の click、double-click、3px drag、5px drag を実行し、保存 JSON で 0 件 / 1 件と type を照合した。同じ tool の shape inline text overlay 上の drag と、2026-07-25 の別 shape tool 切り替え直後の commit / cancel → drag 分離を確認した。厳密な 4px 境界は未確認。 | 部分実施（runtime QA。shape-tool switch subset PASS） | `summary/20260722/canvas-browser-qa-partial-20260722.md`、`summary/20260724/canvas-gesture-browser-qa-runtime-20260724.md`、`summary/20260725/canvas-shape-tool-switch-gesture-separation-runtime-20260725.md` |
-| Canvas shape inline text lifecycle | rect の文字 commit、ellipse の Escape cancel、別 shape tool への切り替え、他要素保持、editor / hidden textarea cleanup、保存 request / GET 一致を確認した。style / alignment 全経路と繰り返し lifecycle は未確認。 | 部分実施（runtime QA。tool-switch subset PASS） | `summary/20260722/canvas-browser-qa-partial-20260722.md`、`summary/20260725/canvas-shape-tool-switch-gesture-separation-runtime-20260725.md` |
-| Canvas style controls / persistence | 2026-07-22 の standalone / shape text の既確認に加え、2026-07-25 に standalone text の font size `8` / `96` と invalid `7` / `97` / `12.5` / blank、line の stroke width `1` / `20` と invalid `0` / `21` / `1.5` / blank、text / line color、left / center / right、rect editor の font `20`・color `#16a34a`・center commit を確認した。shape inline text の全保存・再読込経路は未確認。 | 実機確認済み（確認範囲） | `summary/20260725/canvas-runtime-qa-completion-20260725.md`、`summary/20260722/canvas-browser-qa-partial-20260722.md` |
-| Canvas browser 保存・再読込 | 2026-07-22 の 1920x1080 保存・viewer / editor 復元に加え、2026-07-25 に `Runtime Persistence QA 20260725` の page `1280x900`、standalone text / line の request / GET 一致、viewer assistive text、edit / reload title・page・text、DELETE 204、query cleanup を確認した。shape inline text の全保存境界と page 外要素は未確認。 | 部分実施（保存・再読込 subset は PASS） | `summary/20260725/canvas-runtime-qa-completion-20260725.md`、`summary/20260722/canvas-browser-qa-partial-20260722.md` |
+| Canvas shape inline text lifecycle | rect の文字 commit、ellipse の Escape cancel、別 shape tool への切り替え、font size / alignment style、他要素保持、editor / hidden textarea cleanup、保存 request / GET と再読込を確認した。全 tool の反復 lifecycle と全保存境界は未確認。 | 部分実施（必須 subset は PASS） | `summary/20260725/2230-mandatory-qa-manager-fallback-20260725.md`、`summary/20260722/canvas-browser-qa-partial-20260722.md`、`summary/20260725/canvas-shape-tool-switch-gesture-separation-runtime-20260725.md` |
+| Canvas style controls / persistence | 2026-07-22 の standalone / shape text の既確認に加え、2026-07-25 に standalone text の font size `8` / `96` と invalid `7` / `97` / `12.5` / blank、line の stroke width `1` / `20` と invalid `0` / `21` / `1.5` / blank、text / line color、left / center / right、rect editor の style commit を確認した。shape text の必須 subset の保存・再読込も確認済みだが、全 tool の反復 lifecycle は未確認。 | 実機確認済み（確認範囲） | `summary/20260725/2230-mandatory-qa-manager-fallback-20260725.md`、`summary/20260725/canvas-runtime-qa-completion-20260725.md`、`summary/20260722/canvas-browser-qa-partial-20260722.md` |
+| Canvas browser 保存・再読込 | 2026-07-22 の 1920x1080 保存・viewer / editor 復元に加え、2026-07-25 に standalone text / line と shape text 必須 subset の request / GET 一致、viewer assistive text、edit / reload title・page・text、DELETE 204、query cleanup を確認した。全 shape lifecycle と page 外要素は未確認。 | 部分実施（保存・再読込 subset は PASS） | `summary/20260725/2230-mandatory-qa-manager-fallback-20260725.md`、`summary/20260725/canvas-runtime-qa-completion-20260725.md`、`summary/20260722/canvas-browser-qa-partial-20260722.md` |
 | Canvas wheel / trackpad / touch | 2026-07-25 に 375 touch の縦 swipe 4 回後 `scrollY=1779`・footer 到達、1280 touch の 1920x1080 paper `scrollLeft 0→1069`・page `scrollY` 不変、body / document overflow 不在を確認した。wheel / trackpad と全 pointer-scroll 干渉の組合せは未確認。 | 部分実施（touch 境界 subset は PASS） | `summary/20260725/canvas-runtime-qa-completion-20260725.md`、`summary/20260724/canvas-toolbar-browser-qa-runtime-20260724.md` |
 | Canvas toolbar keyboard / responsive / focus | 2026-07-24 の 375 / 768 / 1280 / 1440px に加え、2026-07-25 に rail `305 / 461`・`346 / 461`、全 tool の `aria-label` / `aria-pressed` / `data-active`、Tab / Shift+Tab、focus-visible solid 2px、640x480 / invalid 319、page / paper scroll、touch 境界を確認した。 | 実機確認済み（確認範囲） | `summary/20260725/canvas-runtime-qa-completion-20260725.md`、`summary/20260724/canvas-toolbar-browser-qa-runtime-20260724.md` |
 
@@ -193,12 +206,12 @@ Worker task は Browser backend `[]` と app-server `Operation not permitted` �
 | --- | --- | --- |
 | `src/shared/canvas/index.ts`（公開 facade。実体は `canvas-document-*` の責務別ファイル） | `CanvasDocumentV1`、既定 1200x800、320〜4000px validation、serialize / restore、`extractCanvasSearchText`。 | 2026-07-25 に無効値・境界値・page resize の Browser UI を確認済み。壊れた document の Browser / API 実機確認は残る。 |
 | `src/modules/notes/contracts/note.schema.ts` | `bodyMode` と `canvas` の相互排他、Canvas validation の API 入力境界。 | API の field error 表示と保存時の実機確認。 |
-| `src/server/notes/infrastructure/canvas.persistence.ts` / `src/server/notes/infrastructure/notebook.command.repository.ts` | `documentJson` / `searchText` の生成と create・update 保存。page 寸法変更用の別 API / DB column はない。 | 2026-07-25 に Browser UI の request / GET 保存境界を standalone text / line で確認済み。shape inline text の全保存境界と `searchText` の Browser UI は残る。 |
-| `src/server/notes/infrastructure/read.repository.ts` / `src/server/notes/presenters/detail.mapper.ts` | Canvas `searchText` を一覧検索に含め、保存済み JSON を復元する。 | 2026-07-25 に viewer assistive text、編集画面、reload 後 viewer→edit の詳細復元を確認済み。一覧検索の Browser UI と shape inline text の全保存境界は残る。 |
-| `src/modules/notes/ui/components/canvas/editor.tsx` / `src/modules/notes/ui/hooks/use-note-canvas-runtime.ts` | toolbar から page を更新し、DOM / Fabric を `document.page` の実寸に反映する。page 更新時は要素データを変更せず、sticky tool、重ね描き、drag threshold、図形内文字、style 即時反映、消しゴムの whole-object erase、client history を扱う。 | 2026-07-25 に page resize、style、eraser、history、保存・再読込、touch の確認済み範囲を追加。厳密な 4px、shape inline text の全 lifecycle、wheel / trackpad は残る。 |
+| `src/server/notes/infrastructure/canvas.persistence.ts` / `src/server/notes/infrastructure/notebook.command.repository.ts` | `documentJson` / `searchText` の生成と create・update 保存。page 寸法変更用の別 API / DB column はない。 | 2026-07-25 に Browser UI の request / GET 保存境界を standalone text / line と shape text 必須 subset で確認済み。shape inline text の全保存境界と `searchText` の Browser UI は残る。 |
+| `src/server/notes/infrastructure/read.repository.ts` / `src/server/notes/presenters/detail.mapper.ts` | Canvas `searchText` を一覧検索に含め、保存済み JSON を復元する。 | 2026-07-25 に viewer assistive text、編集画面、reload 後 viewer→edit の詳細復元と shape text 必須 subset の保存境界を確認済み。一覧検索の Browser UI、全 shape lifecycle、page 外要素は残る。 |
+| `src/modules/notes/ui/components/canvas/editor.tsx` / `src/modules/notes/ui/hooks/use-note-canvas-runtime.ts` | toolbar から page を更新し、DOM / Fabric を `document.page` の実寸に反映する。page 更新時は要素データを変更せず、sticky tool、重ね描き、drag threshold、図形内文字、style 即時反映、消しゴムの whole-object erase、client history を扱う。 | 2026-07-25 に page resize、style、shape text 必須 subset、eraser、history、保存・再読込、touch の確認済み範囲を追加。厳密な 4px、shape inline text の全 lifecycle、wheel / trackpad は残る。 |
 | `src/modules/notes/ui/components/canvas/viewer.tsx` | 保存済み `document.page` を使って viewer の用紙を実寸描画する。 | 2026-07-25 に viewer assistive text と reload 後の title / page / text を確認済み。復習専用表示、page 外要素、responsive の全経路は残る。 |
 | `src/modules/notes/ui/components/canvas/toolbar.tsx` | 用紙の幅・高さ入力、整数・範囲 validation、適用 / Enter、tool group、sticky tool の active state、線幅・文字サイズ・color・文字配置 controls、ARIA。 | 2026-07-25 に 375 / 768 rail、keyboard、focus-visible、style 即時反映、page / paper scroll、touch 境界の確認済み範囲を追加。shape inline text の保存境界全経路は残る。 |
-| `src/shared/canvas/adapters/fabric/fabric-document-to-canvas.ts` / `src/shared/canvas/adapters/fabric/fabric-canvas-to-document.ts` / `src/shared/canvas/adapters/fabric/fabric-metadata.ts` / `src/shared/canvas/adapters/fabric/fabric-shape-factory.ts` | app-owned `CanvasDocumentV1` と Fabric object の変換、page 寸法・座標の反映、path metadata、points / bounds / transform の復元、shape inline text の renderer。 | pointer で作成・移動・resize した geometry、path の保存・再読込、shape inline text lifecycle の実機確認。 |
+| `src/shared/canvas/adapters/fabric/fabric-document-to-canvas.ts` / `src/shared/canvas/adapters/fabric/fabric-canvas-to-document.ts` / `src/shared/canvas/adapters/fabric/fabric-metadata.ts` / `src/shared/canvas/adapters/fabric/fabric-shape-factory.ts` | app-owned `CanvasDocumentV1` と Fabric object の変換、page 寸法・座標の反映、path metadata、points / bounds / transform の復元、shape inline text の renderer。 | 2026-07-25 に shape text の rect commit、ellipse cancel、style、他要素保持、保存・再読込の必須 subset を確認。全 tool の反復 lifecycle、厳密な 4px、wheel / trackpad は残る。 |
 
 用紙サイズ変更は既存 `NotebookCanvas.documentJson` の page 更新だけで完結する。寸法専用の Prisma migration、Canvas document の自動変換、要素の自動再配置は追加しない。page 寸法だけを変更しても `searchText` の元である text 要素は変わらない。
 
@@ -240,6 +253,8 @@ Worker task は Browser backend `[]` と app-server `Operation not permitted` �
 | 2026-07-21 | Notes API runtime: 一覧 / tags / backups、Canvas 作成・復元、page resize 後の element 不変、Canvas text 検索、review、物理削除 / 404、QA cleanup | PASS（API runtime のみ。Browser QA は未確認） | `doc/testing/TEST_SCENARIOS.md` の「Notes API runtime 検証記録（2026-07-21）」 |
 | 2026-07-22 | Canvas Browser runtime: 基準要素作成、drag threshold の一部、図形内文字、style 一部、1920x1080 保存・再読込、Canvas text 検索 | 部分実施。保存・復元経路は確認、実効約1265pxで drawing rail collapse を確認。7シナリオ全体は未完了 | `summary/20260722/canvas-browser-qa-partial-20260722.md`、`doc/testing/TEST_SCENARIOS.md` の「Canvas runtime QA 追補（2026-07-22）」 |
 | 2026-07-24 | Canvas toolbar 修正後 Browser runtime: 375 / 768 / 1280 / 1440px、全 drawing tool click、Tab / Shift+Tab、375px touch tap、1920x1080 用紙の局所 scroll、page-wide overflow、Summary / footer scroll | 部分実施。1280px の旧 rail collapse は再現せず、主要 toolbar 到達性を確認。touch scroll 干渉、focus-visible の視覚確認、style target alignment は未確認 | `summary/20260724/canvas-toolbar-browser-qa-runtime-20260724.md`、`doc/testing/TEST_SCENARIOS.md` の「Canvas toolbar runtime QA 追補（2026-07-24）」 |
+| 2026-07-25 | Manager fallback: Canvas 寸法、style、shape text 必須 subset、standalone / line の保存・再読込、eraser、history、toolbar / touch | 確認済み範囲は PASS。`CANVAS-INTERACTION-001` / `CANVAS-GESTURE-001` は厳密な 4px 等が未確認のため部分実施、`CANVAS-SHAPE-TEXT-001` は必須 subset のみ PASS | `summary/20260725/2230-mandatory-qa-manager-fallback-20260725.md`、`summary/20260725/canvas-runtime-qa-completion-20260725.md` |
+| 2026-07-25 | 既存ノート desktop edit と `nextReviewDate` UI: 1280 / 1440px、初期値・手動値保持・未設定維持 | desktop edit は確認済み範囲 PASS。`nextReviewDate` は review 成功 UI 未確認のため確認済み範囲の部分実施 | `summary/20260725/2230-mandatory-qa-manager-fallback-20260725.md` |
 
 ### 7.1 2026-07-19 の静的検証結果と 2026-07-22 の再確認
 

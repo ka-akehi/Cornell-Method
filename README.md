@@ -80,6 +80,8 @@ http://localhost:3000/notes
 
 2026-07-05 時点の MVP 主要 UI フローは Playwright Chromium で検証済みです。操作デモ相当の確認結果は `summary/20260705/mvp-ui-flow-reverification-report.md` を参照してください。ただし、この route-level flow の PASS は NTE-020 の edit レイアウト全 viewport 確認や NTE-030 の mobile runtime 確認まで意味しません。
 
+実操作デモ: [一覧 → 詳細 → 編集 → 保存 → 閲覧 / 再読込（WebM）](doc/assets/demos/mvp-note-flow.webm)（1280 × 900）。
+
 画面例:
 
 | 画面 | スクリーンショット |

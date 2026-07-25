@@ -1,7 +1,7 @@
 # 現行 MVP 契約
 
-更新日: 2026-07-22
-状態: Canvas 操作・スタイル・図形内文字・重ね描き・用紙寸法の契約反映済み。browser runtime QA 未確認
+更新日: 2026-07-25
+状態: Canvas 操作・スタイル・図形内文字・重ね描き・用紙寸法の契約反映済み。Manager fallback で必須 runtime QA の確認済み範囲を追加し、厳密 4px・wheel / trackpad・mobile edit 等の未確認範囲は維持
 
 ## 1. 位置づけと正本
 
@@ -244,6 +244,19 @@ MVP の route、API、データ、保存、削除、復習、Markdown、端末�
 4. 影響する詳細書を更新する。対象は必要に応じて `doc/api/MVP_API_DESIGN.md`、`doc/data/MVP_DATA_DESIGN.md`、`doc/screens/`、`doc/testing/TEST_SCENARIOS.md`、`README.md` です。
 5. 実装状態と受け入れ結果は、仕様変更と混ぜずに `doc/implementation/IMPLEMENTATION_STATUS.md` と `doc/testing/TEST_SCENARIOS.md` へ、現行コードと実際の証跡に基づいて反映する。静的確認と browser runtime QA は別の判定として保持する。
 
-## 11. 現行契約の保守メモ
+## 11. Runtime QA 状態（2026-07-25）
 
-2026-07-19 時点で、Canvas の用紙寸法、表示倍率との分離、要素データ不変、toolbar、重なり、図形内文字、style の契約は本書へ反映済みです。2026-07-22 の strict Target Architecture 移行では、この機能契約と受け入れ判定を変更していません。現行コードの静的確認は `doc/implementation/IMPLEMENTATION_STATUS.md`、受け入れシナリオと未実施の runtime QA は `doc/testing/TEST_SCENARIOS.md`、再開時の要約は `HANDOFF_2026-07-22.md`、strict 移行後の構成と最新 build の根拠は `summary/20260722/strict-architecture-final-review-after-ui-migration-20260722.md` と `summary/20260722/fresh-build-verification-20260722.md` を参照します。browser runtime の結果が得られた場合は、未確認を PASS に置き換えず証跡に合わせて各文書を更新します。
+この節は現行 MVP 契約に対する runtime の証拠範囲を示す。確認済み subset をシナリオ全体の PASS や Phase 2 機能の実装済みへ繰り上げない。今回の Manager fallback の根拠は [`summary/20260725/2230-mandatory-qa-manager-fallback-20260725.md`](../../summary/20260725/2230-mandatory-qa-manager-fallback-20260725.md)、Canvas の既確認範囲は `summary/20260725/canvas-runtime-qa-completion-20260725.md`、受け入れ証跡の判定は [`doc/testing/TEST_SCENARIOS.md`](../testing/TEST_SCENARIOS.md) を参照する。
+
+| 領域 | runtime で確認した範囲 | 残る境界 |
+| --- | --- | --- |
+| Canvas shape text | rect の文字 commit、fontSize `18`・右寄せ、ellipse の Escape cancel、他要素保持、POST `201`、再読込 GET `200`、削除 `204`、console / page error 0 を確認。 | 全 tool の反復 lifecycle と全保存経路は未確認。`CANVAS-SHAPE-TEXT-001` は必須 subset の部分実施。 |
+| Canvas dimensions / style / persistence | 既存の Canvas runtime QA で、用紙寸法、style、standalone text / line の保存・再読込、eraser、history、toolbar / touch の確認済み範囲を確認。 | `CANVAS-INTERACTION-001` / `CANVAS-GESTURE-001` の厳密 4px、wheel / trackpad 固有入力は未確認。 |
+| Desktop edit | `/notes/[id]` の title、noteDate、source、tag、Cue、Canvas、Summary、`nextReviewDate` の復元、保存後再読込、キャンセル、主要 field 到達性を 1280 / 1440px で確認。 | 375 / 768px の mobile edit は未確認。 |
+| `nextReviewDate` | 新規 `2026-07-25` → `2026-08-01` の初期表示・保存、手動 `2026-08-05` の保持、空欄の再読込・`noteDate` 変更後維持を確認。 | review 成功 UI の画面反映は未確認。 |
+
+autosave、soft-delete Undo、専用復習タスク、NoteCard / D&D、PDF、タグ管理 UI、mobile 専用最適化などは §2・§9 の Phase 2 境界を維持し、今回の runtime QA の PASS 集計には含めない。
+
+## 12. 現行契約の保守メモ
+
+2026-07-25 時点で、Canvas の用紙寸法、表示倍率との分離、要素データ不変、toolbar、重なり、図形内文字、style の契約と、Manager fallback による確認済み runtime 範囲を本書へ反映済みです。現行コードの静的確認は `doc/implementation/IMPLEMENTATION_STATUS.md`、受け入れシナリオと runtime QA 境界は `doc/testing/TEST_SCENARIOS.md`、再開時の要約は `HANDOFF_2026-07-25.md` と `summary/20260725/2230-mandatory-qa-manager-fallback-20260725.md` を参照します。厳密 4px、wheel / trackpad、mobile edit、review 成功 UI などの未確認事項は、証拠が追加されるまで PASS に置き換えません。
