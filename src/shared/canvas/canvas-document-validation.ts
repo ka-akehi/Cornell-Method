@@ -118,7 +118,7 @@ function normalizeStyle(value: unknown, field: string): CanvasElementStyle {
   return style;
 }
 
-function normalizeTextStyle(
+function normalizeCanvasElementTextStyle(
   value: unknown,
   field: string,
 ): CanvasElementTextStyle | undefined {
@@ -145,6 +145,18 @@ function normalizeTextStyle(
   if (textAlign !== undefined) textStyle.textAlign = textAlign;
 
   return textStyle;
+}
+
+export function isCanvasElementTextStyle(
+  value: unknown,
+): value is CanvasElementTextStyle | undefined {
+  try {
+    normalizeCanvasElementTextStyle(value, "textStyle");
+    return true;
+  } catch (error) {
+    if (error instanceof CanvasDocumentValidationError) return false;
+    throw error;
+  }
 }
 
 function asPoints(value: unknown, field: string): CanvasPoint[] {
@@ -212,7 +224,7 @@ export function validateCanvasDocument(value: unknown): CanvasDocumentV1 {
 
     if (elementType === "rect" || elementType === "ellipse") {
       const text = asOptionalString(rawElement.text, `elements[${index}].text`);
-      const textStyle = normalizeTextStyle(
+      const textStyle = normalizeCanvasElementTextStyle(
         rawElement.textStyle,
         `elements[${index}].textStyle`,
       );
