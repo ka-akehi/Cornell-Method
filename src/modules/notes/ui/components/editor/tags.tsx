@@ -166,7 +166,7 @@ export function NoteEditorTagInput({
           </div>
         </div>
       </div>
-      <p className="text-[0.6875rem] leading-5 text-stone-500">最大12件。Enter でも追加できます。</p>
+      <p className="text-[0.6875rem] leading-5 text-stone-500">最大12件</p>
       {(error || localError) && (
         <p className="break-words text-xs leading-5 text-red-600">{localError ?? error}</p>
       )}
