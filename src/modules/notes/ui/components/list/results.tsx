@@ -9,12 +9,14 @@ import { NotesListPagination } from "./pagination";
 type NotesListResultsProps = {
   notes: NotesListResponse | null;
   notesLoading: boolean;
+  isSearchActive: boolean;
   onPageChange: (page: number) => void;
 };
 
 export function NotesListResults({
   notes,
   notesLoading,
+  isSearchActive,
   onPageChange,
 }: NotesListResultsProps) {
   const isEmpty = !notesLoading && notes?.data.length === 0;
@@ -22,7 +24,9 @@ export function NotesListResults({
   return (
     <section className="rounded-lg border border-stone-200 bg-white shadow-sm">
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-stone-200 px-4 py-3">
-        <h2 className="text-sm font-semibold text-stone-900">検索結果</h2>
+        <h2 className="text-sm font-semibold text-stone-900">
+          {isSearchActive ? "検索結果" : "保存済みノート"}
+        </h2>
         <p className="text-xs text-stone-500">
           {notes ? `${notes.totalCount}件` : "未取得"}
         </p>
