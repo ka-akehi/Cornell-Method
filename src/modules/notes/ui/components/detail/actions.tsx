@@ -1,13 +1,88 @@
 "use client";
 
 import Link from "next/link";
+import type { ReactNode } from "react";
+
+function NoteDetailModeActionBar({ children }: { children: ReactNode }) {
+  return (
+    <div
+      className="note-paper-mode-actions"
+      role="group"
+      aria-label="ノートモード操作"
+    >
+      {children}
+    </div>
+  );
+}
+
+export function NoteDetailEditActions({ onCancel }: { onCancel: () => void }) {
+  return (
+    <NoteDetailModeActionBar>
+      <button
+        type="button"
+        onClick={onCancel}
+        className="rounded-lg border border-stone-300 px-3 py-1.5 text-sm font-medium text-stone-700 transition hover:bg-stone-50/60"
+      >
+        キャンセル
+      </button>
+    </NoteDetailModeActionBar>
+  );
+}
+
+export function NoteDetailReviewModeActions({
+  onBackToView,
+}: {
+  onBackToView: () => void;
+}) {
+  return (
+    <NoteDetailModeActionBar>
+      <button
+        type="button"
+        onClick={onBackToView}
+        className="rounded-lg border border-stone-300 px-3 py-1.5 text-sm font-medium text-stone-700 transition hover:bg-stone-50/60"
+      >
+        閲覧へ戻る
+      </button>
+    </NoteDetailModeActionBar>
+  );
+}
+
+type NoteDetailViewModeActionsProps = {
+  onEdit: () => void;
+  onReview: () => void;
+};
+
+export function NoteDetailViewActions({
+  onEdit,
+  onReview,
+}: NoteDetailViewModeActionsProps) {
+  return (
+    <NoteDetailModeActionBar>
+      <div className="flex min-w-0 flex-wrap justify-end gap-2">
+        <button
+          type="button"
+          onClick={onEdit}
+          className="rounded-lg border border-stone-300 px-3 py-1.5 text-sm font-medium text-stone-700 transition hover:bg-stone-50/60"
+        >
+          編集
+        </button>
+        <button
+          type="button"
+          onClick={onReview}
+          className="rounded-lg bg-amber-600 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-amber-700"
+        >
+          復習
+        </button>
+      </div>
+    </NoteDetailModeActionBar>
+  );
+}
 
 type NoteDetailReviewActionsProps = {
   reviewNextDate: string;
   reviewing: boolean;
   onReviewNextDateChange: (value: string) => void;
   onSubmitReview: () => void;
-  onBackToView: () => void;
 };
 
 export function NoteDetailReviewActions({
@@ -15,7 +90,6 @@ export function NoteDetailReviewActions({
   reviewing,
   onReviewNextDateChange,
   onSubmitReview,
-  onBackToView,
 }: NoteDetailReviewActionsProps) {
   return (
     <div className="note-paper-footer">
@@ -46,13 +120,6 @@ export function NoteDetailReviewActions({
             >
               {reviewing ? "更新中..." : "復習済みにする"}
             </button>
-            <button
-              type="button"
-              onClick={onBackToView}
-              className="rounded-lg border border-stone-300 px-3 py-1.5 text-sm font-medium text-stone-700 transition hover:bg-stone-50/60"
-            >
-              閲覧へ戻る
-            </button>
           </div>
         </div>
       </section>
@@ -60,19 +127,15 @@ export function NoteDetailReviewActions({
   );
 }
 
-type NoteDetailViewActionsProps = {
+type NoteDetailViewFooterActionsProps = {
   deleting: boolean;
-  onEdit: () => void;
-  onReview: () => void;
   onDelete: () => void;
 };
 
-export function NoteDetailViewActions({
+export function NoteDetailViewFooterActions({
   deleting,
-  onEdit,
-  onReview,
   onDelete,
-}: NoteDetailViewActionsProps) {
+}: NoteDetailViewFooterActionsProps) {
   return (
     <div className="note-paper-footer flex flex-wrap items-center justify-end gap-2">
       <Link
@@ -81,20 +144,6 @@ export function NoteDetailViewActions({
       >
         一覧へ戻る
       </Link>
-      <button
-        type="button"
-        onClick={onEdit}
-        className="rounded-lg border border-stone-300 px-3 py-1.5 text-sm font-medium text-stone-700 transition hover:bg-stone-50/60"
-      >
-        編集
-      </button>
-      <button
-        type="button"
-        onClick={onReview}
-        className="rounded-lg bg-amber-600 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-amber-700"
-      >
-        復習
-      </button>
       <button
         type="button"
         disabled={deleting}
