@@ -2,10 +2,10 @@ import {
   CANVAS_PAGE,
   type CanvasElementV1,
   type CanvasElementStyle,
-  type CanvasElementTextStyle,
   type CanvasPoint,
 } from "@/shared/canvas/canvas-document-types";
 import { cloneCanvasDocument } from "@/shared/canvas/canvas-document-serialization";
+import { isCanvasElementTextStyle } from "@/shared/canvas/canvas-document-validation";
 import type {
   FabricEventLike,
   FabricObjectLike,
@@ -58,22 +58,6 @@ function isCanvasElementStyle(value: unknown): value is CanvasElementStyle {
     (value.stroke === undefined || typeof value.stroke === "string") &&
     (value.fill === undefined || typeof value.fill === "string") &&
     (value.strokeWidth === undefined || isFiniteNumber(value.strokeWidth)) &&
-    (value.fontSize === undefined || isFiniteNumber(value.fontSize)) &&
-    (value.fontFamily === undefined || typeof value.fontFamily === "string") &&
-    (value.textAlign === undefined ||
-      (typeof value.textAlign === "string" &&
-        (CANVAS_TEXT_ALIGNS as readonly string[]).includes(value.textAlign)))
-  );
-}
-
-function isCanvasElementTextStyle(
-  value: unknown,
-): value is CanvasElementTextStyle | undefined {
-  if (value === undefined) return true;
-  if (!isRecord(value)) return false;
-
-  return (
-    (value.fill === undefined || typeof value.fill === "string") &&
     (value.fontSize === undefined || isFiniteNumber(value.fontSize)) &&
     (value.fontFamily === undefined || typeof value.fontFamily === "string") &&
     (value.textAlign === undefined ||
