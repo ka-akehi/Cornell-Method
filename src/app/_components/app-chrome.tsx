@@ -104,12 +104,6 @@ export function AppChrome({ children }: AppChromeProps) {
                 >
                   新規作成
                 </Link>
-                <Link
-                  href="/backup"
-                  className="app-chrome-nav-link"
-                >
-                  バックアップ
-                </Link>
               </nav>
               <div
                 className="app-chrome-state-slot shrink-0"
