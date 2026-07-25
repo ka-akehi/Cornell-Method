@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import type { ApiFieldError } from "@/shared/http/client";
 import { todayDateString } from "@/shared/date";
@@ -32,6 +32,8 @@ export type NoteEditorProps = {
   initial?: NoteEditorInitial;
   draft?: unknown;
   shell?: boolean;
+  topActions?: ReactNode;
+  showCancel?: boolean;
   onCancel?: () => void;
   onSaved?: (note: NoteEditorSavedNote) => void;
 };
@@ -47,6 +49,8 @@ export function NoteEditor({
   initial,
   mode,
   shell = true,
+  topActions,
+  showCancel = true,
   onCancel,
   onSaved,
 }: NoteEditorProps) {
@@ -190,6 +194,8 @@ export function NoteEditor({
         onChange={updateForm}
       />
 
+      {topActions}
+
       <section className="note-paper-section min-w-0 !space-y-0">
         <div className="note-paper-cornell-grid grid w-full min-w-0 grid-cols-[minmax(0,30%)_minmax(0,70%)] max-[640px]:!grid-cols-1">
           <NoteEditorCueSection
@@ -217,6 +223,7 @@ export function NoteEditor({
         nextReviewDate={form.nextReviewDate}
         fieldErrors={fieldErrors}
         saving={saving}
+        showCancel={showCancel}
         onSummaryChange={(summary) => updateForm({ summary })}
         onNextReviewDateChange={(nextReviewDate) => updateForm({ nextReviewDate })}
         onCancel={handleCancel}

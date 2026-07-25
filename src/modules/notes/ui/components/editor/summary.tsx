@@ -10,6 +10,7 @@ export function NoteEditorSummarySection({
   nextReviewDate,
   fieldErrors,
   saving,
+  showCancel = true,
   onSummaryChange,
   onNextReviewDateChange,
   onCancel,
@@ -18,6 +19,7 @@ export function NoteEditorSummarySection({
   nextReviewDate: string;
   fieldErrors: ApiFieldError[];
   saving: boolean;
+  showCancel?: boolean;
   onSummaryChange: (summary: string) => void;
   onNextReviewDateChange: (nextReviewDate: string) => void;
   onCancel: () => void;
@@ -46,13 +48,15 @@ export function NoteEditorSummarySection({
           error={fieldError(fieldErrors, "nextReviewDate")}
         />
         <div className="flex flex-wrap justify-end gap-3">
-          <button
-            type="button"
-            onClick={onCancel}
-            className="rounded-lg border border-stone-300 px-4 py-2 text-sm font-medium text-stone-700 transition hover:bg-stone-50"
-          >
-            キャンセル
-          </button>
+          {showCancel && (
+            <button
+              type="button"
+              onClick={onCancel}
+              className="rounded-lg border border-stone-300 px-4 py-2 text-sm font-medium text-stone-700 transition hover:bg-stone-50"
+            >
+              キャンセル
+            </button>
+          )}
           <button
             type="submit"
             disabled={saving}

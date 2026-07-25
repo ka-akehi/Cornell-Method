@@ -96,6 +96,20 @@
   overflow-wrap: anywhere;
 }
 
+.note-paper-mode-actions {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  margin-top: clamp(0.75rem, 1.5vw, 1rem);
+  margin-bottom: clamp(0.75rem, 1.5vw, 1rem);
+  padding-block: clamp(0.75rem, 1.5vw, 1rem);
+  border-top: 1px solid var(--paper-line-strong);
+  border-bottom: 1px solid var(--paper-line-strong);
+}
+
 .note-paper-section {
   min-width: 0;
   padding-block: clamp(1.25rem, 2.8vw, 2.25rem);
@@ -323,4 +337,3 @@
 .note-paper-editor--create > .note-paper-section {
   padding-block: clamp(0.75rem, 1.2vw, 1.25rem);
 }
-

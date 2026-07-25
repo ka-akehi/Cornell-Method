@@ -10,7 +10,13 @@ import {
 } from "@/modules/notes/remote";
 import { normalizeSourceType } from "@/modules/notes/model";
 import { AppChromeModeReporter } from "@/shared/ui/app-chrome-state";
-import { NoteDetailReviewActions, NoteDetailViewActions } from "./actions";
+import {
+  NoteDetailEditActions,
+  NoteDetailReviewActions,
+  NoteDetailReviewModeActions,
+  NoteDetailViewActions,
+  NoteDetailViewFooterActions,
+} from "./actions";
 import { NoteEditor } from "../editor/editor";
 import { NoteDetailReadView } from "./read-view";
 
@@ -105,6 +111,10 @@ export function NoteDetailModes({ initialNote }: NoteDetailModesProps) {
           mode="edit"
           shell={true}
           initial={editorInitial}
+          topActions={
+            <NoteDetailEditActions onCancel={() => setMode("view")} />
+          }
+          showCancel={false}
           onCancel={() => setMode("view")}
           onSaved={(savedNote) => {
             setNote(savedNote);
@@ -135,6 +145,28 @@ export function NoteDetailModes({ initialNote }: NoteDetailModesProps) {
         }}
         onShowSummary={() => setShowSummary(true)}
         onHideSummary={() => setShowSummary(false)}
+        modeActions={
+          mode === "review" ? (
+            <NoteDetailReviewModeActions
+              onBackToView={() => {
+                setError(null);
+                setShowBody(false);
+                setShowSummary(false);
+                setMode("view");
+              }}
+            />
+          ) : (
+            <NoteDetailViewActions
+              onEdit={() => setMode("edit")}
+              onReview={() => {
+                setShowBody(false);
+                setShowSummary(false);
+                setReviewNextDate(note.nextReviewDate ?? "");
+                setMode("review");
+              }}
+            />
+          )
+        }
       >
         {mode === "review" ? (
           <NoteDetailReviewActions
@@ -142,23 +174,10 @@ export function NoteDetailModes({ initialNote }: NoteDetailModesProps) {
             reviewing={reviewing}
             onReviewNextDateChange={setReviewNextDate}
             onSubmitReview={() => void submitReview()}
-            onBackToView={() => {
-              setError(null);
-              setShowBody(false);
-              setShowSummary(false);
-              setMode("view");
-            }}
           />
         ) : (
-          <NoteDetailViewActions
+          <NoteDetailViewFooterActions
             deleting={deleting}
-            onEdit={() => setMode("edit")}
-            onReview={() => {
-              setShowBody(false);
-              setShowSummary(false);
-              setReviewNextDate(note.nextReviewDate ?? "");
-              setMode("review");
-            }}
             onDelete={() => void deleteNote()}
           />
         )}

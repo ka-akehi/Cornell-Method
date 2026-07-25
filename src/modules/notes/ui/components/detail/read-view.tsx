@@ -23,6 +23,7 @@ type NoteDetailReadViewProps = {
   onHideBody: () => void;
   onShowSummary: () => void;
   onHideSummary: () => void;
+  modeActions: ReactNode;
   children: ReactNode;
 };
 
@@ -36,6 +37,7 @@ export function NoteDetailReadView({
   onHideBody,
   onShowSummary,
   onHideSummary,
+  modeActions,
   children,
 }: NoteDetailReadViewProps) {
   return (
@@ -43,6 +45,8 @@ export function NoteDetailReadView({
       <NoteDetailHeading title={note.title} />
 
       <NoteDetailMetadata note={note} />
+
+      {modeActions}
 
       {error && (
         <div
