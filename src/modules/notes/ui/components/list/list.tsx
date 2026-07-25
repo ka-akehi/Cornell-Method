@@ -41,6 +41,13 @@ export function NotesList() {
     [selectedTagSet, tagOptions],
   );
 
+  const isSearchActive =
+    query.trim().length > 0 ||
+    from.length > 0 ||
+    to.length > 0 ||
+    selectedTags.length > 0 ||
+    reviewDue;
+
   const loadNotes = useCallback(
     async (page = 1) => {
       const requestId = ++notesRequestIdRef.current;
@@ -176,6 +183,7 @@ export function NotesList() {
       <NotesListResults
         notes={notes}
         notesLoading={notesLoading}
+        isSearchActive={isSearchActive}
         onPageChange={(page) => void loadNotes(page)}
       />
     </div>
