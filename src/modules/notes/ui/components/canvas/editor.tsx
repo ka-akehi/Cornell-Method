@@ -49,6 +49,7 @@ import { NoteCanvasToolbar } from "./toolbar";
 
 export function NoteCanvasEditor({
   initialDocument,
+  initialTool = "select",
   apiError,
   externalError,
   onDocumentChange,
@@ -73,7 +74,7 @@ export function NoteCanvasEditor({
   const validInitialDocument = initialDocumentSnapshot ?? EMPTY_CANVAS_DOCUMENT;
 
   const viewportRef = useRef<HTMLDivElement>(null);
-  const toolRef = useRef<CanvasNoteTool>("text");
+  const toolRef = useRef<CanvasNoteTool>(initialTool);
   const styleDefaultsRef = useRef<CanvasStyleDefaults>(INITIAL_STYLE_DEFAULTS);
   const selectedStyleRef = useRef<SelectedCanvasStyle | null>(null);
   const historyRef = useRef<CanvasHistoryState>(createCanvasHistory(validInitialDocument));
@@ -82,7 +83,7 @@ export function NoteCanvasEditor({
   const [history, setHistory] = useState<CanvasHistoryState>(() =>
     createCanvasHistory(validInitialDocument),
   );
-  const [tool, setTool] = useState<CanvasNoteTool>("text");
+  const [tool, setTool] = useState<CanvasNoteTool>(initialTool);
   const [styleDefaults, setStyleDefaults] = useState<CanvasStyleDefaults>(
     INITIAL_STYLE_DEFAULTS,
   );

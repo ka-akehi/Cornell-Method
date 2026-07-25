@@ -2,10 +2,12 @@
 
 import { MarkdownField } from "@/shared/markdown";
 import type { ApiFieldError } from "@/shared/http/client";
+import type { CanvasNoteTool } from "@/modules/notes/lib/canvas-editor-types";
 import { fieldError, type NoteEditorFormState } from "@/modules/notes/model";
 import { NoteCanvasEditor } from "../canvas/editor";
 
 export function NoteEditorBodySection({
+  initialTool,
   bodyMode,
   body,
   canvas,
@@ -15,6 +17,7 @@ export function NoteEditorBodySection({
   onCanvasDocumentChange,
   onCanvasError,
 }: {
+  initialTool: CanvasNoteTool;
   bodyMode: NoteEditorFormState["bodyMode"];
   body: string;
   canvas: NoteEditorFormState["canvas"];
@@ -33,6 +36,7 @@ export function NoteEditorBodySection({
           </div>
           <NoteCanvasEditor
             initialDocument={canvas}
+            initialTool={initialTool}
             apiError={fieldError(fieldErrors, "canvas")}
             externalError={canvasError}
             onDocumentChange={onCanvasDocumentChange}
