@@ -64,6 +64,7 @@ export function NoteEditor({
   const [fieldErrors, setFieldErrors] = useState<ApiFieldError[]>([]);
   const [canvasError, setCanvasError] = useState<string | null>(null);
   const today = useMemo(() => todayDateString(), []);
+  const initialCanvasTool = mode === "create" ? "text" : "select";
 
   const handleCanvasDocumentChange = useCallback((canvas: NoteEditorFormState["canvas"]) => {
     setForm((current) => ({ ...current, canvas }));
@@ -206,6 +207,7 @@ export function NoteEditor({
             onRemove={removeCue}
           />
           <NoteEditorBodySection
+            initialTool={initialCanvasTool}
             bodyMode={form.bodyMode}
             body={form.body}
             canvas={form.canvas}
