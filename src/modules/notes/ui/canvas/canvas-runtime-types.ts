@@ -23,6 +23,7 @@ export type CanvasRuntimeOptions = {
   initialDocument: CanvasDocumentV1 | null;
   pageDimensions: CanvasPageDimensions;
   tool: CanvasNoteTool;
+  setTool: (tool: CanvasNoteTool) => void;
   styleDefaults: CanvasStyleDefaults;
   toolRef: RuntimeRef<CanvasNoteTool>;
   styleDefaultsRef: RuntimeRef<CanvasStyleDefaults>;

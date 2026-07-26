@@ -1,6 +1,13 @@
 "use client";
 
-import { useCallback, useMemo, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { useRouter } from "next/navigation";
 import type { ApiFieldError } from "@/shared/http/client";
 import { todayDateString } from "@/shared/date";
@@ -22,6 +29,7 @@ import {
 } from "@/modules/notes/remote";
 import { NoteEditorBodySection } from "./body";
 import { NoteEditorCueSection } from "./cues";
+import { findNoteEditorErrorTarget } from "./error-focus";
 import { NoteEditorMetadataSection } from "./metadata";
 import { NoteEditorSummarySection } from "./summary";
 
@@ -45,6 +53,11 @@ async function updateExistingNote(id: string | undefined, input: NotebookInput) 
   return updateNote(id, input);
 }
 
+type ErrorFocusRequest = {
+  id: number;
+  fieldErrors: ApiFieldError[];
+};
+
 export function NoteEditor({
   initial,
   mode,
@@ -63,8 +76,43 @@ export function NoteEditor({
   const [message, setMessage] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<ApiFieldError[]>([]);
   const [canvasError, setCanvasError] = useState<string | null>(null);
+  const formRef = useRef<HTMLFormElement>(null);
+  const alertRef = useRef<HTMLDivElement>(null);
+  const errorFocusRequestIdRef = useRef(0);
+  const handledErrorFocusRequestIdRef = useRef(0);
+  const [errorFocusRequest, setErrorFocusRequest] = useState<ErrorFocusRequest | null>(null);
   const today = useMemo(() => todayDateString(), []);
-  const initialCanvasTool = mode === "create" ? "text" : "select";
+  const initialCanvasTool = "select" as const;
+
+  const requestErrorFocus = useCallback((nextFieldErrors: ApiFieldError[]) => {
+    const id = errorFocusRequestIdRef.current + 1;
+    errorFocusRequestIdRef.current = id;
+    setErrorFocusRequest({ id, fieldErrors: nextFieldErrors });
+  }, []);
+
+  useEffect(() => {
+    const request = errorFocusRequest;
+    if (!request || handledErrorFocusRequestIdRef.current >= request.id) return;
+
+    handledErrorFocusRequestIdRef.current = request.id;
+    const target =
+      findNoteEditorErrorTarget(formRef.current, request.fieldErrors) ?? alertRef.current;
+    if (!target) return;
+
+    const reducedMotion =
+      typeof window !== "undefined" &&
+      typeof window.matchMedia === "function" &&
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+    if (typeof target.scrollIntoView === "function") {
+      target.scrollIntoView({
+        behavior: reducedMotion ? "auto" : "smooth",
+        block: "center",
+        inline: "nearest",
+      });
+    }
+    target.focus({ preventScroll: true });
+  }, [errorFocusRequest]);
 
   const handleCanvasDocumentChange = useCallback((canvas: NoteEditorFormState["canvas"]) => {
     setForm((current) => ({ ...current, canvas }));
@@ -112,6 +160,7 @@ export function NoteEditor({
   async function save() {
     if (mode === "edit" && !form.id) {
       setMessage("更新対象のノートIDがありません。");
+      requestErrorFocus([]);
       return;
     }
 
@@ -119,6 +168,7 @@ export function NoteEditor({
     setMessage(null);
     setFieldErrors([]);
     setCanvasError(null);
+    setErrorFocusRequest(null);
 
     try {
       const data =
@@ -141,14 +191,17 @@ export function NoteEditor({
       if (caught instanceof NotesRemoteError) {
         setMessage(caught.message);
         setFieldErrors(caught.fieldErrors);
+        requestErrorFocus(caught.fieldErrors);
         return;
       }
       if (caught instanceof Error && form.bodyMode === "canvas") {
         setCanvasError(caught.message);
         setMessage(caught.message);
+        requestErrorFocus([]);
         return;
       }
       setMessage("保存に失敗しました。通信状態またはAPIを確認してください。");
+      requestErrorFocus([]);
     } finally {
       setSaving(false);
     }
@@ -164,6 +217,7 @@ export function NoteEditor({
 
   return (
     <form
+      ref={formRef}
       className={`note-paper-editor ${mode === "create" ? "note-paper-editor--create" : ""} min-w-0 space-y-0 ${
         shell ? "note-paper-shell note-paper-content" : "note-paper-editor--embedded"
       }`}
@@ -176,7 +230,10 @@ export function NoteEditor({
 
       {message && (
         <div
+          ref={alertRef}
+          id="note-editor-error-alert"
           role="alert"
+          tabIndex={-1}
           className="note-paper-alert min-w-0 break-words rounded-lg border px-4 py-3 text-sm leading-6"
         >
           {message}
@@ -187,12 +244,14 @@ export function NoteEditor({
         shell={shell}
         title={form.title}
         noteDate={form.noteDate}
+        nextReviewDate={form.nextReviewDate}
         sourceType={form.sourceType}
         sourceTitle={form.sourceTitle}
         tags={form.tags}
         today={today}
         fieldErrors={fieldErrors}
         onChange={updateForm}
+        onNextReviewDateChange={(nextReviewDate) => updateForm({ nextReviewDate })}
       />
 
       {topActions}
@@ -222,12 +281,10 @@ export function NoteEditor({
 
       <NoteEditorSummarySection
         summary={form.summary}
-        nextReviewDate={form.nextReviewDate}
         fieldErrors={fieldErrors}
         saving={saving}
         showCancel={showCancel}
         onSummaryChange={(summary) => updateForm({ summary })}
-        onNextReviewDateChange={(nextReviewDate) => updateForm({ nextReviewDate })}
         onCancel={handleCancel}
       />
     </form>

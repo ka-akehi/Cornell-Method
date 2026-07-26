@@ -15,22 +15,26 @@ export function NoteEditorMetadataSection({
   shell,
   title,
   noteDate,
+  nextReviewDate,
   sourceType,
   sourceTitle,
   tags,
   today,
   fieldErrors,
   onChange,
+  onNextReviewDateChange,
 }: {
   shell: boolean;
   title: string;
   noteDate: string;
+  nextReviewDate: string;
   sourceType: SourceType | "";
   sourceTitle: string;
   tags: NoteEditorTag[];
   today: string;
   fieldErrors: ApiFieldError[];
   onChange: (next: Partial<NoteEditorFormState>) => void;
+  onNextReviewDateChange: (nextReviewDate: string) => void;
 }) {
   const sourceTypeFieldError = fieldError(fieldErrors, "sourceType");
   const sourceTitleFieldError = fieldError(fieldErrors, "sourceTitle");
@@ -46,6 +50,7 @@ export function NoteEditorMetadataSection({
               value={title}
               onChange={(nextTitle) => onChange({ title: nextTitle })}
               error={fieldError(fieldErrors, "title")}
+              disabled={!sourceType}
               required
             />
           </div>
@@ -57,12 +62,13 @@ export function NoteEditorMetadataSection({
           value={title}
           onChange={(nextTitle) => onChange({ title: nextTitle })}
           error={fieldError(fieldErrors, "title")}
+          disabled={!sourceType}
           required
         />
       )}
 
       <div className="note-paper-meta-grid !grid-cols-[minmax(0,0.8fr)_minmax(0,1.8fr)_minmax(0,1.8fr)] max-[900px]:!grid-cols-2 max-[640px]:!grid-cols-1">
-        <div className="note-paper-meta-item">
+        <div className="note-paper-meta-item space-y-3">
           <TextInput
             id="note-date"
             label="学習日"
@@ -72,6 +78,14 @@ export function NoteEditorMetadataSection({
             onChange={(nextNoteDate) => onChange({ noteDate: nextNoteDate })}
             error={fieldError(fieldErrors, "noteDate")}
             required
+          />
+          <TextInput
+            id="next-review-date"
+            label="次回復習日"
+            type="date"
+            value={nextReviewDate}
+            onChange={onNextReviewDateChange}
+            error={fieldError(fieldErrors, "nextReviewDate")}
           />
         </div>
         <div className="note-paper-meta-item">

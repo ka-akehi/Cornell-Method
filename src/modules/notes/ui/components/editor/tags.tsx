@@ -79,6 +79,24 @@ export function NoteEditorTagInput({
   const availableCandidates = tagCandidates.filter(
     (candidate) => !tags.some((tag) => tag.name === candidate.name),
   );
+  const indexedTagErrors = tags.map((_, index) =>
+    indexedFieldError(fieldErrors, "tags", index),
+  );
+  const visibleError = localError ?? error;
+  const visibleErrorId = visibleError
+    ? localError
+      ? "tag-input-local-error"
+      : "tag-input-error"
+    : undefined;
+  const describedBy = [
+    visibleErrorId,
+    ...indexedTagErrors.map((itemError, index) =>
+      itemError ? `tag-${index}-error` : undefined,
+    ),
+  ]
+    .filter(Boolean)
+    .join(" ");
+  const hasTagError = Boolean(visibleError || indexedTagErrors.some(Boolean));
 
   return (
     <div className="min-w-0 space-y-1">
@@ -153,6 +171,8 @@ export function NoteEditorTagInput({
                   addTag();
                 }
               }}
+              aria-invalid={hasTagError}
+              aria-describedby={describedBy || undefined}
               className="min-w-0 flex-1 rounded-lg border border-stone-200 bg-white px-2.5 py-1.5 text-sm text-stone-900 shadow-sm outline-none transition placeholder:text-stone-400 focus:border-amber-500 focus:ring-2 focus:ring-amber-100"
               placeholder="タグ名を入力"
             />
@@ -167,13 +187,18 @@ export function NoteEditorTagInput({
         </div>
       </div>
       <p className="text-[0.6875rem] leading-5 text-stone-500">最大12件</p>
-      {(error || localError) && (
-        <p className="break-words text-xs leading-5 text-red-600">{localError ?? error}</p>
+      {visibleError && (
+        <p id={visibleErrorId} className="break-words text-xs leading-5 text-red-600">
+          {visibleError}
+        </p>
       )}
-      {tags.map((_, index) => {
-        const itemError = indexedFieldError(fieldErrors, "tags", index);
+      {indexedTagErrors.map((itemError, index) => {
         return itemError ? (
-          <p key={index} className="break-words text-xs leading-5 text-red-600">
+          <p
+            key={index}
+            id={`tag-${index}-error`}
+            className="break-words text-xs leading-5 text-red-600"
+          >
             タグ {index + 1}: {itemError}
           </p>
         ) : null;
