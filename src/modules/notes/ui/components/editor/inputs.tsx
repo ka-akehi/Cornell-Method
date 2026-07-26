@@ -7,6 +7,7 @@ export function TitleInput({
   onChange,
   error,
   required = false,
+  disabled = false,
 }: {
   id: string;
   label: string;
@@ -14,6 +15,7 @@ export function TitleInput({
   onChange: (value: string) => void;
   error?: string;
   required?: boolean;
+  disabled?: boolean;
 }) {
   return (
     <div className="min-w-0 space-y-1.5">
@@ -26,13 +28,17 @@ export function TitleInput({
         type="text"
         value={value}
         required={required}
+        disabled={disabled}
         onChange={(event) => onChange(event.target.value)}
         aria-invalid={Boolean(error)}
+        aria-disabled={disabled}
         aria-describedby={error ? `${id}-error` : undefined}
         className={`note-paper-title w-full min-w-0 rounded-none border-0 border-b !bg-transparent px-0 py-1 !shadow-none outline-none transition placeholder:text-stone-400 focus:ring-0 ${
-          error
-            ? "border-red-400 focus:border-red-500"
-            : "border-stone-300 focus:border-amber-500"
+          disabled
+            ? "cursor-not-allowed border-stone-200 text-stone-400 placeholder:text-stone-300"
+            : error
+              ? "border-red-400 focus:border-red-500"
+              : "border-stone-300 focus:border-amber-500"
         }`}
         placeholder="タイトルを入力"
       />
@@ -54,6 +60,7 @@ export function TextInput({
   type = "text",
   max,
   required = false,
+  disabled = false,
 }: {
   id: string;
   label: string;
@@ -63,6 +70,7 @@ export function TextInput({
   type?: "text" | "date";
   max?: string;
   required?: boolean;
+  disabled?: boolean;
 }) {
   return (
     <div className="min-w-0 space-y-1.5">
@@ -76,10 +84,12 @@ export function TextInput({
         value={value}
         max={max}
         required={required}
+        disabled={disabled}
         onChange={(event) => onChange(event.target.value)}
         aria-invalid={Boolean(error)}
+        aria-disabled={disabled}
         aria-describedby={error ? `${id}-error` : undefined}
-        className={`w-full min-w-0 rounded-lg border bg-white px-3 py-2 text-sm text-stone-900 shadow-sm outline-none transition placeholder:text-stone-400 ${
+        className={`w-full min-w-0 rounded-lg border bg-white px-3 py-2 text-sm text-stone-900 shadow-sm outline-none transition placeholder:text-stone-400 disabled:cursor-not-allowed disabled:bg-stone-50 disabled:text-stone-400 disabled:placeholder:text-stone-300 ${
           error
             ? "border-red-300 focus:border-red-500 focus:ring-2 focus:ring-red-100"
             : "border-stone-200 focus:border-amber-500 focus:ring-2 focus:ring-amber-100"

@@ -43,6 +43,12 @@
 - 重要な分岐点では、Manager は「何を決める必要があるか」「選択肢」「各選択肢の影響」「Manager 推奨」を明示する。
 - 発注者から設計学習目的で判断理由や判断基準を質問された場合は、回答内容を `learning-notes/DESIGN_LEARNING_NOTES.md` に追記する。
 
+### PR 作成ルール
+
+- PR は Draft ではなく、レビュー可能な Open 状態で作成する。
+- GitHub Issue の修正を含む PR では、修正した Issue ごとに PR 本文へ `Closes #[Issue番号]` を追加する。Issue の自動クローズ参照は PR 本文に記載する。
+- `summary/` 配下の Worker task summary は PR の変更ファイルに含めない。PR 作成前に summary ファイルをステージ対象から除外する。summary は完了要約としてリポジトリ内に残してよいが、PR 本文の変更説明や Issue の自動クローズ参照の代わりにはしない。
+
 ---
 
 # Application Specification

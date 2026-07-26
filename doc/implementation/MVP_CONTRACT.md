@@ -175,7 +175,7 @@ MVP のタグ API は `GET /api/tags` のみです。request body / query はな
 
 ### 6.2 Canvas 本文の操作・スタイル
 
-- `select` は既存 Canvas 要素の選択・移動・resize を担う。`erase` は hit した stroke、line、arrow、rect、ellipse、text を object 単位で全体消去する。tool は sticky で、選択した tool を別 tool へ切り替えるまで継続して使える。
+- 初期 tool は `select` とする。`select` は既存 Canvas 要素の選択・移動・resize を担う。`pen` は継続 tool とし、自由線を配置しても `select` へ自動遷移しない。`line` / `arrow` / `rect` / `ellipse` / `text` は one-shot の配置 tool とし、正常に 1 オブジェクトを配置した場合だけ `select` へ戻る。tool は toolbar から明示的に切り替えられる。`erase` は hit した stroke、line、arrow、rect、ellipse、text を object 単位で全体消去するが、この one-shot 配置 lifecycle の対象には含めない。
 - `pen` / `line` / `arrow` / `rect` / `ellipse` / `text` は、空白だけでなく既存のアプリ所有 Canvas 要素上からも新規作成を開始できる。既存要素上からの重ね描きは、`select` による既存要素の操作とは別の役割である。
 - 新規 gesture の開始対象は、空白または保存済み `CanvasElementV1` に対応するアプリ所有 object に限る。Fabric の一時 preview、図形内文字の編集 overlay、metadata が欠落または未知の object を新規 gesture の対象にしない。
 - `line` / `arrow` / `rect` / `ellipse` の図形・線作成は一定のドラッグ量を超えた場合だけ開始・確定する。小さなクリック／ダブルクリックの gesture は不要な図形を作らず、確定しない。
@@ -250,7 +250,7 @@ MVP の route、API、データ、保存、削除、復習、Markdown、端末�
 
 | 領域 | runtime で確認した範囲 | 残る境界 |
 | --- | --- | --- |
-| Canvas shape text | rect の文字 commit、fontSize `18`・右寄せ、ellipse の Escape cancel、他要素保持、POST `201`、再読込 GET `200`、削除 `204`、console / page error 0 を確認。 | 全 tool の反復 lifecycle と全保存経路は未確認。`CANVAS-SHAPE-TEXT-001` は必須 subset の部分実施。 |
+| Canvas shape text | rect の文字 commit、fontSize `18`・右寄せ、ellipse の Escape cancel、他要素保持、POST `201`、再読込 GET `200`、削除 `204`、console / page error 0 を確認。 | 初期 `select`、`pen` 継続、描画 tool の配置後 `select` 遷移を含む全 lifecycle と全保存経路は未確認。`CANVAS-SHAPE-TEXT-001` は必須 subset の部分実施。 |
 | Canvas dimensions / style / persistence | 既存の Canvas runtime QA で、用紙寸法、style、standalone text / line の保存・再読込、eraser、history、toolbar / touch の確認済み範囲を確認。 | `CANVAS-INTERACTION-001` / `CANVAS-GESTURE-001` の厳密 4px、wheel / trackpad 固有入力は未確認。 |
 | Desktop edit | `/notes/[id]` の title、noteDate、source、tag、Cue、Canvas、Summary、`nextReviewDate` の復元、保存後再読込、キャンセル、主要 field 到達性を 1280 / 1440px で確認。 | 375 / 768px の mobile edit は未確認。 |
 | `nextReviewDate` | 新規 `2026-07-25` → `2026-08-01` の初期表示・保存、手動 `2026-08-05` の保持、空欄の再読込・`noteDate` 変更後維持を確認。 | review 成功 UI の画面反映は未確認。 |

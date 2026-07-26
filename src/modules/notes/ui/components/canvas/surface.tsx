@@ -9,12 +9,15 @@ import type { CanvasPageDimensions } from "@/shared/canvas";
 
 type NoteCanvasSurfaceProps = {
   mode: "editor" | "viewer";
+  id?: string;
   pageDimensions: CanvasPageDimensions;
   viewportRef: RefObject<HTMLDivElement | null>;
   surfaceRef: RefObject<HTMLDivElement | null>;
   canvasElementRef: RefObject<HTMLCanvasElement | null>;
   viewportAriaLabel: string;
   canvasAriaLabel: string;
+  ariaInvalid?: boolean;
+  ariaDescribedBy?: string;
   dataTool?: string;
   tabIndex?: number;
   onPointerDown?: PointerEventHandler<HTMLDivElement>;
@@ -23,12 +26,15 @@ type NoteCanvasSurfaceProps = {
 
 export function NoteCanvasSurface({
   mode,
+  id,
   pageDimensions,
   viewportRef,
   surfaceRef,
   canvasElementRef,
   viewportAriaLabel,
   canvasAriaLabel,
+  ariaInvalid,
+  ariaDescribedBy,
   dataTool,
   tabIndex,
   onPointerDown,
@@ -43,6 +49,7 @@ export function NoteCanvasSurface({
   return (
     <div
       ref={viewportRef}
+      id={id}
       className={`note-canvas-viewport${isViewer ? " note-canvas-viewport--viewer" : ""}`}
       data-tool={dataTool}
       tabIndex={tabIndex}
@@ -50,6 +57,8 @@ export function NoteCanvasSurface({
       onKeyDown={onKeyDown}
       role={isViewer ? "img" : "application"}
       aria-label={viewportAriaLabel}
+      aria-invalid={ariaInvalid || undefined}
+      aria-describedby={ariaDescribedBy}
     >
       <div className="note-canvas-horizontal-scroll">
         <div
