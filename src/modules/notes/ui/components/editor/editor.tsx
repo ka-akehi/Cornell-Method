@@ -296,7 +296,7 @@ export function NoteEditor({
             form.bodyMode === "canvas"
               ? " note-paper-cornell-grid--editor-canvas"
               : ""
-          } grid w-full min-w-0 grid-cols-[minmax(0,30%)_minmax(0,70%)] max-[640px]:!grid-cols-1`}
+            } grid w-full min-w-0 grid-cols-[minmax(0,30%)_minmax(0,70%)] max-[640px]:!grid-cols-1`}
         >
           <NoteEditorCueSection
             cues={form.cues}

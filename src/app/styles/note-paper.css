@@ -161,6 +161,14 @@
   min-width: 0;
 }
 
+.note-paper-cornell-grid--editor > * {
+  min-height: 0;
+}
+
+.note-paper-cue-list {
+  min-width: 0;
+}
+
 .note-paper-cornell-grid > :first-child {
   min-width: 0;
   padding-right: clamp(0.625rem, 1.25vw, 1rem);
