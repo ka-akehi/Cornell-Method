@@ -29,12 +29,12 @@ export function NoteEditorCueSection({
         </button>
       </div>
 
-      <div className="note-paper-cue-list">
-        {cues.length === 0 ? (
-          <p className="note-paper-cue-empty rounded-lg border border-dashed border-stone-200 !bg-transparent px-3 py-3 text-sm leading-6 text-stone-500">
-            Cue は未追加です。
-          </p>
-        ) : (
+      {cues.length === 0 ? (
+        <p className="note-paper-cue-empty rounded-lg border border-dashed border-stone-200 !bg-transparent px-3 py-3 text-sm leading-6 text-stone-500">
+          Cue は未追加です。
+        </p>
+      ) : (
+        <div className="note-paper-cue-list">
           <ul className="space-y-0">
             {cues.map((cue, index) => {
               const cueFieldError = indexedFieldError(fieldErrors, "cues", index);
@@ -90,8 +90,8 @@ export function NoteEditorCueSection({
               );
             })}
           </ul>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 }

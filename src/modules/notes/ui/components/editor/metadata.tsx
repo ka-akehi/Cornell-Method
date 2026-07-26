@@ -97,9 +97,13 @@ export function NoteEditorMetadataSection({
                 <select
                   id="source-type"
                   value={sourceType}
-                  onChange={(event) =>
-                    onChange({ sourceType: event.target.value as SourceType | "" })
-                  }
+                  onChange={(event) => {
+                    const nextSourceType = event.target.value as SourceType | "";
+                    onChange({
+                      sourceType: nextSourceType,
+                      sourceTitle: nextSourceType ? sourceTitle : "",
+                    });
+                  }}
                   aria-invalid={Boolean(sourceTypeFieldError)}
                   aria-describedby={sourceTypeFieldError ? "source-type-error" : undefined}
                   className="w-full min-w-0 rounded-lg border border-stone-200 bg-white px-3 py-2 text-sm text-stone-900 shadow-sm outline-none transition focus:border-amber-500 focus:ring-2 focus:ring-amber-100"

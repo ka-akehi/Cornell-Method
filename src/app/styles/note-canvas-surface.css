@@ -13,7 +13,6 @@
 .note-canvas-viewport--scrollable {
   overflow-x: clip;
   overflow-y: auto;
-  overscroll-behavior-y: contain;
   scrollbar-width: thin;
 }
 

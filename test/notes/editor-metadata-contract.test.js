@@ -69,6 +69,23 @@ test("main note title stays editable and source title follows source type", () =
   );
 });
 
+test("clearing source type clears stale source title before save", () => {
+  const metadata = readSource(
+    "src/modules/notes/ui/components/editor/metadata.tsx",
+  );
+  const payload = readSource(
+    "src/modules/notes/model/note-editor-form.payload.ts",
+  );
+
+  assert.match(
+    metadata,
+    /const nextSourceType = event\.target\.value as SourceType \| "";[\s\S]*?onChange\(\{\s*sourceType: nextSourceType,\s*sourceTitle: nextSourceType \? sourceTitle : "",\s*\}\)/,
+  );
+  assert.match(metadata, /disabled=\{!sourceType\}/);
+  assert.match(payload, /sourceType: form\.sourceType \|\| undefined,/);
+  assert.match(payload, /sourceTitle: form\.sourceTitle,/);
+});
+
 test("tag input still clears after a successful new tag addition", () => {
   const tags = readSource("src/modules/notes/ui/components/editor/tags.tsx");
 

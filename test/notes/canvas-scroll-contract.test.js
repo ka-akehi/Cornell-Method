@@ -35,7 +35,29 @@ test("Canvas surface keeps horizontal scrolling and adds a vertical scroll conta
   );
 });
 
-test("two-column editor gives Canvas and Cue the same responsive height basis", () => {
+test("Cue scrolling is only mounted when Cue items exist", () => {
+  const cues = readSource("src/modules/notes/ui/components/editor/cues.tsx");
+  const paperStyles = readSource("src/app/styles/note-paper.css");
+
+  assert.match(
+    cues,
+    /cues\.length === 0 \?[\s\S]*?note-paper-cue-empty[\s\S]*?: \([\s\S]*?<div className="note-paper-cue-list">[\s\S]*?<ul/,
+  );
+  assert.doesNotMatch(
+    cues,
+    /<div className="note-paper-cue-list">[\s\S]*?cues\.length === 0/,
+  );
+  assert.match(
+    paperStyles,
+    /\.note-paper-cue-list\s*\{[\s\S]*overflow-y: auto;[\s\S]*scrollbar-width: thin;/,
+  );
+  assert.doesNotMatch(
+    paperStyles,
+    /\.note-paper-cue-list\s*\{[\s\S]*overscroll-behavior(?:-y)?:\s*contain;/,
+  );
+});
+
+test("two-column editor gives long Canvas and Cue content the same responsive height basis", () => {
   const editor = readSource(
     "src/modules/notes/ui/components/editor/editor.tsx",
   );
@@ -65,6 +87,53 @@ test("two-column editor gives Canvas and Cue the same responsive height basis", 
     surfaceStyles,
     /@media \(min-width: 1024px\), \(min-width: 641px\) and \(max-width: 900px\)[\s\S]*?\.note-paper-detail[\s\S]*?\.note-canvas-viewport--scrollable[\s\S]*?max-height: var\(--note-paper-cornell-scroll-height\);/,
   );
+});
+
+test("vertical scroll boundaries leave page scrolling enabled", () => {
+  const paperStyles = readSource("src/app/styles/note-paper.css");
+  const surfaceStyles = readSource(
+    "src/app/styles/note-canvas-surface.css",
+  );
+
+  assert.doesNotMatch(
+    paperStyles,
+    /\.note-paper-cue-list\s*\{[\s\S]*overscroll-behavior-y:\s*contain;/,
+  );
+  assert.match(
+    surfaceStyles,
+    /\.note-canvas-viewport\s*\{[\s\S]*overscroll-behavior: auto;/,
+  );
+  assert.match(
+    surfaceStyles,
+    /\.note-canvas-viewport--scrollable\s*\{[\s\S]*overflow-y: auto;/,
+  );
+  assert.doesNotMatch(
+    surfaceStyles,
+    /\.note-canvas-viewport--scrollable\s*\{[\s\S]*overscroll-behavior-y:\s*contain;/,
+  );
+});
+
+test("viewer Canvas is keyboard focusable while editor Canvas keeps its existing focus contract", () => {
+  const viewer = readSource(
+    "src/modules/notes/ui/components/canvas/viewer.tsx",
+  );
+  const editorCanvas = readSource(
+    "src/modules/notes/ui/components/canvas/editor.tsx",
+  );
+  const surface = readSource(
+    "src/modules/notes/ui/components/canvas/surface.tsx",
+  );
+
+  assert.match(
+    viewer,
+    /<NoteCanvasSurface[\s\S]*mode="viewer"[\s\S]*tabIndex=\{0\}[\s\S]*viewportAriaLabel=/,
+  );
+  assert.match(
+    editorCanvas,
+    /<NoteCanvasSurface[\s\S]*mode="editor"[\s\S]*tabIndex=\{0\}[\s\S]*onPointerDown=\{focusViewportWithoutScroll\}[\s\S]*onKeyDown=\{handleKeyDown\}/,
+  );
+  assert.match(surface, /tabIndex=\{tabIndex\}/);
+  assert.match(surface, /role=\{isViewer \? "img" : "application"\}/);
 });
 
 test("mobile layouts leave vertical scrolling to the page", () => {
