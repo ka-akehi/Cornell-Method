@@ -32,10 +32,10 @@ test("Canvas toolbar keeps select internal and removes its visible operation gro
   assert.match(actions, /onToolChange\(item\.value\)/);
 
   assert.match(runtime, /if \(activeTool === "select"\)/);
-  assert.match(runtime, /canvas\.selection = currentTool === "select"/);
+  assert.match(runtime, /canvas\.selection = (?:currentTool|tool) === "select"/);
   assert.match(
     runtime,
-    /selectable: currentTool === "select", evented: true/,
+    /selectable: (?:currentTool|tool) === "select", evented: true/,
   );
 });
 

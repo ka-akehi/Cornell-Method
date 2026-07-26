@@ -5,6 +5,22 @@ import type {
 } from "@/shared/canvas";
 import type { CanvasNoteTool } from "@/modules/notes/lib/canvas-editor-types";
 
+export const ONE_SHOT_CANVAS_TOOLS = [
+  "text",
+  "line",
+  "arrow",
+  "rect",
+  "ellipse",
+] as const;
+
+export type OneShotCanvasTool = (typeof ONE_SHOT_CANVAS_TOOLS)[number];
+
+export function isOneShotCanvasTool(
+  tool: CanvasNoteTool,
+): tool is OneShotCanvasTool {
+  return ONE_SHOT_CANVAS_TOOLS.includes(tool as OneShotCanvasTool);
+}
+
 export const CANVAS_MIN_STROKE_WIDTH = 1;
 export const CANVAS_MAX_STROKE_WIDTH = 20;
 export const CANVAS_DEFAULT_STROKE_WIDTH = 1;

@@ -12,7 +12,12 @@ export type {
   CanvasStyleTarget,
   FabricInteractionState,
   NoteCanvasEditorProps,
+  OneShotCanvasTool,
   SelectedCanvasStyle,
+} from "./canvas-editor-types";
+export {
+  isOneShotCanvasTool,
+  ONE_SHOT_CANVAS_TOOLS,
 } from "./canvas-editor-types";
 export type {
   CanvasNoteTool,

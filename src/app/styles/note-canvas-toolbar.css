@@ -77,8 +77,16 @@
 }
 
 .note-canvas-toolbar-drawing-rail .note-canvas-tool-button {
+  flex: 0 0 auto;
+  width: auto;
+  min-width: 2.75rem;
   border-color: transparent;
   background: transparent;
+  padding-inline: 0.35rem;
+}
+
+.note-canvas-toolbar-drawing-rail .note-canvas-tool-label {
+  display: inline-block;
 }
 
 .note-canvas-toolbar-drawing-rail .note-canvas-toolbar-tooltip {
