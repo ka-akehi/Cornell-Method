@@ -2,22 +2,17 @@ name: Create Issues from Codex review findings
 
 on:
   pull_request_target:
-    types:
-      - opened
-      - reopened
-      - ready_for_review
-      - synchronize
-      - closed
+    types: [opened, reopened, ready_for_review, synchronize, closed]
   schedule:
     - cron: "*/5 * * * *"
   workflow_dispatch:
     inputs:
       pr_number:
-        description: Pull request number to inspect; leave empty to scan all open PRs
+        description: Pull request number; leave empty to scan all open PRs
         required: false
         type: string
       force:
-        description: Repost the PR summary for the current finding set
+        description: Repost the PR synchronization summary
         required: false
         default: false
         type: boolean
@@ -27,21 +22,17 @@ permissions:
   issues: write
   pull-requests: write
 
-# All entry points share one queue. This makes the read-before-create
-# deduplication safe across PR events, scheduled scans, and manual runs.
+# A single queue protects read-before-create deduplication across all triggers.
 concurrency:
   group: codex-review-to-issues
   cancel-in-progress: false
 
 jobs:
   create-review-issues:
-    name: Create Issues from current-head Codex findings
     runs-on: ubuntu-latest
-    timeout-minutes: 12
-
+    timeout-minutes: 15
     steps:
-      - name: Scan Codex findings and create deduplicated Issues
-        uses: actions/github-script@v9
+      - uses: actions/github-script@v9
         env:
           DISPATCH_PR_NUMBER: ${{ inputs.pr_number || '' }}
           FORCE_SUMMARY: ${{ inputs.force || false }}
@@ -53,67 +44,45 @@ jobs:
             const { owner, repo } = context.repo;
             const eventName = context.eventName;
             const eventAction = context.payload.action;
+            const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+            const normalize = (login) =>
+              String(login ?? "").replace(/\[bot\]$/i, "").toLowerCase();
+            const isCodex = (login) => normalize(login) === "chatgpt-codex-connector";
+            const isTrustedSummary = (login) => {
+              const value = normalize(login);
+              return value === "github-actions" || value === owner.toLowerCase();
+            };
+            const forced = () =>
+              String(process.env.FORCE_SUMMARY ?? "false").toLowerCase() === "true";
+            const isOpenAtHead = (pr, sha) =>
+              pr.state === "open" && pr.merged_at == null && pr.head?.sha === sha;
 
-            function normalizeLogin(login) {
-              return String(login ?? "").replace(/\[bot\]$/i, "").toLowerCase();
-            }
-
-            function isCodexConnector(login) {
-              return normalizeLogin(login) === "chatgpt-codex-connector";
-            }
-
-            function isForced() {
-              return String(process.env.FORCE_SUMMARY ?? "false").toLowerCase() === "true";
-            }
-
-            function isOpenAtHead(pullRequest, headSha) {
-              return (
-                pullRequest.state === "open" &&
-                pullRequest.merged_at == null &&
-                pullRequest.head?.sha === headSha
-              );
-            }
-
-            function extractPriority(body) {
+            function priorityOf(body) {
               const text = String(body ?? "");
-              const badge = text.match(/!\[P([0-3])\s+Badge\](?:\([^)]*\))?/i);
+              const badge = text.match(/!\[P([0-3])\s+Badge\]/i);
               if (badge) return `P${badge[1]}`;
-
               const bracket = text.match(
                 /(?:^|\n)\s*(?:#{1,6}\s*)?(?:[-*]\s*)?\[P([0-3])\](?:\s+|$)/i,
               );
               return bracket ? `P${bracket[1]}` : null;
             }
 
-            function cleanFindingTitle(body, priority) {
-              const firstLine =
-                String(body ?? "")
-                  .replace(/\r\n/g, "\n")
-                  .split("\n")
-                  .map((line) => line.trim())
-                  .find(Boolean) ?? `${priority} review finding`;
-
-              const title = firstLine
+            function findingTitle(body, priority) {
+              const first = String(body ?? "")
+                .replace(/\r\n/g, "\n")
+                .split("\n")
+                .map((line) => line.trim())
+                .find(Boolean) ?? `${priority} review finding`;
+              return first
                 .replace(/!\[P[0-3]\s+Badge\](?:\([^)]*\))?/gi, "")
                 .replace(/<[^>]+>/g, "")
                 .replace(/^#{1,6}\s*/, "")
-                .replace(/^\*\*\s*/, "")
-                .replace(/\s*\*\*$/, "")
+                .replace(/^\*\*\s*|\s*\*\*$/g, "")
                 .replace(/^\[P[0-3]\]\s*/i, "")
                 .replace(/[*_`~]/g, "")
                 .replace(/\s+/g, " ")
-                .trim();
-
-              return (title || `${priority} review finding`).slice(0, 160);
-            }
-
-            function normalizeRootCause(value) {
-              return String(value ?? "")
-                .toLowerCase()
-                .normalize("NFKC")
-                .replace(/[^a-z0-9\u3040-\u30ff\u3400-\u9fff]+/g, "-")
-                .replace(/^-+|-+$/g, "")
-                .slice(0, 120);
+                .trim()
+                .slice(0, 160) || `${priority} review finding`;
             }
 
             function sourceMarker(prNumber, finding) {
@@ -121,150 +90,87 @@ jobs:
             }
 
             function fingerprint(prNumber, finding) {
-              const input = [
-                `PR-${prNumber}`,
-                finding.path ?? "general",
-                normalizeRootCause(finding.title),
-              ].join(":");
-              return crypto.createHash("sha256").update(input).digest("hex").slice(0, 24);
+              const root = finding.title
+                .toLowerCase()
+                .normalize("NFKC")
+                .replace(/[^a-z0-9\u3040-\u30ff\u3400-\u9fff]+/g, "-")
+                .replace(/^-+|-+$/g, "")
+                .slice(0, 120);
+              return crypto
+                .createHash("sha256")
+                .update([`PR-${prNumber}`, finding.path ?? "general", root].join(":"))
+                .digest("hex")
+                .slice(0, 24);
             }
 
-            function fingerprintMarker(value) {
-              return `<!-- codex-review-fingerprint:${value} -->`;
-            }
-
-            function quoteMarkdown(value) {
-              return String(value ?? "")
-                .replace(/\r\n/g, "\n")
-                .split("\n")
-                .map((line) => `> ${line}`)
-                .join("\n");
-            }
-
-            function extractReferencedHead(body) {
+            function referencedHead(body) {
               const match = String(body ?? "").match(
                 /(?:検証対象HEAD|対象HEAD|Reviewed commit|Reviewed HEAD)\**\s*[:：]\s*\**\s*`?([0-9a-f]{7,40})`?/i,
               );
               return match?.[1]?.toLowerCase() ?? null;
             }
 
-            function parseLocation(block) {
-              const match = String(block ?? "").match(
-                /(?:^|\n)\s*(?:-\s*)?Location\s*:\s*`?([^:\n`]+?)(?::(\d+))?`?\s*$/im,
-              );
-              return {
-                path: match?.[1]?.trim() ?? null,
-                line: match?.[2] ? Number(match[2]) : null,
-              };
-            }
-
-            function parseTopLevelFindings(comment, headSha) {
+            function topLevelFindings(comment, headSha) {
+              if (!isCodex(comment.user?.login)) return [];
               const body = String(comment.body ?? "").replace(/\r\n/g, "\n");
-              if (!isCodexConnector(comment.user?.login)) return [];
-
-              const referencedHead = extractReferencedHead(body);
-              if (!referencedHead || !headSha.toLowerCase().startsWith(referencedHead)) {
-                return [];
-              }
+              const referenced = referencedHead(body);
+              if (!referenced || !headSha.toLowerCase().startsWith(referenced)) return [];
 
               const lines = body.split("\n");
               const findings = [];
-
               for (let index = 0; index < lines.length; index += 1) {
                 const heading = lines[index].match(
                   /^(#{1,6})\s*\[P([0-3])\](?:\s+(.+?))?\s*$/i,
                 );
                 if (!heading) continue;
-
-                const headingLevel = heading[1].length;
-                let endIndex = lines.length;
+                const priority = `P${heading[2]}`;
+                const level = heading[1].length;
+                let end = lines.length;
                 for (let cursor = index + 1; cursor < lines.length; cursor += 1) {
-                  const nextHeading = lines[cursor].match(/^(#{1,6})\s+\S/);
-                  if (nextHeading && nextHeading[1].length <= headingLevel) {
-                    endIndex = cursor;
+                  const next = lines[cursor].match(/^(#{1,6})\s+\S/);
+                  if (next && next[1].length <= level) {
+                    end = cursor;
                     break;
                   }
                 }
-
-                const priority = `P${heading[2]}`;
-                if (priority === "P3") {
-                  index = endIndex - 1;
-                  continue;
+                if (priority !== "P3") {
+                  const block = lines.slice(index, end).join("\n").trim();
+                  const location = block.match(
+                    /(?:^|\n)\s*(?:-\s*)?Location\s*:\s*`?([^:\n`]+?)(?::(\d+))?`?\s*$/im,
+                  );
+                  findings.push({
+                    id: `${comment.id}-${index}`,
+                    sourceType: "issue-comment",
+                    priority,
+                    title: findingTitle(lines[index], priority),
+                    body: block,
+                    url: comment.html_url,
+                    path: location?.[1]?.trim() ?? null,
+                    line: location?.[2] ? Number(location[2]) : null,
+                  });
                 }
-
-                const block = lines.slice(index, endIndex).join("\n").trim();
-                const location = parseLocation(block);
-                findings.push({
-                  id: `${comment.id}-${index}`,
-                  sourceType: "issue-comment",
-                  priority,
-                  title: cleanFindingTitle(lines[index], priority),
-                  body: block,
-                  url: comment.html_url,
-                  path: location.path,
-                  line: location.line,
-                });
-
-                index = endIndex - 1;
+                index = end - 1;
               }
-
               return findings;
             }
 
-            if (eventName === "pull_request_target" && eventAction === "closed") {
-              core.info("The PR was closed or merged. No Issue synchronization is needed.");
-              return;
-            }
-
-            async function resolvePullRequestNumbers() {
-              if (eventName === "pull_request_target") {
-                const number = context.payload.pull_request?.number;
-                return Number.isInteger(number) ? [number] : [];
-              }
-
-              if (eventName === "workflow_dispatch") {
-                const value = String(process.env.DISPATCH_PR_NUMBER ?? "").trim();
-                if (value) {
-                  const number = Number(value);
-                  if (!Number.isInteger(number) || number < 1) {
-                    core.setFailed("pr_number must be a positive integer.");
-                    return [];
-                  }
-                  return [number];
-                }
-              }
-
-              const openPullRequests = await github.paginate(
-                github.rest.pulls.list,
-                { owner, repo, state: "open", per_page: 100 },
-              );
-              return openPullRequests.map((pullRequest) => pullRequest.number);
-            }
-
-            async function readActiveReviewCommentIds(prNumber) {
+            async function activeReviewCommentIds(prNumber) {
               try {
                 const result = await github.graphql(
-                  `query ReviewThreads($owner: String!, $repo: String!, $number: Int!) {
-                    repository(owner: $owner, name: $repo) {
-                      pullRequest(number: $number) {
-                        reviewThreads(first: 100) {
-                          nodes {
-                            isResolved
-                            isOutdated
-                            comments(first: 100) {
-                              nodes { databaseId }
-                            }
-                          }
-                        }
+                  `query($owner:String!,$repo:String!,$number:Int!){
+                    repository(owner:$owner,name:$repo){
+                      pullRequest(number:$number){
+                        reviewThreads(first:100){nodes{
+                          isResolved isOutdated
+                          comments(first:100){nodes{databaseId}}
+                        }}
                       }
                     }
                   }`,
                   { owner, repo, number: prNumber },
                 );
-
                 const threads = result.repository?.pullRequest?.reviewThreads?.nodes;
                 if (!Array.isArray(threads)) return null;
-
                 return new Set(
                   threads
                     .filter((thread) => !thread.isResolved && !thread.isOutdated)
@@ -273,69 +179,50 @@ jobs:
                     .filter(Number.isInteger),
                 );
               } catch (error) {
-                core.warning(
-                  `Could not read review-thread state for PR #${prNumber}; using current-head REST comments: ${error?.message ?? error}`,
-                );
+                core.warning(`PR #${prNumber}: thread-state lookup failed: ${error.message}`);
                 return null;
               }
             }
 
             async function collectFindings(prNumber, headSha) {
-              const [reviews, reviewComments, issueComments, activeIds] =
-                await Promise.all([
-                  github.paginate(github.rest.pulls.listReviews, {
-                    owner,
-                    repo,
-                    pull_number: prNumber,
-                    per_page: 100,
-                  }),
-                  github.paginate(github.rest.pulls.listReviewComments, {
-                    owner,
-                    repo,
-                    pull_number: prNumber,
-                    per_page: 100,
-                  }),
-                  github.paginate(github.rest.issues.listComments, {
-                    owner,
-                    repo,
-                    issue_number: prNumber,
-                    per_page: 100,
-                  }),
-                  readActiveReviewCommentIds(prNumber),
-                ]);
+              const [reviews, inlineComments, issueComments, activeIds] = await Promise.all([
+                github.paginate(github.rest.pulls.listReviews, {
+                  owner, repo, pull_number: prNumber, per_page: 100,
+                }),
+                github.paginate(github.rest.pulls.listReviewComments, {
+                  owner, repo, pull_number: prNumber, per_page: 100,
+                }),
+                github.paginate(github.rest.issues.listComments, {
+                  owner, repo, issue_number: prNumber, per_page: 100,
+                }),
+                activeReviewCommentIds(prNumber),
+              ]);
 
-              const currentReviewIds = new Set(
+              const reviewIds = new Set(
                 reviews
-                  .filter(
-                    (review) =>
-                      isCodexConnector(review.user?.login) &&
-                      review.commit_id === headSha &&
-                      review.state !== "PENDING",
+                  .filter((review) =>
+                    isCodex(review.user?.login) &&
+                    review.commit_id === headSha &&
+                    review.state !== "PENDING",
                   )
                   .map((review) => review.id),
               );
 
-              const inlineFindings = reviewComments
-                .filter((comment) => {
-                  if (!isCodexConnector(comment.user?.login)) return false;
-                  if (comment.in_reply_to_id) return false;
-
-                  const belongsToCurrentHead =
-                    comment.commit_id === headSha ||
-                    currentReviewIds.has(comment.pull_request_review_id);
-                  if (!belongsToCurrentHead) return false;
-
-                  if (activeIds !== null && !activeIds.has(comment.id)) return false;
-                  return true;
-                })
+              const inline = inlineComments
+                .filter((comment) =>
+                  isCodex(comment.user?.login) &&
+                  !comment.in_reply_to_id &&
+                  (comment.commit_id === headSha || reviewIds.has(comment.pull_request_review_id)) &&
+                  (activeIds === null || activeIds.has(comment.id)),
+                )
                 .map((comment) => {
-                  const priority = extractPriority(comment.body);
+                  const priority = priorityOf(comment.body);
                   if (!priority || priority === "P3") return null;
                   return {
                     id: String(comment.id),
                     sourceType: "review-comment",
                     priority,
-                    title: cleanFindingTitle(comment.body, priority),
+                    title: findingTitle(comment.body, priority),
                     body: String(comment.body ?? ""),
                     url: comment.html_url,
                     path: comment.path ?? null,
@@ -344,222 +231,213 @@ jobs:
                 })
                 .filter(Boolean);
 
-              const topLevelFindings = issueComments.flatMap((comment) =>
-                parseTopLevelFindings(comment, headSha),
+              const topLevel = issueComments.flatMap((comment) =>
+                topLevelFindings(comment, headSha),
               );
-
-              const bySource = new Map();
-              for (const finding of [...inlineFindings, ...topLevelFindings]) {
-                bySource.set(`${finding.sourceType}:${finding.id}`, finding);
+              const unique = new Map();
+              for (const finding of [...inline, ...topLevel]) {
+                unique.set(`${finding.sourceType}:${finding.id}`, finding);
               }
-
-              const findings = [...bySource.values()];
+              const findings = [...unique.values()];
               core.info(
-                `PR #${prNumber}: ${reviews.length} review(s), ${reviewComments.length} inline comment(s), ${issueComments.length} top-level comment(s), ${findings.length} active current-head P0-P2 finding(s).`,
+                `PR #${prNumber}: reviews=${reviews.length}, inline=${inlineComments.length}, top-level=${issueComments.length}, eligible=${findings.length}`,
               );
               return findings;
             }
 
-            async function listTrackingIssues() {
+            async function existingTrackingIssues() {
               const items = await github.paginate(github.rest.issues.listForRepo, {
-                owner,
-                repo,
-                state: "all",
-                per_page: 100,
+                owner, repo, state: "all", per_page: 100,
               });
               return items.filter((item) => !item.pull_request);
             }
 
-            function buildIssueBody(pullRequest, finding, fp) {
-              const blocking = finding.priority === "P0" || finding.priority === "P1";
+            function issueBody(pr, finding, fp) {
+              const blocking = ["P0", "P1"].includes(finding.priority);
+              const quote = String(finding.body ?? "")
+                .replace(/\r\n/g, "\n")
+                .split("\n")
+                .map((line) => `> ${line}`)
+                .join("\n");
               const location = finding.path
                 ? `\`${finding.path}${finding.line ? `:${finding.line}` : ""}\``
                 : "レビューコメント内の一般指摘";
-
               return [
-                sourceMarker(pullRequest.number, finding),
-                fingerprintMarker(fp),
+                sourceMarker(pr.number, finding),
+                `<!-- codex-review-fingerprint:${fp} -->`,
                 "",
                 "## Summary",
                 `${finding.priority}のCodex Code Review findingを追跡します。`,
                 "",
                 "## Source PR and review",
-                `- PR: ${pullRequest.html_url}`,
+                `- PR: ${pr.html_url}`,
                 `- Review finding: ${finding.url}`,
-                `- Reviewed HEAD: \`${pullRequest.head.sha}\``,
+                `- Reviewed HEAD: \`${pr.head.sha}\``,
                 `- Source type: \`${finding.sourceType}\``,
                 "",
                 "## Priority and disposition",
                 `- Priority: **${finding.priority}**`,
-                `- Disposition: ${blocking ? "PR内修正必須。Issueを作成してもマージブロッカーは解除されません。" : "追跡対象。PR内修正か安全な後続作業かを最新HEADで判断してください。"}`,
+                `- Disposition: ${blocking ? "PR内修正必須。Issue化してもマージブロッカーは解除されません。" : "PR内修正か安全な後続作業かを最新HEADで判断してください。"}`,
                 "",
                 "## Current location",
                 `- ${location}`,
                 "",
                 "## Original review finding",
-                quoteMarkdown(finding.body),
+                quote,
                 "",
                 "## Acceptance criteria",
-                "- 最新の対象ブランチでレビュー記載のTriggerが再現しない",
-                "- 根本原因を修正または明示的に受け入れ、影響範囲を説明できる",
-                "- 回帰テストまたは具体的な検証手順を追加・実行する",
-                "- 元のレビュー指摘を再確認し、対応結果を記録する",
+                "- レビュー記載のTriggerが最新ブランチで再現しない",
+                "- 根本原因と影響範囲を説明できる",
+                "- 回帰テストまたは具体的な検証を実行する",
+                "- 元レビューを再確認して対応結果を記録する",
                 "",
                 "## Merge safety",
                 blocking
                   ? "このIssueの存在は、P0/P1を含むPRを安全にマージできる根拠にはなりません。"
-                  : "このIssueへの延期は、PRが現行契約上安全であることを別途確認した場合に限ります。",
-                "",
-                "## Fingerprint",
-                `- \`${fp}\``,
+                  : "延期する場合は、現行契約上PRが安全であることを別途確認してください。",
               ].join("\n");
             }
 
-            async function createOrReuseIssues(pullRequest, findings) {
-              const existingIssues = await listTrackingIssues();
+            async function synchronize(pr, findings) {
+              const issues = await existingTrackingIssues();
               const created = [];
               const reused = [];
 
               for (const finding of findings) {
-                const fp = fingerprint(pullRequest.number, finding);
-                const source = sourceMarker(pullRequest.number, finding);
-                const fpMarker = fingerprintMarker(fp);
-                const existing = existingIssues.find(
-                  (issue) =>
-                    typeof issue.body === "string" &&
-                    (issue.body.includes(source) || issue.body.includes(fpMarker)),
+                const fp = fingerprint(pr.number, finding);
+                const source = sourceMarker(pr.number, finding);
+                const fpMarker = `<!-- codex-review-fingerprint:${fp} -->`;
+                const existing = issues.find((issue) =>
+                  typeof issue.body === "string" &&
+                  (issue.body.includes(source) || issue.body.includes(fpMarker)),
                 );
-
                 if (existing) {
                   reused.push(existing);
                   continue;
                 }
 
                 const latest = await github.rest.pulls.get({
-                  owner,
-                  repo,
-                  pull_number: pullRequest.number,
+                  owner, repo, pull_number: pr.number,
                 });
-                if (!isOpenAtHead(latest.data, pullRequest.head.sha)) {
-                  core.info(`PR #${pullRequest.number} changed before Issue creation.`);
-                  return;
-                }
+                if (!isOpenAtHead(latest.data, pr.head.sha)) return;
 
                 const response = await github.rest.issues.create({
                   owner,
                   repo,
-                  title: `[${finding.priority}][Code Review][PR #${pullRequest.number}] ${finding.title}`.slice(0, 250),
-                  body: buildIssueBody(pullRequest, finding, fp),
+                  title: `[${finding.priority}][Code Review][PR #${pr.number}] ${finding.title}`.slice(0, 250),
+                  body: issueBody(pr, finding, fp),
                 });
                 created.push(response.data);
-                existingIssues.push(response.data);
+                issues.push(response.data);
               }
 
               const sourceHash = crypto
                 .createHash("sha256")
-                .update(
-                  findings
-                    .map((finding) => `${finding.sourceType}:${finding.id}`)
-                    .sort()
-                    .join(","),
-                )
+                .update(findings.map((f) => `${f.sourceType}:${f.id}`).sort().join(","))
                 .digest("hex")
                 .slice(0, 20);
-              const marker = `<!-- codex-review-issues-summary:${pullRequest.head.sha}:${sourceHash} -->`;
-
-              const priorComments = await github.paginate(
-                github.rest.issues.listComments,
-                {
-                  owner,
-                  repo,
-                  issue_number: pullRequest.number,
-                  per_page: 100,
-                },
-              );
-              const alreadySummarized = priorComments.some(
-                (comment) =>
-                  typeof comment.body === "string" && comment.body.includes(marker),
+              const marker = `<!-- codex-review-issues-summary:${pr.head.sha}:${sourceHash} -->`;
+              const comments = await github.paginate(github.rest.issues.listComments, {
+                owner, repo, issue_number: pr.number, per_page: 100,
+              });
+              const summarized = comments.some((comment) =>
+                isTrustedSummary(comment.user?.login) &&
+                typeof comment.body === "string" &&
+                comment.body.includes(marker),
               );
 
-              if (!alreadySummarized || isForced()) {
+              if (!summarized || forced()) {
                 const summary = [
                   marker,
                   "## Codexレビュー指摘のIssue同期",
                   "",
-                  `検証対象HEAD: \`${pullRequest.head.sha}\``,
+                  `検証対象HEAD: \`${pr.head.sha}\``,
                   "",
                   "### Created Issues",
                   ...(created.length
-                    ? created.map(
-                        (issue) =>
-                          `- [#${issue.number}](${issue.html_url}) ${issue.title}`,
-                      )
+                    ? created.map((issue) => `- [#${issue.number}](${issue.html_url}) ${issue.title}`)
                     : ["- なし"]),
                   "",
                   "### Reused existing Issues",
                   ...(reused.length
-                    ? reused.map(
-                        (issue) =>
-                          `- [#${issue.number}](${issue.html_url}) ${issue.title}`,
-                      )
+                    ? reused.map((issue) => `- [#${issue.number}](${issue.html_url}) ${issue.title}`)
                     : ["- なし"]),
                   "",
                   "P0/P1はIssue化後もPR内修正必須です。P2の延期可否は別途判断してください。",
                 ].join("\n");
-
                 try {
                   await github.rest.issues.createComment({
-                    owner,
-                    repo,
-                    issue_number: pullRequest.number,
-                    body: summary,
+                    owner, repo, issue_number: pr.number, body: summary,
                   });
                 } catch (error) {
-                  core.warning(
-                    `Issues were synchronized, but the PR summary comment failed: ${error?.message ?? error}`,
-                  );
+                  core.warning(`Issues were created, but summary posting failed: ${error.message}`);
                 }
               }
-
-              core.info(
-                `PR #${pullRequest.number}: created ${created.length}, reused ${reused.length}.`,
-              );
+              core.info(`PR #${pr.number}: created=${created.length}, reused=${reused.length}`);
             }
 
-            async function inspectPullRequest(prNumber) {
+            async function resolvePrNumbers() {
+              if (eventName === "pull_request_target") {
+                const number = context.payload.pull_request?.number;
+                return Number.isInteger(number) ? [number] : [];
+              }
+              if (eventName === "workflow_dispatch") {
+                const raw = String(process.env.DISPATCH_PR_NUMBER ?? "").trim();
+                if (raw) {
+                  const number = Number(raw);
+                  if (!Number.isInteger(number) || number < 1) {
+                    core.setFailed("pr_number must be a positive integer");
+                    return [];
+                  }
+                  return [number];
+                }
+              }
+              const open = await github.paginate(github.rest.pulls.list, {
+                owner, repo, state: "open", per_page: 100,
+              });
+              return open.map((pr) => pr.number);
+            }
+
+            async function inspect(prNumber, poll) {
               const initial = await github.rest.pulls.get({
-                owner,
-                repo,
-                pull_number: prNumber,
+                owner, repo, pull_number: prNumber,
               });
-              if (initial.data.state !== "open" || initial.data.merged_at != null) return;
-
+              if (!isOpenAtHead(initial.data, initial.data.head.sha)) return;
               const headSha = initial.data.head.sha;
-              const findings = await collectFindings(prNumber, headSha);
-              if (findings.length === 0) {
-                core.info(`PR #${prNumber}: no active current-head P0-P2 finding.`);
-                return;
-              }
+              const attempts = poll ? 30 : 1;
 
-              const latest = await github.rest.pulls.get({
-                owner,
-                repo,
-                pull_number: prNumber,
-              });
-              if (!isOpenAtHead(latest.data, headSha)) {
-                core.info(`PR #${prNumber}: state or HEAD changed before Issue synchronization.`);
-                return;
+              for (let attempt = 1; attempt <= attempts; attempt += 1) {
+                const latest = await github.rest.pulls.get({
+                  owner, repo, pull_number: prNumber,
+                });
+                if (!isOpenAtHead(latest.data, headSha)) return;
+                const findings = await collectFindings(prNumber, headSha);
+                if (findings.length > 0) {
+                  await synchronize(latest.data, findings);
+                  return;
+                }
+                if (attempt < attempts) {
+                  core.info(`PR #${prNumber}: waiting for Codex findings (${attempt}/${attempts})`);
+                  await sleep(20_000);
+                }
               }
-
-              await createOrReuseIssues(latest.data, findings);
+              core.info(`PR #${prNumber}: no active current-head P0-P2 finding`);
             }
 
-            const pullRequestNumbers = await resolvePullRequestNumbers();
-            for (const prNumber of pullRequestNumbers) {
+            if (eventName === "pull_request_target" && eventAction === "closed") {
+              core.info("PR closed or merged; no synchronization needed");
+              return;
+            }
+
+            const prNumbers = await resolvePrNumbers();
+            const poll =
+              eventName === "pull_request_target" ||
+              (eventName === "workflow_dispatch" && prNumbers.length === 1);
+            for (const prNumber of prNumbers) {
               try {
-                await inspectPullRequest(prNumber);
+                await inspect(prNumber, poll);
               } catch (error) {
-                core.error(`Failed to process PR #${prNumber}: ${error?.message ?? error}`);
-                if (pullRequestNumbers.length === 1) throw error;
+                core.error(`Failed to process PR #${prNumber}: ${error.message}`);
+                if (prNumbers.length === 1) throw error;
               }
             }
