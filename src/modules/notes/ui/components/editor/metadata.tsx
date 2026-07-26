@@ -12,7 +12,6 @@ import { NoteEditorTagInput } from "./tags";
 import { TextInput, TitleInput } from "./inputs";
 
 export function NoteEditorMetadataSection({
-  mode,
   shell,
   title,
   noteDate,
@@ -25,7 +24,6 @@ export function NoteEditorMetadataSection({
   onChange,
   onNextReviewDateChange,
 }: {
-  mode: "create" | "edit";
   shell: boolean;
   title: string;
   noteDate: string;
@@ -52,7 +50,6 @@ export function NoteEditorMetadataSection({
               value={title}
               onChange={(nextTitle) => onChange({ title: nextTitle })}
               error={fieldError(fieldErrors, "title")}
-              disabled={mode === "create" && !sourceType}
               required
             />
           </div>
@@ -64,7 +61,6 @@ export function NoteEditorMetadataSection({
           value={title}
           onChange={(nextTitle) => onChange({ title: nextTitle })}
           error={fieldError(fieldErrors, "title")}
-          disabled={mode === "create" && !sourceType}
           required
         />
       )}
@@ -101,9 +97,13 @@ export function NoteEditorMetadataSection({
                 <select
                   id="source-type"
                   value={sourceType}
-                  onChange={(event) =>
-                    onChange({ sourceType: event.target.value as SourceType | "" })
-                  }
+                  onChange={(event) => {
+                    const nextSourceType = event.target.value as SourceType | "";
+                    onChange({
+                      sourceType: nextSourceType,
+                      sourceTitle: nextSourceType ? sourceTitle : "",
+                    });
+                  }}
                   aria-invalid={Boolean(sourceTypeFieldError)}
                   aria-describedby={sourceTypeFieldError ? "source-type-error" : undefined}
                   className="w-full min-w-0 rounded-lg border border-stone-200 bg-white px-3 py-2 text-sm text-stone-900 shadow-sm outline-none transition focus:border-amber-500 focus:ring-2 focus:ring-amber-100"
@@ -129,6 +129,7 @@ export function NoteEditorMetadataSection({
                   id="source-title"
                   type="text"
                   value={sourceTitle}
+                  disabled={!sourceType}
                   onChange={(event) => onChange({ sourceTitle: event.target.value })}
                   aria-invalid={Boolean(sourceTitleFieldError)}
                   aria-describedby={sourceTitleFieldError ? "source-title-error" : undefined}
