@@ -123,9 +123,18 @@
 }
 
 .note-paper-cornell-grid {
+  --note-paper-cornell-scroll-height: min(70vh, 48rem);
   column-gap: 0;
   border-top: 1px solid var(--paper-line-strong);
   border-bottom: 1px solid var(--paper-line-strong);
+}
+
+.note-paper-cornell-grid--editor > * {
+  min-height: 0;
+}
+
+.note-paper-cue-list {
+  min-width: 0;
 }
 
 .note-paper-cornell-grid > :first-child {
@@ -144,6 +153,23 @@
   border-color: var(--paper-line);
   background: rgb(250 247 239 / 46%);
   box-shadow: none;
+}
+
+@media (min-width: 641px) {
+  .note-paper-cue-column {
+    display: flex;
+    min-height: 0;
+    max-height: var(--note-paper-cornell-scroll-height);
+    flex-direction: column;
+  }
+
+  .note-paper-cue-list {
+    min-height: 0;
+    flex: 1 1 auto;
+    overflow-y: auto;
+    overscroll-behavior-y: contain;
+    scrollbar-width: thin;
+  }
 }
 
 .note-paper-footer {
@@ -248,6 +274,12 @@
   .note-paper-cornell-grid > :last-child {
     padding-top: 0;
     padding-left: clamp(1rem, 2vw, 2rem);
+  }
+
+  .note-paper-detail .note-paper-cornell-grid {
+    grid-template-columns: minmax(0, 1fr);
+    overflow-x: visible;
+    overscroll-behavior-inline: auto;
   }
 }
 

@@ -37,10 +37,7 @@ test("editor metadata keeps review date below study date and preserves save wiri
   assert.match(summary, /onClick=\{onCancel\}/);
 });
 
-test("main note title is disabled only for a new note without a source type", () => {
-  const editor = readSource(
-    "src/modules/notes/ui/components/editor/editor.tsx",
-  );
+test("main note title stays editable and source title follows source type", () => {
   const inputs = readSource(
     "src/modules/notes/ui/components/editor/inputs.tsx",
   );
@@ -51,16 +48,25 @@ test("main note title is disabled only for a new note without a source type", ()
   assert.match(inputs, /disabled\?: boolean/);
   assert.match(inputs, /disabled=\{disabled\}/);
   assert.match(inputs, /aria-disabled=\{disabled\}/);
-  assert.match(editor, /<NoteEditorMetadataSection[\s\S]*mode=\{mode\}/);
-  assert.match(metadata, /mode: "create" \| "edit"/);
-  assert.equal(
-    (metadata.match(/disabled=\{mode === "create" && !sourceType\}/g) ?? [])
-      .length,
-    2,
+  assert.doesNotMatch(
+    metadata,
+    /<TitleInput\b[^>]*id="note-title"[^>]*disabled=/,
   );
-  assert.doesNotMatch(metadata, /disabled=\{!sourceType\}/);
+  assert.doesNotMatch(
+    metadata,
+    /<TextInput\b[^>]*id="note-title"[^>]*disabled=/,
+  );
+  assert.match(
+    metadata,
+    /<input[\s\S]*?id="source-title"[\s\S]*?disabled=\{!sourceType\}/,
+  );
   assert.match(metadata, /value=\{title\}/);
   assert.match(metadata, /onChange=\{\(nextTitle\) => onChange\(\{ title: nextTitle \}\)\}/);
+  assert.match(metadata, /value=\{sourceTitle\}/);
+  assert.match(
+    metadata,
+    /onChange=\{\(event\) => onChange\(\{ sourceTitle: event\.target\.value \}\)\}/,
+  );
 });
 
 test("tag input still clears after a successful new tag addition", () => {

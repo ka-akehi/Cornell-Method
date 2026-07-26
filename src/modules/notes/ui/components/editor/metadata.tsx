@@ -12,7 +12,6 @@ import { NoteEditorTagInput } from "./tags";
 import { TextInput, TitleInput } from "./inputs";
 
 export function NoteEditorMetadataSection({
-  mode,
   shell,
   title,
   noteDate,
@@ -25,7 +24,6 @@ export function NoteEditorMetadataSection({
   onChange,
   onNextReviewDateChange,
 }: {
-  mode: "create" | "edit";
   shell: boolean;
   title: string;
   noteDate: string;
@@ -52,7 +50,6 @@ export function NoteEditorMetadataSection({
               value={title}
               onChange={(nextTitle) => onChange({ title: nextTitle })}
               error={fieldError(fieldErrors, "title")}
-              disabled={mode === "create" && !sourceType}
               required
             />
           </div>
@@ -64,7 +61,6 @@ export function NoteEditorMetadataSection({
           value={title}
           onChange={(nextTitle) => onChange({ title: nextTitle })}
           error={fieldError(fieldErrors, "title")}
-          disabled={mode === "create" && !sourceType}
           required
         />
       )}
@@ -129,6 +125,7 @@ export function NoteEditorMetadataSection({
                   id="source-title"
                   type="text"
                   value={sourceTitle}
+                  disabled={!sourceType}
                   onChange={(event) => onChange({ sourceTitle: event.target.value })}
                   aria-invalid={Boolean(sourceTitleFieldError)}
                   aria-describedby={sourceTitleFieldError ? "source-title-error" : undefined}

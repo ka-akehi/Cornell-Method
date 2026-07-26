@@ -10,6 +10,13 @@
   padding: 0.7rem;
 }
 
+.note-canvas-viewport--scrollable {
+  overflow-x: clip;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  scrollbar-width: thin;
+}
+
 .note-canvas-horizontal-scroll {
   width: 100%;
   max-width: 100%;
@@ -70,4 +77,27 @@
   clip: rect(0 0 0 0);
   white-space: nowrap;
   clip-path: inset(50%);
+}
+
+@media (min-width: 641px) {
+  .note-paper-cornell-grid--editor
+    .note-canvas-viewport--scrollable {
+    max-height: var(--note-paper-cornell-scroll-height);
+  }
+}
+
+@media (min-width: 1024px), (min-width: 641px) and (max-width: 900px) {
+  .note-paper-detail
+    .note-paper-cornell-grid
+    > :last-child
+    .note-canvas-viewport--scrollable {
+    max-height: var(--note-paper-cornell-scroll-height);
+  }
+}
+
+@media (max-width: 640px) {
+  .note-canvas-viewport--scrollable {
+    overflow: visible;
+    overscroll-behavior: auto;
+  }
 }
