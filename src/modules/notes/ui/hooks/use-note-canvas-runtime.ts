@@ -38,6 +38,7 @@ import {
   DEFAULT_FONT_FAMILY,
   applyFabricStyleChange,
   getDrawingStyleTarget,
+  isOneShotCanvasTool,
   isEditingStandaloneText,
   readFabricString,
   readSelectedCanvasStyle,
@@ -48,6 +49,7 @@ import {
   type ShapeTextEditorSessionController,
 } from "../canvas/shape-text-editor-session";
 import type {
+  CanvasNoteTool,
   CanvasStyleDefaults,
   DragDraft,
 } from "@/modules/notes/lib/canvas-editor-types";
@@ -108,7 +110,6 @@ export function useNoteCanvasRuntime(
   const currentTool = options.tool;
   const strokeColor = options.styleDefaults.strokeColor;
   const strokeWidth = options.styleDefaults.strokeWidth;
-  const setSelectedStyle = options.setSelectedStyle;
 
   const removePreview = useCallback(() => {
     const canvas = canvasRef.current;
@@ -137,6 +138,34 @@ export function useNoteCanvasRuntime(
     [],
   );
   applyCanvasDimensionsRef.current = applyCanvasDimensions;
+
+  const syncCanvasToolState = useCallback(
+    (canvas: FabricCanvasLike, tool: CanvasNoteTool) => {
+      canvas.isDrawingMode = tool === "pen";
+      canvas.selection = tool === "select";
+      if (tool !== "select") {
+        canvas.discardActiveObject();
+        callbacksRef.current.setSelectedStyle(null);
+      } else {
+        const activeObject = canvas.getActiveObject();
+        callbacksRef.current.setSelectedStyle(
+          activeObject ? readSelectedCanvasStyle(activeObject) : null,
+        );
+      }
+      canvas.getObjects().forEach((object) => {
+        object.set({ selectable: tool === "select", evented: true });
+      });
+      if (tool === "pen" && fabricRef.current) {
+        const currentStyleDefaults = callbacksRef.current.styleDefaultsRef.current;
+        const brush = new fabricRef.current.PencilBrush(canvas);
+        brush.width = currentStyleDefaults.strokeWidth;
+        brush.color = currentStyleDefaults.strokeColor;
+        canvas.freeDrawingBrush = brush;
+      }
+      canvas.requestRenderAll?.();
+    },
+    [],
+  );
 
   useEffect(() => {
     let disposed = false;
@@ -181,6 +210,14 @@ export function useNoteCanvasRuntime(
         const commitCurrent = () => {
           if (!canvas) return;
           callbacksRef.current.commitDocument(fabricCanvasToDocument(canvas));
+        };
+
+        const returnToSelectAfterPlacement = () => {
+          const activeTool = callbacksRef.current.toolRef.current;
+          if (!isOneShotCanvasTool(activeTool)) return;
+          callbacksRef.current.toolRef.current = "select";
+          callbacksRef.current.setTool("select");
+          syncCanvasToolState(nextCanvas, "select");
         };
 
         const resetBlockedPenGesture = () => {
@@ -310,7 +347,11 @@ export function useNoteCanvasRuntime(
           }
 
           if (activeTool === "text") {
-            if (!canStartCanvasElement || !fabricRef.current) return;
+            if (!canStartCanvasElement || !fabricRef.current) {
+              dragRef.current = null;
+              removePreview();
+              return;
+            }
             const elementForText: CanvasDocumentV1["elements"][number] = {
               id: createElementId("text"),
               type: "text",
@@ -335,6 +376,7 @@ export function useNoteCanvasRuntime(
             textObject.enterEditing?.();
             textObject.selectAll?.();
             currentCanvas.requestRenderAll?.();
+            returnToSelectAfterPlacement();
           }
         };
 
@@ -441,6 +483,7 @@ export function useNoteCanvasRuntime(
             ),
           );
           commitCurrent();
+          returnToSelectAfterPlacement();
         };
 
         const onPathCreated = (event: FabricEventLike) => {
@@ -606,7 +649,7 @@ export function useNoteCanvasRuntime(
       canvasRef.current = null;
       fabricRef.current = null;
     };
-  }, [options.initialDocument, removePreview]);
+  }, [options.initialDocument, removePreview, syncCanvasToolState]);
 
   useEffect(() => {
     applyCanvasDimensionsRef.current({ width: pageWidth, height: pageHeight });
@@ -615,35 +658,8 @@ export function useNoteCanvasRuntime(
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    canvas.isDrawingMode = currentTool === "pen";
-    canvas.selection = currentTool === "select";
-    if (currentTool !== "select") {
-      canvas.discardActiveObject();
-      setSelectedStyle(null);
-    } else {
-      setSelectedStyle(
-        canvas.getActiveObject()
-          ? readSelectedCanvasStyle(canvas.getActiveObject() as FabricObjectLike)
-          : null,
-      );
-    }
-    canvas.getObjects().forEach((object) => {
-      object.set({ selectable: currentTool === "select", evented: true });
-    });
-    if (currentTool === "pen" && fabricRef.current) {
-      const brush = new fabricRef.current.PencilBrush(canvas);
-      brush.width = strokeWidth;
-      brush.color = strokeColor;
-      canvas.freeDrawingBrush = brush;
-    }
-    canvas.requestRenderAll?.();
-  }, [
-    currentTool,
-    ready,
-    setSelectedStyle,
-    strokeColor,
-    strokeWidth,
-  ]);
+    syncCanvasToolState(canvas, currentTool);
+  }, [currentTool, ready, strokeColor, strokeWidth, syncCanvasToolState]);
 
   const applyStyleChange = useCallback((change: CanvasStyleChange) => {
     const currentOptions = callbacksRef.current;

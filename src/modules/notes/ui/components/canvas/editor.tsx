@@ -92,6 +92,11 @@ export function NoteCanvasEditor({
     useState<CanvasStyleControlValues | null>(null);
   const [canvasError, setCanvasError] = useState<string | null>(initialDocumentError);
 
+  const setCanvasTool = useCallback((nextTool: CanvasNoteTool) => {
+    toolRef.current = nextTool;
+    setTool(nextTool);
+  }, []);
+
   const pageWidth = history.present.page.width;
   const pageHeight = history.present.page.height;
 
@@ -112,6 +117,7 @@ export function NoteCanvasEditor({
     initialDocument: initialDocumentSnapshot,
     pageDimensions: history.present.page,
     tool,
+    setTool: setCanvasTool,
     styleDefaults,
     toolRef,
     styleDefaultsRef,
@@ -261,6 +267,7 @@ export function NoteCanvasEditor({
   );
 
   const documentText = extractCanvasEditorText(history.present);
+  const displayedError = canvasError ?? externalError ?? apiError;
   const selectedForControls = tool === "select" ? selectedStyle : null;
   const styleTarget: CanvasStyleTarget = shapeTextEditingStyle
     ? "text"
@@ -289,13 +296,13 @@ export function NoteCanvasEditor({
   const handleToolChange = useCallback(
     (nextTool: CanvasNoteTool) => {
       flushShapeTextEditRef.current();
-      setTool(nextTool);
+      setCanvasTool(nextTool);
       if (nextTool !== "select") {
         setSelectedStyle(null);
         discardActiveObject();
       }
     },
-    [discardActiveObject, flushShapeTextEditRef],
+    [discardActiveObject, flushShapeTextEditRef, setCanvasTool],
   );
 
   return (
@@ -314,15 +321,16 @@ export function NoteCanvasEditor({
         onStyleChange={handleStyleChange}
       />
 
-      {(canvasError || externalError || apiError) && (
-        <p className="note-canvas-error" role="alert">
-          {canvasError ?? externalError ?? apiError}
+      {displayedError && (
+        <p id="canvas-error" className="note-canvas-error" role="alert">
+          {displayedError}
         </p>
       )}
 
       {initialDocumentSnapshot !== null && (
         <NoteCanvasSurface
           mode="editor"
+          id="canvas-viewport"
           pageDimensions={history.present.page}
           viewportRef={viewportRef}
           surfaceRef={surfaceRef}
@@ -331,6 +339,8 @@ export function NoteCanvasEditor({
           tabIndex={0}
           onPointerDown={focusViewportWithoutScroll}
           onKeyDown={handleKeyDown}
+          ariaInvalid={Boolean(displayedError)}
+          ariaDescribedBy={displayedError ? "canvas-error" : undefined}
           viewportAriaLabel="Canvas本文。CanvasにフォーカスしてCtrlまたはCmdのUndo、Redo、削除を使用できます。"
           canvasAriaLabel={`${pageWidth} x ${pageHeight} のCanvas本文`}
         />

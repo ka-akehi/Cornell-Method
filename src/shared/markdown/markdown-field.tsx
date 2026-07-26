@@ -1,8 +1,11 @@
 "use client";
 
 import ReactMarkdown, { type Components } from "react-markdown";
-import rehypeSanitize from "rehype-sanitize";
+import { type KeyboardEvent, useLayoutEffect, useRef } from "react";
+import rehypeRaw from "rehype-raw";
+import rehypeSanitize, { defaultSchema, type Options } from "rehype-sanitize";
 import remarkGfm from "remark-gfm";
+import { applyMarkdownListEnter } from "./markdown-list-enter";
 
 type PreviewMode = "hidden" | "visible";
 
@@ -10,6 +13,27 @@ type MarkdownAstNode = {
   type: string;
   value?: string;
   children?: MarkdownAstNode[];
+};
+
+const markdownSanitizeSchema: Options = {
+  ...defaultSchema,
+  tagNames: Array.from(
+    new Set([
+      ...(defaultSchema.tagNames ?? []),
+      "details",
+      "div",
+      "mark",
+      "summary",
+      "u",
+    ]),
+  ),
+  attributes: {
+    ...(defaultSchema.attributes ?? {}),
+    details: ["open"],
+  },
+  strip: Array.from(
+    new Set([...(defaultSchema.strip ?? []), "iframe", "style"]),
+  ),
 };
 
 /**
@@ -104,9 +128,38 @@ const markdownComponents: Components = {
       {children}
     </ol>
   ),
-  li: ({ children }) => <li className="break-words pl-1">{children}</li>,
+  u: ({ children }) => (
+    <u className="underline underline-offset-2">{children}</u>
+  ),
+  mark: ({ children }) => (
+    <mark className="rounded bg-amber-200 px-0.5 text-stone-900">
+      {children}
+    </mark>
+  ),
+  details: ({ children, open }) => (
+    <details
+      open={open}
+      className="my-3 overflow-hidden rounded-lg border border-stone-200 bg-stone-50/70 [&>div]:px-3 [&>div]:pb-3"
+    >
+      {children}
+    </details>
+  ),
+  summary: ({ children }) => (
+    <summary className="cursor-pointer select-none px-3 py-2 font-medium text-stone-800 outline-none focus-visible:ring-2 focus-visible:ring-amber-500 focus-visible:ring-inset">
+      {children}
+    </summary>
+  ),
+  li: ({ children, className }) => (
+    <li
+      className={`break-words pl-1 ${
+        className?.includes("task-list-item") ? "list-none" : ""
+      }`}
+    >
+      {children}
+    </li>
+  ),
   blockquote: ({ children }) => (
-    <blockquote className="my-3 border-l-4 border-stone-300 bg-stone-50 px-4 py-2 text-stone-700">
+    <blockquote className="my-3 border-l-4 border-stone-300 bg-stone-50 px-2 py-2 text-stone-700">
       {children}
     </blockquote>
   ),
@@ -131,7 +184,7 @@ const markdownComponents: Components = {
     );
   },
   pre: ({ children }) => (
-    <pre className="my-3 max-w-full overflow-x-auto rounded-lg bg-stone-950 p-4 text-sm leading-6 text-stone-100">
+    <pre className="my-3 max-w-full overflow-x-auto rounded-lg bg-stone-950 p-4 text-sm leading-6 text-stone-100 [&>code]:rounded-none [&>code]:bg-transparent [&>code]:px-0 [&>code]:py-0 [&>code]:text-inherit">
       {children}
     </pre>
   ),
@@ -203,7 +256,10 @@ export function MarkdownPreview({
     >
       <ReactMarkdown
         remarkPlugins={[remarkGfm, remarkSoftLineBreaks]}
-        rehypePlugins={[rehypeSanitize]}
+        rehypePlugins={[
+          rehypeRaw,
+          [rehypeSanitize, markdownSanitizeSchema],
+        ]}
         components={markdownComponents}
       >
         {value}
@@ -228,14 +284,68 @@ export function MarkdownField({
   previewEmptyLabel,
   layout = "stacked",
 }: MarkdownFieldProps) {
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const pendingSelectionRef = useRef<{
+    value: string;
+    selectionStart: number;
+    selectionEnd: number;
+  } | null>(null);
   const descriptionId = helperText ? `${id}-helper` : undefined;
   const errorId = error ? `${id}-error` : undefined;
+
+  useLayoutEffect(() => {
+    const pendingSelection = pendingSelectionRef.current;
+
+    if (!pendingSelection) {
+      return;
+    }
+
+    if (pendingSelection.value !== value) {
+      pendingSelectionRef.current = null;
+      return;
+    }
+
+    textareaRef.current?.setSelectionRange(
+      pendingSelection.selectionStart,
+      pendingSelection.selectionEnd,
+    );
+    pendingSelectionRef.current = null;
+  }, [value]);
+
+  const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (
+      event.key !== "Enter" ||
+      event.shiftKey ||
+      event.nativeEvent.isComposing
+    ) {
+      return;
+    }
+
+    const result = applyMarkdownListEnter({
+      value,
+      selectionStart: event.currentTarget.selectionStart,
+      selectionEnd: event.currentTarget.selectionEnd,
+      shiftKey: event.shiftKey,
+      isComposing: event.nativeEvent.isComposing,
+    });
+
+    if (!result) {
+      return;
+    }
+
+    event.preventDefault();
+    pendingSelectionRef.current = result;
+    onChange(result.value);
+  };
+
   const fieldControls = (
     <>
       <textarea
         id={id}
+        ref={textareaRef}
         value={value}
         onChange={(event) => onChange(event.target.value)}
+        onKeyDown={handleKeyDown}
         placeholder={placeholder}
         rows={rows}
         disabled={disabled}

@@ -6,7 +6,8 @@
 .note-canvas-toolbar {
   display: grid;
   grid-template-areas:
-    "operation drawing style erase history"
+    "operation drawing drawing erase history"
+    "style style style style style"
     "paper paper paper paper paper";
   grid-template-columns: auto minmax(0, 1fr) auto auto auto;
   align-items: stretch;
@@ -53,10 +54,8 @@
   min-width: 0;
   max-width: 100%;
   align-items: stretch;
-  overflow-x: auto;
-  overflow-y: clip;
-  overscroll-behavior-inline: contain;
-  scrollbar-width: thin;
+  overflow-x: clip;
+  overflow-y: hidden;
   border: 1px solid var(--paper-line-strong);
   border-radius: 0.7rem;
   background: rgb(250 247 239 / 78%);
@@ -65,12 +64,16 @@
 
 .note-canvas-toolbar-drawing-rail-inner {
   display: flex;
-  min-width: max-content;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
   align-items: stretch;
+  flex-wrap: wrap;
   gap: 0;
 }
 
 .note-canvas-toolbar-drawing-rail-inner > .note-canvas-toolbar-group {
+  flex: 0 0 auto;
   border: 0;
   border-radius: 0;
   background: transparent;
@@ -86,8 +89,16 @@
 }
 
 .note-canvas-toolbar-drawing-rail .note-canvas-tool-button {
+  flex: 0 0 auto;
+  width: auto;
+  min-width: 2.75rem;
   border-color: transparent;
   background: transparent;
+  padding-inline: 0.35rem;
+}
+
+.note-canvas-toolbar-drawing-rail .note-canvas-tool-label {
+  display: inline-block;
 }
 
 .note-canvas-toolbar-drawing-rail .note-canvas-toolbar-tooltip {
@@ -486,8 +497,8 @@
   background: #fff8ec;
 }
 
-/* Keep the two-column rail layout until the 70% Cornell body column has
-   enough room for every max-content toolbar group beside the drawing rail. */
+/* Keep operation and drawing controls on the first row while tablet widths
+   give style controls and secondary actions their own rows. */
 @media (max-width: 1439px) and (min-width: 641px) {
   .note-canvas-toolbar {
     grid-template-areas:
