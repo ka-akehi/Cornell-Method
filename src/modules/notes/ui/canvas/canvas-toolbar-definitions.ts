@@ -60,20 +60,17 @@ export type ToolGroupDefinition = {
   tools: ToolDefinition[];
 };
 
-export const TOOL_GROUPS: ToolGroupDefinition[] = [
+const INTERNAL_TOOL_DEFINITIONS: ToolDefinition[] = [
   {
-    key: "operation",
-    ariaLabel: "Canvas 操作",
-    tools: [
-      {
-        value: "select",
-        label: "選択",
-        ariaLabel: "選択",
-        icon: "pointer",
-        description: "選択・移動・サイズ変更。既存オブジェクトを操作する",
-      },
-    ],
+    value: "select",
+    label: "選択",
+    ariaLabel: "選択",
+    icon: "pointer",
+    description: "選択・移動・サイズ変更。既存オブジェクトを操作する",
   },
+];
+
+export const TOOL_GROUPS: ToolGroupDefinition[] = [
   {
     key: "draw",
     ariaLabel: "自由線を描く",
@@ -162,5 +159,8 @@ export function getToolGroup(key: string) {
 }
 
 export function findToolDefinition(tool: CanvasNoteTool) {
-  return TOOL_GROUPS.flatMap((group) => group.tools).find((item) => item.value === tool);
+  return (
+    INTERNAL_TOOL_DEFINITIONS.find((item) => item.value === tool) ??
+    TOOL_GROUPS.flatMap((group) => group.tools).find((item) => item.value === tool)
+  );
 }

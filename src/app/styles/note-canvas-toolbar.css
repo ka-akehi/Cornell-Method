@@ -6,10 +6,9 @@
 .note-canvas-toolbar {
   display: grid;
   grid-template-areas:
-    "operation drawing drawing erase history"
-    "style style style style style"
-    "paper paper paper paper paper";
-  grid-template-columns: auto minmax(0, 1fr) auto auto auto;
+    "drawing style erase history"
+    "paper paper paper paper";
+  grid-template-columns: minmax(0, 1fr) auto auto auto;
   align-items: stretch;
   min-width: 0;
   max-width: 100%;
@@ -33,15 +32,6 @@
   padding: 0.3rem;
 }
 
-.note-canvas-toolbar-group--operation {
-  grid-area: operation;
-  align-self: center;
-  border-color: var(--paper-line-strong);
-  background: var(--paper);
-  padding-inline: 0.45rem;
-  box-shadow: 0 1px 3px rgb(47 54 49 / 8%);
-}
-
 .note-canvas-toolbar-group--erase {
   grid-area: erase;
   border-color: rgb(164 72 72 / 38%);
@@ -54,8 +44,10 @@
   min-width: 0;
   max-width: 100%;
   align-items: stretch;
-  overflow-x: clip;
-  overflow-y: hidden;
+  overflow-x: auto;
+  overflow-y: clip;
+  overscroll-behavior-inline: contain;
+  scrollbar-width: thin;
   border: 1px solid var(--paper-line-strong);
   border-radius: 0.7rem;
   background: rgb(250 247 239 / 78%);
@@ -64,16 +56,12 @@
 
 .note-canvas-toolbar-drawing-rail-inner {
   display: flex;
-  width: 100%;
-  max-width: 100%;
-  min-width: 0;
+  min-width: max-content;
   align-items: stretch;
-  flex-wrap: wrap;
   gap: 0;
 }
 
 .note-canvas-toolbar-drawing-rail-inner > .note-canvas-toolbar-group {
-  flex: 0 0 auto;
   border: 0;
   border-radius: 0;
   background: transparent;
@@ -407,12 +395,6 @@
   box-shadow: inset 0 -0.18rem 0 var(--paper-accent-deep);
 }
 
-.note-canvas-toolbar-group--operation .note-canvas-tool-button[data-active="true"] {
-  border-width: 2px;
-  box-shadow: inset 0 -0.25rem 0 var(--paper-accent-deep),
-    0 1px 3px rgb(152 73 44 / 18%);
-}
-
 .note-canvas-toolbar-group--erase .note-canvas-tool-button {
   border-color: rgb(164 72 72 / 42%);
 }
@@ -497,16 +479,16 @@
   background: #fff8ec;
 }
 
-/* Keep operation and drawing controls on the first row while tablet widths
-   give style controls and secondary actions their own rows. */
+/* Give the drawing rail the full first row at tablet widths so its tools do
+   not wrap just to make room for a hidden group. */
 @media (max-width: 1439px) and (min-width: 641px) {
   .note-canvas-toolbar {
     grid-template-areas:
-      "operation drawing"
+      "drawing drawing"
       "style style"
       "erase history"
       "paper paper";
-    grid-template-columns: auto minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   }
 
   .note-canvas-toolbar-group--paper-size {
@@ -521,7 +503,6 @@
 @media (max-width: 640px) {
   .note-canvas-toolbar {
     grid-template-areas:
-      "operation operation"
       "drawing drawing"
       "style style"
       "erase history"
@@ -529,10 +510,6 @@
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
     gap: 0.5rem;
     padding: 0.5rem;
-  }
-
-  .note-canvas-toolbar-group--operation {
-    justify-self: start;
   }
 
   .note-canvas-toolbar-drawing-rail {

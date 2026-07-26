@@ -267,7 +267,6 @@ export function NoteCanvasEditor({
   );
 
   const documentText = extractCanvasEditorText(history.present);
-  const displayedError = canvasError ?? externalError ?? apiError;
   const selectedForControls = tool === "select" ? selectedStyle : null;
   const styleTarget: CanvasStyleTarget = shapeTextEditingStyle
     ? "text"
@@ -304,6 +303,8 @@ export function NoteCanvasEditor({
     },
     [discardActiveObject, flushShapeTextEditRef, setCanvasTool],
   );
+
+  const displayedError = canvasError ?? externalError ?? apiError;
 
   return (
     <div className="note-canvas-editor" aria-label="Canvas本文の編集領域">

@@ -11,7 +11,6 @@ import {
 import { useRouter } from "next/navigation";
 import type { ApiFieldError } from "@/shared/http/client";
 import { todayDateString } from "@/shared/date";
-import { AppChromeModeReporter } from "@/shared/ui/app-chrome-state";
 import type {
   NoteDetailResponse,
   NotebookInput,
@@ -80,7 +79,8 @@ export function NoteEditor({
   const alertRef = useRef<HTMLDivElement>(null);
   const errorFocusRequestIdRef = useRef(0);
   const handledErrorFocusRequestIdRef = useRef(0);
-  const [errorFocusRequest, setErrorFocusRequest] = useState<ErrorFocusRequest | null>(null);
+  const [errorFocusRequest, setErrorFocusRequest] =
+    useState<ErrorFocusRequest | null>(null);
   const today = useMemo(() => todayDateString(), []);
   const initialCanvasTool = "select" as const;
 
@@ -96,7 +96,8 @@ export function NoteEditor({
 
     handledErrorFocusRequestIdRef.current = request.id;
     const target =
-      findNoteEditorErrorTarget(formRef.current, request.fieldErrors) ?? alertRef.current;
+      findNoteEditorErrorTarget(formRef.current, request.fieldErrors) ??
+      alertRef.current;
     if (!target) return;
 
     const reducedMotion =
@@ -226,8 +227,6 @@ export function NoteEditor({
         void save();
       }}
     >
-      <AppChromeModeReporter state={mode} />
-
       {message && (
         <div
           ref={alertRef}

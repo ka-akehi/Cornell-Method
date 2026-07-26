@@ -49,10 +49,7 @@ test("Canvas initial tool is explicit for create/edit and defaults to select", (
   );
   assert.match(body, /initialTool: CanvasNoteTool/);
   assert.match(body, /<NoteCanvasEditor[\s\S]*initialTool=\{initialTool\}/);
-  assert.match(
-    editor,
-    /const initialCanvasTool = "select"/,
-  );
+  assert.match(editor, /const initialCanvasTool = "select"/);
   assert.match(editor, /<NoteEditorBodySection[\s\S]*initialTool=\{initialCanvasTool\}/);
   assert.match(runtime, /isOneShotCanvasTool/);
   assert.match(runtime, /const returnToSelectAfterPlacement/);
@@ -61,6 +58,10 @@ test("Canvas initial tool is explicit for create/edit and defaults to select", (
 });
 
 test("Canvas placement tool contract keeps pen continuous and makes object tools one-shot", () => {
+  const runtime = readSource(
+    "src/modules/notes/ui/hooks/use-note-canvas-runtime.ts",
+  );
+
   assert.deepEqual(canvasEditorTypes.ONE_SHOT_CANVAS_TOOLS, [
     "text",
     "line",
@@ -75,4 +76,12 @@ test("Canvas placement tool contract keeps pen continuous and makes object tools
   for (const tool of ["select", "pen", "erase"]) {
     assert.equal(canvasEditorTypes.isOneShotCanvasTool(tool), false);
   }
+
+  assert.match(runtime, /const returnToSelectAfterPlacement/);
+  assert.match(runtime, /returnToSelectAfterPlacement\(\);/);
+  assert.match(runtime, /if \(callbacksRef\.current\.toolRef\.current === "pen"\)/);
+  assert.doesNotMatch(
+    runtime,
+    /const onPathCreated = [\s\S]*?returnToSelectAfterPlacement/,
+  );
 });

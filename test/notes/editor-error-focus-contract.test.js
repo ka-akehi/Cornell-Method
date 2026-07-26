@@ -116,7 +116,10 @@ test("unavailable targets are skipped and unknown errors have no target", () => 
 
 test("save failure focus is one-shot, reduced-motion aware, and has an alert fallback", () => {
   assert.match(editorSource, /handledErrorFocusRequestIdRef\.current >= request\.id/);
-  assert.match(editorSource, /findNoteEditorErrorTarget\(formRef\.current, request\.fieldErrors\) \?\? alertRef\.current/);
+  assert.match(
+    editorSource,
+    /findNoteEditorErrorTarget\(formRef\.current, request\.fieldErrors\)\s*\?\?\s*alertRef\.current/,
+  );
   assert.match(editorSource, /target\.scrollIntoView\(\{[\s\S]*behavior: reducedMotion \? "auto" : "smooth"/);
   assert.match(editorSource, /target\.focus\(\{ preventScroll: true \}\)/);
   assert.match(editorSource, /id="note-editor-error-alert"[\s\S]*role="alert"[\s\S]*tabIndex=\{-1\}/);

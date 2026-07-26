@@ -99,36 +99,6 @@
   outline-offset: 3px;
 }
 
-.app-chrome-state-slot {
-  display: flex;
-  min-width: 0;
-  align-items: center;
-  justify-content: flex-end;
-}
-
-.app-chrome-state-slot[data-state="idle"] {
-  display: none;
-}
-
-.app-chrome-state-badge {
-  display: inline-flex;
-  max-width: min(12rem, 30vw);
-  align-items: center;
-  justify-content: center;
-  overflow: hidden;
-  border: 1px solid rgb(247 240 223 / 34%);
-  border-radius: 9999px;
-  background: var(--paper-accent);
-  padding: 0.35rem 0.75rem;
-  color: #fff8eb;
-  font-size: 0.75rem;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  line-height: 1.25;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .app-main {
   width: 100%;
   min-width: 0;

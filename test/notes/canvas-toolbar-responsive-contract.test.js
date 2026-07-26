@@ -20,7 +20,7 @@ function readCssRuleBody(styles, selector) {
   return match[1];
 }
 
-test("Canvas drawing rail keeps labels visible without viewport overflow", () => {
+test("Canvas drawing rail keeps visible labels inside its local scroll region", () => {
   const styles = readSource("src/app/styles/note-canvas-toolbar.css");
   const drawingToolButtonStyles = readCssRuleBody(
     styles,
@@ -33,19 +33,19 @@ test("Canvas drawing rail keeps labels visible without viewport overflow", () =>
 
   assert.match(
     styles,
-    /grid-template-areas:\s*\n\s*"operation drawing drawing erase history"\s*\n\s*"style style style style style"/,
+    /grid-template-areas:\s*\n\s*"drawing style erase history"\s*\n\s*"paper paper paper paper"/,
   );
   assert.match(
     styles,
-    /\.note-canvas-toolbar-drawing-rail\s*\{[\s\S]*?overflow-x: clip;[\s\S]*?overflow-y: hidden;/,
+    /\.note-canvas-toolbar-drawing-rail\s*\{[\s\S]*?overflow-x: auto;[\s\S]*?overflow-y: clip;/,
   );
   assert.match(
     styles,
-    /\.note-canvas-toolbar-drawing-rail-inner\s*\{[\s\S]*?width: 100%;[\s\S]*?min-width: 0;[\s\S]*?flex-wrap: wrap;/,
+    /\.note-canvas-toolbar-drawing-rail-inner\s*\{[\s\S]*?min-width: max-content;/,
   );
   assert.match(
     styles,
-    /\.note-canvas-toolbar-drawing-rail-inner\s*> \.note-canvas-toolbar-group\s*\{[\s\S]*?flex: 0 0 auto;/,
+    /\.note-canvas-toolbar-drawing-rail \.note-canvas-tool-button\s*\{[\s\S]*?flex: 0 0 auto;/,
   );
   assert.match(
     drawingToolButtonStyles,
