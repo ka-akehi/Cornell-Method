@@ -12,6 +12,7 @@ import { NoteEditorTagInput } from "./tags";
 import { TextInput, TitleInput } from "./inputs";
 
 export function NoteEditorMetadataSection({
+  mode,
   shell,
   title,
   noteDate,
@@ -24,6 +25,7 @@ export function NoteEditorMetadataSection({
   onChange,
   onNextReviewDateChange,
 }: {
+  mode: "create" | "edit";
   shell: boolean;
   title: string;
   noteDate: string;
@@ -50,7 +52,7 @@ export function NoteEditorMetadataSection({
               value={title}
               onChange={(nextTitle) => onChange({ title: nextTitle })}
               error={fieldError(fieldErrors, "title")}
-              disabled={!sourceType}
+              disabled={mode === "create" && !sourceType}
               required
             />
           </div>
@@ -62,7 +64,7 @@ export function NoteEditorMetadataSection({
           value={title}
           onChange={(nextTitle) => onChange({ title: nextTitle })}
           error={fieldError(fieldErrors, "title")}
-          disabled={!sourceType}
+          disabled={mode === "create" && !sourceType}
           required
         />
       )}

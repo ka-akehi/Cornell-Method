@@ -241,6 +241,7 @@ export function NoteEditor({
       )}
 
       <NoteEditorMetadataSection
+        mode={mode}
         shell={shell}
         title={form.title}
         noteDate={form.noteDate}

@@ -7,347 +7,59 @@ task_status: done
 
 ## Objective
 
-`implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の完了状態、変更ファイル、後続で読む最小ファイルを固定し、raw log の再読を避ける。
+安全な allowlist 付きで Markdown Preview に u、mark、details/summary の DocBase 基本拡張を追加する。
 
 ## Scope
 
 | 項目 | 内容 |
 |---|---|
-| task kind | `worker-task` |
-| worker | `Worker-common` |
-| status | `done` |
 | task file | `codex-queue/tasks/done/implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` |
-| raw log | out of scope |
+| worker | Worker-common |
+| status | done |
+| 対象 | Markdown renderer、rehype-raw dependency、sanitize 契約テスト |
+| 対象外 | 任意色/サイズ、Math、Mermaid、PlantUML、埋め込み、API/DB |
 
 ## Inputs Read
 
 | 種別 | パス | 確認内容 |
 |---|---|---|
-| task | `codex-queue/tasks/done/implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` | task 完了状態の起点 |
-| changed files | worker timestamp | task 実行中に更新された成果物の確認 |
+| task | `codex-queue/tasks/done/implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` | allowlist と安全性の完了条件 |
+| source | `src/shared/markdown/markdown-field.tsx` | rehype pipeline と custom components |
+| package | `package.json` / `package-lock.json` | dependency と lock の整合 |
+| test | `test/notes/markdown-preview-contract.test.js` | safe/unsafe HTML の契約 |
 
 ## Changes Made
 
 | パス | 変更内容 | 理由 |
 |---|---|---|
-| `.next/app-path-routes-manifest.json` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/BUILD_ID` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/build-manifest.json` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/cache/.tsbuildinfo` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/cache/webpack/client-production/0.pack` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/cache/webpack/client-production/2.pack` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/cache/webpack/client-production/24.pack` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/cache/webpack/client-production/25.pack` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/cache/webpack/client-production/34.pack` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/cache/webpack/client-production/36.pack` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/cache/webpack/client-production/37.pack` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/cache/webpack/client-production/39.pack` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/cache/webpack/client-production/40.pack` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/cache/webpack/client-production/41.pack` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/cache/webpack/client-production/42.pack` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/cache/webpack/client-production/index.pack` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/cache/webpack/client-production/index.pack.old` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/cache/webpack/server-production/1.pack` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/cache/webpack/server-production/12.pack` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/cache/webpack/server-production/2.pack` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/cache/webpack/server-production/22.pack` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/cache/webpack/server-production/26.pack` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/cache/webpack/server-production/30.pack` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/cache/webpack/server-production/33.pack` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/cache/webpack/server-production/36.pack` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/cache/webpack/server-production/39.pack` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/cache/webpack/server-production/index.pack` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/cache/webpack/server-production/index.pack.old` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/diagnostics/build-diagnostics.json` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/diagnostics/framework.json` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/export-marker.json` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/images-manifest.json` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/next-minimal-server.js.nft.json` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/next-server.js.nft.json` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/package.json` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/prerender-manifest.json` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/react-loadable-manifest.json` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/required-server-files.js` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/required-server-files.json` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/routes-manifest.json` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/server/app-paths-manifest.json` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/server/app/_global-error.html` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/server/app/_global-error.meta` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/server/app/_global-error.rsc` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/server/app/_global-error.segments/_full.segment.rsc` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/server/app/_global-error.segments/_global-error.segment.rsc` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/server/app/_global-error.segments/_global-error/__PAGE__.segment.rsc` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/server/app/_global-error.segments/_head.segment.rsc` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/server/app/_global-error.segments/_index.segment.rsc` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/server/app/_global-error.segments/_tree.segment.rsc` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/server/app/_global-error/page_client-reference-manifest.js` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/server/app/_global-error/page.js` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/server/app/_global-error/page.js.nft.json` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/server/app/_not-found.html` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/server/app/_not-found.meta` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/server/app/_not-found.rsc` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/server/app/_not-found.segments/_full.segment.rsc` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/server/app/_not-found.segments/_head.segment.rsc` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/server/app/_not-found.segments/_index.segment.rsc` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/server/app/_not-found.segments/_not-found.segment.rsc` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/server/app/_not-found.segments/_not-found/__PAGE__.segment.rsc` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/server/app/_not-found.segments/_tree.segment.rsc` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/server/app/_not-found/page_client-reference-manifest.js` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/server/app/_not-found/page.js` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/server/app/_not-found/page.js.nft.json` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/server/app/api/backups/route_client-reference-manifest.js` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/server/app/api/backups/route.js` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/server/app/api/backups/route.js.nft.json` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/server/app/api/notes/[id]/review/route_client-reference-manifest.js` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/server/app/api/notes/[id]/review/route.js` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/server/app/api/notes/[id]/review/route.js.nft.json` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/server/app/api/notes/[id]/route_client-reference-manifest.js` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/server/app/api/notes/[id]/route.js` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/server/app/api/notes/[id]/route.js.nft.json` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/server/app/api/notes/route_client-reference-manifest.js` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/server/app/api/notes/route.js` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/server/app/api/notes/route.js.nft.json` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/server/app/api/tags/route_client-reference-manifest.js` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/server/app/api/tags/route.js` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/server/app/api/tags/route.js.nft.json` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/server/app/backup.html` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/server/app/backup.meta` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/server/app/backup.rsc` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/server/app/backup.segments/_full.segment.rsc` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/server/app/backup.segments/_head.segment.rsc` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/server/app/backup.segments/_index.segment.rsc` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/server/app/backup.segments/_tree.segment.rsc` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/server/app/backup.segments/backup.segment.rsc` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/server/app/backup.segments/backup/__PAGE__.segment.rsc` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/server/app/backup/page_client-reference-manifest.js` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/server/app/backup/page.js` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/server/app/backup/page.js.nft.json` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/server/app/favicon.ico.body` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/server/app/favicon.ico.meta` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/server/app/favicon.ico/route.js` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/server/app/favicon.ico/route.js.nft.json` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/server/app/index.html` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/server/app/index.meta` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/server/app/index.rsc` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/server/app/index.segments/__PAGE__.segment.rsc` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/server/app/index.segments/_full.segment.rsc` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/server/app/index.segments/_head.segment.rsc` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/server/app/index.segments/_index.segment.rsc` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/server/app/index.segments/_tree.segment.rsc` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/server/app/notes.html` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/server/app/notes.meta` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/server/app/notes.rsc` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/server/app/notes.segments/_full.segment.rsc` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/server/app/notes.segments/_head.segment.rsc` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/server/app/notes.segments/_index.segment.rsc` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/server/app/notes.segments/_tree.segment.rsc` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/server/app/notes.segments/notes.segment.rsc` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/server/app/notes.segments/notes/__PAGE__.segment.rsc` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/server/app/notes/[id]/page_client-reference-manifest.js` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/server/app/notes/[id]/page.js` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/server/app/notes/[id]/page.js.nft.json` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/server/app/notes/new.html` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/server/app/notes/new.meta` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/server/app/notes/new.rsc` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/server/app/notes/new.segments/_full.segment.rsc` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/server/app/notes/new.segments/_head.segment.rsc` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/server/app/notes/new.segments/_index.segment.rsc` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/server/app/notes/new.segments/_tree.segment.rsc` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/server/app/notes/new.segments/notes.segment.rsc` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/server/app/notes/new.segments/notes/new.segment.rsc` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/server/app/notes/new.segments/notes/new/__PAGE__.segment.rsc` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/server/app/notes/new/page_client-reference-manifest.js` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/server/app/notes/new/page.js` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/server/app/notes/new/page.js.nft.json` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/server/app/notes/page_client-reference-manifest.js` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/server/app/notes/page.js` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/server/app/notes/page.js.nft.json` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/server/app/page_client-reference-manifest.js` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/server/app/page.js` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/server/app/page.js.nft.json` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/server/app/spikes/canvas.html` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/server/app/spikes/canvas.meta` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/server/app/spikes/canvas.rsc` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/server/app/spikes/canvas.segments/_full.segment.rsc` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/server/app/spikes/canvas.segments/_head.segment.rsc` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/server/app/spikes/canvas.segments/_index.segment.rsc` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/server/app/spikes/canvas.segments/_tree.segment.rsc` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/server/app/spikes/canvas.segments/spikes.segment.rsc` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/server/app/spikes/canvas.segments/spikes/canvas.segment.rsc` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/server/app/spikes/canvas.segments/spikes/canvas/__PAGE__.segment.rsc` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/server/app/spikes/canvas/page_client-reference-manifest.js` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/server/app/spikes/canvas/page.js` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/server/app/spikes/canvas/page.js.nft.json` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/server/chunks/319.js` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/server/chunks/353.js` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/server/chunks/370.js` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/server/chunks/385.js` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/server/chunks/445.js` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/server/chunks/719.js` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/server/chunks/746.js` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/server/chunks/813.js` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/server/chunks/872.js` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/server/chunks/945.js` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/server/chunks/969.js` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/server/chunks/978.js` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/server/functions-config-manifest.json` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/server/interception-route-rewrite-manifest.js` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/server/middleware-build-manifest.js` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/server/middleware-manifest.json` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/server/middleware-react-loadable-manifest.js` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/server/middleware.js` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/server/middleware.js.nft.json` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/server/next-font-manifest.js` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/server/next-font-manifest.json` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/server/pages-manifest.json` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/server/pages/404.html` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/server/pages/500.html` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/server/prefetch-hints.json` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/server/server-reference-manifest.js` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/server/server-reference-manifest.json` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/server/webpack-runtime.js` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/static/6gBKMjAhX2oEHcDyGk52h/_buildManifest.js` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/static/6gBKMjAhX2oEHcDyGk52h/_ssgManifest.js` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/static/chunks/0b465130.3cbc09cc575b2111.js` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/static/chunks/179.1235a1ff85fd51ee.js` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/static/chunks/313-580514fc6e8a97b8.js` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/static/chunks/491-7ec68b1427e38e24.js` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/static/chunks/4bd1b696-215e5051988c3dde.js` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/static/chunks/500-c99b8dfd3de17c86.js` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/static/chunks/51-c7739ce7586e51a7.js` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/static/chunks/794-307f158afcf5cb52.js` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/static/chunks/900-799b0de78eaacc95.js` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/static/chunks/app/_global-error/page-3339031674484a28.js` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/static/chunks/app/_not-found/page-0bd205ddd74cfbeb.js` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/static/chunks/app/api/backups/route-3339031674484a28.js` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/static/chunks/app/api/notes/[id]/review/route-3339031674484a28.js` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/static/chunks/app/api/notes/[id]/route-3339031674484a28.js` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/static/chunks/app/api/notes/route-3339031674484a28.js` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/static/chunks/app/api/tags/route-3339031674484a28.js` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/static/chunks/app/backup/page-dee07a652ac2718c.js` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/static/chunks/app/layout-56c00e93d7adadd7.js` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/static/chunks/app/notes/[id]/page-740bed6cea72a2e0.js` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/static/chunks/app/notes/new/page-d08c137925e95fac.js` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/static/chunks/app/notes/page-d08c137925e95fac.js` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/static/chunks/app/page-3339031674484a28.js` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/static/chunks/app/spikes/canvas/page-4f0e2a3b8fd25a8d.js` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/static/chunks/framework-3b18aa61b3b8f46e.js` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/static/chunks/main-5cc8860b4974cc8c.js` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/static/chunks/main-app-de6003bf888882f7.js` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/static/chunks/next/dist/client/components/builtin/app-error-3339031674484a28.js` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/static/chunks/next/dist/client/components/builtin/forbidden-3339031674484a28.js` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/static/chunks/next/dist/client/components/builtin/global-error-c1c700da864aae13.js` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/static/chunks/next/dist/client/components/builtin/not-found-3339031674484a28.js` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/static/chunks/next/dist/client/components/builtin/unauthorized-3339031674484a28.js` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/static/chunks/polyfills-42372ed130431b0a.js` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/static/chunks/webpack-b44d0798af5bcd18.js` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/static/css/eec20bca7fbb05f5.css` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/trace` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/trace-build` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/types/app/api/backups/route.ts` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/types/app/api/notes/[id]/review/route.ts` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/types/app/api/notes/[id]/route.ts` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/types/app/api/notes/route.ts` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/types/app/api/tags/route.ts` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/types/app/backup/page.ts` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/types/app/layout.ts` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/types/app/notes/[id]/page.ts` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/types/app/notes/new/page.ts` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/types/app/notes/page.ts` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/types/app/page.ts` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/types/app/spikes/canvas/page.ts` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/types/cache-life.d.ts` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/types/package.json` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/types/routes.d.ts` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `.next/types/validator.ts` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `codex-queue/.state/progress/tasks--implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md.progress` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `node_modules/.prisma/client/client.d.ts` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `node_modules/.prisma/client/client.js` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `node_modules/.prisma/client/default.d.ts` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `node_modules/.prisma/client/default.js` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `node_modules/.prisma/client/edge.d.ts` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `node_modules/.prisma/client/edge.js` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `node_modules/.prisma/client/index-browser.js` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `node_modules/.prisma/client/index.d.ts` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `node_modules/.prisma/client/index.js` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `node_modules/.prisma/client/package.json` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `node_modules/.prisma/client/query_compiler_fast_bg.js` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `node_modules/.prisma/client/query_compiler_fast_bg.wasm` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `node_modules/.prisma/client/query_compiler_fast_bg.wasm-base64.js` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `node_modules/.prisma/client/schema.prisma` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `node_modules/.prisma/client/wasm-edge-light-loader.mjs` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `node_modules/.prisma/client/wasm-worker-loader.mjs` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `package-lock.json` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `package.json` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `src/generated/prisma-postgres/client.d.ts` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `src/generated/prisma-postgres/client.js` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `src/generated/prisma-postgres/default.d.ts` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `src/generated/prisma-postgres/default.js` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `src/generated/prisma-postgres/edge.d.ts` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `src/generated/prisma-postgres/edge.js` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `src/generated/prisma-postgres/index-browser.js` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `src/generated/prisma-postgres/index.d.ts` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `src/generated/prisma-postgres/index.js` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `src/generated/prisma-postgres/package.json` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `src/generated/prisma-postgres/query_compiler_fast_bg.js` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `src/generated/prisma-postgres/query_compiler_fast_bg.wasm` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `src/generated/prisma-postgres/query_compiler_fast_bg.wasm-base64.js` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `src/generated/prisma-postgres/runtime/client.d.ts` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `src/generated/prisma-postgres/runtime/client.js` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `src/generated/prisma-postgres/runtime/index-browser.d.ts` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `src/generated/prisma-postgres/runtime/index-browser.js` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `src/generated/prisma-postgres/runtime/wasm-compiler-edge.js` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `src/generated/prisma-postgres/schema.prisma` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `src/generated/prisma-postgres/wasm-edge-light-loader.mjs` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `src/generated/prisma-postgres/wasm-worker-loader.mjs` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `src/shared/markdown/markdown-field.tsx` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
-| `test/notes/markdown-preview-contract.test.js` | task 実行中に作成または更新 | `implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` の実行結果 |
+| `src/shared/markdown/markdown-field.tsx` | rehype-raw、safe schema、u/mark/details/summary renderer を追加 | DocBase 基本拡張を制限付きで表示するため |
+| `package.json` | `rehype-raw` を dependency に追加 | raw HTML parsing を明示依存にするため |
+| `package-lock.json` | `rehype-raw` の lock を同期 | package manifest と一致させるため |
+| `test/notes/markdown-preview-contract.test.js` | allowlist と危険 HTML 除去の契約を追加 | sanitize の回帰を検知するため |
 
 ## Findings
 
 | ID | fact / assumption / unknown | 内容 | 根拠 |
 |---|---|---|---|
-| F-001 | fact | task は `done` として完了処理された。 | `codex-queue/tasks/done/implement-safe-docbase-markdown-extensions-20260726-f50ea9fa.task.md` |
-| F-002 | fact | task 実行中に成果物の作成または更新があった。 | Changes Made |
-| A-001 | assumption | 後続作業ではこの summary の Next Read を起点にすれば raw log 再読を避けられる。 | summary 運用ルール |
+| F-001 | fact | task は done として完了処理された。 | task file |
+| F-002 | fact | renderer、package manifest/lock、preview 契約テストが実差分にある。 | `HEAD^..HEAD` の source/test/package diff |
+| U-001 | unknown | lint、build、実ブラウザでの開閉・sanitize 確認結果は、この summary からは確認できない。 | 元taskの記録に結果なし |
 
 ## Verification
 
 | 確認項目 | 結果 | 備考 |
 |---|---|---|
-| summary file created | 完了 | `summary/20260726/2219-implement-safe-docbase-markdown-extensions-20260726-f50ea9fa-summary.md` |
-| required headings | 完了 | template 必須見出しを含む |
-| raw log suppression | 完了 | raw log 本文は転記していない |
-| `tools/check-summary.sh` | 完了 | writer script により終了コード 0 で通過 |
+| `sh tools/check-summary.sh summary/20260726/2219-implement-safe-docbase-markdown-extensions-20260726-f50ea9fa-summary.md` | PASS | 必須見出しと形式を確認 |
 
 ## Remaining Unknowns
 
 | ID | 未確認事項 | 次に必要な根拠 |
 |---|---|---|
-| U-001 | 生成物の内容妥当性はこの summary ではレビューしていない | Next Read の対象成果物 |
+| U-001 | 元taskの lint/build と実 preview の安全性確認 | task 実行記録または再実行結果 |
 
 ## Next Read
 
-次の作業では、まずこの summary を読む。
-
-- `summary/20260726/2219-implement-safe-docbase-markdown-extensions-20260726-f50ea9fa-summary.md`
-- `.next/app-path-routes-manifest.json`
-- `.next/BUILD_ID`
-- `.next/build-manifest.json`
-- `.next/cache/.tsbuildinfo`
-- `.next/cache/webpack/client-production/0.pack`
-- `.next/cache/webpack/client-production/2.pack`
-- `.next/cache/webpack/client-production/24.pack`
-- `.next/cache/webpack/client-production/25.pack`
-- `.next/cache/webpack/client-production/34.pack`
-- `.next/cache/webpack/client-production/36.pack`
-- `.next/cache/webpack/client-production/37.pack`
-- `.next/cache/webpack/client-production/39.pack`
-- `.next/cache/webpack/client-production/40.pack`
-- `.next/cache/webpack/client-production/41.pack`
-- `.next/cache/webpack/client-production/42.pack`
-- `.next/cache/webpack/client-production/index.pack`
-- `.next/cache/webpack/client-production/index.pack.old`
-- `.next/cache/webpack/server-production/1.pack`
-- `.next/cache/webpack/server-production/12.pack`
-- `.next/cache/webpack/server-production/2.pack`
+- `src/shared/markdown/markdown-field.tsx`
+- `package.json`
+- `package-lock.json`
+- `test/notes/markdown-preview-contract.test.js`

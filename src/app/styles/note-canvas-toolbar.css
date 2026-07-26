@@ -73,6 +73,7 @@
 }
 
 .note-canvas-toolbar-drawing-rail-inner > .note-canvas-toolbar-group {
+  flex: 0 0 auto;
   border: 0;
   border-radius: 0;
   background: transparent;
@@ -88,7 +89,8 @@
 }
 
 .note-canvas-toolbar-drawing-rail .note-canvas-tool-button {
-  width: 2.75rem;
+  flex: 0 0 auto;
+  width: auto;
   min-width: 2.75rem;
   border-color: transparent;
   background: transparent;
@@ -96,7 +98,7 @@
 }
 
 .note-canvas-toolbar-drawing-rail .note-canvas-tool-label {
-  display: none;
+  display: inline-block;
 }
 
 .note-canvas-toolbar-drawing-rail .note-canvas-toolbar-tooltip {

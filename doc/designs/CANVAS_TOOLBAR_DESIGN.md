@@ -16,7 +16,7 @@ v2 の決定事項は次のとおり。
 - アイコンは toolbar 内の小さな inline SVG または CSS で表現できる範囲に限定する。絵文字、Unicode 記号を実アイコンとして使うこと、新しいアイコンライブラリ依存を追加することは禁止する。
 - 選択、描画、線、図形、文字、消しゴム、履歴を、同じ高さのボタン列ではなく、背景・separator・active 表現の異なる操作グループとして見せる。
 - 用紙設定は描画操作の rail に入れず、強い境界を持つ独立パネルとして右端または別行に置く。用紙の幅・高さは zoom と呼ばない。
-- tool の sticky 性、オブジェクト単位の消しゴム、CanvasDocumentV1、Canvas の client Undo / Redo、320〜4000px の用紙寸法、ページ縦 scroll と Canvas 横 scroll は維持する。
+- tool の lifecycle（初期 `select`、`pen` 継続、配置 tool の配置後 `select` 遷移）、オブジェクト単位の消しゴム、CanvasDocumentV1、Canvas の client Undo / Redo、320〜4000px の用紙寸法、ページ縦 scroll と Canvas 横 scroll は維持する。
 - `pen` / `line` / `arrow` / `rect` / `ellipse` / `text` は、空白だけでなく既存のアプリ所有 Canvas 要素上からも新規作成を開始できる。未知 metadata の一時 Fabric object は新規 gesture の対象にしない。
 - 図形のドラッグ作成は一定の移動量を超えたときだけ開始・確定し、小さなクリック／ダブルクリックは不要な図形を作らない。`select` / `rect` / `ellipse` で対象図形をダブルクリックした場合は、図形外形を表示したまま図形内文字編集へ入る。
 - 文字だけのカテゴリ見出しを横一列に並べる構成は廃止する。group 名は主に ARIA と tooltip の意味に移し、可視上は group の背景・separator とボタン内の短いラベルで役割を示す。
@@ -85,7 +85,7 @@ toolbar の DOM / 認知上の順序は、操作 → 描画 rail → スタイ�
 | group | controls | 可視表現 | 背景 / separator | active / disabled |
 | --- | --- | --- | --- | --- |
 | 操作 | 選択 | icon＋選択 | toolbar の先頭。少し広い左右 padding と強めの外周 | active は最も強い accent marker。disabled にはしない |
-| 描く | ペン | icon＋ペン | drawing rail 内の先頭 subgroup | sticky active。選択中は marker と aria-pressed |
+| 描く | ペン | icon＋ペン | drawing rail 内の先頭 subgroup | 継続 tool。選択中は marker と aria-pressed |
 | 線 | 直線、矢印 | icon＋直線 / 矢印 | drawing rail 内で subgroup separator | 片方だけ active。2 ボタンを一つの選択にまとめない |
 | 図形 | 四角、円 | icon＋四角 / 円 | drawing rail 内で subgroup separator | 片方だけ active |
 | 文字 | テキスト | icon＋文字 | drawing rail 内の末尾 subgroup | active は text tool だけに付ける |
@@ -201,7 +201,7 @@ active は「橙色の背景だけ」では不十分である。marker、太さ�
 
 ### 5.1 Tool の状態
 
-- 初期 tool は select。選択中の tool は sticky であり、ペン、直線、矢印、四角、円、文字、消しゴムを一度選ぶと、別 tool を選ぶまで同じ tool が有効である。
+- 初期 tool は `select` とする。`pen` は継続 tool とし、自由線を配置しても `select` へ自動遷移しない。`line` / `arrow` / `rect` / `ellipse` / `text` は one-shot の配置 tool とし、正常に 1 オブジェクトを配置した場合だけ `select` へ戻る。tool は toolbar から明示的に切り替えられる。`erase` は one-shot 配置 tool には含めず、現行の object 単位の消去説明に留める。
 - tool 切替、hover、focus、tooltip の表示は CanvasDocumentV1 と history を変更しない。
 - select は既存 element の選択、移動、resize を許可する。既存 element を操作する入口は select と説明する。
 - pen、line、arrow、rect、ellipse、text は、空白または既存のアプリ所有 Canvas 要素上から新規 element を作る。これを `既存要素上からの重ね描き` と呼び、既存要素を選択・移動・resize する `select` の役割とは分ける。
@@ -277,7 +277,7 @@ CSS の order だけで視覚的な row と DOM の Tab 順を大きく反転さ
 
 - `src/app/notes/_components/note-canvas-toolbar.tsx` に local SVG icon、短い visible label、group の ARIA、active state、tooltip、style controls、用紙寸法入力・validation、Undo / Redo、narrow の paper disclosure がある。
 - `src/app/globals.css` に operation / drawing rail / style / erase / history / paper の面、separator、active・disabled・focus・invalid の状態、desktop / tablet / narrow の行構成、drawing rail の local horizontal scroll がある。
-- toolbar から利用する sticky tool、既存要素上の重ね描き、4px drag threshold、図形内文字、whole-object eraser、client history、CanvasDocumentV1 の page 寸法・要素不変契約は `note-canvas-editor.tsx`、Fabric adapter、共有 Canvas 契約に接続している。
+- toolbar から利用する tool lifecycle（初期 `select`、`pen` 継続、配置後 `select` 遷移）、既存要素上の重ね描き、4px drag threshold、図形内文字、whole-object eraser、client history、CanvasDocumentV1 の page 寸法・要素不変契約は `note-canvas-editor.tsx`、Fabric adapter、共有 Canvas 契約に接続している。
 
 ### 7.2 Browser runtime QA の境界
 
@@ -318,7 +318,9 @@ CSS の order だけで視覚的な row と DOM の Tab 順を大きく反転さ
 
 ### 9.2 操作
 
-- [ ] 初期 tool は選択で、tool を選ぶと別 tool を選ぶまで sticky に active である。
+- [ ] 初期 tool は `select` である。
+- [ ] `pen` は継続 tool として、自由線を配置した後も `pen` が active である。
+- [ ] `line` / `arrow` / `rect` / `ellipse` / `text` は、正常に 1 オブジェクトを配置した後に `select` へ戻る。
 - [ ] 選択、ペン、直線、矢印、四角、円、文字をそれぞれの group / rail から一回の操作で選べる。
 - [ ] tool 切替、hover、focus、tooltip 表示だけでは CanvasDocumentV1、history、親フォームの値が変わらない。
 - [ ] 消しゴムは click / なぞりで hit した要素を object 単位で削除し、Canvas 全体の削除、partial erase、mask を行わない。no-hit は no-op である。

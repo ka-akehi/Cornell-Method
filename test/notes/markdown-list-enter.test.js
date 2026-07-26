@@ -32,11 +32,13 @@ test("continues unordered lists with their indentation and marker", () => {
     selectionStart: 14,
     selectionEnd: 14,
   });
+  assert.equal(apply("   - third-level").value, "   - third-level\n   - ");
 });
 
 test("increments ordered list numbers across digit boundaries", () => {
   assert.equal(apply("1. first").value, "1. first\n2. ");
   assert.equal(apply("  9. ninth").value, "  9. ninth\n  10. ");
+  assert.equal(apply("   9. ninth").value, "   9. ninth\n   10. ");
   assert.equal(apply("99. ninety-nine").value, "99. ninety-nine\n100. ");
   assert.equal(apply("009. padded").value, "009. padded\n010. ");
 });
@@ -85,4 +87,11 @@ test("keeps normal textarea behavior outside editable list content", () => {
   assert.equal(apply("- `inline code`", 5), null);
   assert.equal(apply("- item", 6, { shiftKey: true }), null);
   assert.equal(apply("- item", 6, { isComposing: true }), null);
+});
+
+test("does not continue list markers in indented code-style lines", () => {
+  assert.equal(apply("    - code"), null);
+  assert.equal(apply("    -  "), null);
+  assert.equal(apply("    1. code"), null);
+  assert.equal(apply("    1.  "), null);
 });

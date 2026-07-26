@@ -85,7 +85,7 @@ function applyMarkdownListEnter({
 }
 
 function parseListLine(line) {
-  const unorderedMatch = line.match(/^([ \t]*)([-*+])([ \t]*)(.*)$/);
+  const unorderedMatch = line.match(/^([ \t]{0,3})([-*+])([ \t]*)(.*)$/);
 
   if (
     unorderedMatch &&
@@ -111,7 +111,7 @@ function parseListLine(line) {
     };
   }
 
-  const orderedMatch = line.match(/^([ \t]*)(\d+)([.)])([ \t]*)(.*)$/);
+  const orderedMatch = line.match(/^([ \t]{0,3})(\d+)([.)])([ \t]*)(.*)$/);
 
   if (
     orderedMatch &&

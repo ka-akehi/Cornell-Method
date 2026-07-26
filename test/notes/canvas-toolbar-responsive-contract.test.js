@@ -10,8 +10,26 @@ function readSource(relativePath) {
   return fs.readFileSync(path.join(projectRoot, relativePath), "utf8");
 }
 
-test("Canvas drawing rail stays visible without horizontal scrolling", () => {
+function readCssRuleBody(styles, selector) {
+  const escapedSelector = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const match = styles.match(
+    new RegExp(`${escapedSelector}\\s*\\{([^}]*)\\}`),
+  );
+
+  assert.ok(match, `Missing CSS rule for ${selector}`);
+  return match[1];
+}
+
+test("Canvas drawing rail keeps labels visible without viewport overflow", () => {
   const styles = readSource("src/app/styles/note-canvas-toolbar.css");
+  const drawingToolButtonStyles = readCssRuleBody(
+    styles,
+    ".note-canvas-toolbar-drawing-rail .note-canvas-tool-button",
+  );
+  const drawingToolLabelStyles = readCssRuleBody(
+    styles,
+    ".note-canvas-toolbar-drawing-rail .note-canvas-tool-label",
+  );
 
   assert.match(
     styles,
@@ -27,15 +45,21 @@ test("Canvas drawing rail stays visible without horizontal scrolling", () => {
   );
   assert.match(
     styles,
-    /\.note-canvas-toolbar-drawing-rail \.note-canvas-tool-button\s*\{[\s\S]*?min-width: 2\.75rem;/,
+    /\.note-canvas-toolbar-drawing-rail-inner\s*> \.note-canvas-toolbar-group\s*\{[\s\S]*?flex: 0 0 auto;/,
   );
   assert.match(
-    styles,
-    /\.note-canvas-toolbar-drawing-rail \.note-canvas-tool-label\s*\{\s*display: none;/,
+    drawingToolButtonStyles,
+    /flex: 0 0 auto;[\s\S]*width: auto;[\s\S]*min-width: 2\.75rem;/,
   );
+  assert.match(
+    drawingToolLabelStyles,
+    /display: inline-block;/,
+  );
+  assert.doesNotMatch(drawingToolLabelStyles, /display: none;/);
+  assert.match(styles, /\.note-canvas-toolbar button:focus-visible/);
 });
 
-test("Icon-only drawing tools retain accessible names and descriptions", () => {
+test("Drawing tools render visible labels and retain accessible names", () => {
   const actions = readSource(
     "src/modules/notes/ui/components/canvas/toolbar-actions.tsx",
   );
@@ -46,6 +70,11 @@ test("Icon-only drawing tools retain accessible names and descriptions", () => {
   assert.match(actions, /aria-label=\{item\.ariaLabel\}/);
   assert.match(actions, /aria-describedby=\{descriptionId\}/);
   assert.match(actions, /title=\{item\.description\}/);
+  assert.match(actions, /className="note-canvas-tool-label">\{item\.label\}<\/span>/);
+  assert.match(actions, /showTooltip\?: boolean/);
   assert.match(definitions, /description: "自由線を描く/);
   assert.match(definitions, /description: "空白からドラッグして直線を描く/);
+  for (const label of ["ペン", "直線", "矢印", "四角", "円", "文字"]) {
+    assert.match(definitions, new RegExp(`label: "${label}"`));
+  }
 });

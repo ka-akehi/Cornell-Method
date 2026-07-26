@@ -7,68 +7,55 @@ task_status: failed
 
 ## Objective
 
-`implement-markdown-list-enter-behavior-20260726-a6153332.task.md` の完了状態、変更ファイル、後続で読む最小ファイルを固定し、raw log の再読を避ける。
+MarkdownField の list 入力で Enter を押したときの継続・終了動作を実装する task の完了状態を記録する。
 
 ## Scope
 
 | 項目 | 内容 |
 |---|---|
-| task kind | `worker-task` |
-| worker | `Worker-common` |
-| status | `failed` |
 | task file | `codex-queue/tasks/failed/implement-markdown-list-enter-behavior-20260726-a6153332.task.md` |
-| raw log | out of scope |
+| worker | Worker-common |
+| status | failed |
+| 対象 | MarkdownField と入力 helper、契約テスト |
+| 対象外 | 失敗したため source/test/package/doc の変更なし |
 
 ## Inputs Read
 
 | 種別 | パス | 確認内容 |
 |---|---|---|
-| task | `codex-queue/tasks/failed/implement-markdown-list-enter-behavior-20260726-a6153332.task.md` | task 完了状態の起点 |
-| changed files | worker timestamp | task 実行中に更新された成果物の確認 |
+| task | `codex-queue/tasks/failed/implement-markdown-list-enter-behavior-20260726-a6153332.task.md` | list Enter の対象と完了条件 |
 
 ## Changes Made
 
 | パス | 変更内容 | 理由 |
 |---|---|---|
-| `codex-queue/.state/progress/tasks--implement-markdown-list-enter-behavior-20260726-a6153332.task.md.progress` | task 実行中に作成または更新 | `implement-markdown-list-enter-behavior-20260726-a6153332.task.md` の実行結果 |
+| なし | source/test/package/doc の変更なし | worker が実装開始前に失敗したため |
 
 ## Findings
 
 | ID | fact / assumption / unknown | 内容 | 根拠 |
 |---|---|---|---|
-| F-001 | fact | task は `failed` として完了処理された。 | `codex-queue/tasks/failed/implement-markdown-list-enter-behavior-20260726-a6153332.task.md` |
-| F-002 | fact | task 実行中に成果物の作成または更新があった。 | Changes Made |
-| F-003 | fact | 失敗理由の推定: environment permission error | Failure Reason |
-| A-001 | assumption | 後続作業ではこの summary の Next Read を起点にすれば raw log 再読を避けられる。 | summary 運用ルール |
+| F-001 | fact | task は failed として完了処理された。 | task file |
+| F-002 | fact | worker environment の初期化が `Operation not permitted` で失敗した。 | 既存の Failure Reason 記録 |
+| F-003 | fact | この task による source/test/package/doc の変更は確認できない。 | Changes Made |
+| U-001 | unknown | list Enter 実装・テスト結果は未確定である。 | task failed |
 
 ## Failure Reason
 
-- 推定原因: environment permission error
-- raw log 全文は転記せず、原因特定に必要な短い抜粋のみ残す。
-
-```text
-WARNING: proceeding, even though we could not create PATH aliases: Operation not permitted (os error 1)
-Error: failed to initialize in-process app-server client: Operation not permitted (os error 1)
-```
+worker の app-server 初期化が `Operation not permitted` で失敗した。
 
 ## Verification
 
 | 確認項目 | 結果 | 備考 |
 |---|---|---|
-| summary file created | 完了 | `summary/20260726/2153-implement-markdown-list-enter-behavior-20260726-a6153332-summary.md` |
-| required headings | 完了 | template 必須見出しを含む |
-| raw log suppression | 完了 | raw log 本文は転記していない |
-| `tools/check-summary.sh` | 完了 | writer script により終了コード 0 で通過 |
+| `sh tools/check-summary.sh summary/20260726/2153-implement-markdown-list-enter-behavior-20260726-a6153332-summary.md` | PASS | 必須見出しと形式を確認 |
 
 ## Remaining Unknowns
 
 | ID | 未確認事項 | 次に必要な根拠 |
 |---|---|---|
-| U-001 | Failure Reason は短い抜粋による推定であり、完全な raw log 解析ではない | 必要時のみ worker 実行環境で再現確認 |
+| U-001 | list Enter 実装の実結果 | `summary/20260726/2205-retry-implement-markdown-list-enter-behavior-20260726-a1709ca0-summary.md` |
 
 ## Next Read
 
-次の作業では、まずこの summary を読む。
-
-- `summary/20260726/2153-implement-markdown-list-enter-behavior-20260726-a6153332-summary.md`
-- `codex-queue/.state/progress/tasks--implement-markdown-list-enter-behavior-20260726-a6153332.task.md.progress`
+- `summary/20260726/2205-retry-implement-markdown-list-enter-behavior-20260726-a1709ca0-summary.md`
