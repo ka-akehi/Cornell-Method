@@ -1,0 +1,2 @@
+# Prisma migration history for the Postgres schema.
+provider = "postgresql"

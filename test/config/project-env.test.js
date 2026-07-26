@@ -6,8 +6,13 @@ const path = require("node:path");
 const { test } = require("node:test");
 
 const {
+  DEFAULT_POSTGRES_CLI_URL,
   DEFAULT_DATABASE_URL,
+  isHostedDeploymentEnvironment,
+  isPostgresDatabaseUrl,
   loadProjectEnv,
+  resolveDatabaseProvider,
+  resolvePrismaCliDatabaseUrl,
   resolveDatabaseUrl,
 } = require("../../config/project-env.js");
 
@@ -45,6 +50,32 @@ function withDatabaseUrl(value, callback) {
   }
 }
 
+function withEnvironment(values, callback) {
+  const previousValues = new Map();
+
+  for (const [key, value] of Object.entries(values)) {
+    previousValues.set(key, process.env[key]);
+
+    if (value === undefined) {
+      delete process.env[key];
+    } else {
+      process.env[key] = value;
+    }
+  }
+
+  try {
+    return callback();
+  } finally {
+    for (const [key, value] of previousValues) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+  }
+}
+
 test("loads a custom DATABASE_URL from a project .env", () => {
   withDatabaseUrl(undefined, () =>
     withTempRoot((root) => {
@@ -76,6 +107,52 @@ test("uses the default only when the project .env is missing", () => {
     withTempRoot((root) => {
       assert.equal(resolveDatabaseUrl(root), DEFAULT_DATABASE_URL);
     }),
+  );
+});
+
+test("accepts a PostgreSQL runtime URL and preserves its pooler query", () => {
+  withEnvironment(
+    {
+      DATABASE_URL:
+        "postgresql://runtime:secret@example.supabase.co:6543/notebook?sslmode=require&pgbouncer=true",
+      VERCEL_ENV: undefined,
+      VERCEL: undefined,
+    },
+    () => {
+      withTempRoot((root) => {
+        assert.equal(
+          resolveDatabaseUrl(root),
+          "postgresql://runtime:secret@example.supabase.co:6543/notebook?sslmode=require&pgbouncer=true",
+        );
+        assert.equal(isPostgresDatabaseUrl(process.env.DATABASE_URL), true);
+      });
+    },
+  );
+});
+
+test("selects the matching Prisma runtime provider from the URL scheme", () => {
+  assert.equal(resolveDatabaseProvider("file:./dev.db"), "sqlite");
+  assert.equal(
+    resolveDatabaseProvider("postgresql://localhost:5432/notebook"),
+    "postgresql",
+  );
+});
+
+test("accepts the postgres URL protocol alias", () => {
+  withEnvironment(
+    {
+      DATABASE_URL: "postgres://runtime:secret@localhost:5432/notebook",
+      VERCEL_ENV: undefined,
+      VERCEL: undefined,
+    },
+    () => {
+      withTempRoot((root) => {
+        assert.equal(
+          resolveDatabaseUrl(root),
+          "postgres://runtime:secret@localhost:5432/notebook",
+        );
+      });
+    },
   );
 });
 
@@ -126,7 +203,9 @@ test("preserves percent-encoded path spelling for the runtime URL", () => {
 for (const invalidValue of [
   "",
   "   ",
-  "postgres://localhost/example",
+  "postgresql://",
+  "postgresql://localhost",
+  "postgresql://localhost/",
   "file:",
   "file::memory:",
   "file:?mode=memory",
@@ -157,7 +236,7 @@ for (const invalidValue of [
 for (const invalidValue of [
   "",
   "   ",
-  "postgres://localhost/example",
+  "postgresql://localhost/",
   "file:",
   "file::memory:",
   "file:?mode=memory",
@@ -210,5 +289,146 @@ test("ignores a project .env read failure when the shell DATABASE_URL exists", (
       assert.doesNotThrow(() => loadProjectEnv(root));
       assert.equal(resolveDatabaseUrl(root), "file:./shell.db");
     }),
+  );
+});
+
+test("fails closed for a missing Preview DATABASE_URL", () => {
+  withEnvironment(
+    {
+      DATABASE_URL: undefined,
+      VERCEL_ENV: "preview",
+      VERCEL: "1",
+    },
+    () => {
+      withTempRoot((root) => {
+        assert.throws(
+          () => resolveDatabaseUrl(root),
+          (error) =>
+            error instanceof Error &&
+            /必須/.test(error.message) &&
+            !error.message.includes("secret"),
+        );
+      });
+    },
+  );
+});
+
+test("rejects a SQLite URL in Production without exposing its value", () => {
+  withEnvironment(
+    {
+      DATABASE_URL: "file:./dev.db",
+      VERCEL_ENV: "production",
+      VERCEL: "1",
+    },
+    () => {
+      withTempRoot((root) => {
+        assert.throws(
+          () => resolveDatabaseUrl(root),
+          (error) =>
+            error instanceof Error &&
+            /PostgreSQL/.test(error.message) &&
+            !error.message.includes("dev.db"),
+        );
+      });
+    },
+  );
+});
+
+test("uses DIRECT_URL for PostgreSQL migration commands", () => {
+  withEnvironment(
+    {
+      DATABASE_URL: "postgresql://runtime:secret@pooler.example/notebook",
+      DIRECT_URL: "postgresql://direct:secret@db.example/notebook",
+      VERCEL_ENV: "preview",
+      VERCEL: "1",
+    },
+    () => {
+      assert.equal(
+        resolvePrismaCliDatabaseUrl({
+          provider: "postgresql",
+          command: ["migrate", "deploy"],
+        }),
+        "postgresql://direct:secret@db.example/notebook",
+      );
+    },
+  );
+});
+
+test("requires DIRECT_URL for PostgreSQL migration commands", () => {
+  withEnvironment(
+    {
+      DATABASE_URL: "postgresql://runtime:secret@pooler.example/notebook",
+      DIRECT_URL: undefined,
+      VERCEL_ENV: "preview",
+      VERCEL: "1",
+    },
+    () => {
+      assert.throws(
+        () =>
+          resolvePrismaCliDatabaseUrl({
+            provider: "postgresql",
+            command: ["migrate", "deploy"],
+          }),
+        (error) =>
+          error instanceof Error &&
+          /DIRECT_URL/.test(error.message) &&
+          !error.message.includes("secret"),
+      );
+    },
+  );
+});
+
+test("uses a non-secret placeholder for PostgreSQL generation", () => {
+  withEnvironment(
+    {
+      DATABASE_URL: undefined,
+      DIRECT_URL: undefined,
+      VERCEL_ENV: "production",
+      VERCEL: "1",
+    },
+    () => {
+      assert.equal(
+        resolvePrismaCliDatabaseUrl({
+          provider: "postgresql",
+          command: ["generate"],
+        }),
+        DEFAULT_POSTGRES_CLI_URL,
+      );
+    },
+  );
+});
+
+test("allows SQLite client generation without enabling SQLite runtime fallback", () => {
+  withEnvironment(
+    {
+      DATABASE_URL: "postgresql://runtime:secret@pooler.example/notebook",
+      VERCEL_ENV: "production",
+      VERCEL: "1",
+    },
+    () => {
+      assert.equal(
+        resolvePrismaCliDatabaseUrl({
+          provider: "sqlite",
+          command: ["generate"],
+        }),
+        DEFAULT_DATABASE_URL,
+      );
+    },
+  );
+});
+
+test("treats Vercel development as local for SQLite", () => {
+  withEnvironment(
+    {
+      DATABASE_URL: undefined,
+      VERCEL_ENV: "development",
+      VERCEL: "1",
+    },
+    () => {
+      assert.equal(isHostedDeploymentEnvironment(), false);
+      withTempRoot((root) => {
+        assert.equal(resolveDatabaseUrl(root), DEFAULT_DATABASE_URL);
+      });
+    },
   );
 });

@@ -1,12 +1,26 @@
 import { defineConfig } from "prisma/config";
-import { resolveDatabaseUrl } from "./config/project-env.js";
+import {
+  loadProjectEnv,
+  resolvePrismaCliDatabaseUrl,
+} from "./config/project-env.js";
+
+const projectRoot = process.cwd();
+loadProjectEnv(projectRoot);
+
+const provider = process.env.PRISMA_PROVIDER === "postgresql"
+  ? "postgresql"
+  : "sqlite";
+const isPostgres = provider === "postgresql";
 
 export default defineConfig({
-  schema: "prisma/schema.prisma",
+  schema: isPostgres ? "prisma/schema.postgres.prisma" : "prisma/schema.prisma",
   migrations: {
-    path: "prisma/migrations",
+    path: isPostgres ? "prisma/migrations-postgres" : "prisma/migrations",
   },
   datasource: {
-    url: resolveDatabaseUrl(process.cwd()),
+    url: resolvePrismaCliDatabaseUrl({
+      projectRoot,
+      provider,
+    }),
   },
 });

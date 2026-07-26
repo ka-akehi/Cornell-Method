@@ -1,0 +1,84 @@
+// This schema intentionally mirrors prisma/schema.prisma.
+// Keep the SQLite schema and migrations untouched; T2 owns the Postgres
+// baseline and migration history under prisma/migrations-postgres.
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../src/generated/prisma-postgres"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Notebook {
+  id             String    @id @default(cuid()) @map("id")
+  title          String    @map("title")
+  noteDate       DateTime  @map("note_date")
+  sourceType     String?   @map("source_type")
+  sourceTitle    String    @default("") @map("source_title")
+  body           String    @default("") @map("body")
+  bodyMode       String    @default("markdown") @map("body_mode")
+  summary        String    @default("") @map("summary")
+  nextReviewDate DateTime? @map("next_review_date")
+  reviewedAt     DateTime? @map("reviewed_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+  deletedAt      DateTime? @map("deleted_at")
+
+  cues   Cue[]
+  tags   NotebookTag[]
+  canvas NotebookCanvas?
+
+  @@index([noteDate])
+  @@index([nextReviewDate])
+  @@map("notebooks")
+}
+
+model NotebookCanvas {
+  notebookId    String   @id @map("notebook_id")
+  schemaVersion Int      @default(1) @map("schema_version")
+  documentJson  String   @map("document_json")
+  searchText    String   @default("") @map("search_text")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  notebook Notebook @relation(fields: [notebookId], references: [id], onDelete: Cascade)
+
+  @@map("notebook_canvases")
+}
+
+model Tag {
+  id        String        @id @default(cuid()) @map("id")
+  name      String        @unique @map("name")
+  color     String?       @map("color")
+  createdAt DateTime      @default(now()) @map("created_at")
+  notebooks NotebookTag[]
+
+  @@map("tags")
+}
+
+model NotebookTag {
+  notebookId String @map("notebook_id")
+  tagId      String @map("tag_id")
+
+  notebook Notebook @relation(fields: [notebookId], references: [id], onDelete: Cascade)
+  tag      Tag      @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([notebookId, tagId])
+  @@map("notebook_tags")
+}
+
+model Cue {
+  id         String   @id @default(cuid()) @map("id")
+  notebookId String   @map("notebook_id")
+  text       String   @map("text")
+  order      Int      @default(0) @map("order")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  notebook Notebook @relation(fields: [notebookId], references: [id], onDelete: Cascade)
+
+  @@index([notebookId, order])
+  @@map("cues")
+}

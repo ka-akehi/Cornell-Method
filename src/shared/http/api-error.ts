@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 export type ApiErrorCode =
+  | "unauthorized"
   | "invalid_body"
   | "invalid_query"
   | "not_found"
@@ -18,6 +19,7 @@ export type ApiErrorBody = {
 };
 
 export const apiErrorStatus: Record<ApiErrorCode, number> = {
+  unauthorized: 401,
   invalid_body: 400,
   invalid_query: 400,
   not_found: 404,
@@ -25,6 +27,7 @@ export const apiErrorStatus: Record<ApiErrorCode, number> = {
 };
 
 const defaultApiErrorMessages: Record<ApiErrorCode, string> = {
+  unauthorized: "認証が必要です",
   invalid_body: "入力内容に誤りがあります",
   invalid_query: "検索条件に誤りがあります",
   not_found: "対象が見つかりません",
