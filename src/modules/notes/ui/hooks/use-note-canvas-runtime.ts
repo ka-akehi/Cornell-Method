@@ -183,6 +183,21 @@ export function useNoteCanvasRuntime(
           callbacksRef.current.commitDocument(fabricCanvasToDocument(canvas));
         };
 
+        const completeOneShotObjectPlacement = (object: FabricObjectLike) => {
+          if (!canvas || !canvas.getObjects().includes(object)) return false;
+
+          const callbacks = callbacksRef.current;
+          callbacks.toolRef.current = "select";
+          callbacks.setTool("select");
+          canvas.isDrawingMode = false;
+          canvas.selection = true;
+          canvas.getObjects().forEach((canvasObject) => {
+            canvasObject.set({ selectable: true, evented: true });
+          });
+          canvas.requestRenderAll?.();
+          return true;
+        };
+
         const resetBlockedPenGesture = () => {
           const wasBlocked = blockedPenGestureRef.current;
           blockedPenGestureRef.current = false;
@@ -331,6 +346,10 @@ export function useNoteCanvasRuntime(
             const textObject = createFabricObject(fabricRef.current, elementForText);
             textObject.set({ editable: true, selectable: true, evented: true });
             currentCanvas.add(textObject);
+            if (!completeOneShotObjectPlacement(textObject)) {
+              currentCanvas.requestRenderAll?.();
+              return;
+            }
             currentCanvas.setActiveObject(textObject);
             textObject.enterEditing?.();
             textObject.selectAll?.();
@@ -428,18 +447,21 @@ export function useNoteCanvasRuntime(
             canvas.requestRenderAll?.();
             return;
           }
-          canvas.add(
-            createFabricObject(
-              fabricRef.current,
-              createDraggedElement(
-                drag.tool,
-                drag.start,
-                drag.current,
-                canvas.getObjects().length,
-                callbacksRef.current.styleDefaultsRef.current,
-              ),
+          const object = createFabricObject(
+            fabricRef.current,
+            createDraggedElement(
+              drag.tool,
+              drag.start,
+              drag.current,
+              canvas.getObjects().length,
+              callbacksRef.current.styleDefaultsRef.current,
             ),
           );
+          canvas.add(object);
+          if (!completeOneShotObjectPlacement(object)) {
+            canvas.requestRenderAll?.();
+            return;
+          }
           commitCurrent();
         };
 

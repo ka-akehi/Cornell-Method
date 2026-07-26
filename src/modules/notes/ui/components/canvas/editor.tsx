@@ -112,6 +112,7 @@ export function NoteCanvasEditor({
     initialDocument: initialDocumentSnapshot,
     pageDimensions: history.present.page,
     tool,
+    setTool,
     styleDefaults,
     toolRef,
     styleDefaultsRef,

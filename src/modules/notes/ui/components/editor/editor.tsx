@@ -4,7 +4,6 @@ import { useCallback, useMemo, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import type { ApiFieldError } from "@/shared/http/client";
 import { todayDateString } from "@/shared/date";
-import { AppChromeModeReporter } from "@/shared/ui/app-chrome-state";
 import type {
   NoteDetailResponse,
   NotebookInput,
@@ -64,7 +63,7 @@ export function NoteEditor({
   const [fieldErrors, setFieldErrors] = useState<ApiFieldError[]>([]);
   const [canvasError, setCanvasError] = useState<string | null>(null);
   const today = useMemo(() => todayDateString(), []);
-  const initialCanvasTool = mode === "create" ? "text" : "select";
+  const initialCanvasTool = "select";
 
   const handleCanvasDocumentChange = useCallback((canvas: NoteEditorFormState["canvas"]) => {
     setForm((current) => ({ ...current, canvas }));
@@ -172,8 +171,6 @@ export function NoteEditor({
         void save();
       }}
     >
-      <AppChromeModeReporter state={mode} />
-
       {message && (
         <div
           role="alert"

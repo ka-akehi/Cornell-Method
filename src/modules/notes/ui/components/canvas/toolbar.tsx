@@ -32,12 +32,6 @@ export function NoteCanvasToolbar({
       aria-label="Canvas ツールバー"
       aria-orientation="horizontal"
     >
-      <CanvasToolGroup
-        group={getToolGroup("operation")}
-        tool={tool}
-        onToolChange={onToolChange}
-      />
-
       <div
         className="note-canvas-toolbar-drawing-rail"
         role="group"
