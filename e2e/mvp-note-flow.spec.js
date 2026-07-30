@@ -25,15 +25,16 @@ async function cleanupNote(request, noteId) {
   expect([204, 404]).toContain(response.status());
 }
 
-async function createNote(page, { title, cue, summary }) {
+async function createNote(page, { title, cue, cues, summary }) {
   await page.goto("/notes/new");
   await expect(page.locator("#note-title")).toBeVisible();
   await page.locator("#note-title").fill(title);
   await page.locator("#note-date").fill(todayDateString());
 
-  if (cue) {
+  const cueTexts = cues ?? (cue ? [cue] : []);
+  for (const [index, cueText] of cueTexts.entries()) {
     await page.getByRole("button", { name: "Cue 追加", exact: true }).click();
-    await page.locator("#cue-0").fill(cue);
+    await page.locator(`#cue-${index}`).fill(cueText);
   }
 
   await page.locator("#summary").fill(summary);
@@ -81,15 +82,26 @@ test("ノートを作成して編集保存し、一覧の query 検索で確認�
   const updatedTitle = `${initialTitle} 更新`;
   const initialSummary = "E2E 作成時の Summary";
   const updatedSummary = "E2E 編集後の Summary";
+  const initialCues = ["E2E 作成時の Cue 1", "E2E 作成時の Cue 2"];
   let noteId;
 
   try {
     const savedNote = await createNote(page, {
       title: initialTitle,
-      cue: "E2E 作成時の Cue",
+      cues: initialCues,
       summary: initialSummary,
     });
     noteId = savedNote.id;
+
+    const persistedNoteResponse = await request.get(`/api/notes/${noteId}`);
+    expect(persistedNoteResponse.status()).toBe(200);
+    const persistedNote = await persistedNoteResponse.json();
+    expect(persistedNote.cues).toHaveLength(initialCues.length);
+    expect(
+      persistedNote.cues.map(({ text, order }) => ({ text, order })),
+    ).toEqual(
+      initialCues.map((text, order) => ({ text, order })),
+    );
 
     await expect(
       page.getByRole("heading", { name: initialTitle, level: 1 }),

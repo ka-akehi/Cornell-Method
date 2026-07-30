@@ -1,10 +1,14 @@
 const { defineConfig, devices } = require("@playwright/test");
 
-const e2eDatabaseUrl = "file:./prisma/e2e.db";
 const baseURL = "http://127.0.0.1:4173";
 
 module.exports = defineConfig({
   testDir: "./e2e",
+  // The server is owned by globalSetup so its returned teardown completes
+  // before the runner invokes globalTeardown. Playwright 1.61 tears down the
+  // webServer plugin before user globalTeardown, so the plugin is intentionally
+  // not used for this fixture lifecycle.
+  globalSetup: require.resolve("./e2e/web-server.js"),
   globalTeardown: require.resolve("./e2e/global-teardown.js"),
   timeout: 30_000,
   expect: {
@@ -30,14 +34,4 @@ module.exports = defineConfig({
       use: { ...devices["Desktop Chrome"] },
     },
   ],
-  webServer: {
-    command: "node e2e/web-server.js",
-    url: `${baseURL}/notes`,
-    timeout: 120_000,
-    reuseExistingServer: false,
-    env: {
-      DATABASE_URL: e2eDatabaseUrl,
-      PRISMA_PROVIDER: "sqlite",
-    },
-  },
 });

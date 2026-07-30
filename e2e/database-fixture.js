@@ -73,6 +73,8 @@ function prepareE2eDatabase() {
 module.exports = {
   cleanupE2eDatabase,
   e2eDatabaseUrl,
+  e2eDatabasePath,
+  e2eDatabaseSidecars,
   prepareE2eDatabase,
   projectRoot,
 };
