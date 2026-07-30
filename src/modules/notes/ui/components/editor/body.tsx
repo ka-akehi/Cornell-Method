@@ -51,6 +51,7 @@ export function NoteEditorBodySection({
           onChange={onBodyChange}
           rows={12}
           layout="stacked"
+          preview="visible"
           error={fieldError(fieldErrors, "body")}
           placeholder="本文を Markdown で入力"
           previewEmptyLabel="本文のプレビューはまだありません。"

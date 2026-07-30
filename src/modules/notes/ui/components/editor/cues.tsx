@@ -17,7 +17,7 @@ export function NoteEditorCueSection({
   onRemove: (index: number) => void;
 }) {
   return (
-    <div className="note-paper-cue-column min-w-0 space-y-3 max-[640px]:!border-r-0 max-[640px]:!border-b max-[640px]:!pb-5 max-[640px]:!pr-0">
+    <div className="note-paper-cue-column min-w-0 space-y-3 max-[640px]:!pb-5 max-[640px]:!pr-0">
       <div className="flex flex-wrap items-center justify-between gap-2 pb-2">
         <h2 className="note-paper-section-title text-base">Cue / キーワード</h2>
         <button
@@ -71,8 +71,10 @@ export function NoteEditorCueSection({
                         onChange={(event) => onChange(index, event.target.value)}
                         aria-invalid={Boolean(cueFieldError)}
                         aria-describedby={cueFieldError ? `cue-${index}-error` : undefined}
-                        className={`w-full min-w-0 resize-y rounded-none border-0 border-b bg-transparent px-0 py-1 text-sm leading-6 text-stone-900 !shadow-none outline-none transition placeholder:text-stone-400 focus:border-amber-500 focus:ring-0 ${
-                          cueFieldError ? "border-red-400" : "border-stone-300/70"
+                        className={`w-full min-w-0 resize-y rounded-lg border bg-[color:var(--paper-soft)] px-3 py-2 text-sm leading-6 text-stone-900 !shadow-none outline-none transition placeholder:text-stone-400 focus:ring-2 focus:ring-amber-100 ${
+                          cueFieldError
+                            ? "border-red-400 focus:border-red-500 focus:ring-red-100"
+                            : "border-stone-300/70 focus:border-amber-500"
                         }`}
                         placeholder="例: この章の主張は何か"
                       />
