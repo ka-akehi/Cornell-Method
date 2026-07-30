@@ -44,7 +44,6 @@ jobs:
             });
             const pr = prResponse.data;
             const headSha = pr.head.sha;
-
             if (
               pr.state !== "open" ||
               pr.merged_at != null ||
@@ -54,98 +53,6 @@ jobs:
                 `Ignoring review ${review.id}: reviewed ${review.commit_id}, current HEAD is ${headSha}.`,
               );
               return;
-            }
-
-            let reviewComments = [];
-            let previousCommentKey = null;
-            let stableObservations = 0;
-
-            for (let attempt = 1; attempt <= 12; attempt += 1) {
-              const comments = await github.paginate(
-                github.rest.pulls.listReviewComments,
-                {
-                  owner,
-                  repo,
-                  pull_number: prNumber,
-                  per_page: 100,
-                },
-              );
-
-              const current = comments.filter(
-                (comment) =>
-                  !comment.in_reply_to_id &&
-                  comment.pull_request_review_id === review.id,
-              );
-              const currentKey = current
-                .map((comment) => comment.id)
-                .sort((left, right) => left - right)
-                .join(",");
-
-              reviewComments = current;
-              if (current.length > 0 && currentKey === previousCommentKey) {
-                stableObservations += 1;
-              } else {
-                stableObservations = 0;
-              }
-              previousCommentKey = currentKey;
-
-              core.info(
-                `PR #${prNumber}: review ${review.id} comment snapshot ${attempt}/12 contains ${current.length} comment(s), stable=${stableObservations}.`,
-              );
-
-              if (current.length > 0 && stableObservations >= 1) break;
-              if (attempt < 12) await sleep(5_000);
-            }
-
-            if (reviewComments.length === 0) {
-              core.info(
-                `PR #${prNumber}: review ${review.id} has no inline comments after the consistency wait.`,
-              );
-              return;
-            }
-
-            let activeIds = null;
-            try {
-              const result = await github.graphql(
-                `query($owner:String!,$repo:String!,$number:Int!){
-                  repository(owner:$owner,name:$repo){
-                    pullRequest(number:$number){
-                      reviewThreads(first:100){nodes{
-                        isResolved isOutdated
-                        comments(first:100){nodes{databaseId}}
-                      }}
-                    }
-                  }
-                }`,
-                { owner, repo, number: prNumber },
-              );
-              const threads = result.repository?.pullRequest?.reviewThreads?.nodes;
-              if (Array.isArray(threads)) {
-                activeIds = new Set(
-                  threads
-                    .filter((thread) => !thread.isResolved && !thread.isOutdated)
-                    .flatMap((thread) => thread.comments?.nodes ?? [])
-                    .map((comment) => comment.databaseId)
-                    .filter(Number.isInteger),
-                );
-              }
-            } catch (error) {
-              core.warning(
-                `PR #${prNumber}: thread-state lookup failed; using the exact submitted review: ${error.message}`,
-              );
-            }
-
-            if (activeIds !== null) {
-              const represented = reviewComments.filter((comment) =>
-                activeIds.has(comment.id),
-              );
-              if (represented.length === reviewComments.length) {
-                reviewComments = represented;
-              } else {
-                core.warning(
-                  `PR #${prNumber}: thread-state data represented ${represented.length}/${reviewComments.length} comments; using the exact current-head submitted review to avoid an eventual-consistency miss.`,
-                );
-              }
             }
 
             const priorityOf = (body) => {
@@ -181,6 +88,72 @@ jobs:
               );
             };
 
+            let reviewComments = [];
+            let previousIds = "";
+            let stableReads = 0;
+            for (let attempt = 1; attempt <= 12; attempt += 1) {
+              const comments = await github.paginate(
+                github.rest.pulls.listReviewComments,
+                { owner, repo, pull_number: prNumber, per_page: 100 },
+              );
+              const current = comments
+                .filter(
+                  (comment) =>
+                    !comment.in_reply_to_id &&
+                    comment.pull_request_review_id === review.id &&
+                    comment.commit_id === headSha,
+                )
+                .sort((left, right) => left.id - right.id);
+              const ids = current.map((comment) => comment.id).join(",");
+              if (ids && ids === previousIds) {
+                stableReads += 1;
+              } else {
+                stableReads = 0;
+                previousIds = ids;
+              }
+              reviewComments = current;
+              if (reviewComments.length > 0 && stableReads >= 1) break;
+              if (attempt < 12) await sleep(5_000);
+            }
+
+            let activeIds = null;
+            try {
+              const result = await github.graphql(
+                `query($owner:String!,$repo:String!,$number:Int!){
+                  repository(owner:$owner,name:$repo){
+                    pullRequest(number:$number){
+                      reviewThreads(first:100){nodes{
+                        isResolved isOutdated
+                        comments(first:100){nodes{databaseId}}
+                      }}
+                    }
+                  }
+                }`,
+                { owner, repo, number: prNumber },
+              );
+              const threads = result.repository?.pullRequest?.reviewThreads?.nodes;
+              if (Array.isArray(threads)) {
+                activeIds = new Set(
+                  threads
+                    .filter((thread) => !thread.isResolved && !thread.isOutdated)
+                    .flatMap((thread) => thread.comments?.nodes ?? [])
+                    .map((comment) => comment.databaseId)
+                    .filter(Number.isInteger),
+                );
+              }
+            } catch (error) {
+              core.warning(
+                `PR #${prNumber}: thread-state lookup failed; using the submitted review: ${error.message}`,
+              );
+            }
+
+            if (activeIds !== null) {
+              const activeForReview = reviewComments.filter((comment) =>
+                activeIds.has(comment.id),
+              );
+              if (activeForReview.length > 0) reviewComments = activeForReview;
+            }
+
             const findings = reviewComments
               .map((comment) => {
                 const priority = priorityOf(comment.body);
@@ -199,7 +172,7 @@ jobs:
 
             if (findings.length === 0) {
               core.info(
-                `PR #${prNumber}: submitted review ${review.id} contains no P0-P2 finding.`,
+                `PR #${prNumber}: submitted review ${review.id} contains no P0-P2 finding after stabilization.`,
               );
               return;
             }
@@ -222,12 +195,18 @@ jobs:
             for (const finding of findings) {
               const marker =
                 `<!-- codex-review-source:PR-${prNumber}:review-comment:${finding.id} -->`;
-
-              trackedIssues = await listTrackingIssues();
-              const existing = trackedIssues.find(
+              let existing = trackedIssues.find(
                 (issue) =>
                   typeof issue.body === "string" && issue.body.includes(marker),
               );
+
+              if (!existing) {
+                trackedIssues = await listTrackingIssues();
+                existing = trackedIssues.find(
+                  (issue) =>
+                    typeof issue.body === "string" && issue.body.includes(marker),
+                );
+              }
 
               if (existing) {
                 if (existing.state === "closed") {
@@ -258,8 +237,7 @@ jobs:
                 return;
               }
 
-              const blocking =
-                finding.priority === "P0" || finding.priority === "P1";
+              const blocking = finding.priority === "P0" || finding.priority === "P1";
               const location = finding.path
                 ? `\`${finding.path}${finding.line ? `:${finding.line}` : ""}\``
                 : "レビューコメント内の一般指摘";
@@ -313,18 +291,14 @@ jobs:
                 body,
               });
               created.push(response.data);
+              trackedIssues.push(response.data);
             }
 
             const summaryMarker =
               `<!-- codex-review-submission-sync:${headSha}:${review.id} -->`;
             const priorComments = await github.paginate(
               github.rest.issues.listComments,
-              {
-                owner,
-                repo,
-                issue_number: prNumber,
-                per_page: 100,
-              },
+              { owner, repo, issue_number: prNumber, per_page: 100 },
             );
             if (
               priorComments.some(
@@ -333,9 +307,7 @@ jobs:
                   comment.body.includes(summaryMarker),
               )
             ) {
-              core.info(
-                `PR #${prNumber}: review ${review.id} was already summarized.`,
-              );
+              core.info(`PR #${prNumber}: review ${review.id} was already summarized.`);
               return;
             }
 
