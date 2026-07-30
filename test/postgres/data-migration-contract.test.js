@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-require-imports -- This focused test uses Node's built-in test runner. */
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
+const Module = require("node:module");
 const os = require("node:os");
 const path = require("node:path");
 const { execFileSync } = require("node:child_process");
@@ -178,6 +179,145 @@ test("source dry-run requires an explicit path and emits metadata without note c
     assert.doesNotMatch(output, /PRIVATE_(?:TITLE|BODY|SUMMARY|TAG|CUE|CANVAS_TEXT|SEARCH_TEXT)/);
   } finally {
     fs.rmSync(fixture.directory, { recursive: true, force: true });
+  }
+});
+
+test("better-sqlite3 native load failure falls back to the sqlite3 CLI", {
+  skip: !hasSqliteCli(),
+}, () => {
+  const fixture = createFixture();
+  const originalLoad = Module._load;
+  const nativeLoadError = new Error("native module load failed");
+  nativeLoadError.code = "ERR_DLOPEN_FAILED";
+
+  Module._load = function load(request, parent, isMain) {
+    if (request === "better-sqlite3") {
+      throw nativeLoadError;
+    }
+    return Reflect.apply(originalLoad, this, [request, parent, isMain]);
+  };
+
+  try {
+    const snapshot = readSourceSnapshot(fixture.databasePath);
+
+    assert.equal(snapshot.rows.notebooks.length, 1);
+    assert.equal(snapshot.rows.notebook_canvases.length, 1);
+  } finally {
+    Module._load = originalLoad;
+    fs.rmSync(fixture.directory, { recursive: true, force: true });
+  }
+});
+
+test("better-sqlite3 constructor native load failure falls back to the sqlite3 CLI", {
+  skip: !hasSqliteCli(),
+}, () => {
+  const fixture = createFixture();
+  const originalLoad = Module._load;
+  const nativeLoadError = new Error("native module load failed in constructor");
+  nativeLoadError.code = "ERR_DLOPEN_FAILED";
+
+  class FakeBetterSqlite3 {
+    constructor() {
+      throw nativeLoadError;
+    }
+  }
+
+  Module._load = function load(request, parent, isMain) {
+    if (request === "better-sqlite3") {
+      return FakeBetterSqlite3;
+    }
+    return Reflect.apply(originalLoad, this, [request, parent, isMain]);
+  };
+
+  try {
+    const snapshot = readSourceSnapshot(fixture.databasePath);
+
+    assert.equal(snapshot.rows.notebooks.length, 1);
+    assert.equal(snapshot.rows.notebook_canvases.length, 1);
+  } finally {
+    Module._load = originalLoad;
+    fs.rmSync(fixture.directory, { recursive: true, force: true });
+  }
+});
+
+test("SQLite CANTOPEN failure does not fall back after better-sqlite3 loads", () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "cornell-postgres-reader-"));
+  const databasePath = path.join(directory, "invalid.db");
+  fs.writeFileSync(databasePath, "not a SQLite database");
+
+  const originalLoad = Module._load;
+  const openError = new Error("database open failed");
+  openError.code = "SQLITE_CANTOPEN";
+  class FakeBetterSqlite3 {
+    constructor() {
+      throw openError;
+    }
+  }
+
+  Module._load = function load(request, parent, isMain) {
+    if (request === "better-sqlite3") {
+      return FakeBetterSqlite3;
+    }
+    return Reflect.apply(originalLoad, this, [request, parent, isMain]);
+  };
+
+  try {
+    let thrownError;
+    try {
+      readSourceSnapshot(databasePath);
+    } catch (error) {
+      thrownError = error;
+    }
+
+    assert.equal(thrownError, openError);
+  } finally {
+    Module._load = originalLoad;
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("SQLite query failure does not fall back after better-sqlite3 loads", () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "cornell-postgres-reader-"));
+  const databasePath = path.join(directory, "corrupt.db");
+  fs.writeFileSync(databasePath, "not a SQLite database");
+
+  const originalLoad = Module._load;
+  const queryError = new Error("database query failed");
+  queryError.code = "SQLITE_NOTADB";
+  class FakeDatabase {
+    pragma() {}
+
+    prepare() {
+      throw queryError;
+    }
+
+    close() {}
+  }
+  class FakeBetterSqlite3 {
+    constructor() {
+      return new FakeDatabase();
+    }
+  }
+
+  Module._load = function load(request, parent, isMain) {
+    if (request === "better-sqlite3") {
+      return FakeBetterSqlite3;
+    }
+    return Reflect.apply(originalLoad, this, [request, parent, isMain]);
+  };
+
+  try {
+    let thrownError;
+    try {
+      readSourceSnapshot(databasePath);
+    } catch (error) {
+      thrownError = error;
+    }
+
+    assert.equal(thrownError, queryError);
+  } finally {
+    Module._load = originalLoad;
+    fs.rmSync(directory, { recursive: true, force: true });
   }
 });
 
