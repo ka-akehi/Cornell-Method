@@ -205,6 +205,10 @@ test("Cornell divider spans the full grid at the Cue boundary and is hidden on m
     paper,
     /@media \(max-width: 900px\)[\s\S]*?\.note-paper-detail \.note-paper-cornell-grid::before\s*\{[\s\S]*inset-inline-start:\s*max\(30%, 12rem\);/,
   );
+  assert.match(
+    paper,
+    /@media \(min-width: 901px\) and \(max-width: 1023px\)[\s\S]*?\.note-paper-detail \.note-paper-cornell-grid::before\s*\{[\s\S]*display:\s*none;/,
+  );
   assert.doesNotMatch(
     paper,
     /\.note-paper-cornell-grid > :first-child\s*\{[^}]*border-(?:right|inline-end)/,

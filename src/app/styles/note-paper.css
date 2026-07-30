@@ -238,6 +238,13 @@
   border-bottom: 0;
 }
 
+/* The detail read view is one column between the compact layout and Tailwind's lg breakpoint. */
+@media (min-width: 901px) and (max-width: 1023px) {
+  .note-paper-detail .note-paper-cornell-grid::before {
+    display: none;
+  }
+}
+
 @media (max-width: 900px) {
   .note-paper-meta-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
