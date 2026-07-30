@@ -10,13 +10,13 @@ permissions:
   pull-requests: write
 
 concurrency:
-  group: codex-review-to-issues
+  group: codex-review-submission-${{ github.event.pull_request.number }}-${{ github.event.review.id }}
   cancel-in-progress: false
 
 jobs:
   sync:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 8
     steps:
       - uses: actions/github-script@v9
         with:
@@ -44,6 +44,7 @@ jobs:
             });
             const pr = prResponse.data;
             const headSha = pr.head.sha;
+
             if (
               pr.state !== "open" ||
               pr.merged_at != null ||
@@ -51,6 +52,54 @@ jobs:
             ) {
               core.info(
                 `Ignoring review ${review.id}: reviewed ${review.commit_id}, current HEAD is ${headSha}.`,
+              );
+              return;
+            }
+
+            let reviewComments = [];
+            let previousCommentKey = null;
+            let stableObservations = 0;
+
+            for (let attempt = 1; attempt <= 12; attempt += 1) {
+              const comments = await github.paginate(
+                github.rest.pulls.listReviewComments,
+                {
+                  owner,
+                  repo,
+                  pull_number: prNumber,
+                  per_page: 100,
+                },
+              );
+
+              const current = comments.filter(
+                (comment) =>
+                  !comment.in_reply_to_id &&
+                  comment.pull_request_review_id === review.id,
+              );
+              const currentKey = current
+                .map((comment) => comment.id)
+                .sort((left, right) => left - right)
+                .join(",");
+
+              reviewComments = current;
+              if (current.length > 0 && currentKey === previousCommentKey) {
+                stableObservations += 1;
+              } else {
+                stableObservations = 0;
+              }
+              previousCommentKey = currentKey;
+
+              core.info(
+                `PR #${prNumber}: review ${review.id} comment snapshot ${attempt}/12 contains ${current.length} comment(s), stable=${stableObservations}.`,
+              );
+
+              if (current.length > 0 && stableObservations >= 1) break;
+              if (attempt < 12) await sleep(5_000);
+            }
+
+            if (reviewComments.length === 0) {
+              core.info(
+                `PR #${prNumber}: review ${review.id} has no inline comments after the consistency wait.`,
               );
               return;
             }
@@ -82,24 +131,21 @@ jobs:
               }
             } catch (error) {
               core.warning(
-                `PR #${prNumber}: thread-state lookup failed; using this review only: ${error.message}`,
+                `PR #${prNumber}: thread-state lookup failed; using the exact submitted review: ${error.message}`,
               );
             }
 
-            let reviewComments = [];
-            for (let attempt = 1; attempt <= 3; attempt += 1) {
-              const comments = await github.paginate(
-                github.rest.pulls.listReviewComments,
-                { owner, repo, pull_number: prNumber, per_page: 100 },
+            if (activeIds !== null) {
+              const represented = reviewComments.filter((comment) =>
+                activeIds.has(comment.id),
               );
-              reviewComments = comments.filter(
-                (comment) =>
-                  !comment.in_reply_to_id &&
-                  comment.pull_request_review_id === review.id &&
-                  (activeIds === null || activeIds.has(comment.id)),
-              );
-              if (reviewComments.length > 0 || attempt === 3) break;
-              await sleep(2_000);
+              if (represented.length === reviewComments.length) {
+                reviewComments = represented;
+              } else {
+                core.warning(
+                  `PR #${prNumber}: thread-state data represented ${represented.length}/${reviewComments.length} comments; using the exact current-head submitted review to avoid an eventual-consistency miss.`,
+                );
+              }
             }
 
             const priorityOf = (body) => {
@@ -153,19 +199,22 @@ jobs:
 
             if (findings.length === 0) {
               core.info(
-                `PR #${prNumber}: submitted review ${review.id} contains no active P0-P2 finding.`,
+                `PR #${prNumber}: submitted review ${review.id} contains no P0-P2 finding.`,
               );
               return;
             }
 
-            const trackedIssues = (
-              await github.paginate(github.rest.issues.listForRepo, {
-                owner,
-                repo,
-                state: "all",
-                per_page: 100,
-              })
-            ).filter((item) => !item.pull_request);
+            const listTrackingIssues = async () =>
+              (
+                await github.paginate(github.rest.issues.listForRepo, {
+                  owner,
+                  repo,
+                  state: "all",
+                  per_page: 100,
+                })
+              ).filter((item) => !item.pull_request);
+
+            let trackedIssues = await listTrackingIssues();
             const created = [];
             const reopened = [];
             const reused = [];
@@ -173,6 +222,8 @@ jobs:
             for (const finding of findings) {
               const marker =
                 `<!-- codex-review-source:PR-${prNumber}:review-comment:${finding.id} -->`;
+
+              trackedIssues = await listTrackingIssues();
               const existing = trackedIssues.find(
                 (issue) =>
                   typeof issue.body === "string" && issue.body.includes(marker),
@@ -207,7 +258,8 @@ jobs:
                 return;
               }
 
-              const blocking = finding.priority === "P0" || finding.priority === "P1";
+              const blocking =
+                finding.priority === "P0" || finding.priority === "P1";
               const location = finding.path
                 ? `\`${finding.path}${finding.line ? `:${finding.line}` : ""}\``
                 : "レビューコメント内の一般指摘";
@@ -226,6 +278,7 @@ jobs:
                 `- PR: ${pr.html_url}`,
                 `- Review finding: ${finding.url}`,
                 `- Reviewed HEAD: \`${headSha}\``,
+                `- Review ID: \`${review.id}\``,
                 "- Source type: `review-comment`",
                 "",
                 "## Priority and disposition",
@@ -260,11 +313,34 @@ jobs:
                 body,
               });
               created.push(response.data);
-              trackedIssues.push(response.data);
+            }
+
+            const summaryMarker =
+              `<!-- codex-review-submission-sync:${headSha}:${review.id} -->`;
+            const priorComments = await github.paginate(
+              github.rest.issues.listComments,
+              {
+                owner,
+                repo,
+                issue_number: prNumber,
+                per_page: 100,
+              },
+            );
+            if (
+              priorComments.some(
+                (comment) =>
+                  typeof comment.body === "string" &&
+                  comment.body.includes(summaryMarker),
+              )
+            ) {
+              core.info(
+                `PR #${prNumber}: review ${review.id} was already summarized.`,
+              );
+              return;
             }
 
             const summary = [
-              `<!-- codex-review-submission-sync:${headSha}:${review.id} -->`,
+              summaryMarker,
               "## Codex再レビューのIssue同期",
               "",
               `検証対象HEAD: \`${headSha}\``,
