@@ -208,16 +208,48 @@ test("better-sqlite3 native load failure falls back to the sqlite3 CLI", {
   }
 });
 
-test("SQLite open failure does not fall back after better-sqlite3 loads", () => {
+test("better-sqlite3 constructor native load failure falls back to the sqlite3 CLI", {
+  skip: !hasSqliteCli(),
+}, () => {
+  const fixture = createFixture();
+  const originalLoad = Module._load;
+  const nativeLoadError = new Error("native module load failed in constructor");
+  nativeLoadError.code = "ERR_DLOPEN_FAILED";
+
+  class FakeBetterSqlite3 {
+    constructor() {
+      throw nativeLoadError;
+    }
+  }
+
+  Module._load = function load(request, parent, isMain) {
+    if (request === "better-sqlite3") {
+      return FakeBetterSqlite3;
+    }
+    return Reflect.apply(originalLoad, this, [request, parent, isMain]);
+  };
+
+  try {
+    const snapshot = readSourceSnapshot(fixture.databasePath);
+
+    assert.equal(snapshot.rows.notebooks.length, 1);
+    assert.equal(snapshot.rows.notebook_canvases.length, 1);
+  } finally {
+    Module._load = originalLoad;
+    fs.rmSync(fixture.directory, { recursive: true, force: true });
+  }
+});
+
+test("SQLite CANTOPEN failure does not fall back after better-sqlite3 loads", () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "cornell-postgres-reader-"));
   const databasePath = path.join(directory, "invalid.db");
   fs.writeFileSync(databasePath, "not a SQLite database");
 
   const originalLoad = Module._load;
+  const openError = new Error("database open failed");
+  openError.code = "SQLITE_CANTOPEN";
   class FakeBetterSqlite3 {
     constructor() {
-      const openError = new Error("database open failed");
-      openError.code = "MODULE_NOT_FOUND";
       throw openError;
     }
   }
@@ -230,10 +262,59 @@ test("SQLite open failure does not fall back after better-sqlite3 loads", () => 
   };
 
   try {
-    assert.throws(
-      () => readSourceSnapshot(databasePath),
-      new Error("source SQLite を read-only で開けません"),
-    );
+    let thrownError;
+    try {
+      readSourceSnapshot(databasePath);
+    } catch (error) {
+      thrownError = error;
+    }
+
+    assert.equal(thrownError, openError);
+  } finally {
+    Module._load = originalLoad;
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("SQLite query failure does not fall back after better-sqlite3 loads", () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "cornell-postgres-reader-"));
+  const databasePath = path.join(directory, "corrupt.db");
+  fs.writeFileSync(databasePath, "not a SQLite database");
+
+  const originalLoad = Module._load;
+  const queryError = new Error("database query failed");
+  queryError.code = "SQLITE_NOTADB";
+  class FakeDatabase {
+    pragma() {}
+
+    prepare() {
+      throw queryError;
+    }
+
+    close() {}
+  }
+  class FakeBetterSqlite3 {
+    constructor() {
+      return new FakeDatabase();
+    }
+  }
+
+  Module._load = function load(request, parent, isMain) {
+    if (request === "better-sqlite3") {
+      return FakeBetterSqlite3;
+    }
+    return Reflect.apply(originalLoad, this, [request, parent, isMain]);
+  };
+
+  try {
+    let thrownError;
+    try {
+      readSourceSnapshot(databasePath);
+    } catch (error) {
+      thrownError = error;
+    }
+
+    assert.equal(thrownError, queryError);
   } finally {
     Module._load = originalLoad;
     fs.rmSync(directory, { recursive: true, force: true });
