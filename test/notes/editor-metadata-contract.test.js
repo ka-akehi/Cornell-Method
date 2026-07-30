@@ -69,7 +69,7 @@ test("main note title stays editable and source title follows source type", () =
   );
 });
 
-test("only date TextInput clicks open the native picker and labels do not proxy it", () => {
+test("date inputs keep picker fallback while labels preserve native activation", () => {
   const inputs = readSource(
     "src/modules/notes/ui/components/editor/inputs.tsx",
   );
@@ -80,13 +80,10 @@ test("only date TextInput clicks open the native picker and labels do not proxy 
   assert.match(inputs, /input\.showPicker\(\);\s*return;/);
   assert.match(inputs, /catch \{\s*input\.focus\(\);\s*return;/);
   assert.match(inputs, /\n\s*input\.focus\(\);\n\}/);
+  assert.doesNotMatch(inputs, /preventDatePickerFromLabel|event\.preventDefault\(\)/);
   assert.match(
     inputs,
-    /function preventDatePickerFromLabel\(event: MouseEvent<HTMLLabelElement>\)\s*\{\s*event\.preventDefault\(\);\s*\}/,
-  );
-  assert.match(
-    inputs,
-    /<label\s+htmlFor=\{id\}\s+onClick=\{type === "date" \? preventDatePickerFromLabel : undefined\}/,
+    /<label\s+htmlFor=\{id\}\s+className="block text-sm font-medium text-stone-700"\s*>/,
   );
   assert.match(inputs, /<input\s+id=\{id\}\s+type=\{type\}/);
   assert.match(

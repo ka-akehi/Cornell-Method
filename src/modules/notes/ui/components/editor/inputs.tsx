@@ -19,10 +19,6 @@ function openDatePicker(event: MouseEvent<HTMLInputElement>) {
   input.focus();
 }
 
-function preventDatePickerFromLabel(event: MouseEvent<HTMLLabelElement>) {
-  event.preventDefault();
-}
-
 export function TitleInput({
   id,
   label,
@@ -99,7 +95,6 @@ export function TextInput({
     <div className="min-w-0 space-y-1.5">
       <label
         htmlFor={id}
-        onClick={type === "date" ? preventDatePickerFromLabel : undefined}
         className="block text-sm font-medium text-stone-700"
       >
         {label}
