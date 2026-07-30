@@ -150,6 +150,7 @@ export function NoteCanvasViewer({ document }: NoteCanvasViewerProps) {
           viewportRef={viewportRef}
           surfaceRef={surfaceRef}
           canvasElementRef={canvasElementRef}
+          tabIndex={0}
           viewportAriaLabel={`保存済みCanvas本文。用紙サイズ ${pageWidth} x ${pageHeight} px。図形、線、ストローク、テキストを含みます。`}
           canvasAriaLabel={`保存済み${pageWidth} x ${pageHeight} Canvas`}
         />

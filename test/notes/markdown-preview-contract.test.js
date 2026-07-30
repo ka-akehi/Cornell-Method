@@ -175,6 +175,22 @@ test("Markdown preview keeps block-code framing on pre instead of inline code", 
   );
 });
 
+test("MarkdownField provides an accessible input/preview toggle", () => {
+  assert.match(markdownField, /useState<MarkdownFieldView>\("input"\)/);
+  assert.match(markdownField, /const isInputView = preview === "hidden" \|\| view === "input";/);
+  assert.match(markdownField, /role="group"/);
+  assert.match(markdownField, /aria-label=\{`\$\{label\}の表示切替`\}/);
+  assert.match(markdownField, /id=\{`\$\{id\}-input-toggle`\}/);
+  assert.match(markdownField, /id=\{`\$\{id\}-preview-toggle`\}/);
+  assert.match(markdownField, /aria-pressed=\{isInputView\}/);
+  assert.match(markdownField, /aria-pressed=\{!isInputView\}/);
+  assert.match(markdownField, />\s*入力\s*<\/button>/);
+  assert.match(markdownField, />\s*プレビュー\s*<\/button>/);
+  assert.match(markdownField, /hidden=\{!isInputView\}/);
+  assert.match(markdownField, /hidden=\{isInputView\}/);
+  assert.match(markdownField, /preview === "visible" && \(/);
+});
+
 test("Markdown preview uses compact blockquote padding without changing its boundary", () => {
   assert.ok(
     markdownField.includes(
@@ -193,5 +209,16 @@ test("body, summary, detail, and read view share the Markdown renderer", () => {
     const source = readSource(relativePath);
     assert.match(source, /@\/shared\/markdown/);
     assert.match(source, /Markdown(?:Field|Preview)/);
+  }
+});
+
+test("Markdown body and Summary editors opt into the shared preview toggle", () => {
+  for (const relativePath of [
+    "src/modules/notes/ui/components/editor/body.tsx",
+    "src/modules/notes/ui/components/editor/summary.tsx",
+  ]) {
+    const source = readSource(relativePath);
+    assert.match(source, /<MarkdownField/);
+    assert.match(source, /preview="visible"/);
   }
 });

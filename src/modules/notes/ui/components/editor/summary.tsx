@@ -27,10 +27,11 @@ export function NoteEditorSummarySection({
         value={summary}
         onChange={onSummaryChange}
         rows={6}
+        preview="visible"
         error={fieldError(fieldErrors, "summary")}
         placeholder="要点や次のアクションを Markdown で入力"
         previewEmptyLabel="サマリーのプレビューはまだありません。"
-        textareaClassName="!rounded-none !border-0 !border-b !bg-transparent !px-0 !shadow-none focus:!ring-0"
+        textareaClassName="!rounded-lg !border !bg-[color:var(--paper-soft)] !px-3 !py-2 !shadow-none focus:!ring-2 focus:!ring-amber-100"
       />
 
       <div className="note-paper-footer flex flex-wrap justify-end gap-3">

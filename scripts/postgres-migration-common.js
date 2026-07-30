@@ -105,6 +105,27 @@ const PHASE_2_TABLES = [
 const MAX_REPORTED_IDS = 100;
 const CANVAS_MIN_PAGE_DIMENSION = 320;
 const CANVAS_MAX_PAGE_DIMENSION = 4000;
+const BETTER_SQLITE3_BINDING_LOAD_ERROR_PATTERN =
+  /Could not locate the bindings file|better[_-]sqlite3\.node|Cannot find module ['"](?:bindings|better-sqlite3)['"]/i;
+
+function isBetterSqlite3NativeLoadError(error, phase) {
+  if (error?.code === "ERR_DLOPEN_FAILED") {
+    return true;
+  }
+
+  if (phase === "require") {
+    return error?.code === "MODULE_NOT_FOUND";
+  }
+
+  if (phase !== "constructor") {
+    return false;
+  }
+
+  const errorText = [error?.message, error?.stack]
+    .filter((value) => typeof value === "string")
+    .join("\n");
+  return BETTER_SQLITE3_BINDING_LOAD_ERROR_PATTERN.test(errorText);
+}
 
 function loadProjectEnv(projectRoot) {
   const envPath = path.join(projectRoot, ".env");
@@ -219,26 +240,43 @@ function resolveSourcePath(argumentSource) {
 }
 
 function createSqliteReader(sourcePath) {
+  let BetterSqlite3;
+  let shouldUseSqliteCliFallback = false;
   try {
     // better-sqlite3 is the normal operator dependency and opens read-only.
-    const BetterSqlite3 = require("better-sqlite3");
-    const database = new BetterSqlite3(sourcePath, {
-      fileMustExist: true,
-      readonly: true,
-    });
-    database.pragma("query_only = ON");
-
-    return {
-      all(sql) {
-        return database.prepare(sql).all();
-      },
-      close() {
-        database.close();
-      },
-    };
+    BetterSqlite3 = require("better-sqlite3");
   } catch (error) {
-    if (error && error.code !== "MODULE_NOT_FOUND") {
-      throw new Error("source SQLite を read-only で開けません");
+    if (!isBetterSqlite3NativeLoadError(error, "require")) {
+      throw error;
+    }
+    shouldUseSqliteCliFallback = true;
+  }
+
+  if (!shouldUseSqliteCliFallback) {
+    let database;
+    try {
+      database = new BetterSqlite3(sourcePath, {
+        fileMustExist: true,
+        readonly: true,
+      });
+    } catch (error) {
+      if (!isBetterSqlite3NativeLoadError(error, "constructor")) {
+        throw error;
+      }
+      shouldUseSqliteCliFallback = true;
+    }
+
+    if (!shouldUseSqliteCliFallback) {
+      database.pragma("query_only = ON");
+
+      return {
+        all(sql) {
+          return database.prepare(sql).all();
+        },
+        close() {
+          database.close();
+        },
+      };
     }
   }
 

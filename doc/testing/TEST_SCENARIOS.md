@@ -10,6 +10,16 @@ MVP の初期データに seed は使いません。検証用データは `/note
 
 `AGENTS.md` に含まれる将来仕様のうち、自動保存、Undo、PDF、専用復習タスク画面、D&D、NoteCard などは、このドキュメント末尾の「Phase 2 / 将来確認」に分離します。
 
+## 再実行可能な Playwright E2E
+
+主要 MVP フローの再実行には `npm run test:e2e` を使用します。前提は `npm install` 済みであることと、Playwright Chromium が未導入の場合に `npx playwright install chromium` を一度実行することです。`@playwright/test` は既存の `playwright` 本体と同じ `1.61.0` に揃えています。
+
+Playwright は `127.0.0.1:4173` の専用 web server を起動し、実行開始時に既存 migration から `prisma/e2e.db` を作成します。テスト終了時に削除する対象は `prisma/e2e.db` とその `-journal` / `-shm` / `-wal` sidecar だけです。`prisma/dev.db`、既存ノート、`backup/`、別ポートで動作中の server は使用・削除しません。worker は 1、serial suite で固定し、並列 fixture 競合を避けます。
+
+自動 E2E が現在カバーする範囲は、`/` → `/notes` redirect、現在日以前の日付を使ったタイトル・Cue・Summary の作成、保存後の `/notes/[id]` と Canvas viewer、編集保存、一覧 query 検索、詳細の復習モードでの本文表示 / 再非表示、`POST /api/notes/:id/review`、確認ダイアログ受け入れ後の物理削除と一覧 / API からの消失です。失敗時は `test-results/` に trace・screenshot・video、`playwright-report/` に HTML report を生成します。これらは Git 管理対象外です。
+
+2026-07-05 の `summary/20260705/mvp-ui-flow-reverification-report.md` は既存 DB と単発 QA 用データを使った記録であり、この自動 E2E の実行証拠とは別です。PDF export、Phase 2 の autosave、soft-delete / Undo、専用 review-tasks、NoteCard / D&D、起動時バックアップはこの E2E の coverage boundary 外です。
+
 ## MVP 受け入れ確認
 
 ### 1. 初期表示 / ナビゲーション

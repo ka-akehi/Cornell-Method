@@ -1,13 +1,19 @@
 "use client";
 
 import ReactMarkdown, { type Components } from "react-markdown";
-import { type KeyboardEvent, useLayoutEffect, useRef } from "react";
+import {
+  type KeyboardEvent,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import rehypeRaw from "rehype-raw";
 import rehypeSanitize, { defaultSchema, type Options } from "rehype-sanitize";
 import remarkGfm from "remark-gfm";
 import { applyMarkdownListEnter } from "./markdown-list-enter";
 
 type PreviewMode = "hidden" | "visible";
+type MarkdownFieldView = "input" | "preview";
 
 type MarkdownAstNode = {
   type: string;
@@ -284,6 +290,7 @@ export function MarkdownField({
   previewEmptyLabel,
   layout = "stacked",
 }: MarkdownFieldProps) {
+  const [view, setView] = useState<MarkdownFieldView>("input");
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const pendingSelectionRef = useRef<{
     value: string;
@@ -292,6 +299,9 @@ export function MarkdownField({
   } | null>(null);
   const descriptionId = helperText ? `${id}-helper` : undefined;
   const errorId = error ? `${id}-error` : undefined;
+  const inputPanelId = `${id}-input-panel`;
+  const previewPanelId = `${id}-preview-panel`;
+  const isInputView = preview === "hidden" || view === "input";
 
   useLayoutEffect(() => {
     const pendingSelection = pendingSelectionRef.current;
@@ -339,25 +349,27 @@ export function MarkdownField({
   };
 
   const fieldControls = (
+    <textarea
+      id={id}
+      ref={textareaRef}
+      value={value}
+      onChange={(event) => onChange(event.target.value)}
+      onKeyDown={handleKeyDown}
+      placeholder={placeholder}
+      rows={rows}
+      disabled={disabled}
+      required={required}
+      aria-invalid={Boolean(error)}
+      aria-describedby={[descriptionId, errorId].filter(Boolean).join(" ") || undefined}
+      className={`w-full min-w-0 resize-y rounded-lg border bg-white px-3 py-2 text-sm leading-6 text-stone-900 shadow-sm outline-none transition placeholder:text-stone-400 disabled:cursor-not-allowed disabled:bg-stone-100 disabled:text-stone-500 ${
+        error
+          ? "border-red-300 focus:border-red-500 focus:ring-2 focus:ring-red-100"
+          : "border-stone-200 focus:border-amber-500 focus:ring-2 focus:ring-amber-100"
+      } ${textareaClassName}`}
+    />
+  );
+  const fieldMessages = (
     <>
-      <textarea
-        id={id}
-        ref={textareaRef}
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        onKeyDown={handleKeyDown}
-        placeholder={placeholder}
-        rows={rows}
-        disabled={disabled}
-        required={required}
-        aria-invalid={Boolean(error)}
-        aria-describedby={[descriptionId, errorId].filter(Boolean).join(" ") || undefined}
-        className={`w-full min-w-0 resize-y rounded-lg border bg-white px-3 py-2 text-sm leading-6 text-stone-900 shadow-sm outline-none transition placeholder:text-stone-400 disabled:cursor-not-allowed disabled:bg-stone-100 disabled:text-stone-500 ${
-          error
-            ? "border-red-300 focus:border-red-500 focus:ring-2 focus:ring-red-100"
-            : "border-stone-200 focus:border-amber-500 focus:ring-2 focus:ring-amber-100"
-        } ${textareaClassName}`}
-      />
       {helperText && (
         <p id={descriptionId} className="text-xs leading-5 text-stone-500">
           {helperText}
@@ -370,9 +382,26 @@ export function MarkdownField({
       )}
     </>
   );
-  const previewContent =
+  const inputPanel = (
+    <div
+      id={inputPanelId}
+      role="tabpanel"
+      aria-labelledby={`${id}-input-toggle`}
+      hidden={!isInputView}
+      className="min-w-0 space-y-2"
+    >
+      {fieldControls}
+    </div>
+  );
+  const previewPanel =
     preview === "visible" ? (
-      <div className="min-w-0">
+      <div
+        id={previewPanelId}
+        role="tabpanel"
+        aria-labelledby={`${id}-preview-toggle`}
+        hidden={isInputView}
+        className="min-w-0"
+      >
         <h3 className="markdown-preview-heading border-b border-stone-300/70 pb-2 text-xs font-extrabold tracking-[0.06em] text-stone-700">
           Markdown Preview
         </h3>
@@ -382,21 +411,61 @@ export function MarkdownField({
 
   return (
     <div className="min-w-0 space-y-2">
-      <label htmlFor={id} className="block text-sm font-medium text-stone-700">
+      <label
+        htmlFor={id}
+        className="block text-sm font-medium text-stone-700"
+      >
         {label}
         {required && <span className="ml-1 text-red-600">*</span>}
       </label>
+      {preview === "visible" && (
+        <div
+          role="group"
+          aria-label={`${label}の表示切替`}
+          className="flex w-fit rounded-lg border border-stone-200 bg-stone-50 p-1"
+        >
+          <button
+            id={`${id}-input-toggle`}
+            type="button"
+            aria-pressed={isInputView}
+            aria-controls={inputPanelId}
+            onClick={() => setView("input")}
+            className={`rounded-md px-3 py-1.5 text-xs font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 focus-visible:ring-offset-1 ${
+              isInputView
+                ? "bg-white text-stone-900 shadow-sm"
+                : "text-stone-500 hover:text-stone-800"
+            }`}
+          >
+            入力
+          </button>
+          <button
+            id={`${id}-preview-toggle`}
+            type="button"
+            aria-pressed={!isInputView}
+            aria-controls={previewPanelId}
+            onClick={() => setView("preview")}
+            className={`rounded-md px-3 py-1.5 text-xs font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 focus-visible:ring-offset-1 ${
+              !isInputView
+                ? "bg-white text-stone-900 shadow-sm"
+                : "text-stone-500 hover:text-stone-800"
+            }`}
+          >
+            プレビュー
+          </button>
+        </div>
+      )}
       {layout === "desktop-split" ? (
         <div className="grid min-w-0 gap-3 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)] lg:items-start">
-          <div className="min-w-0 space-y-2">{fieldControls}</div>
-          {previewContent}
+          {inputPanel}
+          {previewPanel}
         </div>
       ) : (
         <>
-          {fieldControls}
-          {previewContent}
+          {inputPanel}
+          {previewPanel}
         </>
       )}
+      {fieldMessages}
     </div>
   );
 }

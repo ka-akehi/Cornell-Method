@@ -57,6 +57,8 @@ type ErrorFocusRequest = {
   fieldErrors: ApiFieldError[];
 };
 
+const TAG_FIELD_ERROR_PATTERN = /^tags(?:\.\d+\.name)?$/;
+
 export function NoteEditor({
   initial,
   mode,
@@ -124,6 +126,13 @@ export function NoteEditor({
   }, []);
 
   function updateForm(next: Partial<NoteEditorFormState>) {
+    if (Object.prototype.hasOwnProperty.call(next, "tags")) {
+      setFieldErrors((current) =>
+        current.filter(
+          (fieldError) => !TAG_FIELD_ERROR_PATTERN.test(fieldError.field),
+        ),
+      );
+    }
     setForm((current) => ({ ...current, ...next }));
   }
 
@@ -240,7 +249,6 @@ export function NoteEditor({
       )}
 
       <NoteEditorMetadataSection
-        mode={mode}
         shell={shell}
         title={form.title}
         noteDate={form.noteDate}
@@ -256,8 +264,8 @@ export function NoteEditor({
 
       {topActions}
 
-      <section className="note-paper-section min-w-0 !space-y-0">
-        <div className="note-paper-cornell-grid grid w-full min-w-0 grid-cols-[minmax(0,30%)_minmax(0,70%)] max-[640px]:!grid-cols-1">
+      <section className="note-paper-section note-paper-cornell-section min-w-0 !space-y-0">
+        <div className="note-paper-cornell-grid note-paper-cornell-grid--editor grid w-full min-w-0 grid-cols-[minmax(0,30%)_minmax(0,70%)] max-[640px]:!grid-cols-1">
           <NoteEditorCueSection
             cues={form.cues}
             fieldErrors={fieldErrors}

@@ -50,7 +50,7 @@ export function NoteCanvasSurface({
     <div
       ref={viewportRef}
       id={id}
-      className={`note-canvas-viewport${isViewer ? " note-canvas-viewport--viewer" : ""}`}
+      className={`note-canvas-viewport note-canvas-viewport--scrollable${isViewer ? " note-canvas-viewport--viewer" : ""}`}
       data-tool={dataTool}
       tabIndex={tabIndex}
       onPointerDown={onPointerDown}
