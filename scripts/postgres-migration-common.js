@@ -105,6 +105,10 @@ const PHASE_2_TABLES = [
 const MAX_REPORTED_IDS = 100;
 const CANVAS_MIN_PAGE_DIMENSION = 320;
 const CANVAS_MAX_PAGE_DIMENSION = 4000;
+const BETTER_SQLITE3_LOAD_ERROR_CODES = new Set([
+  "MODULE_NOT_FOUND",
+  "ERR_DLOPEN_FAILED",
+]);
 
 function loadProjectEnv(projectRoot) {
   const envPath = path.join(projectRoot, ".env");
@@ -219,25 +223,35 @@ function resolveSourcePath(argumentSource) {
 }
 
 function createSqliteReader(sourcePath) {
+  let BetterSqlite3;
+  let shouldUseSqliteCliFallback = false;
   try {
     // better-sqlite3 is the normal operator dependency and opens read-only.
-    const BetterSqlite3 = require("better-sqlite3");
-    const database = new BetterSqlite3(sourcePath, {
-      fileMustExist: true,
-      readonly: true,
-    });
-    database.pragma("query_only = ON");
-
-    return {
-      all(sql) {
-        return database.prepare(sql).all();
-      },
-      close() {
-        database.close();
-      },
-    };
+    BetterSqlite3 = require("better-sqlite3");
   } catch (error) {
-    if (error && error.code !== "MODULE_NOT_FOUND") {
+    if (!BETTER_SQLITE3_LOAD_ERROR_CODES.has(error?.code)) {
+      throw new Error("better-sqlite3 を読み込めません");
+    }
+    shouldUseSqliteCliFallback = true;
+  }
+
+  if (!shouldUseSqliteCliFallback) {
+    try {
+      const database = new BetterSqlite3(sourcePath, {
+        fileMustExist: true,
+        readonly: true,
+      });
+      database.pragma("query_only = ON");
+
+      return {
+        all(sql) {
+          return database.prepare(sql).all();
+        },
+        close() {
+          database.close();
+        },
+      };
+    } catch {
       throw new Error("source SQLite を read-only で開けません");
     }
   }
