@@ -7,6 +7,7 @@
     "build": "npm run prisma:generate && next build --webpack",
     "start": "next start",
     "lint": "eslint",
+    "test:e2e": "playwright test",
     "prisma:generate": "node scripts/prisma-generate.js",
     "prisma:generate:postgres": "node scripts/prisma-run-postgres.js generate",
     "prisma:migrate": "prisma migrate dev --config prisma.config.ts",
@@ -51,6 +52,7 @@
   },
   "devDependencies": {
     "@mermaid-js/mermaid-cli": "11.15.0",
+    "@playwright/test": "1.61.0",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",
