@@ -5,6 +5,7 @@ const baseURL = "http://127.0.0.1:4173";
 
 module.exports = defineConfig({
   testDir: "./e2e",
+  globalTeardown: require.resolve("./e2e/global-teardown.js"),
   timeout: 30_000,
   expect: {
     timeout: 10_000,

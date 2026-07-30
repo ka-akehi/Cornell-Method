@@ -1,11 +1,8 @@
 const path = require("node:path");
 const { spawn } = require("node:child_process");
-const {
-  cleanupE2eDatabase,
-  e2eDatabaseUrl,
-  prepareE2eDatabase,
-  projectRoot,
-} = require("./database-fixture");
+const { e2eDatabaseUrl, prepareE2eDatabase, projectRoot } = require(
+  "./database-fixture",
+);
 
 const nextBin = path.resolve(projectRoot, "node_modules", "next", "dist", "bin", "next");
 let child;
@@ -18,15 +15,8 @@ function finish(exitCode) {
   finished = true;
   if (shutdownTimer) clearTimeout(shutdownTimer);
 
-  try {
-    cleanupE2eDatabase();
-  } catch (error) {
-    console.error(
-      error instanceof Error ? error.message : "E2E fixture cleanup failed",
-    );
-    exitCode = exitCode || 1;
-  }
-
+  // Playwright owns fixture cleanup in global-teardown.js. This process may be
+  // force-killed before any signal handler or child close handler can run.
   process.exit(exitCode);
 }
 
@@ -72,14 +62,5 @@ try {
   });
 } catch (error) {
   console.error(error instanceof Error ? error.message : error);
-  try {
-    cleanupE2eDatabase();
-  } catch (cleanupError) {
-    console.error(
-      cleanupError instanceof Error
-        ? cleanupError.message
-        : "E2E fixture cleanup failed",
-    );
-  }
   process.exit(1);
 }
