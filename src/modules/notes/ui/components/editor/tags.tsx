@@ -5,6 +5,11 @@ import type { ApiFieldError } from "@/shared/http/client";
 import { indexedFieldError, type NoteEditorTag } from "@/modules/notes/model";
 import { fetchTagOptions } from "@/modules/notes/remote";
 
+const MAX_TAG_NAME_LENGTH = 30;
+const TAG_LENGTH_ERROR = "タグ名は30文字以内で入力してください。";
+const TAG_COUNT_ERROR = "タグは12件以内で入力してください。";
+const TAG_DUPLICATE_ERROR = "同じタグは追加できません。";
+
 export function NoteEditorTagInput({
   tags,
   onChange,
@@ -46,34 +51,49 @@ export function NoteEditorTagInput({
     };
   }, []);
 
-  function addTagValue(tag: NoteEditorTag) {
+  function addTagValue(tag: NoteEditorTag): boolean {
     const name = tag.name.trim();
-    setLocalError(null);
 
-    if (!name) return;
+    if (!name) {
+      setLocalError(null);
+      return false;
+    }
+    if (name.length > MAX_TAG_NAME_LENGTH) {
+      setLocalError(TAG_LENGTH_ERROR);
+      return false;
+    }
     if (tags.length >= 12) {
-      setLocalError("タグは12件以内で入力してください。");
-      return;
+      setLocalError(TAG_COUNT_ERROR);
+      return false;
     }
     if (tags.some((tag) => tag.name === name)) {
-      setLocalError("同じタグは追加できません。");
-      return;
+      setLocalError(TAG_DUPLICATE_ERROR);
+      return false;
     }
 
+    setLocalError(null);
     onChange([...tags, { ...tag, name }]);
-    setInput("");
+    return true;
   }
 
   function addTag() {
-    addTagValue({ name: input, color: null });
+    if (addTagValue({ name: input, color: null })) {
+      setInput("");
+    }
+  }
+
+  function removeTag(index: number) {
+    setLocalError(null);
+    onChange(tags.filter((_, tagIndex) => tagIndex !== index));
   }
 
   function addCandidate(candidateId: string) {
     const candidate = tagCandidates.find((tag) => tag.id === candidateId);
     if (!candidate) return;
 
-    addTagValue(candidate);
-    setInput("");
+    if (addTagValue(candidate)) {
+      setInput("");
+    }
   }
 
   const availableCandidates = tagCandidates.filter(
@@ -102,16 +122,18 @@ export function NoteEditorTagInput({
     <div className="min-w-0 space-y-1">
       <span className="block text-sm font-medium text-stone-700">タグ</span>
       {tags.length > 0 && (
-        <div className="flex flex-wrap gap-1">
+        <div className="flex min-w-0 flex-wrap gap-1">
           {tags.map((tag, index) => (
             <span
               key={`${tag.id ?? tag.name}-${index}`}
-              className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs text-amber-900"
+              className="inline-flex min-w-0 max-w-full items-center gap-1.5 overflow-hidden rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs text-amber-900"
             >
-              <span className="min-w-0 break-all">{tag.name}</span>
+              <span className="min-w-0 flex-1 truncate" title={tag.name}>
+                {tag.name}
+              </span>
               <button
                 type="button"
-                onClick={() => onChange(tags.filter((_, tagIndex) => tagIndex !== index))}
+                onClick={() => removeTag(index)}
                 className="shrink-0 text-amber-700 hover:text-red-600"
                 aria-label={`${tag.name}を削除`}
               >
@@ -164,7 +186,10 @@ export function NoteEditorTagInput({
             <input
               id="tag-input"
               value={input}
-              onChange={(event) => setInput(event.target.value)}
+              onChange={(event) => {
+                setInput(event.target.value);
+                setLocalError(null);
+              }}
               onKeyDown={(event) => {
                 if (event.key === "Enter") {
                   event.preventDefault();

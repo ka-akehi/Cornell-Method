@@ -1,5 +1,24 @@
 "use client";
 
+import type { MouseEvent } from "react";
+
+function openDatePicker(event: MouseEvent<HTMLInputElement>) {
+  const input = event.currentTarget;
+  if (input.disabled) return;
+
+  if (typeof input.showPicker === "function") {
+    try {
+      input.showPicker();
+      return;
+    } catch {
+      input.focus();
+      return;
+    }
+  }
+
+  input.focus();
+}
+
 export function TitleInput({
   id,
   label,
@@ -74,7 +93,10 @@ export function TextInput({
 }) {
   return (
     <div className="min-w-0 space-y-1.5">
-      <label htmlFor={id} className="block text-sm font-medium text-stone-700">
+      <label
+        htmlFor={id}
+        className="block text-sm font-medium text-stone-700"
+      >
         {label}
         {required && <span className="ml-1 text-red-600">*</span>}
       </label>
@@ -89,6 +111,7 @@ export function TextInput({
         aria-invalid={Boolean(error)}
         aria-disabled={disabled}
         aria-describedby={error ? `${id}-error` : undefined}
+        onClick={type === "date" ? openDatePicker : undefined}
         className={`w-full min-w-0 rounded-lg border bg-white px-3 py-2 text-sm text-stone-900 shadow-sm outline-none transition placeholder:text-stone-400 disabled:cursor-not-allowed disabled:bg-stone-50 disabled:text-stone-400 disabled:placeholder:text-stone-300 ${
           error
             ? "border-red-300 focus:border-red-500 focus:ring-2 focus:ring-red-100"

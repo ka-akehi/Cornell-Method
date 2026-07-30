@@ -69,6 +69,29 @@ test("main note title stays editable and source title follows source type", () =
   );
 });
 
+test("date inputs keep picker fallback while labels preserve native activation", () => {
+  const inputs = readSource(
+    "src/modules/notes/ui/components/editor/inputs.tsx",
+  );
+
+  assert.match(inputs, /function openDatePicker\(event: MouseEvent<HTMLInputElement>\)/);
+  assert.match(inputs, /if \(input\.disabled\) return;/);
+  assert.match(inputs, /if \(typeof input\.showPicker === "function"\)/);
+  assert.match(inputs, /input\.showPicker\(\);\s*return;/);
+  assert.match(inputs, /catch \{\s*input\.focus\(\);\s*return;/);
+  assert.match(inputs, /\n\s*input\.focus\(\);\n\}/);
+  assert.doesNotMatch(inputs, /preventDatePickerFromLabel|event\.preventDefault\(\)/);
+  assert.match(
+    inputs,
+    /<label\s+htmlFor=\{id\}\s+className="block text-sm font-medium text-stone-700"\s*>/,
+  );
+  assert.match(inputs, /<input\s+id=\{id\}\s+type=\{type\}/);
+  assert.match(
+    inputs,
+    /onClick=\{type === "date" \? openDatePicker : undefined\}/,
+  );
+});
+
 test("clearing source type clears stale source title before save", () => {
   const metadata = readSource(
     "src/modules/notes/ui/components/editor/metadata.tsx",
@@ -86,11 +109,82 @@ test("clearing source type clears stale source title before save", () => {
   assert.match(payload, /sourceTitle: form\.sourceTitle,/);
 });
 
-test("tag input still clears after a successful new tag addition", () => {
+test("tag input only clears after a successful tag addition", () => {
   const tags = readSource("src/modules/notes/ui/components/editor/tags.tsx");
 
   assert.match(
     tags,
-    /onChange\(\[\.\.\.tags, \{ \.\.\.tag, name \}\]\);\s*setInput\(""\);/,
+    /function addTagValue\(tag: NoteEditorTag\): boolean[\s\S]*?onChange\(\[\.\.\.tags, \{ \.\.\.tag, name \}\]\);\s*return true;/,
+  );
+  assert.match(
+    tags,
+    /if \(addTagValue\(\{ name: input, color: null \}\)\) \{\s*setInput\(""\);\s*\}/,
+  );
+  assert.match(
+    tags,
+    /if \(addTagValue\(candidate\)\) \{\s*setInput\(""\);\s*\}/,
+  );
+  assert.doesNotMatch(tags, /addTagValue\(candidate\);\s*setInput\(""\);/);
+  assert.match(
+    tags,
+    /onKeyDown=\{\(event\) => \{[\s\S]*?if \(event\.key === "Enter"\)[\s\S]*?addTag\(\);/,
+  );
+  assert.match(tags, /<button[\s\S]*?onClick=\{addTag\}/);
+});
+
+test("tag input rejects long values on every add attempt and clears local errors while editing", () => {
+  const tags = readSource("src/modules/notes/ui/components/editor/tags.tsx");
+
+  assert.match(
+    tags,
+    /if \(name\.length > MAX_TAG_NAME_LENGTH\) \{\s*setLocalError\(TAG_LENGTH_ERROR\);\s*return false;\s*\}/,
+  );
+  assert.match(
+    tags,
+    /onChange=\{\(event\) => \{\s*setInput\(event\.target\.value\);\s*setLocalError\(null\);\s*\}\}/,
+  );
+});
+
+test("tag chips stay single-line while preserving full names and deletion", () => {
+  const tags = readSource("src/modules/notes/ui/components/editor/tags.tsx");
+
+  assert.match(tags, /const MAX_TAG_NAME_LENGTH = 30;/);
+  assert.match(tags, /const TAG_LENGTH_ERROR = "タグ名は30文字以内で入力してください。";/);
+  assert.doesNotMatch(tags, /maxLength\s*=/);
+  assert.match(
+    tags,
+    /if \(name\.length > MAX_TAG_NAME_LENGTH\) \{[\s\S]*?setLocalError\(TAG_LENGTH_ERROR\);/,
+  );
+  assert.match(
+    tags,
+    /className="inline-flex min-w-0 max-w-full items-center gap-1\.5 overflow-hidden/,
+  );
+  assert.match(tags, /className="min-w-0 flex-1 truncate" title=\{tag\.name\}/);
+  assert.match(
+    tags,
+    /<button[\s\S]*?className="shrink-0 text-amber-700 hover:text-red-600"[\s\S]*?aria-label=\{`\$\{tag\.name\}を削除`\}/,
+  );
+  assert.match(
+    tags,
+    /function removeTag\(index: number\)[\s\S]*?setLocalError\(null\);[\s\S]*?onChange\(tags\.filter\(/,
+  );
+});
+
+test("tag edits clear stale tags API field errors without changing tag values", () => {
+  const editor = readSource(
+    "src/modules/notes/ui/components/editor/editor.tsx",
+  );
+
+  assert.ok(
+    editor.includes("const TAG_FIELD_ERROR_PATTERN = /^tags(?:\\.\\d+\\.name)?$/;"),
+  );
+  assert.ok(
+    editor.includes(`if (Object.prototype.hasOwnProperty.call(next, "tags")) {
+      setFieldErrors((current) =>
+        current.filter(
+          (fieldError) => !TAG_FIELD_ERROR_PATTERN.test(fieldError.field),
+        ),
+      );
+    }`),
   );
 });

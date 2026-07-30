@@ -40,7 +40,7 @@ export function NoteEditorMetadataSection({
   const sourceTitleFieldError = fieldError(fieldErrors, "sourceTitle");
 
   return (
-    <section className="note-paper-section min-w-0 !space-y-0">
+    <section className="note-paper-section note-paper-metadata-section min-w-0 !space-y-0">
       {shell ? (
         <div className="note-paper-heading !border-b-0 !pb-0">
           <div className="note-paper-heading-copy w-full">
