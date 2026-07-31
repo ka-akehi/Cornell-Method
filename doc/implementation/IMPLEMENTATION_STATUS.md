@@ -1,6 +1,6 @@
 # 実装状況サマリ
 
-更新日: 2026-07-25
+更新日: 2026-07-31
 
 ## 判定基準
 
@@ -26,6 +26,8 @@
 - 専用復習タスク、ドラフト自動保存、NoteCard、D&D、PDF export などの route・model・UI は存在しない。
 - Canvas は、`CanvasDocumentV1`（既定 page 1200x800、各 320〜4000px）の共有 validation、JSON 保存・復元、Canvas text 要素由来の `searchText`、幅・高さ数値入力と適用操作、保存済み `page` 寸法による editor / viewer の実寸描画、page 寸法だけを更新して要素 geometry を保持する処理、draw.io 風 toolbar、sticky tool、消しゴム（触れた要素を object 単位で消去する whole-object eraser）、client history、style controls、図形内文字、既存要素上の重ね描き、図形ドラッグ閾値、Fabric path metadata までコード上で実装されている。2026-07-21 に API の Canvas 保存・復元境界を確認し、2026-07-25 は Worker の Browser backend `[]` / app-server `Operation not permitted` を補う Manager 側の権限付き headless Playwright Chromium で、寸法、style、保存・再読込、eraser、history、toolbar / touch の確認済み範囲を追加した。厳密な 4px 等を残す `CANVAS-INTERACTION-001` / `CANVAS-GESTURE-001` と、全体未確認の `CANVAS-SHAPE-TEXT-001` は部分実施のままである。
 - 2026-07-25 の最新 Manager fallback QA で、既存ノートの desktop edit は 1280 / 1440px、`nextReviewDate` は新規初期値・手動値保持・未設定維持の確認済み範囲を追加した。review 成功 UI、375 / 768px の mobile edit、wheel / trackpad 固有入力は未確認のままである。根拠は `summary/20260725/2230-mandatory-qa-manager-fallback-20260725.md`。
+- 2026-07-31 の追加 QA では、Canvas の wheel / trackpad / touch scroll handoff と scroll 中の drawing 干渉、および 375 / 768px の note editor・viewer・review・overflow runtime は Browser backend / localhost route / server bind / headless Chromium の制約により `BLOCKED` だった。7/25 に別経路で確認済みの desktop / Canvas subset は履歴として保持し、今回の未測定範囲を runtime `PASS` へ繰り上げない。根拠は `summary/20260731/worker-canvas-scroll-wheel-touch-qa-20260731.md`、`summary/20260731/worker-mobile-note-runtime-20260731.md`。
+- 2026-07-31 の Postgres source reader evidence は、isolated frozen SQLite fixture と temporary failure injection による `better-sqlite3` require / constructor failure → `sqlite3` CLI fallback、read-only snapshot、row digest、Canvas validation、source hash / size / sidecar 不変を確認した限定 `PASS` である。実際の壊れた native binary、実 Postgres target の baseline / reconcile、production / hosted readiness は未確認である。根拠は `summary/20260731/worker-postgres-native-reader-fallback-20260731.md`、`summary/20260731/1804-recheck-postgres-native-reader-fallback-evidence-20260731-d5caeaf3-summary.md`。
 
 ## 2. 画面と route
 
@@ -91,7 +93,7 @@ route handler の export と一致する一覧は次のとおり。これ以外�
 | ノート CRUD | タイトル、学習日、学習元、Canvas または legacy Markdown 本文、Summary、復習日を保存・取得・更新・削除。 | `src/app/api/notes/route.ts`, `src/app/api/notes/[id]/route.ts`, `src/server/notes/infrastructure/notebook.command.repository.ts`, `src/server/notes/infrastructure/review.command.repository.ts` |
 | Cue | Cue の追加・削除、`order` 保存、詳細表示、更新時の全置換。空 Cue はフォームから payload に含めない。 | `src/modules/notes/ui/components/editor/editor.tsx`, `src/modules/notes/model/note-editor-form.ts`, `src/server/notes/infrastructure/relations.repository.ts` |
 | タグ | 既存候補の取得、新規タグの保存時自動作成、1 ノート最大 12 件、同一ノート内の重複防止、一覧 OR フィルタ。 | `src/modules/notes/ui/components/editor/editor.tsx`, `src/app/api/tags/route.ts`, `src/modules/notes/contracts/note.schema.ts` |
-| 一覧検索 | タイトル・legacy Markdown 本文・Summary・Cue・Canvas `searchText` の部分一致、日付範囲、タグ、`reviewDue`、ページング、空状態・loading・error 表示。 | `src/modules/notes/ui/components/list/list.tsx`, `src/server/notes/infrastructure/read.repository.ts` |
+| 一覧ライブ検索 / header | 実装済み（静的確認）。タイトル・legacy Markdown 本文・Summary・Cue・Canvas `searchText` の部分一致、日付範囲、タグ、`reviewDue`、ページング、空状態・loading・error 表示に加え、query の 300ms debounce、Enter の即時適用、日付・タグ・review toggle の即時適用、pending debounce を取り消す Clear を持つ。visible な検索 button はなく、review filter は「復習対象のみ」だけを visible label とし、neutral / amber の押下 style と `aria-pressed` を持つ keyboard-operable toggle button である。visible な `ON` / `OFF` badge は置かず、desktop ではタグチップ増加時もタグ操作行の位置を保つ。header は冗長な補助文を表示せず、`h1` と新規作成導線を維持する。From > To は request 前に拒否し、日付 blur は validation のみを行う。 | `src/modules/notes/ui/components/list/list.tsx`, `src/modules/notes/ui/components/list/filters.tsx`, `src/modules/notes/ui/components/list/tags.tsx`, `src/server/notes/infrastructure/read.repository.ts`, `test/notes/list-filter-layout-contract.test.js`, `test/notes/list-filter-live-search-contract.test.js`, `test/notes/list-header-contract.test.js` |
 | 詳細モード | `/notes/[id]` 内で閲覧・編集・復習を切り替える。復習時は本文を隠す／表示する操作がある。 | `src/modules/notes/ui/components/detail/modes.tsx` |
 | Markdown 表示 | Cue / Summary の textarea と preview、GFM、sanitize、preview checkbox の表示専用化。legacy Markdown body mode は互換表示する。Canvas 本文は Canvas viewer/editor で表示する。 | `src/shared/markdown/markdown-field.tsx`, `package.json`, `src/modules/notes/ui/components/canvas/viewer.tsx` |
 | 確認後の削除 | 詳細画面で `window.confirm` を表示し、確定後に物理削除して `/notes` へ戻る。削除後の Undo / 個別復元は保証しない。 | `src/modules/notes/ui/components/detail/modes.tsx`, `src/app/api/notes/[id]/route.ts`, `prisma/schema.prisma` |
@@ -183,6 +185,18 @@ Worker task は Browser backend `[]` と app-server `Operation not permitted` �
 | Canvas wheel / trackpad / touch | 2026-07-25 に 375 touch の縦 swipe 4 回後 `scrollY=1779`・footer 到達、1280 touch の 1920x1080 paper `scrollLeft 0→1069`・page `scrollY` 不変、body / document overflow 不在を確認した。wheel / trackpad と全 pointer-scroll 干渉の組合せは未確認。 | 部分実施（touch 境界 subset は PASS） | `summary/20260725/canvas-runtime-qa-completion-20260725.md`、`summary/20260724/canvas-toolbar-browser-qa-runtime-20260724.md` |
 | Canvas toolbar keyboard / responsive / focus | 2026-07-24 の 375 / 768 / 1280 / 1440px に加え、2026-07-25 に rail `305 / 461`・`346 / 461`、全 tool の `aria-label` / `aria-pressed` / `data-active`、Tab / Shift+Tab、focus-visible solid 2px、640x480 / invalid 319、page / paper scroll、touch 境界を確認した。 | 実機確認済み（確認範囲） | `summary/20260725/canvas-runtime-qa-completion-20260725.md`、`summary/20260724/canvas-toolbar-browser-qa-runtime-20260724.md` |
 
+#### 2026-07-31 Browser / mobile follow-up と Postgres source reader evidence
+
+今回の追補は、既存の 2026-07-25 Manager fallback による desktop / Canvas subset の判定を取り消すものではない。新たに試行した範囲だけを別判定として記録し、Browser runtime の未測定範囲を静的実装や過去の別 subset から `PASS` に推測しない。
+
+| 対象 | 判定 | 2026-07-31 の事実と未確認範囲 |
+| --- | --- | --- |
+| Canvas scroll / wheel / touch / drawing handoff | `BLOCKED` | Browser backend の `agent.browsers.list()` が `[]`。既存 localhost listener への route 到達は HTTP 000、新規 server bind は `listen EPERM` で、375 / 768 / 1280px の viewport、wheel / trackpad、touch / pointer scroll、scroll 中の pen / shape 誤作成、既存 element の geometry / points / style / text / `searchText` 不変性、`/notes/[id]` 保存・再読込を測定できなかった。静的な `pointercancel` / `touchcancel` 購読や scrollable wrapper の存在は runtime `PASS` の根拠にしない。7/25 の page / paper scroll を含む確認済み toolbar / touch subset は履歴として保持するが、今回の追加シナリオは `BLOCKED` のままとする。 |
+| Mobile note runtime | `BLOCKED` | 375 / 768px の `/notes/new` editor、既存ノート edit、`/notes/[id]` viewer / review、長い入力・validation error の overflow、console / page error は未確認。Browser backend は `[]`、専用 4173 server bind は `EPERM`、headless Chromium は既定 executable 不在・system Chrome 終了・利用可能な shell の MachPort permission error で起動できなかった。既存 3000 番 route の curl 200 は到達性の一部確認に留まり、visual / interaction runtime `PASS` へ繰り上げない。 |
+| Postgres source reader fallback | `PASS（isolated evidence の範囲）` | 現行 MVP schema の frozen SQLite fixture を read-only mode `0444` で用意し、temporary harness で `better-sqlite3` の require failure と constructor failure（いずれも `ERR_DLOPEN_FAILED`）を注入した。両経路で `/usr/bin/sqlite3` CLI fallback を呼び、normal native snapshot と row digest / table count / Canvas schema validation を比較し、source bytes / SHA-256 / WAL / SHM を前後不変と確認した。temporary fixture / harness / log は cleanup 済み。targetless reconcile は target configuration 不足で exit `1` のまま Postgres 接続へ進まなかった。実際の壊れた native binary / operator packaging、実 Postgres target の baseline / row reconcile、production / hosted readiness は未確認である。 |
+
+根拠: `summary/20260731/worker-canvas-scroll-wheel-touch-qa-20260731.md`、`summary/20260731/worker-mobile-note-runtime-20260731.md`、`summary/20260731/worker-postgres-native-reader-fallback-20260731.md`、`summary/20260731/1804-recheck-postgres-native-reader-fallback-evidence-20260731-d5caeaf3-summary.md`。
+
 ### 5.4 Phase 2 / 仕様のみ
 
 以下は仕様上の将来機能であり、現行コードに対応する route・Prisma model・保存処理・UI はない。
@@ -255,6 +269,9 @@ Worker task は Browser backend `[]` と app-server `Operation not permitted` �
 | 2026-07-24 | Canvas toolbar 修正後 Browser runtime: 375 / 768 / 1280 / 1440px、全 drawing tool click、Tab / Shift+Tab、375px touch tap、1920x1080 用紙の局所 scroll、page-wide overflow、Summary / footer scroll | 部分実施。1280px の旧 rail collapse は再現せず、主要 toolbar 到達性を確認。touch scroll 干渉、focus-visible の視覚確認、style target alignment は未確認 | `summary/20260724/canvas-toolbar-browser-qa-runtime-20260724.md`、`doc/testing/TEST_SCENARIOS.md` の「Canvas toolbar runtime QA 追補（2026-07-24）」 |
 | 2026-07-25 | Manager fallback: Canvas 寸法、style、shape text 必須 subset、standalone / line の保存・再読込、eraser、history、toolbar / touch | 確認済み範囲は PASS。`CANVAS-INTERACTION-001` / `CANVAS-GESTURE-001` は厳密な 4px 等が未確認のため部分実施、`CANVAS-SHAPE-TEXT-001` は必須 subset のみ PASS | `summary/20260725/2230-mandatory-qa-manager-fallback-20260725.md`、`summary/20260725/canvas-runtime-qa-completion-20260725.md` |
 | 2026-07-25 | 既存ノート desktop edit と `nextReviewDate` UI: 1280 / 1440px、初期値・手動値保持・未設定維持 | desktop edit は確認済み範囲 PASS。`nextReviewDate` は review 成功 UI 未確認のため確認済み範囲の部分実施 | `summary/20260725/2230-mandatory-qa-manager-fallback-20260725.md` |
+| 2026-07-31 | Canvas scroll / wheel / touch handoff と scroll 中の drawing 干渉の追加 runtime QA | `BLOCKED`。Browser backend `[]`、localhost route 到達不可、新規 server bind `EPERM` のため scroll metrics、input event、Canvas JSON 比較なし。7/25 の確認済み desktop / Canvas subset は履歴として保持し、追加範囲を PASS にしない | `summary/20260731/worker-canvas-scroll-wheel-touch-qa-20260731.md` |
+| 2026-07-31 | 375 / 768px の note editor、viewer、review、overflow runtime | `BLOCKED`。Browser backend `[]` と dedicated server / headless Chromium 起動制約により、visual / interaction / console 証跡なし。curl の route 200 は runtime PASS ではない | `summary/20260731/worker-mobile-note-runtime-20260731.md` |
+| 2026-07-31 | Postgres source reader: native failure fallback、read-only snapshot、Canvas / row integrity、targetless reconcile | `PASS（isolated frozen SQLite fixture の evidence に限定）`。実 native binary failure、実 Postgres target の baseline / reconcile、production / hosted readiness は未確認 | `summary/20260731/worker-postgres-native-reader-fallback-20260731.md`、`summary/20260731/1804-recheck-postgres-native-reader-fallback-evidence-20260731-d5caeaf3-summary.md` |
 
 ### 7.1 2026-07-19 の静的検証結果と 2026-07-22 の再確認
 
@@ -266,5 +283,18 @@ Worker task は Browser backend `[]` と app-server `Operation not permitted` �
 | `npx tsc --noEmit --pretty false` | PASS | TypeScript 型検査に成功 | `summary/20260722/fresh-build-verification-20260722.md` |
 | `npm run build` | PASS | Next.js webpack build、TypeScript、route 生成に成功 | `summary/20260722/fresh-build-verification-20260722.md` |
 | `git diff --check` | PASS | whitespace error なし | `summary/20260722/fresh-build-verification-20260722.md`、および文書更新時の再確認 |
+
+### 7.2 2026-07-31 ノート一覧ライブ検索 UI の静的検証
+
+現行 working tree のノート一覧 UI decision に対する検証結果を、静的確認と Browser runtime に分ける。
+
+| 確認 | 結果 | 判定の意味 |
+| --- | --- | --- |
+| `node --test test/notes/list-filter-layout-contract.test.js test/notes/list-filter-live-search-contract.test.js test/notes/list-header-contract.test.js` | PASS、5 tests | 300ms debounce、Enter / 非 query 条件 / Clear の即時適用、visible Search button 不在、review toggle の属性・neutral / pressed style・visible `ON` / `OFF` 不在・desktop alignment、header の `h1` / 新規作成導線を source contract として確認 |
+| `npm run lint` | PASS | ESLint の静的検査に成功 |
+| `npx tsc --noEmit --pretty false` | PASS | TypeScript 型検査に成功 |
+| `npm run build` | PASS | Prisma Client 生成を含む Next.js production build に成功 |
+| `git diff --check` | PASS | 文書同期後の whitespace error なし |
+| Browser visual / interaction runtime | 未確認 | live timing の実時間計測、Enter / toggle の実ブラウザ操作、loading 遷移、responsive alignment、header 視覚状態はこの docs-only task では確認していない。上記 source-contract test の PASS を Browser runtime PASS へ読み替えない |
 
 この文書はコード、設定、schema、DB、UI、API、テスト、画像、生成物を変更せず、実装状況と検証証跡を記録する。更新時は作業前後の `git status --short` と `git diff --check` を確認する。

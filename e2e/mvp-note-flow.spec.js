@@ -2,6 +2,8 @@ const { test, expect } = require("@playwright/test");
 
 test.describe.configure({ mode: "serial" });
 
+const E2E_BASE_URL = "http://127.0.0.1:4173";
+
 function todayDateString() {
   const parts = new Intl.DateTimeFormat("en-US", {
     timeZone: "Asia/Tokyo",
@@ -21,7 +23,9 @@ function todayDateString() {
 async function cleanupNote(request, noteId) {
   if (!noteId) return;
 
-  const response = await request.delete(`/api/notes/${noteId}`);
+  const response = await request.delete(`/api/notes/${noteId}`, {
+    headers: { Origin: E2E_BASE_URL },
+  });
   expect([204, 404]).toContain(response.status());
 }
 

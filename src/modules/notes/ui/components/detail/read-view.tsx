@@ -42,11 +42,16 @@ export function NoteDetailReadView({
 }: NoteDetailReadViewProps) {
   return (
     <div className="note-paper-shell note-paper-content note-paper-detail">
-      <NoteDetailHeading title={note.title} />
+      <section className="note-paper-section note-paper-metadata-section min-w-0 !space-y-0">
+        <NoteDetailHeading
+          title={note.title}
+          actions={mode === "view" ? modeActions : undefined}
+        />
 
-      <NoteDetailMetadata note={note} />
+        <NoteDetailMetadata note={note} />
+      </section>
 
-      {modeActions}
+      {mode === "review" && modeActions}
 
       {error && (
         <div
@@ -58,7 +63,7 @@ export function NoteDetailReadView({
       )}
 
       <div className="note-paper-cornell-grid grid min-w-0 gap-0 lg:grid-cols-[minmax(0,3fr)_minmax(0,7fr)]">
-        <NoteDetailSection title="キーワード / 質問">
+        <NoteDetailSection title="Cue / キーワード">
           <NoteDetailCueList cues={note.cues} />
         </NoteDetailSection>
         <NoteDetailSection title="ノート本文">

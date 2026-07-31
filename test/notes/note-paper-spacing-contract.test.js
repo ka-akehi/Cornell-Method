@@ -68,13 +68,19 @@ test("create keeps section, metadata, Cornell, and footer spacing canonical", ()
   assert.doesNotMatch(globals, /note-paper-create-overrides\.css/);
 });
 
-test("create connects metadata to Cornell with a small inner top gap", () => {
+test("editor and detail share metadata and Cornell section spacing", () => {
   const paper = readSource("src/app/styles/note-paper.css");
   const metadata = readSource(
     "src/modules/notes/ui/components/editor/metadata.tsx",
   );
   const editor = readSource(
     "src/modules/notes/ui/components/editor/editor.tsx",
+  );
+  const detail = readSource(
+    "src/modules/notes/ui/components/detail/display.tsx",
+  );
+  const readView = readSource(
+    "src/modules/notes/ui/components/detail/read-view.tsx",
   );
 
   assert.match(
@@ -86,16 +92,21 @@ test("create connects metadata to Cornell with a small inner top gap", () => {
     /<section className="note-paper-section note-paper-cornell-section min-w-0 !space-y-0">/,
   );
   assert.match(
-    paper,
-    /\.note-paper-editor--create > \.note-paper-metadata-section\s*\{[\s\S]*padding-bottom:\s*0;/,
+    readView,
+    /<section className="note-paper-section note-paper-metadata-section min-w-0 !space-y-0">[\s\S]*<NoteDetailHeading/,
   );
+  assert.match(detail, /note-paper-metadata-content min-w-0/);
   assert.match(
-    paper,
-    /\.note-paper-editor--create > \.note-paper-metadata-section \.note-paper-meta-grid\s*\{[\s\S]*padding-bottom:\s*0;/,
+    metadata,
+    /<div className="note-paper-heading !border-b-0">/,
   );
-  assert.match(
+  assert.doesNotMatch(
+    metadata,
+    /note-paper-heading[^\n]*!pb-0/,
+  );
+  assert.doesNotMatch(
     paper,
-    /\.note-paper-editor--create > \.note-paper-cornell-section\s*\{[\s\S]*padding-top:\s*clamp\(0\.375rem, 0\.75vw, 0\.625rem\);/,
+    /\.note-paper-editor--create(?:[^{}]|\{[^{}]*\})*\b(?:margin|padding)(?:-(?:block|inline|top|right|bottom|left))?\s*:/,
   );
   assert.match(
     paper,
@@ -219,7 +230,7 @@ test("Cornell divider spans the full grid at the Cue boundary and is hidden on m
   );
   assert.match(
     editor,
-    /note-paper-cornell-grid--editor[^\n]*grid-cols-\[minmax\(0,30%\)_minmax\(0,70%\)\]/,
+    /note-paper-cornell-grid--editor(?:\$\{[\s\S]*?\})?[^`]*?grid-cols-\[minmax\(0,30%\)_minmax\(0,70%\)\]/,
   );
   assert.match(
     readView,

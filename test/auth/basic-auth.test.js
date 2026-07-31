@@ -4,10 +4,13 @@ const fs = require("node:fs");
 const { test } = require("node:test");
 
 const {
+  FORBIDDEN_API_ERROR_BODY,
   UNAUTHORIZED_API_ERROR_BODY,
   getBasicAuthDecision,
   getBasicAuthState,
   isBasicAuthAuthorized,
+  isSameOriginRequest,
+  isStateChangingApiRequest,
   parseBasicAuthorization,
 } = require("../../src/server/auth/basic-auth.js");
 
@@ -187,6 +190,142 @@ test("Correct Basic Auth reaches both page and API boundaries", () => {
   );
 });
 
+test("Same-origin protection only covers state-changing API methods", () => {
+  for (const method of ["POST", "PATCH", "DELETE"]) {
+    assert.equal(
+      isStateChangingApiRequest({ pathname: "/api/notes", method }),
+      true,
+      method,
+    );
+  }
+
+  for (const method of ["GET", "HEAD", "OPTIONS", "PUT"]) {
+    assert.equal(
+      isStateChangingApiRequest({ pathname: "/api/notes", method }),
+      false,
+      method,
+    );
+  }
+
+  assert.equal(
+    isStateChangingApiRequest({ pathname: "/notes", method: "POST" }),
+    false,
+  );
+  assert.equal(
+    isStateChangingApiRequest({ pathname: "/_next/static/app.js", method: "POST" }),
+    false,
+  );
+  assert.equal(
+    isStateChangingApiRequest({ pathname: undefined, method: "POST" }),
+    false,
+  );
+});
+
+test("Same-origin protection accepts exact Origin and rejects unsafe Origin values", () => {
+  const requestOrigin = "https://notes.example.test";
+
+  assert.equal(
+    isSameOriginRequest({
+      requestOrigin,
+      origin: requestOrigin,
+      referer: null,
+    }),
+    true,
+  );
+  assert.equal(
+    isSameOriginRequest({
+      requestOrigin,
+      origin: "https://attacker.example.test",
+      referer: `https://notes.example.test/notes/1`,
+    }),
+    false,
+  );
+
+  for (const origin of [
+    "null",
+    "",
+    "not-an-origin",
+    `${requestOrigin}/notes`,
+    `${requestOrigin}:443`,
+    `${requestOrigin}:444`,
+    `http://notes.example.test`,
+  ]) {
+    assert.equal(
+      isSameOriginRequest({ requestOrigin, origin, referer: null }),
+      false,
+      origin,
+    );
+  }
+});
+
+test("Same-origin protection falls back to a same-origin Referer only when Origin is absent", () => {
+  const requestOrigin = "https://notes.example.test";
+
+  assert.equal(
+    isSameOriginRequest({
+      requestOrigin,
+      origin: null,
+      referer: `${requestOrigin}/notes/1?view=edit`,
+    }),
+    true,
+  );
+  assert.equal(
+    isSameOriginRequest({
+      requestOrigin,
+      origin: null,
+      referer: "https://attacker.example.test/notes/1",
+    }),
+    false,
+  );
+  assert.equal(
+    isSameOriginRequest({ requestOrigin, origin: null, referer: null }),
+    false,
+  );
+  assert.equal(
+    isSameOriginRequest({
+      requestOrigin,
+      origin: "null",
+      referer: `${requestOrigin}/notes/1`,
+    }),
+    false,
+  );
+  assert.equal(
+    isSameOriginRequest({
+      requestOrigin,
+      origin: null,
+      referer: "malformed referer",
+    }),
+    false,
+  );
+});
+
+test("Unauthenticated requests remain on the 401 API boundary before same-origin checks", () => {
+  const environment = hostedEnvironment();
+
+  assert.equal(
+    getBasicAuthDecision({
+      pathname: "/api/notes",
+      authorization: undefined,
+      environment,
+    }),
+    "deny-api",
+  );
+  assert.deepEqual(UNAUTHORIZED_API_ERROR_BODY, {
+    code: "unauthorized",
+    message: "認証が必要です",
+  });
+  assert.deepEqual(FORBIDDEN_API_ERROR_BODY, {
+    code: "forbidden",
+    message: "同一オリジンのリクエストのみ許可されます",
+  });
+  assert.match(proxySource, /const decision = getBasicAuthDecision/);
+  assert.match(proxySource, /status: 403/);
+  assert.ok(
+    proxySource.indexOf("const decision = getBasicAuthDecision") <
+      proxySource.indexOf("isSameOriginRequest", proxySource.indexOf("const decision = getBasicAuthDecision")),
+  );
+});
+
 test("Proxy contract returns a generic API error and does not import data layers", () => {
   assert.deepEqual(UNAUTHORIZED_API_ERROR_BODY, {
     code: "unauthorized",
@@ -196,6 +335,10 @@ test("Proxy contract returns a generic API error and does not import data layers
   assert.match(proxySource, /WWW-Authenticate/);
   assert.match(proxySource, /NextResponse\.json/);
   assert.match(proxySource, /status: 401/);
+  assert.match(proxySource, /FORBIDDEN_API_ERROR_BODY/);
+  assert.match(proxySource, /request\.nextUrl\.origin/);
+  assert.match(proxySource, /request\.headers\.get\("origin"\)/);
+  assert.match(proxySource, /request\.headers\.get\("referer"\)/);
   assert.match(proxySource, /Content-Type.*text\/plain/);
   assert.match(proxySource, /Cache-Control/);
   assert.match(proxySource, /matcher: \["\/:path\*"\]/);

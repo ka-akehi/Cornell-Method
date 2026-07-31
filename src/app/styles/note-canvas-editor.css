@@ -14,3 +14,19 @@
 .note-canvas-viewer {
   min-width: 0;
 }
+
+@media (min-width: 641px) {
+  .note-paper-body-column--canvas .note-canvas-field,
+  .note-paper-body-column--canvas .note-canvas-editor {
+    display: flex;
+    min-height: 0;
+    flex: 1 1 auto;
+    flex-direction: column;
+  }
+
+  .note-paper-body-column--canvas .note-canvas-field-heading,
+  .note-paper-body-column--canvas .note-canvas-toolbar,
+  .note-paper-body-column--canvas .note-canvas-error {
+    flex: 0 0 auto;
+  }
+}

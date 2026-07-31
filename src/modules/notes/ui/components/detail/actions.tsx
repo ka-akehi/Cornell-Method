@@ -15,6 +15,18 @@ function NoteDetailModeActionBar({ children }: { children: ReactNode }) {
   );
 }
 
+function NoteDetailHeadingActions({ children }: { children: ReactNode }) {
+  return (
+    <div
+      className="note-paper-heading-actions"
+      role="group"
+      aria-label="ノートモード操作"
+    >
+      {children}
+    </div>
+  );
+}
+
 export function NoteDetailEditActions({ onCancel }: { onCancel: () => void }) {
   return (
     <NoteDetailModeActionBar>
@@ -57,7 +69,7 @@ export function NoteDetailViewActions({
   onReview,
 }: NoteDetailViewModeActionsProps) {
   return (
-    <NoteDetailModeActionBar>
+    <NoteDetailHeadingActions>
       <div className="flex min-w-0 flex-wrap justify-end gap-2">
         <button
           type="button"
@@ -74,7 +86,7 @@ export function NoteDetailViewActions({
           復習
         </button>
       </div>
-    </NoteDetailModeActionBar>
+    </NoteDetailHeadingActions>
   );
 }
 

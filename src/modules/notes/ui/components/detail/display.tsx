@@ -80,7 +80,7 @@ export function NoteDetailCueList({ cues }: { cues: NoteDetailResponse["cues"] }
               <div className="text-[0.68rem] font-semibold uppercase tracking-[0.12em] text-stone-500">
                 Cue
               </div>
-              <div className="mt-1 break-words text-sm leading-6 text-stone-900">
+              <div className="mt-1 whitespace-pre-wrap break-words text-sm leading-6 text-stone-900">
                 {cue.text}
               </div>
             </div>
@@ -99,19 +99,26 @@ export function NoteDetailBody({ note }: { note: NoteDetailResponse }) {
   return <MarkdownPreview value={note.body ?? ""} emptyLabel="本文は未入力です。" />;
 }
 
-export function NoteDetailHeading({ title }: { title: string }) {
+export function NoteDetailHeading({
+  title,
+  actions,
+}: {
+  title: string;
+  actions?: ReactNode;
+}) {
   return (
     <div className="note-paper-heading">
-      <div className="note-paper-heading-copy w-full">
+      <div className="note-paper-heading-copy min-w-0 flex-1">
         <h1 className="note-paper-title">{title}</h1>
       </div>
+      {actions}
     </div>
   );
 }
 
 export function NoteDetailMetadata({ note }: { note: NoteDetailResponse }) {
   return (
-    <div className="min-w-0">
+    <div className="note-paper-metadata-content min-w-0">
       <dl className="flex min-w-0 flex-wrap items-start gap-x-8 gap-y-3 border-b border-stone-300/70 py-3 text-sm">
         <div className="min-w-[6rem]">
           <dt className="text-xs font-semibold tracking-wide text-stone-500">学習日</dt>

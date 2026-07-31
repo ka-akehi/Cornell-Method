@@ -127,9 +127,26 @@ test("tag input only clears after a successful tag addition", () => {
   assert.doesNotMatch(tags, /addTagValue\(candidate\);\s*setInput\(""\);/);
   assert.match(
     tags,
-    /onKeyDown=\{\(event\) => \{[\s\S]*?if \(event\.key === "Enter"\)[\s\S]*?addTag\(\);/,
+    /onKeyDown=\{\(event\) => \{\s*if \(event\.key !== "Enter" \|\| event\.nativeEvent\.isComposing\) \{\s*return;\s*\}\s*event\.preventDefault\(\);\s*addTag\(\);\s*\}\}/,
   );
   assert.match(tags, /<button[\s\S]*?onClick=\{addTag\}/);
+});
+
+test("tag Enter ignores IME composition before preventing input or adding", () => {
+  const tags = readSource("src/modules/notes/ui/components/editor/tags.tsx");
+
+  assert.match(
+    tags,
+    /if \(event\.key !== "Enter" \|\| event\.nativeEvent\.isComposing\) \{\s*return;\s*\}\s*event\.preventDefault\(\);\s*addTag\(\);/,
+  );
+  assert.match(
+    tags,
+    /if \(!name\) \{\s*setLocalError\(null\);\s*return false;\s*\}/,
+  );
+  assert.match(
+    tags,
+    /if \(addTagValue\(\{ name: input, color: null \}\)\) \{\s*setInput\(""\);\s*\}/,
+  );
 });
 
 test("tag input rejects long values on every add attempt and clears local errors while editing", () => {

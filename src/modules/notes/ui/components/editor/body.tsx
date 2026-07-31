@@ -28,7 +28,9 @@ export function NoteEditorBodySection({
   onCanvasError: (error: string | null) => void;
 }) {
   return (
-    <div className="min-w-0 max-[640px]:!pl-0 max-[640px]:!pt-5">
+    <div
+      className={`note-paper-body-column${bodyMode === "canvas" ? " note-paper-body-column--canvas" : ""} min-w-0 max-[640px]:!pl-0 max-[640px]:!pt-5`}
+    >
       {bodyMode === "canvas" ? (
         <div className="note-canvas-field">
           <div className="note-canvas-field-heading">
