@@ -1,6 +1,6 @@
 "use client";
 
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
 import type { NoteDetailResponse } from "@/modules/notes/contracts";
 import {
@@ -20,14 +20,21 @@ import { NoteEditor } from "../editor/editor";
 import { NoteDetailReadView } from "./read-view";
 
 type Mode = "view" | "edit" | "review";
+type UrlMode = Exclude<Mode, "review">;
 
 export type NoteDetailModesProps = {
   initialNote: NoteDetailResponse;
+  initialMode?: UrlMode;
 };
 
-export function NoteDetailModes({ initialNote }: NoteDetailModesProps) {
+export function NoteDetailModes({
+  initialNote,
+  initialMode = "view",
+}: NoteDetailModesProps) {
   const router = useRouter();
-  const [mode, setMode] = useState<Mode>("view");
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const [mode, setMode] = useState<Mode>(initialMode);
   const [note, setNote] = useState(initialNote);
   const [showBody, setShowBody] = useState(false);
   const [showSummary, setShowSummary] = useState(false);
@@ -35,6 +42,29 @@ export function NoteDetailModes({ initialNote }: NoteDetailModesProps) {
   const [reviewing, setReviewing] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  function replaceModeUrl(nextMode: UrlMode) {
+    const nextSearchParams = new URLSearchParams(searchParams.toString());
+
+    if (nextMode === "edit") {
+      nextSearchParams.set("mode", "edit");
+    } else {
+      nextSearchParams.delete("mode");
+    }
+
+    const query = nextSearchParams.toString();
+    router.replace(query ? `${pathname}?${query}` : pathname);
+  }
+
+  function enterEditMode() {
+    replaceModeUrl("edit");
+    setMode("edit");
+  }
+
+  function leaveEditMode() {
+    replaceModeUrl("view");
+    setMode("view");
+  }
 
   async function submitReview() {
     setReviewing(true);
@@ -107,17 +137,17 @@ export function NoteDetailModes({ initialNote }: NoteDetailModesProps) {
         shell={true}
         initial={editorInitial}
         topActions={
-          <NoteDetailEditActions onCancel={() => setMode("view")} />
+          <NoteDetailEditActions onCancel={leaveEditMode} />
         }
         showCancel={false}
-        onCancel={() => setMode("view")}
+        onCancel={leaveEditMode}
         onSaved={(savedNote) => {
           setNote(savedNote);
           setReviewNextDate(savedNote.nextReviewDate ?? "");
           setShowBody(false);
           setShowSummary(false);
           setError(null);
-          setMode("view");
+          leaveEditMode();
         }}
       />
     );
@@ -149,7 +179,7 @@ export function NoteDetailModes({ initialNote }: NoteDetailModesProps) {
           />
         ) : (
           <NoteDetailViewActions
-            onEdit={() => setMode("edit")}
+            onEdit={enterEditMode}
             onReview={() => {
               setShowBody(false);
               setShowSummary(false);
