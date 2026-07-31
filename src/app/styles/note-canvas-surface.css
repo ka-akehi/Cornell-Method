@@ -79,9 +79,10 @@
 }
 
 @media (min-width: 641px) {
-  .note-paper-cornell-grid--editor
+  .note-paper-body-column--canvas
     .note-canvas-viewport--scrollable {
-    max-height: var(--note-paper-cornell-scroll-height);
+    min-height: 0;
+    flex: 1 1 auto;
   }
 }
 

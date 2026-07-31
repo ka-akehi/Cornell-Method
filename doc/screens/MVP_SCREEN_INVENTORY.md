@@ -1,6 +1,6 @@
 # MVP 画面棚卸し
 
-更新日: 2026-07-18
+更新日: 2026-07-31
 
 ## 位置づけ
 
@@ -221,7 +221,7 @@ As-Is は既存実装・旧証跡を比較するための基準、To-Be は後�
 | 利用者 | ローカル環境で利用する個人ユーザー |
 | 表示データ | ノート一覧、タイトル、学習日、学習元、タグ、Cue 件数、要約状態、次回復習日、最終復習日時、ページ情報 |
 | 入力データ | フリーワード検索、日付 From、日付 To、タグフィルタ、復習対象フィルタ、ページ番号 |
-| 主要アクション | 新規作成へ移動、検索条件を適用、復習対象のみ表示、ノート詳細へ移動、タグ候補を参照 |
+| 主要アクション | 新規作成へ移動、条件変更によるライブ検索、Enter での即時適用、全条件クリア、`復習対象のみ` toggle、ノート詳細へ移動、タグ候補を参照 |
 | 副作用のある操作 | なし。検索・絞り込み・ページ移動は DB を更新しない。 |
 | 遷移元 / 遷移先 | `SCR-COMMON` または `/` から `/notes` へ。新規作成で `/notes/new`、ノート選択で `/notes/[id]`、バックアップ導線で `/backup` へ。 |
 | 利用 API | `GET /api/notes`, `GET /api/tags` |
@@ -233,20 +233,22 @@ As-Is は既存実装・旧証跡を比較するための基準、To-Be は後�
 
 | 区分 | 内容 |
 | --- | --- |
-| Action | `GET /api/notes` で一覧取得、検索条件変更、復習対象フィルタ適用、ノート詳細へ遷移、新規作成へ遷移 |
+| Action | `GET /api/notes` で一覧取得、query の 300ms debounce、Enter・日付・タグ・review toggle・Clear の即時適用、ページ移動、ノート詳細へ遷移、新規作成へ遷移 |
 | Data | `query`, `tag`, `from`, `to`, `reviewDue`, `page`, `id`, `title`, `noteDate`, `sourceType`, `sourceTitle`, `summary`, `cueCount`, `hasSummary`, `nextReviewDate`, `reviewedAt`, `tags` |
 
 #### SCR-001 UI State / Conditions
 
 | 区分 | 内容 |
 | --- | --- |
-| 主な表示項目 | 画面タイトル、新規作成ボタン、フリーワード、From/To、タグ OR 条件、復習対象のみ、検索結果件数、ノートカード、ページャ |
-| validation 表示 | From > To は From/To の blur 時と検索実行時に検索フォーム下へ `開始日は終了日以前の日付を指定してください。` を表示する。API query validation は検索結果上の error alert に API `message` を表示する。 |
-| disabled | 検索は一覧取得中。タグ select はタグ取得中または追加可能候補 0 件。タグ追加は未選択または重複。前へは 1 ページ目。次へは最終ページ。 |
-| loading | 一覧取得中は検索結果欄に `読み込み中...`。タグ取得中は select に `タグ読み込み中`。 |
+| 主な表示項目 | `h1` の「ノート一覧」、新規作成ボタン、フリーワード、From/To、クリア、タグ OR 条件、「復習対象のみ」label の toggle、検索結果件数、ノートカード、ページャ。header に冗長な補助文は表示せず、visible な `検索` button も `ON` / `OFF` badge も置かない。 |
+| 検索開始 | query は入力停止から 300ms 後。Enter は pending debounce を取り消して最新条件を即時適用。From / To、タグ追加・削除、review toggle は最新 query を含む全条件で変更時に即時適用。Clear は pending debounce を取り消し、query、From / To、タグ、タグ追加候補、toggle を初期化して即時適用する。 |
+| review toggle / 配置 | 非選択時の neutral style、選択時の amber style、状態に一致する `aria-pressed` を持つ native button とし、keyboard activation できる。visible label は「復習対象のみ」だけにする。desktop はタグ操作行の右側上端へ固定し、タグチップ増加で下へ移動しない。 |
+| validation 表示 | From > To は From / To 変更時のライブ検索適用前と blur 時に検索フォーム下へ `開始日は終了日以前の日付を指定してください。` を表示し、API request を拒否する。Enter、タグ、review toggle などから即時適用する場合も現在の日付範囲を検証する。blur は validation 契機であり、blur 自体では検索を開始しない。API query validation は検索結果上の error alert に API `message` を表示する。 |
+| disabled | タグ select はタグ取得中または追加可能候補 0 件。タグ追加は未選択または重複。前へは 1 ページ目。次へは最終ページ。クリアと review toggle は原則 disabled にしない。 |
+| loading | 一覧取得中は検索結果欄を `読み込み中...` に切り替える。タグ取得中は select に `タグ読み込み中`。 |
 | error | 一覧取得失敗またはタグ取得失敗は赤系 alert。field 別 query error が必要な場合は対象入力近くへ表示する。 |
 | empty | 検索結果 0 件、復習対象 0 件とも `条件に一致するノートはありません。` を表示する。タグ 0 件はタグ select を追加不可状態にする。 |
-| 成功時挙動 | 一覧取得成功で検索結果、総件数、ページャを更新する。検索・ページ移動は DB を更新しないため成功 toast は出さない。 |
+| 成功時挙動 | ライブ一覧取得成功で検索結果、総件数、ページャを更新する。Clear 後は即時に全件条件へ戻す。検索・ページ移動は DB を更新しないため成功 toast は出さない。 |
 | MVP 外 | 日付 range picker、今日/過去 7 日/過去 30 日、ソート切替、PDF export、一覧直接編集・削除、右クリックメニュー。 |
 
 ### SCR-002 Note Detail

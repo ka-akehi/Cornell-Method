@@ -1,7 +1,10 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import {
+  FORBIDDEN_API_ERROR_BODY,
   getBasicAuthDecision,
+  isSameOriginRequest,
+  isStateChangingApiRequest,
   UNAUTHORIZED_API_ERROR_BODY,
 } from "@/server/auth/basic-auth";
 
@@ -16,6 +19,11 @@ const AUTHENTICATED_RESPONSE_HEADERS = {
   Vary: "Authorization",
 };
 
+const FORBIDDEN_RESPONSE_HEADERS = {
+  "Cache-Control": "no-store",
+  Vary: "Authorization, Origin, Referer",
+};
+
 export function proxy(request: NextRequest) {
   const decision = getBasicAuthDecision({
     pathname: request.nextUrl.pathname,
@@ -26,6 +34,23 @@ export function proxy(request: NextRequest) {
   if (decision === "public" || decision === "allow") {
     if (decision === "public") {
       return NextResponse.next();
+    }
+
+    if (
+      isStateChangingApiRequest({
+        pathname: request.nextUrl.pathname,
+        method: request.method,
+      }) &&
+      !isSameOriginRequest({
+        requestOrigin: request.nextUrl.origin,
+        origin: request.headers.get("origin"),
+        referer: request.headers.get("referer"),
+      })
+    ) {
+      return NextResponse.json(FORBIDDEN_API_ERROR_BODY, {
+        status: 403,
+        headers: FORBIDDEN_RESPONSE_HEADERS,
+      });
     }
 
     return NextResponse.next({ headers: AUTHENTICATED_RESPONSE_HEADERS });

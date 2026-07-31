@@ -34,6 +34,16 @@
   min-width: 0;
 }
 
+.note-paper-heading-actions {
+  display: flex;
+  min-width: 0;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.375rem;
+}
+
 .note-paper-kicker {
   margin: 0 0 0.4rem;
   color: var(--paper-accent-deep);
@@ -169,10 +179,26 @@
 }
 
 @media (min-width: 641px) {
+  /* Canvas owns the bounded Cornell row; both columns then consume the same row height. */
+  .note-paper-cornell-grid--editor {
+    align-items: stretch;
+  }
+
+  .note-paper-cornell-grid--editor-canvas {
+    min-height: 0;
+    height: var(--note-paper-cornell-scroll-height);
+  }
+
+  .note-paper-body-column--canvas {
+    display: flex;
+    min-height: 0;
+    height: var(--note-paper-cornell-scroll-height);
+    flex-direction: column;
+  }
+
   .note-paper-cue-column {
     display: flex;
     min-height: 0;
-    max-height: var(--note-paper-cornell-scroll-height);
     flex-direction: column;
   }
 
@@ -279,6 +305,11 @@
     flex-direction: column;
   }
 
+  .note-paper-heading-copy,
+  .note-paper-heading-actions {
+    width: 100%;
+  }
+
   .note-paper-heading .flex {
     width: 100%;
   }
@@ -347,17 +378,4 @@
 .note-paper-editor--create .note-paper-cue-empty,
 .note-paper-editor--create .note-paper-cue-item {
   border-color: transparent;
-}
-
-/* Keep the metadata-to-Cornell handoff tight while giving both Cornell columns a small breathing room. */
-.note-paper-editor--create > .note-paper-metadata-section {
-  padding-bottom: 0;
-}
-
-.note-paper-editor--create > .note-paper-metadata-section .note-paper-meta-grid {
-  padding-bottom: 0;
-}
-
-.note-paper-editor--create > .note-paper-cornell-section {
-  padding-top: clamp(0.375rem, 0.75vw, 0.625rem);
 }

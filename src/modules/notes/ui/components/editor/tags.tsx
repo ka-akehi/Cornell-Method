@@ -191,10 +191,12 @@ export function NoteEditorTagInput({
                 setLocalError(null);
               }}
               onKeyDown={(event) => {
-                if (event.key === "Enter") {
-                  event.preventDefault();
-                  addTag();
+                if (event.key !== "Enter" || event.nativeEvent.isComposing) {
+                  return;
                 }
+
+                event.preventDefault();
+                addTag();
               }}
               aria-invalid={hasTagError}
               aria-describedby={describedBy || undefined}

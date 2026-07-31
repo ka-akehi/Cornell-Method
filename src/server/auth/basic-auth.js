@@ -19,6 +19,13 @@ const UNAUTHORIZED_API_ERROR_BODY = Object.freeze({
   message: "認証が必要です",
 });
 
+const FORBIDDEN_API_ERROR_BODY = Object.freeze({
+  code: "forbidden",
+  message: "同一オリジンのリクエストのみ許可されます",
+});
+
+const STATE_CHANGING_API_METHODS = new Set(["POST", "PATCH", "DELETE"]);
+
 function isHostedAuthEnvironment(environment = process.env) {
   const vercelEnvironment = environment.VERCEL_ENV;
 
@@ -165,6 +172,80 @@ function isApiPath(pathname) {
   return pathname === "/api" || pathname.startsWith("/api/");
 }
 
+function isStateChangingApiRequest({ pathname, method }) {
+  const normalizedMethod =
+    typeof method === "string" ? method.toUpperCase() : "";
+
+  return (
+    typeof pathname === "string" &&
+    isApiPath(pathname) &&
+    STATE_CHANGING_API_METHODS.has(normalizedMethod)
+  );
+}
+
+function parseOriginHeader(origin) {
+  if (
+    !isNonEmptyString(origin) ||
+    origin !== origin.trim() ||
+    origin === "null"
+  ) {
+    return null;
+  }
+
+  try {
+    const parsed = new URL(origin);
+
+    // Origin is a serialized origin, not an arbitrary URL. Requiring the
+    // canonical serialized value rejects paths, queries, fragments, default
+    // ports, credentials, and other malformed variants.
+    if (
+      (parsed.protocol !== "http:" && parsed.protocol !== "https:") ||
+      parsed.origin === "null" ||
+      parsed.username ||
+      parsed.password ||
+      parsed.origin !== origin
+    ) {
+      return null;
+    }
+
+    return parsed.origin;
+  } catch {
+    return null;
+  }
+}
+
+function isSameOriginRequest({ requestOrigin, origin, referer }) {
+  if (!isNonEmptyString(requestOrigin)) {
+    return false;
+  }
+
+  // An Origin header, including an empty or malformed one, takes precedence
+  // over Referer. Falling back after a bad Origin would weaken the boundary.
+  if (origin !== null && origin !== undefined) {
+    return parseOriginHeader(origin) === requestOrigin;
+  }
+
+  if (!isNonEmptyString(referer) || referer !== referer.trim()) {
+    return false;
+  }
+
+  try {
+    const parsed = new URL(referer);
+
+    if (
+      (parsed.protocol !== "http:" && parsed.protocol !== "https:") ||
+      parsed.username ||
+      parsed.password
+    ) {
+      return false;
+    }
+
+    return parsed.origin === requestOrigin;
+  } catch {
+    return false;
+  }
+}
+
 function isPublicPath(pathname) {
   if (isApiPath(pathname)) {
     return false;
@@ -207,6 +288,7 @@ function getBasicAuthDecision({
 }
 
 module.exports = {
+  FORBIDDEN_API_ERROR_BODY,
   UNAUTHORIZED_API_ERROR_BODY,
   getBasicAuthDecision,
   getBasicAuthState,
@@ -214,5 +296,7 @@ module.exports = {
   isBasicAuthAuthorized,
   isHostedAuthEnvironment,
   isPublicPath,
+  isSameOriginRequest,
+  isStateChangingApiRequest,
   parseBasicAuthorization,
 };

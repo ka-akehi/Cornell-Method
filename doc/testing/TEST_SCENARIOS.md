@@ -16,7 +16,7 @@ MVP の初期データに seed は使いません。検証用データは `/note
 
 Playwright は `127.0.0.1:4173` の専用 web server を起動し、実行開始時に既存 migration から `prisma/e2e.db` を作成します。テスト終了時に削除する対象は `prisma/e2e.db` とその `-journal` / `-shm` / `-wal` sidecar だけです。`prisma/dev.db`、既存ノート、`backup/`、別ポートで動作中の server は使用・削除しません。worker は 1、serial suite で固定し、並列 fixture 競合を避けます。
 
-自動 E2E が現在カバーする範囲は、`/` → `/notes` redirect、現在日以前の日付を使ったタイトル・Cue・Summary の作成、保存後の `/notes/[id]` と Canvas viewer、編集保存、一覧 query 検索、詳細の復習モードでの本文表示 / 再非表示、`POST /api/notes/:id/review`、確認ダイアログ受け入れ後の物理削除と一覧 / API からの消失です。失敗時は `test-results/` に trace・screenshot・video、`playwright-report/` に HTML report を生成します。これらは Git 管理対象外です。
+自動 E2E が現在カバーする範囲は、`/` → `/notes` redirect、現在日以前の日付を使ったタイトル・Cue・Summary の作成、保存後の `/notes/[id]` と Canvas viewer、編集保存、一覧 query 検索、詳細の復習モードでの本文表示 / 再非表示、`POST /api/notes/:id/review`、確認ダイアログ受け入れ後の物理削除と一覧 / API からの消失です。保存後に `GET /api/notes/:id` を呼び出し、Cue の `text` と `order` が保存前の内容・順序どおりに復元されることも確認します。失敗時は `test-results/` に trace・screenshot・video、`playwright-report/` に HTML report を生成します。これらは Git 管理対象外です。
 
 2026-07-05 の `summary/20260705/mvp-ui-flow-reverification-report.md` は既存 DB と単発 QA 用データを使った記録であり、この自動 E2E の実行証拠とは別です。PDF export、Phase 2 の autosave、soft-delete / Undo、専用 review-tasks、NoteCard / D&D、起動時バックアップはこの E2E の coverage boundary 外です。
 
@@ -171,15 +171,22 @@ Playwright は `127.0.0.1:4173` の専用 web server を起動し、実行開始
 - [ ] `/notes` でフリーワード検索が Cue に対して効く
 - [ ] `/notes` で From の日付フィルタが効く
 - [ ] `/notes` で To の日付フィルタが効く
-- [ ] `/notes` で From > To の場合に validation error が表示される
+- [ ] `/notes` で From / To の変更は有効な範囲なら即時検索し、From > To は request 前に拒否して validation error を表示する。From / To の blur は validation 契機だが、それ自体では検索を開始しない
 - [ ] `/notes` でタグフィルタが OR 条件で効く
 - [ ] `/notes` でカンマを含むタグ名（例: `alpha,beta`）を選ぶと、1 件の完全一致タグとして検索できる
 - [ ] `/notes` でタグフィルタの重複追加が防止される
 - [ ] `/notes` でタグ候補取得中、タグ select が追加不可状態になる
 - [ ] `/notes` で復習対象フィルタを有効にすると `nextReviewDate` が今日以前のノートだけが表示される
+- [ ] `/notes` のフリーワード query は入力停止から 300ms debounce される
+- [ ] `/notes` のフリーワード入力中に Enter を押すと pending debounce を取り消し、最新条件を即時適用する
+- [ ] `/notes` の日付・タグ追加 / 削除・review toggle は、未確定の最新 query を含む全条件で即時検索する
+- [ ] `/notes` のクリアは pending debounce を取り消し、query、From / To、タグ、タグ追加候補、review toggle を初期化して即時検索する
+- [ ] `/notes` の review toggle は visible label を「復習対象のみ」だけに保ち、`ON` / `OFF` badge を表示しない。非選択時の neutral style、選択時の amber style、`aria-pressed` が押下状態と一致し、Enter / Space で keyboard activation できる
+- [ ] `/notes` で選択済みタグチップが増えても、desktop の review toggle はタグ操作行から下へ移動しない
+- [ ] `/notes` の検索フォームに visible な `検索` button が存在しない
+- [ ] `/notes` の header から冗長な補助文を除いても、`h1` の「ノート一覧」と `/notes/new` の新規作成導線が維持される
 - [ ] `/notes` で検索結果が 0 件の場合に空状態が表示される
 - [ ] `/notes` で一覧取得中に loading 状態が表示される
-- [ ] `/notes` で一覧取得中は検索ボタンが disabled になる
 - [ ] `/notes` で一覧取得に失敗した場合に error 状態が表示される
 - [ ] `/notes` でページ情報が表示される
 - [ ] `/notes` でページ移動ができる
@@ -522,6 +529,54 @@ Worker task は Browser backend `[]` と app-server `Operation not permitted` �
 | 既存ノート desktop edit | 1280 / 1440px の `/notes/[id]` で title、noteDate、source、tag、Cue、Canvas、Summary、`nextReviewDate` を復元。保存後の再読込、キャンセル、主要 field 到達性、body / document の viewport-wide 横幅不在を確認し、console / page error は 0。確認用ノートは削除後 GET 404、一覧 query の残留 `totalCount=0`。 | `PASS（desktop 1280 / 1440px の確認済み範囲）`。375 / 768px の mobile edit は未確認。 |
 | `nextReviewDate` UI | 新規 `noteDate=2026-07-25` で `2026-08-01` が初期表示・保存された。手動値 `2026-08-05` は `noteDate` 変更後も保持され、空欄は再読込・`noteDate` 変更後も空欄のまま維持された。 | `部分実施（確認済み範囲）`。review 成功 UI までの画面反映は未確認。 |
 
+### 2026-07-31 runtime QA / source reader 追補
+
+今回の追補は、既存の受け入れ証跡マトリクスの判定単位を置き換えない。2026-07-25 に Manager 側の権限付き runtime で確認済みの desktop / Canvas subset は履歴として保持し、今回の Browser runtime blocker により過去の PASS を消さない。一方、今回実測できなかった scroll / drawing、mobile、または実 target の範囲を `PASS` と推測しない。
+
+#### Canvas scroll / wheel / touch QA
+
+`/notes/new` の Canvas scroll handoff と scroll 中の drawing 干渉について、Browser backend、localhost route、server bind の制約を切り分けたが、Browser 操作は開始できなかった。
+
+| 確認項目 | 判定 | 事実 / 未確認範囲 |
+| --- | --- | --- |
+| Browser backend | `BLOCKED` | `agent.browsers.list()` は `[]`。 |
+| route / server | `BLOCKED` | 既存 localhost listener への `localhost` / `[::1]` / `127.0.0.1` route は HTTP 000。新規 `npm run dev -- --hostname 127.0.0.1 --port 3100` は `listen EPERM`。 |
+| 375 / 768 / 1280px scroll | `BLOCKED` | 用紙内 `scrollLeft`、ページ `scrollTop`、page-wide `scrollLeft` を取得していない。wheel / trackpad 相当 event、touch / pointer swipe、pointercancel も送信していない。 |
+| scroll 中の drawing / 保存境界 | `BLOCKED` | pen / line / arrow / rect / ellipse / text の誤作成、既存 element の geometry / points / style / text / `searchText` 不変、`/notes/[id]` 保存・再読込、console / page error は未確認。fixture / screenshot / API request は作成していない。 |
+| 判定境界 | `BLOCKED` | 静的 source に `pointercancel` / `touchcancel` と scrollable wrapper があっても runtime `PASS` にはしない。2026-07-25 の page / paper scroll を含む確認済み toolbar / touch subset は保持するが、wheel / trackpad / touch handoff と scroll 中 drawing の追加 QA は `BLOCKED` のままとする。 |
+
+根拠: `summary/20260731/worker-canvas-scroll-wheel-touch-qa-20260731.md`。
+
+#### Mobile note runtime QA
+
+375 / 768px の `/notes/new` と `/notes/[id]` を対象に、editor、viewer、review、保存・再読込、キャンセル、overflow を確認する試行は、Browser backend と headless Chromium の起動制約により実測不能だった。
+
+| 確認項目 | 判定 | 事実 / 未確認範囲 |
+| --- | --- | --- |
+| Browser / dedicated server | `BLOCKED` | Browser backend の `agent.browsers.list()` は `[]`。専用 4173 server は `listen EPERM`。既存 3000 番 route の curl 200 は一部の HTTP 到達性確認に留まり、Browser runtime の証拠ではない。 |
+| headless Chromium | `BLOCKED` | 既定 executable は未導入、system Chrome は起動後に終了、利用可能な headless shell は MachPort permission error で終了したため page / session を生成できなかった。 |
+| `/notes/new` editor | `BLOCKED` | 375 / 768px の実効 viewport、field 到達性、Cue / Canvas / Summary 操作、保存・再読込を未確認。 |
+| existing-note edit / viewer / review | `BLOCKED` | title、noteDate、source、tag、Cue、Canvas、Summary、`nextReviewDate` の復元・保存・再読込・キャンセル、本文初期マスク・表示 / 再マスク、review success UI を未確認。 |
+| overflow / errors | `BLOCKED` | 長い tag / Markdown / field error、page-wide overflow、Canvas local scroll、console error、page error、HTTP failure 0 件判定を未取得。fixture / screenshot は作成していない。 |
+| 判定境界 | `BLOCKED` | `NTE020-EDIT-ALL` の desktop 1280 / 1440px 確認済み範囲、既存の Canvas subset、1440px の viewer / review 履歴は維持する。375 / 768px の editor・viewer・review・overflow は今回も未確認で、`PASS` へ繰り上げない。 |
+
+根拠: `summary/20260731/worker-mobile-note-runtime-20260731.md`。
+
+#### Postgres source reader / native failure fallback evidence
+
+Postgres target へ接続せず、現行 MVP schema の isolated frozen SQLite fixture に対して、source reader の native failure fallback と read-only invariant を確認した。この行の `PASS` は isolated evidence の範囲だけを表す。
+
+| 確認項目 | 判定 | 事実 / 未確認範囲 |
+| --- | --- | --- |
+| require failure fallback | `PASS（isolated evidence）` | temporary `Module._load` hook で `better-sqlite3` require に `ERR_DLOPEN_FAILED` を注入し、`/usr/bin/sqlite3` CLI fallback（version probe + query）が呼ばれ、normal native snapshot と row digest / count が一致した。 |
+| constructor failure fallback | `PASS（isolated evidence）` | fake constructor に `ERR_DLOPEN_FAILED` を注入し、同じ CLI fallback と snapshot 比較を確認した。 |
+| read-only snapshot / validation | `PASS` | frozen fixture は mode `0444`。schema / migration state、integrity、FK、ordered row digest、Canvas `document_json` validation、page `1200x800` / 1 element、`search_text` digest を前後一致で確認した。 |
+| source invariant / cleanup | `PASS` | source bytes / SHA-256、WAL / SHM sidecar は各経路で不変。temporary fixture / harness / log は cleanup 済み。 |
+| targetless reconcile | `PASS（未接続の確認）` | target configuration 不足で exit `1`、Postgres 接続へ進まないことを確認。実 target の baseline / row reconcile は未実施。 |
+| 限界 | `未確認` | 実際の壊れた native binary / operator machine packaging が同じ failure になるか、実 Postgres target / `DIRECT_URL` との baseline / reconcile、production / hosted readiness は今回の scope 外。 |
+
+根拠: `summary/20260731/worker-postgres-native-reader-fallback-20260731.md`、`summary/20260731/1804-recheck-postgres-native-reader-fallback-evidence-20260731-d5caeaf3-summary.md`。
+
 ## 受け入れ証跡マトリクス
 
 上のチェックリストは確認項目の一覧であり、下表を確認済み範囲の正本とします。判定は記録単位の範囲に限ります。同じ section に含まれる未確認項目を、別の項目の PASS から推測して繰り上げません。`FAIL（静的照合）` は実装コードと現行 MVP 契約の照合で未達が確認されたもの、`未実施` は runtime 証跡がまだないものです。
@@ -554,6 +609,9 @@ Worker task は Browser backend `[]` と app-server `Operation not permitted` �
 | CANVAS-STYLE-001 | 線幅・文字サイズの既定値と整数範囲、無効値拒否、stroke / text の色、standalone text / shape inline text の left・center・right、選択中・編集中の即時反映 | `/notes/new`、`/notes/[id]`（編集） | Manager 直接の権限付き headless Playwright Chromium、pointer / keyboard | 2026-07-25 | standalone text の 8 / 96 適用と 7 / 97 / 12.5 / blank 拒否、line の 1 / 20 適用と 0 / 21 / 1.5 / blank 拒否、text / line color、left / center / right、rect editor の font / color / alignment commit を確認 | PASS（確認済み範囲） | `summary/20260725/canvas-runtime-qa-completion-20260725.md`、`doc/implementation/MVP_CONTRACT.md` §6.2 |
 | CANVAS-PERSISTENCE-STYLE-001 | standalone text の `style`、shape inline text の `textStyle`、線幅・線色の保存境界、保存・再読込、用紙だけ変更した場合の style / text / geometry / searchText 不変 | `/notes/new`、`/notes/[id]`（編集・閲覧）、`/api/notes` | Manager 直接の権限付き headless Playwright Chromium、UI request / GET / 再読込 | 2026-07-25 | `Runtime Persistence QA 20260725` で page `1280x900`、standalone text `PERSIST TEXT` の font / color、line strokeWidth、request / GET の elements、viewer assistive text、edit / reload title・page・text、DELETE 204、cleanup を確認 | PASS（確認済み範囲） | `summary/20260725/canvas-runtime-qa-completion-20260725.md`、`doc/implementation/MVP_CONTRACT.md` §6.1・§6.2 |
 | CANVAS-TOOLBAR-STYLE-001 | style input、alignment button、用紙入力、tool group の responsive / keyboard / touch 到達性、active・style target・alignment の visual / ARIA 状態、ページ縦 scroll と用紙局所横 scroll | `/notes/new`、`/notes/[id]`（編集） | Manager 直接の権限付き headless Playwright Chromium、375 / 768 / 1280 touch、keyboard / pointer / touch | 2026-07-25 | rail `305 / 461`・`346 / 461`、全 tool の ARIA / active state、Tab / Shift+Tab、focus-visible solid 2px、640x480 / invalid 319、page scroll、1920x1080 paper の local horizontal scroll を確認。1440px の既存確認は 2026-07-24 の summary を参照 | PASS（確認済み範囲） | `summary/20260725/canvas-runtime-qa-completion-20260725.md`、`summary/20260724/canvas-toolbar-browser-qa-runtime-20260724.md`、`doc/implementation/MVP_CONTRACT.md` §6.1・§6.2・§7 |
+| CANVAS-SCROLL-WHEEL-20260731 | Canvas の wheel / trackpad / touch scroll handoff、scroll 中の drawing 誤作成・既存要素不変 | `/notes/new`、必要に応じて `/notes/[id]`（編集・閲覧） | Browser runtime、375 / 768 / 1280px、wheel / touch / pointer | 2026-07-31 | Browser backend `[]`、localhost route 到達不可、新規 server bind `EPERM`。viewport metrics、input event、Canvas JSON、保存 request / GET、console / page error は未取得。2026-07-25 の別経路 subset は履歴として保持 | BLOCKED | `summary/20260731/worker-canvas-scroll-wheel-touch-qa-20260731.md` |
+| NTE020-MOBILE-RUNTIME-20260731 | mobile の新規 editor、既存 note edit、viewer、review、long input / validation overflow | `/notes/new`、`/notes/[id]`（編集・閲覧・復習） | 375 / 768px、Browser / headless Chromium runtime | 2026-07-31 | Browser backend `[]`、dedicated server bind `EPERM`、headless Chromium 起動失敗。curl の route 200 は visual / interaction PASS ではない。fixture / screenshot / browser listener は未作成 | BLOCKED | `summary/20260731/worker-mobile-note-runtime-20260731.md` |
+| POSTGRES-NATIVE-READER-20260731 | source reader の native failure fallback、CLI snapshot、read-only invariant、Canvas / row validation、targetless reconcile | `scripts/postgres-migration-common.js`、`scripts/postgres-reconcile.js` | isolated frozen SQLite fixture、temporary harness。実 Postgres target は対象外 | 2026-07-31 | require / constructor の `ERR_DLOPEN_FAILED` 注入から `/usr/bin/sqlite3` CLI fallback に到達。row digest、Canvas validation、source hash / size / sidecar 不変、temporary cleanup、targetless reconcile の未接続を確認 | PASS（isolated evidence の範囲のみ） | `summary/20260731/worker-postgres-native-reader-fallback-20260731.md`、`summary/20260731/1804-recheck-postgres-native-reader-fallback-evidence-20260731-d5caeaf3-summary.md` |
 | PHASE2-BOUNDARY | 自動保存、Undo / soft delete、専用復習タスク、NoteCard / D&D、PDF、タグ管理 UI 等 | `/tasks/review`、`/notes/backup`、export 等（MVP 外） | 静的な契約照合。runtime 対象外 | 2026-07-16 | fixture なし。Phase 2 の未実施項目として扱い、MVP の PASS 集計には含めない | 未実施 | `doc/implementation/MVP_CONTRACT.md` §2・§9、本文書「Phase 2 / 将来確認」 |
 
 注記: 2026-07-18 の概要項目削除より前に実施した `NTE030-VIEW-1440`、`MVP-GAP-002`、`MVP-GAP-003` は、当時の画面・契約に対する履歴記録です。現在の受け入れ対象には含めず、過去の確認結果・未達理由を改変せずに保持します。

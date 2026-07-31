@@ -42,7 +42,7 @@ export function NoteEditorMetadataSection({
   return (
     <section className="note-paper-section note-paper-metadata-section min-w-0 !space-y-0">
       {shell ? (
-        <div className="note-paper-heading !border-b-0 !pb-0">
+        <div className="note-paper-heading !border-b-0">
           <div className="note-paper-heading-copy w-full">
             <TitleInput
               id="note-title"

@@ -57,31 +57,65 @@ test("Cue scrolling is only mounted when Cue items exist", () => {
   );
 });
 
-test("two-column editor gives long Canvas and Cue content the same responsive height basis", () => {
+test("Canvas editor row shares one bounded height while Cue and Canvas keep independent scrolling", () => {
   const editor = readSource(
     "src/modules/notes/ui/components/editor/editor.tsx",
   );
+  const body = readSource("src/modules/notes/ui/components/editor/body.tsx");
   const cues = readSource("src/modules/notes/ui/components/editor/cues.tsx");
   const paperStyles = readSource("src/app/styles/note-paper.css");
+  const editorStyles = readSource("src/app/styles/note-canvas-editor.css");
   const surfaceStyles = readSource(
     "src/app/styles/note-canvas-surface.css",
   );
 
   assert.match(editor, /note-paper-cornell-grid--editor/);
+  assert.match(
+    editor,
+    /form\.bodyMode === "canvas"[\s\S]*?note-paper-cornell-grid--editor-canvas/,
+  );
   assert.match(cues, /note-paper-cue-column/);
   assert.match(cues, /note-paper-cue-list/);
   assert.match(cues, /resize-y/);
+  assert.match(
+    body,
+    /className=\{`note-paper-body-column\$\{bodyMode === "canvas" \? " note-paper-body-column--canvas" : ""\}/,
+  );
   assert.match(
     paperStyles,
     /--note-paper-cornell-scroll-height: min\(70vh, 48rem\);/,
   );
   assert.match(
     paperStyles,
-    /@media \(min-width: 641px\)[\s\S]*?\.note-paper-cue-column\s*\{[\s\S]*?max-height: var\(--note-paper-cornell-scroll-height\);[\s\S]*?\.note-paper-cue-list\s*\{[\s\S]*?overflow-y: auto;/,
+    /@media \(min-width: 641px\)[\s\S]*?\.note-paper-body-column--canvas\s*\{[\s\S]*?display: flex;[\s\S]*?min-height: 0;[\s\S]*?height: var\(--note-paper-cornell-scroll-height\);[\s\S]*?flex-direction: column;/,
+  );
+  assert.match(
+    paperStyles,
+    /@media \(min-width: 641px\)[\s\S]*?\.note-paper-cornell-grid--editor-canvas\s*\{[\s\S]*?min-height: 0;[\s\S]*?height: var\(--note-paper-cornell-scroll-height\);/,
+  );
+  assert.doesNotMatch(
+    paperStyles,
+    /\.note-paper-cornell-grid--editor\s*\{[^}]*height: var\(--note-paper-cornell-scroll-height\);/,
+  );
+  assert.match(
+    paperStyles,
+    /@media \(min-width: 641px\)[\s\S]*?\.note-paper-cornell-grid--editor\s*\{[\s\S]*?align-items: stretch;[\s\S]*?\.note-paper-cue-column\s*\{[\s\S]*?display: flex;[\s\S]*?min-height: 0;[\s\S]*?flex-direction: column;[\s\S]*?\.note-paper-cue-list\s*\{[\s\S]*?min-height: 0;[\s\S]*?flex: 1 1 auto;[\s\S]*?overflow-y: auto;/,
+  );
+  assert.doesNotMatch(
+    paperStyles,
+    /\.note-paper-cue-column\s*\{[^}]*max-height: var\(--note-paper-cornell-scroll-height\);/,
+  );
+  assert.match(
+    editorStyles,
+    /@media \(min-width: 641px\)[\s\S]*?\.note-paper-body-column--canvas \.note-canvas-field,[\s\S]*?\.note-paper-body-column--canvas \.note-canvas-editor\s*\{[\s\S]*?display: flex;[\s\S]*?min-height: 0;[\s\S]*?flex: 1 1 auto;[\s\S]*?flex-direction: column;/,
   );
   assert.match(
     surfaceStyles,
-    /@media \(min-width: 641px\)[\s\S]*?\.note-paper-cornell-grid--editor[\s\S]*?max-height: var\(--note-paper-cornell-scroll-height\);/,
+    /@media \(min-width: 641px\)[\s\S]*?\.note-paper-body-column--canvas[\s\S]*?\.note-canvas-viewport--scrollable\s*\{[\s\S]*?min-height: 0;[\s\S]*?flex: 1 1 auto;/,
+  );
+  assert.doesNotMatch(
+    surfaceStyles,
+    /\.note-paper-cornell-grid--editor[\s\S]*?\.note-canvas-viewport--scrollable\s*\{[^}]*max-height: var\(--note-paper-cornell-scroll-height\);/,
   );
   assert.match(
     surfaceStyles,

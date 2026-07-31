@@ -19,6 +19,22 @@ import { NotesListError } from "./feedback";
 import { NotesListFilters, getDateRangeError } from "./filters";
 import { NotesListResults } from "./results";
 
+type NotesListFilterValues = {
+  query: string;
+  from: string;
+  to: string;
+  selectedTags: string[];
+  reviewDue: boolean;
+};
+
+const EMPTY_FILTERS: NotesListFilterValues = {
+  query: "",
+  from: "",
+  to: "",
+  selectedTags: [],
+  reviewDue: false,
+};
+
 export function NotesList() {
   const [query, setQuery] = useState("");
   const [from, setFrom] = useState("");
@@ -33,6 +49,10 @@ export function NotesList() {
   const [error, setError] = useState<string | null>(null);
   const [dateError, setDateError] = useState<string | null>(null);
   const notesRequestIdRef = useRef(0);
+  const latestFiltersRef = useRef<NotesListFilterValues>(EMPTY_FILTERS);
+  const querySearchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
 
   const selectedTagSet = useMemo(() => new Set(selectedTags), [selectedTags]);
 
@@ -48,11 +68,17 @@ export function NotesList() {
     selectedTags.length > 0 ||
     reviewDue;
 
+  const cancelPendingQuerySearch = useCallback(() => {
+    if (querySearchTimeoutRef.current === null) return;
+    clearTimeout(querySearchTimeoutRef.current);
+    querySearchTimeoutRef.current = null;
+  }, []);
+
   const loadNotes = useCallback(
-    async (page = 1) => {
+    async (filters: NotesListFilterValues, page = 1) => {
       const requestId = ++notesRequestIdRef.current;
 
-      if (isDateRangeInvalid(from, to)) {
+      if (isDateRangeInvalid(filters.from, filters.to)) {
         setDateError("開始日は終了日以前の日付を指定してください。");
         setNotesLoading(false);
         return;
@@ -62,15 +88,15 @@ export function NotesList() {
       setError(null);
       setDateError(null);
 
-      const trimmedQuery = query.trim();
+      const trimmedQuery = filters.query.trim();
 
       try {
         const nextNotes = await fetchNotesList({
           query: trimmedQuery || undefined,
-          from: from || undefined,
-          to: to || undefined,
-          tag: selectedTags,
-          reviewDue,
+          from: filters.from || undefined,
+          to: filters.to || undefined,
+          tag: filters.selectedTags,
+          reviewDue: filters.reviewDue,
           page,
         });
 
@@ -87,7 +113,15 @@ export function NotesList() {
         }
       }
     },
-    [from, query, reviewDue, selectedTags, to],
+    [],
+  );
+
+  const searchImmediately = useCallback(
+    (filters: NotesListFilterValues, page = 1) => {
+      cancelPendingQuerySearch();
+      void loadNotes(filters, page);
+    },
+    [cancelPendingQuerySearch, loadNotes],
   );
 
   useEffect(() => {
@@ -110,22 +144,89 @@ export function NotesList() {
   }, []);
 
   useEffect(() => {
-    void loadNotes(1);
-  }, [loadNotes]);
+    void loadNotes(latestFiltersRef.current, 1);
+
+    return () => {
+      cancelPendingQuerySearch();
+      notesRequestIdRef.current += 1;
+    };
+  }, [cancelPendingQuerySearch, loadNotes]);
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    void loadNotes(1);
+    searchImmediately(latestFiltersRef.current);
+  }
+
+  function handleQueryChange(value: string) {
+    setQuery(value);
+    latestFiltersRef.current = {
+      ...latestFiltersRef.current,
+      query: value,
+    };
+    cancelPendingQuerySearch();
+    querySearchTimeoutRef.current = setTimeout(() => {
+      querySearchTimeoutRef.current = null;
+      void loadNotes(latestFiltersRef.current, 1);
+    }, 300);
+  }
+
+  function handleFromChange(value: string) {
+    setFrom(value);
+    latestFiltersRef.current = {
+      ...latestFiltersRef.current,
+      from: value,
+    };
+    searchImmediately(latestFiltersRef.current);
+  }
+
+  function handleToChange(value: string) {
+    setTo(value);
+    latestFiltersRef.current = {
+      ...latestFiltersRef.current,
+      to: value,
+    };
+    searchImmediately(latestFiltersRef.current);
   }
 
   function handleAddTag() {
-    if (!tagToAdd || selectedTagSet.has(tagToAdd)) return;
-    setSelectedTags((current) => [...current, tagToAdd]);
+    if (
+      !tagToAdd ||
+      latestFiltersRef.current.selectedTags.includes(tagToAdd)
+    ) {
+      return;
+    }
+    const nextSelectedTags = [
+      ...latestFiltersRef.current.selectedTags,
+      tagToAdd,
+    ];
+    setSelectedTags(nextSelectedTags);
     setTagToAdd("");
+    latestFiltersRef.current = {
+      ...latestFiltersRef.current,
+      selectedTags: nextSelectedTags,
+    };
+    searchImmediately(latestFiltersRef.current);
   }
 
   function handleRemoveTag(name: string) {
-    setSelectedTags((current) => current.filter((tag) => tag !== name));
+    const nextSelectedTags = latestFiltersRef.current.selectedTags.filter(
+      (tag) => tag !== name,
+    );
+    setSelectedTags(nextSelectedTags);
+    latestFiltersRef.current = {
+      ...latestFiltersRef.current,
+      selectedTags: nextSelectedTags,
+    };
+    searchImmediately(latestFiltersRef.current);
+  }
+
+  function handleReviewDueChange(value: boolean) {
+    setReviewDue(value);
+    latestFiltersRef.current = {
+      ...latestFiltersRef.current,
+      reviewDue: value,
+    };
+    searchImmediately(latestFiltersRef.current);
   }
 
   function handleReset() {
@@ -136,16 +237,18 @@ export function NotesList() {
     setTagToAdd("");
     setReviewDue(false);
     setDateError(null);
+    latestFiltersRef.current = {
+      ...EMPTY_FILTERS,
+      selectedTags: [],
+    };
+    searchImmediately(latestFiltersRef.current);
   }
 
   return (
     <div className="space-y-5">
       <div className="app-page-header flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0 space-y-1">
+        <div className="min-w-0">
           <h1 className="text-2xl font-semibold text-stone-900">ノート一覧</h1>
-          <p className="text-sm text-stone-500">
-            保存済みノートを検索し、詳細表示や復習に進みます。
-          </p>
         </div>
         <Link
           href="/notes/new"
@@ -163,18 +266,17 @@ export function NotesList() {
         tagToAdd={tagToAdd}
         availableTags={availableTags}
         tagsLoading={tagsLoading}
-        notesLoading={notesLoading}
         reviewDue={reviewDue}
         dateError={dateError}
         onSubmit={handleSubmit}
-        onQueryChange={setQuery}
-        onFromChange={setFrom}
-        onToChange={setTo}
+        onQueryChange={handleQueryChange}
+        onFromChange={handleFromChange}
+        onToChange={handleToChange}
         onDateBlur={() => setDateError(getDateRangeError(from, to))}
         onTagToAddChange={setTagToAdd}
         onAddTag={handleAddTag}
         onRemoveTag={handleRemoveTag}
-        onReviewDueChange={setReviewDue}
+        onReviewDueChange={handleReviewDueChange}
         onReset={handleReset}
       />
 
@@ -184,7 +286,9 @@ export function NotesList() {
         notes={notes}
         notesLoading={notesLoading}
         isSearchActive={isSearchActive}
-        onPageChange={(page) => void loadNotes(page)}
+        onPageChange={(page) =>
+          searchImmediately(latestFiltersRef.current, page)
+        }
       />
     </div>
   );

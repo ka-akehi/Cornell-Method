@@ -6,6 +6,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type KeyboardEvent,
   type ReactNode,
 } from "react";
 import { useRouter } from "next/navigation";
@@ -58,6 +59,30 @@ type ErrorFocusRequest = {
 };
 
 const TAG_FIELD_ERROR_PATTERN = /^tags(?:\.\d+\.name)?$/;
+const NOTE_EDITOR_METADATA_INPUT_IDS = new Set([
+  "note-title",
+  "note-date",
+  "next-review-date",
+  "source-title",
+]);
+
+function preventMetadataInputImplicitSubmit(
+  event: KeyboardEvent<HTMLFormElement>,
+) {
+  if (event.key !== "Enter" || event.nativeEvent.isComposing) {
+    return;
+  }
+
+  const target = event.target;
+  if (
+    !(target instanceof HTMLInputElement) ||
+    !NOTE_EDITOR_METADATA_INPUT_IDS.has(target.id)
+  ) {
+    return;
+  }
+
+  event.preventDefault();
+}
 
 export function NoteEditor({
   initial,
@@ -231,6 +256,7 @@ export function NoteEditor({
       className={`note-paper-editor ${mode === "create" ? "note-paper-editor--create" : ""} min-w-0 space-y-0 ${
         shell ? "note-paper-shell note-paper-content" : "note-paper-editor--embedded"
       }`}
+      onKeyDown={preventMetadataInputImplicitSubmit}
       onSubmit={(event) => {
         event.preventDefault();
         void save();
@@ -265,7 +291,13 @@ export function NoteEditor({
       {topActions}
 
       <section className="note-paper-section note-paper-cornell-section min-w-0 !space-y-0">
-        <div className="note-paper-cornell-grid note-paper-cornell-grid--editor grid w-full min-w-0 grid-cols-[minmax(0,30%)_minmax(0,70%)] max-[640px]:!grid-cols-1">
+        <div
+          className={`note-paper-cornell-grid note-paper-cornell-grid--editor${
+            form.bodyMode === "canvas"
+              ? " note-paper-cornell-grid--editor-canvas"
+              : ""
+          } grid w-full min-w-0 grid-cols-[minmax(0,30%)_minmax(0,70%)] max-[640px]:!grid-cols-1`}
+        >
           <NoteEditorCueSection
             cues={form.cues}
             fieldErrors={fieldErrors}
