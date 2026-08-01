@@ -1,6 +1,6 @@
 const { defineConfig, devices } = require("@playwright/test");
 
-const baseURL = "http://127.0.0.1:4173";
+const baseURL = "http://localhost:4173";
 
 module.exports = defineConfig({
   testDir: "./e2e",
