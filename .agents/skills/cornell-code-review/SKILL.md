@@ -33,6 +33,33 @@ concrete trigger, impact, and changed line.
 - Put findings before summaries.
 - Do not invent findings when no material problem is found.
 
+## Review-excluded operational records
+
+The following paths are operational history, handoff, or agent execution records.
+They may be read as context when resuming work, but they are not code-review
+targets unless the user explicitly asks to review those files.
+
+- root `HANDOFF.md`
+- root `HANDOFF_*.md`
+- `summary/**`
+- `codex-queue/**/summary/**`
+- `codex-queue/**/summaries/**`
+
+For excluded paths:
+
+- do not emit P0, P1, P2, or P3 findings
+- do not critique wording, links, completeness, freshness, or record structure
+- do not use the file itself as evidence that implementation is incorrect
+- do not treat it as the source of truth for product behavior, architecture, or
+  acceptance criteria
+- do not recommend creating a GitHub Issue
+- do not let an excluded-file-only change affect the verdict
+
+Use `.github/CODEX_REVIEW_SCOPE.md` as the canonical path list. If an excluded
+record conflicts with current code or a canonical contract, judge the code
+against the canonical contract and do not report the record mismatch as a
+finding.
+
 ## Inputs
 
 Resolve these from the request and repository state:
@@ -58,8 +85,9 @@ instructions and current contracts in this order:
 5. `doc/implementation/IMPLEMENTATION_STATUS.md` for implemented, partial, and
    runtime-unverified boundaries.
 6. Relevant sections of `doc/testing/TEST_SCENARIOS.md` for changed behavior.
-7. More specific `AGENTS.md` files, design documents, summaries, or task records
-   only when they govern the changed files.
+7. More specific `AGENTS.md` files and design documents when they govern the
+   changed files. Summaries, handoffs, and task records may supply context but
+   remain excluded review targets.
 
 Apply this precedence:
 
@@ -77,8 +105,9 @@ newer runtime result.
 
 ### 1. Establish the change boundary
 
-Inspect the diff summary and changed filenames first. Determine whether the
-change affects any of these areas:
+Inspect the diff summary and changed filenames first. Remove review-excluded
+operational records from the review set before classifying the change. Determine
+whether the remaining change affects any of these areas:
 
 - Next.js page, layout, or Route Handler
 - notes UI, hook, model, remote client, or contract
@@ -87,7 +116,7 @@ change affects any of these areas:
 - Markdown rendering
 - backup filesystem handling
 - shared HTTP, date-only, validation, or UI primitives
-- documentation or acceptance evidence
+- canonical documentation or acceptance evidence
 
 Do not begin with naming or formatting comments.
 
