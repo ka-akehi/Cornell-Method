@@ -1,0 +1,5 @@
+# Operational records are hidden by default in GitHub diffs.
+HANDOFF*.md linguist-generated
+summary/** linguist-generated
+codex-queue/**/summary/** linguist-generated
+codex-queue/**/summaries/** linguist-generated
