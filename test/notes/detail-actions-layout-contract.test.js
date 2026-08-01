@@ -52,13 +52,13 @@ test("view actions are placed in the title row without duplicating the old actio
     "view actions should not remain as an unconditional action bar",
   );
 
-  assert.match(modes, /onEdit=\{\(\) => setMode\("edit"\)\}/);
+  assert.match(modes, /onEdit=\{enterEditMode\}/);
   assert.match(
     modes,
     /onReview=\{\(\) => \{[\s\S]*setShowBody\(false\);[\s\S]*setShowSummary\(false\);[\s\S]*setReviewNextDate\(note\.nextReviewDate \?\? ""\);[\s\S]*setMode\("review"\);/,
   );
   assert.match(modes, /<NoteDetailReviewModeActions[\s\S]*onBackToView=/);
-  assert.match(modes, /<NoteDetailEditActions onCancel=\{\(\) => setMode\("view"\)\}/);
+  assert.match(modes, /<NoteDetailEditActions onCancel=\{leaveEditMode\}/);
 
   assert.match(
     paper,

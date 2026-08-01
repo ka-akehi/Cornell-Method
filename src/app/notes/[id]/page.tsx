@@ -2,12 +2,18 @@ import Link from "next/link";
 import { NoteDetailModes } from "@/modules/notes/ui/components";
 import { getNoteDetail } from "@/server/notes/application";
 
+type NoteDetailSearchParams = {
+  [key: string]: string | string[] | undefined;
+};
+
 export default async function NoteDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<NoteDetailSearchParams>;
 }) {
-  const { id } = await params;
+  const [{ id }, { mode }] = await Promise.all([params, searchParams]);
   const notebook = await getNoteDetail(id);
 
   if (!notebook) {
@@ -27,9 +33,12 @@ export default async function NoteDetailPage({
     );
   }
 
+  const initialMode =
+    typeof mode === "string" && mode === "edit" ? "edit" : "view";
+
   return (
     <div className="note-paper-page">
-      <NoteDetailModes initialNote={notebook} />
+      <NoteDetailModes initialNote={notebook} initialMode={initialMode} />
     </div>
   );
 }
