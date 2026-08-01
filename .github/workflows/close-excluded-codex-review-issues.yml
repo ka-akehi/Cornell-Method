@@ -1,0 +1,95 @@
+name: Close Codex Issues for operational records
+
+on:
+  issues:
+    types: [opened, reopened]
+
+permissions:
+  issues: write
+
+jobs:
+  close-excluded-review-issue:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/github-script@v9
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          retries: 3
+          script: |
+            const { owner, repo } = context.repo;
+            const issue = context.payload.issue;
+            const body = String(issue?.body ?? "");
+
+            if (
+              !Number.isInteger(issue?.number) ||
+              !body.includes("<!-- codex-review-source:")
+            ) {
+              core.info("Ignoring an Issue that was not created from a Codex review finding.");
+              return;
+            }
+
+            const isReviewExcludedPath = (path) => {
+              const normalized = String(path ?? "")
+                .replace(/\\/g, "/")
+                .replace(/^\.\/+/, "");
+              if (!normalized) return false;
+              if (
+                !normalized.includes("/") &&
+                /^HANDOFF(?:_[^/]+)?\.md$/i.test(normalized)
+              ) {
+                return true;
+              }
+              return (
+                normalized.startsWith("summary/") ||
+                /^codex-queue\/(?:.+\/)?summar(?:y|ies)\//i.test(normalized)
+              );
+            };
+
+            const location = body.match(
+              /## Current location\s*\n-\s*`([^`]+)`/i,
+            )?.[1];
+            const path = String(location ?? "").replace(/:\d+(?:-\d+)?$/, "");
+
+            if (!isReviewExcludedPath(path)) {
+              core.info(`Issue #${issue.number}: location is not review-excluded.`);
+              return;
+            }
+
+            const marker = "<!-- codex-review-excluded-path-closure -->";
+            const comments = await github.paginate(
+              github.rest.issues.listComments,
+              { owner, repo, issue_number: issue.number, per_page: 100 },
+            );
+            if (
+              !comments.some(
+                (comment) =>
+                  typeof comment.body === "string" &&
+                  comment.body.includes(marker),
+              )
+            ) {
+              await github.rest.issues.createComment({
+                owner,
+                repo,
+                issue_number: issue.number,
+                body: [
+                  marker,
+                  "このIssueはCodexレビュー対象外の運用記録から作成されたため、自動的にcloseします。",
+                  "",
+                  `対象パス: \`${path}\``,
+                  "除外範囲: `.github/CODEX_REVIEW_SCOPE.md`",
+                ].join("\n"),
+              });
+            }
+
+            await github.rest.issues.update({
+              owner,
+              repo,
+              issue_number: issue.number,
+              state: "closed",
+              state_reason: "not_planned",
+            });
+
+            core.info(
+              `Issue #${issue.number}: closed because ${path} is excluded from Codex review.`,
+            );

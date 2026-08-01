@@ -31,6 +31,22 @@ jobs:
             const isCodex = (login) =>
               normalize(login) === "chatgpt-codex-connector";
             const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+            const isReviewExcludedPath = (path) => {
+              const normalized = String(path ?? "")
+                .replace(/\\/g, "/")
+                .replace(/^\.\/+/, "");
+              if (!normalized) return false;
+              if (
+                !normalized.includes("/") &&
+                /^HANDOFF(?:_[^/]+)?\.md$/i.test(normalized)
+              ) {
+                return true;
+              }
+              return (
+                normalized.startsWith("summary/") ||
+                /^codex-queue\/(?:.+\/)?summar(?:y|ies)\//i.test(normalized)
+              );
+            };
 
             if (!Number.isInteger(prNumber) || !isCodex(review?.user?.login)) {
               core.info("Ignoring a non-Codex review.");
@@ -101,7 +117,8 @@ jobs:
                   (comment) =>
                     !comment.in_reply_to_id &&
                     comment.pull_request_review_id === review.id &&
-                    comment.commit_id === headSha,
+                    comment.commit_id === headSha &&
+                    !isReviewExcludedPath(comment.path),
                 )
                 .sort((left, right) => left.id - right.id);
               const ids = current.map((comment) => comment.id).join(",");
@@ -172,7 +189,7 @@ jobs:
 
             if (findings.length === 0) {
               core.info(
-                `PR #${prNumber}: submitted review ${review.id} contains no P0-P2 finding after stabilization.`,
+                `PR #${prNumber}: submitted review ${review.id} contains no eligible P0-P2 finding after stabilization and path filtering.`,
               );
               return;
             }
