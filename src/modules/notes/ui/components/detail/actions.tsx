@@ -29,7 +29,7 @@ function NoteDetailHeadingActions({ children }: { children: ReactNode }) {
 
 export function NoteDetailEditActions({ onCancel }: { onCancel: () => void }) {
   return (
-    <NoteDetailModeActionBar>
+    <NoteDetailHeadingActions>
       <button
         type="button"
         onClick={onCancel}
@@ -37,7 +37,7 @@ export function NoteDetailEditActions({ onCancel }: { onCancel: () => void }) {
       >
         キャンセル
       </button>
-    </NoteDetailModeActionBar>
+    </NoteDetailHeadingActions>
   );
 }
 

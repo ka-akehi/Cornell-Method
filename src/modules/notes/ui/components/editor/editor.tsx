@@ -286,9 +286,8 @@ export function NoteEditor({
         fieldErrors={fieldErrors}
         onChange={updateForm}
         onNextReviewDateChange={(nextReviewDate) => updateForm({ nextReviewDate })}
+        actions={topActions}
       />
-
-      {topActions}
 
       <section className="note-paper-section note-paper-cornell-section min-w-0 !space-y-0">
         <div

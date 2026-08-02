@@ -42,7 +42,7 @@ export function NoteDetailReadView({
 }: NoteDetailReadViewProps) {
   return (
     <div className="note-paper-shell note-paper-content note-paper-detail">
-      <section className="note-paper-section note-paper-metadata-section min-w-0 !space-y-0">
+      <section className="note-paper-section note-paper-metadata-section min-w-0 !space-y-0 !p-0">
         <NoteDetailHeading
           title={note.title}
           actions={mode === "view" ? modeActions : undefined}

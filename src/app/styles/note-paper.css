@@ -44,6 +44,11 @@
   gap: 0.375rem;
 }
 
+/* The heading owns the divider; keep the idle title control from drawing a second line. */
+.note-paper-editor .note-paper-heading .note-paper-title:not(:focus):not([aria-invalid="true"]) {
+  border-bottom-color: transparent;
+}
+
 .note-paper-kicker {
   margin: 0 0 0.4rem;
   color: var(--paper-accent-deep);

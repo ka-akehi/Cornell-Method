@@ -1,5 +1,6 @@
 "use client";
 
+import type { ReactNode } from "react";
 import type { ApiFieldError } from "@/shared/http/client";
 import {
   fieldError,
@@ -23,6 +24,7 @@ export function NoteEditorMetadataSection({
   fieldErrors,
   onChange,
   onNextReviewDateChange,
+  actions,
 }: {
   shell: boolean;
   title: string;
@@ -35,15 +37,16 @@ export function NoteEditorMetadataSection({
   fieldErrors: ApiFieldError[];
   onChange: (next: Partial<NoteEditorFormState>) => void;
   onNextReviewDateChange: (nextReviewDate: string) => void;
+  actions?: ReactNode;
 }) {
   const sourceTypeFieldError = fieldError(fieldErrors, "sourceType");
   const sourceTitleFieldError = fieldError(fieldErrors, "sourceTitle");
 
   return (
-    <section className="note-paper-section note-paper-metadata-section min-w-0 !space-y-0">
+    <section className="note-paper-section note-paper-metadata-section min-w-0 !space-y-0 !p-0">
       {shell ? (
-        <div className="note-paper-heading !border-b-0">
-          <div className="note-paper-heading-copy w-full">
+        <div className="note-paper-heading">
+          <div className="note-paper-heading-copy min-w-0 flex-1">
             <TitleInput
               id="note-title"
               label="タイトル"
@@ -53,6 +56,7 @@ export function NoteEditorMetadataSection({
               required
             />
           </div>
+          {actions}
         </div>
       ) : (
         <TextInput

@@ -85,7 +85,7 @@ test("editor and detail share metadata and Cornell section spacing", () => {
 
   assert.match(
     metadata,
-    /<section className="note-paper-section note-paper-metadata-section min-w-0 !space-y-0">/,
+    /<section className="note-paper-section note-paper-metadata-section min-w-0 !space-y-0 !p-0">/,
   );
   assert.match(
     editor,
@@ -93,12 +93,16 @@ test("editor and detail share metadata and Cornell section spacing", () => {
   );
   assert.match(
     readView,
-    /<section className="note-paper-section note-paper-metadata-section min-w-0 !space-y-0">[\s\S]*<NoteDetailHeading/,
+    /<section className="note-paper-section note-paper-metadata-section min-w-0 !space-y-0 !p-0">[\s\S]*<NoteDetailHeading/,
   );
   assert.match(detail, /note-paper-metadata-content min-w-0/);
   assert.match(
     metadata,
-    /<div className="note-paper-heading !border-b-0">/,
+    /<div className="note-paper-heading">/,
+  );
+  assert.doesNotMatch(
+    metadata,
+    /note-paper-heading[^>]*!border-b-0/,
   );
   assert.doesNotMatch(
     metadata,
