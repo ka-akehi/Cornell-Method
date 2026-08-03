@@ -53,6 +53,14 @@ export function AppChrome({ children }: AppChromeProps) {
   }, []);
 
   useEffect(() => {
+    const frameId = window.requestAnimationFrame(() => {
+      setIsMobileNavOpen(false);
+    });
+
+    return () => window.cancelAnimationFrame(frameId);
+  }, [pathname]);
+
+  useEffect(() => {
     if (!isMobileNavOpen) {
       return;
     }

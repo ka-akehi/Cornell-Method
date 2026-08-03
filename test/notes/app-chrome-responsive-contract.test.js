@@ -78,6 +78,15 @@ test("AppChrome は desktop rail handle と mobile navigation を分離する", 
     appChrome,
     /setIsMobileNavOpen\(false\)[\s\S]*mobileMenuButtonRef\.current\?\.focus\(\)/,
   );
+  const pathnameChangeEffect = appChrome.match(
+    /useEffect\(\(\) => \{\s*const frameId = window\.requestAnimationFrame\(\(\) => \{\s*setIsMobileNavOpen\(false\);\s*\}\);\s*return \(\) => window\.cancelAnimationFrame\(frameId\);\s*\}, \[pathname\]\);/,
+  );
+  assert.ok(pathnameChangeEffect, "pathname change closes mobile navigation");
+  assert.doesNotMatch(
+    pathnameChangeEffect[0],
+    /closeMobileNav|mobileMenuButtonRef|focus\(\)/,
+    "pathname change does not restore focus through closeMobileNav",
+  );
   assert.match(appChrome, /const \[isRailOpen, setIsRailOpen\] = useState\(true\)/);
   assert.match(
     compact(appChrome),
