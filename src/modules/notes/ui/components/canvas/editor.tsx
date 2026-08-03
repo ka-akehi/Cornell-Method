@@ -307,7 +307,10 @@ export function NoteCanvasEditor({
   const displayedError = canvasError ?? externalError ?? apiError;
 
   return (
-    <div className="note-canvas-editor" aria-label="Canvas本文の編集領域">
+    <div
+      className="note-canvas-editor note-canvas-editor--surface"
+      aria-label="Canvas本文の編集領域"
+    >
       <NoteCanvasToolbar
         tool={tool}
         onToolChange={handleToolChange}

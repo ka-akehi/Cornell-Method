@@ -67,7 +67,7 @@ test("notes list header keeps its heading and create link without redundant copy
       node.openingElement.tagName.getText(source) === "h1",
   );
   assert.equal(headings.length, 1);
-  assert.match(headings[0].getText(source), />ノート一覧<\/h1>/);
+  assert.match(headings[0].getText(source), />\s*ノート一覧\s*<\/h1>/);
 
   const createLinks = findNodes(
     header,

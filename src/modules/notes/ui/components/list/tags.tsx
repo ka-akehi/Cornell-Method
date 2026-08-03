@@ -23,14 +23,14 @@ export function NotesListTags({
     <div className="min-w-0">
       <label
         htmlFor="notes-tag"
-        className="block text-xs font-medium text-stone-500"
+        className="block text-xs font-medium text-[var(--app-muted-ink)]"
       >
         タグ OR 条件
       </label>
       <div className="mt-1 flex flex-wrap gap-2">
         <select
           id="notes-tag"
-          className="min-h-10 min-w-0 flex-1 rounded-md border border-stone-300 bg-white px-3 py-2 text-sm text-stone-900 outline-none focus:border-stone-500 disabled:bg-stone-100"
+          className="min-h-10 min-w-0 flex-1 basis-0 rounded-[0.45rem] border border-[var(--app-line-strong)] bg-[var(--app-paper-surface)] px-3 py-2 text-sm text-[var(--app-ink)] focus-visible:border-[var(--app-focus)] focus-visible:outline-2 focus-visible:outline-[var(--app-focus)] focus-visible:outline-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
           value={tagToAdd}
           onChange={(event) => onTagToAddChange(event.target.value)}
           disabled={tagsLoading || availableTags.length === 0}
@@ -46,7 +46,7 @@ export function NotesListTags({
         </select>
         <button
           type="button"
-          className="min-h-10 rounded-md border border-stone-300 px-3 py-2 text-sm font-medium text-stone-700 hover:bg-stone-50 disabled:cursor-not-allowed disabled:text-stone-400"
+          className="min-h-10 shrink-0 rounded-[0.45rem] border border-[var(--app-line-strong)] bg-[var(--app-surface)] px-3 py-2 text-sm font-medium text-[var(--app-ink)] transition-colors hover:border-[var(--app-accent)] hover:bg-[var(--app-accent-soft)] hover:text-[var(--app-accent-deep)] focus-visible:outline-2 focus-visible:outline-[var(--app-focus)] focus-visible:outline-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
           onClick={onAddTag}
           disabled={!tagToAdd || selectedTags.includes(tagToAdd)}
         >
@@ -59,7 +59,8 @@ export function NotesListTags({
             <button
               key={name}
               type="button"
-              className="max-w-full rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-medium text-amber-800 hover:bg-amber-100"
+              aria-label={`${name} を条件から外す`}
+              className="inline-flex max-w-full items-center rounded-full border border-[var(--app-accent)] bg-[var(--app-accent-soft)] px-3 py-1 text-xs font-medium text-[var(--app-accent-deep)] transition-colors hover:bg-[var(--app-surface)] focus-visible:outline-2 focus-visible:outline-[var(--app-focus)] focus-visible:outline-offset-2"
               onClick={() => onRemoveTag(name)}
               title={`${name} を条件から外す`}
             >

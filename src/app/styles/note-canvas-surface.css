@@ -1,13 +1,17 @@
 .note-canvas-viewport {
+  box-sizing: border-box;
   width: 100%;
   max-width: 100%;
   min-width: 0;
+  border: 1px solid var(--app-line);
+  border-radius: 0.65rem;
   overflow: visible;
   overflow-anchor: none;
   overscroll-behavior: auto;
   scroll-behavior: auto;
-  background: #e4e2da;
-  padding: 0.7rem;
+  background: var(--app-surface);
+  padding: clamp(0.5rem, 1vw, 0.75rem);
+  box-shadow: 0 2px 8px rgb(79 65 45 / 6%);
 }
 
 .note-canvas-viewport--scrollable {
@@ -17,6 +21,7 @@
 }
 
 .note-canvas-horizontal-scroll {
+  box-sizing: border-box;
   width: 100%;
   max-width: 100%;
   min-width: 0;
@@ -39,10 +44,12 @@
 .note-canvas-stage {
   position: relative;
   flex: 0 0 auto;
+  max-width: none;
   overflow: hidden;
-  border: 1px solid rgb(112 113 104 / 28%);
-  background: var(--paper);
-  box-shadow: 0 5px 16px rgb(47 54 49 / 10%);
+  border: 1px solid var(--app-line-strong);
+  border-radius: 0.3rem;
+  background: var(--app-paper-surface);
+  box-shadow: 0 4px 12px rgb(79 65 45 / 8%);
 }
 
 .note-canvas-stage .canvas-container {
@@ -96,8 +103,14 @@
 }
 
 @media (max-width: 640px) {
+  .note-canvas-editor--surface {
+    gap: 0.5rem;
+    padding: 0.5rem;
+  }
+
   .note-canvas-viewport--scrollable {
     overflow: visible;
     overscroll-behavior: auto;
+    padding: 0.5rem;
   }
 }

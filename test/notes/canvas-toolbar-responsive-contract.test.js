@@ -45,6 +45,14 @@ test("Canvas drawing rail keeps visible labels inside its local scroll region", 
   );
   assert.match(
     styles,
+    /\.note-canvas-toolbar-drawing-rail-inner\s*\{[\s\S]*?width: max-content;[\s\S]*?flex: 0 0 auto;/,
+  );
+  assert.match(
+    styles,
+    /\.note-canvas-toolbar-drawing-rail-inner\s*>\s*\.note-canvas-toolbar-group\s*\{[\s\S]*?flex: 0 0 auto;[\s\S]*?min-width: max-content;[\s\S]*?flex-wrap: nowrap;/,
+  );
+  assert.match(
+    styles,
     /\.note-canvas-toolbar-drawing-rail \.note-canvas-tool-button\s*\{[\s\S]*?flex: 0 0 auto;/,
   );
   assert.match(
@@ -60,9 +68,13 @@ test("Canvas drawing rail keeps visible labels inside its local scroll region", 
 });
 
 test("Drawing tools render visible labels and retain accessible names", () => {
+  const toolbar = readSource(
+    "src/modules/notes/ui/components/canvas/toolbar.tsx",
+  );
   const actions = readSource(
     "src/modules/notes/ui/components/canvas/toolbar-actions.tsx",
   );
+  const styles = readSource("src/app/styles/note-canvas-toolbar.css");
   const definitions = readSource(
     "src/modules/notes/ui/canvas/canvas-toolbar-definitions.ts",
   );
@@ -72,9 +84,40 @@ test("Drawing tools render visible labels and retain accessible names", () => {
   assert.match(actions, /title=\{item\.description\}/);
   assert.match(actions, /className="note-canvas-tool-label">\{item\.label\}<\/span>/);
   assert.match(actions, /showTooltip\?: boolean/);
+  assert.match(toolbar, /tooltipMode="floating"/);
+  assert.doesNotMatch(toolbar, /showTooltip=\{false\}/);
+  assert.match(actions, /createPortal/);
+  assert.match(actions, /onMouseEnter/);
+  assert.match(actions, /onFocus/);
+  assert.match(actions, /anchor: HTMLButtonElement/);
+  assert.match(actions, /const anchorRect = anchor\.getBoundingClientRect\(\)/);
+  assert.doesNotMatch(actions, /group\.getBoundingClientRect\(\)/);
+  assert.match(
+    styles,
+    /\.note-canvas-toolbar-tooltip--floating\s*\{[\s\S]*?position: fixed;[\s\S]*?max-width: min\(19rem, calc\(100vw - 1\.5rem\)\);[\s\S]*?overflow: hidden;/,
+  );
+  assert.match(styles, /\.note-canvas-toolbar-tooltip--floating\[data-positioned="true"\]/);
   assert.match(definitions, /description: "自由線を描く/);
   assert.match(definitions, /description: "空白からドラッグして直線を描く/);
   for (const label of ["ペン", "直線", "矢印", "四角", "円", "文字"]) {
     assert.match(definitions, new RegExp(`label: "${label}"`));
   }
+});
+
+test("Wrapped toolbar groups keep control hit areas intrinsic", () => {
+  const styles = readSource("src/app/styles/note-canvas-toolbar.css");
+
+  assert.match(
+    styles,
+    /\.note-canvas-toolbar-group--style > \.note-canvas-style-field,[\s\S]*?\.note-canvas-toolbar-group--style > \.note-canvas-style-alignment\s*\{[\s\S]*?flex: 0 0 auto;[\s\S]*?min-width: max-content;/,
+  );
+  assert.match(
+    styles,
+    /\.note-canvas-style-alignment > \.note-canvas-alignment-button\s*\{[\s\S]*?flex: 0 0 auto;/,
+  );
+  assert.match(
+    styles,
+    /\.note-canvas-toolbar-group--erase \.note-canvas-tool-button,[\s\S]*?\.note-canvas-toolbar-group--history \.note-canvas-toolbar-action\s*\{[\s\S]*?flex: 0 0 auto;[\s\S]*?width: auto;[\s\S]*?min-width: 2\.75rem;/,
+  );
+  assert.doesNotMatch(styles, /flex: 1 1 0;/);
 });

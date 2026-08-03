@@ -42,25 +42,25 @@ export function NoteCanvasToolbar({
             group={getToolGroup("draw")}
             tool={tool}
             onToolChange={onToolChange}
-            showTooltip={false}
+            tooltipMode="floating"
           />
           <CanvasToolGroup
             group={getToolGroup("line")}
             tool={tool}
             onToolChange={onToolChange}
-            showTooltip={false}
+            tooltipMode="floating"
           />
           <CanvasToolGroup
             group={getToolGroup("shape")}
             tool={tool}
             onToolChange={onToolChange}
-            showTooltip={false}
+            tooltipMode="floating"
           />
           <CanvasToolGroup
             group={getToolGroup("text")}
             tool={tool}
             onToolChange={onToolChange}
-            showTooltip={false}
+            tooltipMode="floating"
           />
         </div>
       </div>

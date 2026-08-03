@@ -62,7 +62,7 @@ export function NoteDetailReadView({
         </div>
       )}
 
-      <div className="note-paper-cornell-grid grid min-w-0 gap-0 lg:grid-cols-[minmax(0,3fr)_minmax(0,7fr)]">
+      <div className="note-paper-cornell-grid grid w-full min-w-0 gap-0 lg:grid-cols-[minmax(0,3fr)_minmax(0,7fr)]">
         <NoteDetailSection title="Cue / キーワード">
           <NoteDetailCueList cues={note.cues} />
         </NoteDetailSection>

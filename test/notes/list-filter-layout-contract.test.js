@@ -121,10 +121,10 @@ test("desktop review filter stays aligned to the tag operation row when chips gr
   assert.match(reviewToggle.getText(filters), /復習対象のみ/);
   assert.doesNotMatch(reviewToggle.getText(filters), /["'](?:ON|OFF)["']/);
   assert.doesNotMatch(reviewToggle.getText(filters), /reviewDue\s*\?/);
-  assert.ok(reviewClasses.has("border-stone-300"));
-  assert.ok(reviewClasses.has("bg-white"));
-  assert.ok(reviewClasses.has("aria-pressed:border-amber-400"));
-  assert.ok(reviewClasses.has("aria-pressed:bg-amber-50"));
+  assert.ok(reviewClasses.has("border-[var(--app-line-strong)]"));
+  assert.ok(reviewClasses.has("bg-[var(--app-surface)]"));
+  assert.ok(reviewClasses.has("aria-pressed:border-[var(--app-accent)]"));
+  assert.ok(reviewClasses.has("aria-pressed:bg-[var(--app-accent-soft)]"));
 
   const tagSelect = findNode(
     tags,

@@ -18,17 +18,22 @@ export default async function NoteDetailPage({
 
   if (!notebook) {
     return (
-      <div className="mx-auto max-w-3xl rounded-lg border border-red-200 bg-red-50 p-6">
-        <h1 className="text-lg font-semibold text-red-900">ノートが見つかりません</h1>
-        <p className="mt-2 text-sm leading-6 text-red-700">
-          指定されたノートは削除されたか、取得に失敗しました。
-        </p>
-        <Link
-          href="/notes"
-          className="mt-4 inline-flex rounded-lg border border-red-200 bg-white px-4 py-2 text-sm font-medium text-red-700 transition hover:bg-red-100"
-        >
-          一覧へ戻る
-        </Link>
+      <div className="note-paper-page">
+        <section className="note-paper-shell note-paper-content note-paper-detail">
+          <div className="note-paper-section min-w-0 !border-t-0 !pt-0">
+            <p className="note-paper-kicker">ノート詳細</p>
+            <h1 className="note-paper-title text-2xl">ノートが見つかりません</h1>
+            <p className="mt-3 max-w-2xl text-sm leading-6 text-[color:var(--app-muted-ink)]">
+              指定されたノートは削除されたか、取得に失敗しました。
+            </p>
+            <Link
+              href="/notes"
+              className="mt-5 inline-flex rounded-lg border border-stone-300 px-4 py-2 text-sm font-medium text-stone-700 transition hover:bg-stone-50/60"
+            >
+              一覧へ戻る
+            </Link>
+          </div>
+        </section>
       </div>
     );
   }

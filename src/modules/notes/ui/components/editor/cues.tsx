@@ -47,7 +47,7 @@ export function NoteEditorCueSection({
                   <div className="flex min-w-0 items-start gap-3">
                     <span
                       aria-hidden="true"
-                      className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[color:var(--chrome)] text-xs font-bold text-[color:var(--chrome-foreground)]"
+                      className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[color:var(--app-accent)] text-xs font-bold text-[color:var(--app-paper-surface)]"
                     >
                       {index + 1}
                     </span>

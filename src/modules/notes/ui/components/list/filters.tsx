@@ -51,19 +51,19 @@ export function NotesListFilters({
       role="search"
       aria-label="ノート検索"
       onSubmit={onSubmit}
-      className="space-y-4 rounded-lg border border-stone-200 bg-white p-4 shadow-sm"
+      className="min-w-0 space-y-4 rounded-[0.55rem] border border-[var(--app-line)] bg-[var(--app-surface)] p-4"
     >
       <div className="grid gap-3 lg:grid-cols-[minmax(220px,1fr)_160px_160px_auto]">
         <div className="min-w-0">
           <label
             htmlFor="notes-query"
-            className="block text-xs font-medium text-stone-500"
+            className="block text-xs font-medium text-[var(--app-muted-ink)]"
           >
             フリーワード
           </label>
           <input
             id="notes-query"
-            className="mt-1 w-full rounded-md border border-stone-300 px-3 py-2 text-sm text-stone-900 outline-none focus:border-stone-500"
+            className="mt-1 min-h-10 w-full rounded-[0.45rem] border border-[var(--app-line-strong)] bg-[var(--app-paper-surface)] px-3 py-2 text-sm text-[var(--app-ink)] placeholder:text-[var(--app-muted-ink)] focus-visible:border-[var(--app-focus)] focus-visible:outline-2 focus-visible:outline-[var(--app-focus)] focus-visible:outline-offset-2"
             value={query}
             onChange={(event) => onQueryChange(event.target.value)}
             placeholder="タイトル、本文、Cue"
@@ -73,14 +73,14 @@ export function NotesListFilters({
         <div>
           <label
             htmlFor="notes-from"
-            className="block text-xs font-medium text-stone-500"
+            className="block text-xs font-medium text-[var(--app-muted-ink)]"
           >
             From
           </label>
           <input
             id="notes-from"
             type="date"
-            className="mt-1 w-full rounded-md border border-stone-300 px-3 py-2 text-sm text-stone-900 outline-none focus:border-stone-500"
+            className="mt-1 min-h-10 w-full rounded-[0.45rem] border border-[var(--app-line-strong)] bg-[var(--app-paper-surface)] px-3 py-2 text-sm text-[var(--app-ink)] focus-visible:border-[var(--app-focus)] focus-visible:outline-2 focus-visible:outline-[var(--app-focus)] focus-visible:outline-offset-2"
             value={from}
             onBlur={onDateBlur}
             onChange={(event) => onFromChange(event.target.value)}
@@ -90,14 +90,14 @@ export function NotesListFilters({
         <div>
           <label
             htmlFor="notes-to"
-            className="block text-xs font-medium text-stone-500"
+            className="block text-xs font-medium text-[var(--app-muted-ink)]"
           >
             To
           </label>
           <input
             id="notes-to"
             type="date"
-            className="mt-1 w-full rounded-md border border-stone-300 px-3 py-2 text-sm text-stone-900 outline-none focus:border-stone-500"
+            className="mt-1 min-h-10 w-full rounded-[0.45rem] border border-[var(--app-line-strong)] bg-[var(--app-paper-surface)] px-3 py-2 text-sm text-[var(--app-ink)] focus-visible:border-[var(--app-focus)] focus-visible:outline-2 focus-visible:outline-[var(--app-focus)] focus-visible:outline-offset-2"
             value={to}
             onBlur={onDateBlur}
             onChange={(event) => onToChange(event.target.value)}
@@ -107,7 +107,7 @@ export function NotesListFilters({
         <div className="flex items-end lg:justify-end">
           <button
             type="button"
-            className="min-h-10 rounded-md border border-stone-300 px-3 py-2 text-sm font-medium text-stone-700 hover:bg-stone-50"
+            className="min-h-10 rounded-[0.45rem] border border-[var(--app-line-strong)] bg-[var(--app-surface)] px-3 py-2 text-sm font-medium text-[var(--app-ink)] transition-colors hover:border-[var(--app-accent)] hover:bg-[var(--app-accent-soft)] hover:text-[var(--app-accent-deep)] focus-visible:outline-2 focus-visible:outline-[var(--app-focus)] focus-visible:outline-offset-2"
             onClick={onReset}
           >
             クリア
@@ -129,7 +129,7 @@ export function NotesListFilters({
         <button
           type="button"
           aria-pressed={reviewDue}
-          className="flex min-h-10 items-center self-start rounded-md border border-stone-300 bg-white px-3 py-2 text-sm font-medium text-stone-700 hover:bg-stone-50 aria-pressed:border-amber-400 aria-pressed:bg-amber-50 aria-pressed:text-amber-900 aria-pressed:hover:bg-amber-100 lg:mt-5"
+          className="flex min-h-10 items-center self-start rounded-[0.45rem] border border-[var(--app-line-strong)] bg-[var(--app-surface)] px-3 py-2 text-sm font-medium text-[var(--app-ink)] transition-colors hover:border-[var(--app-accent)] hover:bg-[var(--app-accent-soft)] hover:text-[var(--app-accent-deep)] aria-pressed:border-[var(--app-accent)] aria-pressed:bg-[var(--app-accent-soft)] aria-pressed:text-[var(--app-accent-deep)] focus-visible:outline-2 focus-visible:outline-[var(--app-focus)] focus-visible:outline-offset-2 lg:mt-5"
           onClick={() => onReviewDueChange(!reviewDue)}
         >
           <span>復習対象のみ</span>
@@ -137,7 +137,13 @@ export function NotesListFilters({
       </div>
 
       {dateError && (
-        <p className="text-sm font-medium text-red-600">{dateError}</p>
+        <p
+          id="notes-date-error"
+          role="alert"
+          className="text-sm font-medium text-[var(--paper-danger)]"
+        >
+          {dateError}
+        </p>
       )}
     </form>
   );

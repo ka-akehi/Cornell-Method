@@ -89,27 +89,29 @@ export function BackupPage() {
   const isEmpty = !loading && backups.length === 0;
 
   return (
-    <div className="space-y-5">
-      <div className="app-page-header flex flex-wrap items-start justify-between gap-3 border-b border-border pb-4">
-        <div className="min-w-0 space-y-1">
-          <p className="text-sm font-medium text-muted-foreground">Backup</p>
-          <h1 className="text-2xl font-semibold text-foreground">
+    <div className="space-y-6">
+      <div className="app-page-header flex flex-col gap-4 border-b border-[var(--app-line)] pb-5 sm:flex-row sm:items-end sm:justify-between">
+        <div className="min-w-0 space-y-1.5">
+          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--app-accent-deep)]">
+            Backup
+          </p>
+          <h1 className="text-2xl font-semibold text-[var(--app-ink)]">
             バックアップ
           </h1>
-          <p className="max-w-2xl text-sm leading-6 text-muted-foreground">
+          <p className="max-w-2xl text-sm leading-6 text-[var(--app-muted-ink)]">
             SQLite DB の手動バックアップを作成し、最新バックアップを確認します。
           </p>
         </div>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:flex-wrap">
           <Link
             href="/notes"
-            className="inline-flex min-h-10 items-center rounded-md border border-border bg-surface px-3 py-2 text-sm font-medium text-foreground transition hover:bg-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-500"
+            className="inline-flex min-h-10 w-full items-center justify-center rounded-md border border-[var(--app-line)] bg-[var(--app-surface)] px-3 py-2 text-sm font-medium text-[var(--app-ink)] transition hover:bg-[var(--app-accent-soft)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--app-focus)] sm:w-auto"
           >
             ノート一覧へ
           </Link>
           <button
             type="button"
-            className="inline-flex min-h-10 items-center rounded-md bg-amber-500 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-amber-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-500 disabled:cursor-not-allowed disabled:bg-stone-300"
+            className="inline-flex min-h-10 w-full items-center justify-center rounded-md border border-[var(--app-accent)] bg-[var(--app-accent)] px-4 py-2 text-sm font-semibold text-[var(--app-paper-surface)] shadow-sm transition hover:border-[var(--app-accent-deep)] hover:bg-[var(--app-accent-deep)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--app-focus)] disabled:cursor-not-allowed disabled:border-[var(--app-line)] disabled:bg-[var(--app-line)] disabled:text-[var(--app-muted-ink)] sm:w-auto"
             onClick={handleCreateBackup}
             disabled={creating || loading}
           >
@@ -119,30 +121,36 @@ export function BackupPage() {
       </div>
 
       {success && (
-        <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-700">
+        <div
+          role="status"
+          className="rounded-md border border-[var(--app-line)] border-l-2 border-l-[var(--app-accent)] bg-[var(--app-surface)] px-3 py-2 text-sm font-medium text-[var(--app-accent-deep)]"
+        >
           {success}
         </div>
       )}
 
       {error && (
-        <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-700">
+        <div
+          role="alert"
+          className="rounded-md border border-[var(--app-line)] border-l-2 border-l-[var(--paper-danger)] bg-[var(--app-surface)] px-3 py-2 text-sm font-medium text-[var(--paper-danger)]"
+        >
           {error}
         </div>
       )}
 
-      <section className="rounded-lg border border-border bg-surface shadow-sm">
-        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-4 py-3">
+      <section className="rounded-md border border-[var(--app-line)] bg-[var(--app-paper-surface)]">
+        <div className="flex flex-col gap-3 border-b border-[var(--app-line)] px-4 py-3.5 sm:flex-row sm:items-center sm:justify-between sm:px-5">
           <div className="min-w-0">
-            <h2 className="text-sm font-semibold text-foreground">
+            <h2 className="text-sm font-semibold text-[var(--app-ink)]">
               最新バックアップ
             </h2>
-            <p className="mt-1 text-xs text-muted-foreground">
+            <p className="mt-1 text-xs text-[var(--app-muted-ink)]">
               最新3世代を保持します。
             </p>
           </div>
           <button
             type="button"
-            className="rounded-md border border-border px-3 py-2 text-sm font-medium text-foreground transition hover:bg-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-500 disabled:cursor-not-allowed disabled:text-muted-foreground"
+            className="inline-flex min-h-10 w-full items-center justify-center rounded-md border border-[var(--app-line)] bg-[var(--app-surface)] px-3 py-2 text-sm font-medium text-[var(--app-ink)] transition hover:border-[var(--app-line-strong)] hover:bg-[var(--app-accent-soft)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--app-focus)] disabled:cursor-not-allowed disabled:text-[var(--app-muted-ink)] sm:w-auto"
             onClick={() => void loadBackups()}
             disabled={loading || creating}
           >
@@ -151,36 +159,36 @@ export function BackupPage() {
         </div>
 
         {loading && (
-          <div className="px-4 py-8 text-sm text-muted-foreground">
+          <div className="px-4 py-8 text-sm text-[var(--app-muted-ink)] sm:px-5">
             バックアップ一覧を読み込み中...
           </div>
         )}
 
         {isEmpty && (
-          <div className="px-4 py-10 text-center">
-            <p className="text-sm font-medium text-foreground">
+          <div className="px-4 py-10 text-center sm:px-5">
+            <p className="text-sm font-medium text-[var(--app-ink)]">
               バックアップはまだありません。
             </p>
-            <p className="mt-1 text-sm text-muted-foreground">
+            <p className="mt-1 text-sm text-[var(--app-muted-ink)]">
               バックアップ作成から現在の SQLite DB を保存できます。
             </p>
           </div>
         )}
 
         {!loading && backups.length > 0 && (
-          <div className="divide-y divide-border">
+          <div className="divide-y divide-[var(--app-line)]">
             {backups.map((backup) => (
-              <article key={backup.file} className="min-w-0 px-4 py-4">
-                <div className="flex flex-wrap items-start justify-between gap-3">
+              <article key={backup.file} className="min-w-0 px-4 py-4 sm:px-5">
+                <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
                   <div className="min-w-0">
-                    <h3 className="truncate text-sm font-semibold text-foreground">
+                    <h3 className="break-all text-sm font-semibold text-[var(--app-ink)]">
                       {backup.file}
                     </h3>
-                    <p className="mt-1 break-all text-xs leading-5 text-muted-foreground">
+                    <p className="mt-1 break-all text-xs leading-5 text-[var(--app-muted-ink)]">
                       {backup.path}
                     </p>
                   </div>
-                  <p className="shrink-0 text-sm font-medium text-muted-foreground">
+                  <p className="shrink-0 whitespace-nowrap text-sm font-medium text-[var(--app-muted-ink)] sm:text-right">
                     {formatCreatedAt(backup.createdAt)}
                   </p>
                 </div>
