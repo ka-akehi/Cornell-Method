@@ -254,7 +254,7 @@ export function NotesList() {
         </div>
         <Link
           href="/notes/new"
-          className="inline-flex min-h-10 w-full shrink-0 items-center justify-center rounded-[0.55rem] border border-[var(--app-accent)] bg-[var(--app-accent)] px-4 py-2 text-sm font-semibold text-[var(--app-surface)] transition-colors hover:border-[var(--app-accent-deep)] hover:bg-[var(--app-accent-deep)] focus-visible:outline-2 focus-visible:outline-[var(--app-focus)] focus-visible:outline-offset-2 sm:w-auto"
+          className="inline-flex min-h-10 w-full shrink-0 items-center justify-center rounded-[0.55rem] border border-[var(--app-accent-deep)] bg-[var(--app-accent-deep)] px-4 py-2 text-sm font-semibold text-[var(--app-surface)] transition-colors hover:border-[var(--app-accent-deep)] hover:bg-[var(--app-accent-deep)] focus-visible:outline-2 focus-visible:outline-[var(--app-focus)] focus-visible:outline-offset-2 sm:w-auto"
         >
           新規作成
         </Link>

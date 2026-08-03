@@ -223,6 +223,10 @@ test("共通 AppChrome は canonical route と main landmark を共有する", (
   );
   assert.match(
     appShell,
+    /\.app-chrome-create-link:hover,[\s\S]*background: var\(--app-accent-deep\);[\s\S]*color: #fffaf1;/,
+  );
+  assert.match(
+    appShell,
     /\.app-main\s*\{[\s\S]*padding: clamp\(0\.75rem, 1\.75vw, 1\.25rem\) clamp\(0\.625rem, 2vw, 1\.5rem\);/,
   );
   assert.match(

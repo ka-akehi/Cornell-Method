@@ -26,7 +26,7 @@ test("backup page uses the AppChrome visual tokens and thin paper dividers", () 
   assert.match(page, /bg-\[var\(--app-surface\)\]/);
   assert.match(page, /bg-\[var\(--app-paper-surface\)\]/);
   assert.match(page, /border-\[var\(--app-line\)\]/);
-  assert.match(page, /bg-\[var\(--app-accent\)\]/);
+  assert.match(page, /bg-\[var\(--app-accent-deep\)\]/);
   assert.match(page, /focus-visible:outline-\[var\(--app-focus\)\]/);
   assert.match(page, /divide-y divide-\[var\(--app-line\)\]/);
   assert.match(

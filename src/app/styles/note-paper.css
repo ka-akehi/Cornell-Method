@@ -295,8 +295,8 @@
 }
 
 .note-paper-footer button[type="submit"]:not(:disabled) {
-  border-color: var(--app-accent);
-  background-color: var(--app-accent);
+  border-color: var(--app-accent-deep);
+  background-color: var(--app-accent-deep);
   color: #fff8eb;
 }
 

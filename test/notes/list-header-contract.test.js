@@ -78,4 +78,10 @@ test("notes list header keeps its heading and create link without redundant copy
   );
   assert.equal(createLinks.length, 1);
   assert.match(createLinks[0].getText(source), />\s*新規作成\s*<\/Link>/);
+  const createLinkClass = getStringAttribute(
+    createLinks[0].openingElement,
+    "className",
+  );
+  assert.match(createLinkClass, /bg-\[var\(--app-accent-deep\)\]/);
+  assert.match(createLinkClass, /text-\[var\(--app-surface\)\]/);
 });

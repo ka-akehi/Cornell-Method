@@ -35,6 +35,12 @@ test("notes list uses the app warm surface, ink, line, accent, and focus tokens"
   }
 
   assert.doesNotMatch(combined, /\b(?:bg|border|text)-(?:white|stone)(?:\b|[-:])/);
+
+  const list = readSource(listFiles[0]);
+  assert.match(
+    list,
+    /bg-\[var\(--app-accent-deep\)\][\s\S]*text-\[var\(--app-surface\)\]/,
+  );
 });
 
 test("notes list keeps responsive wrapping and visible focus affordances", () => {

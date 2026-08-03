@@ -224,7 +224,7 @@
 .app-chrome-create-link:hover,
 .app-chrome-create-link.is-selected,
 .app-chrome-create-link[aria-current="page"] {
-  background: var(--app-accent);
+  background: var(--app-accent-deep);
   color: #fffaf1;
 }
 

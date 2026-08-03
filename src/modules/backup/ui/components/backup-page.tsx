@@ -111,7 +111,7 @@ export function BackupPage() {
           </Link>
           <button
             type="button"
-            className="inline-flex min-h-10 w-full items-center justify-center rounded-md border border-[var(--app-accent)] bg-[var(--app-accent)] px-4 py-2 text-sm font-semibold text-[var(--app-paper-surface)] shadow-sm transition hover:border-[var(--app-accent-deep)] hover:bg-[var(--app-accent-deep)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--app-focus)] disabled:cursor-not-allowed disabled:border-[var(--app-line)] disabled:bg-[var(--app-line)] disabled:text-[var(--app-muted-ink)] sm:w-auto"
+            className="inline-flex min-h-10 w-full items-center justify-center rounded-md border border-[var(--app-accent-deep)] bg-[var(--app-accent-deep)] px-4 py-2 text-sm font-semibold text-[var(--app-paper-surface)] shadow-sm transition hover:border-[var(--app-accent-deep)] hover:bg-[var(--app-accent-deep)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--app-focus)] disabled:cursor-not-allowed disabled:border-[var(--app-line)] disabled:bg-[var(--app-line)] disabled:text-[var(--app-muted-ink)] sm:w-auto"
             onClick={handleCreateBackup}
             disabled={creating || loading}
           >

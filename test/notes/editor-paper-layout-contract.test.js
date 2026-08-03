@@ -48,7 +48,7 @@ test("editor and create route use the shared note paper hierarchy", () => {
   assert.match(editor, /bodyMode === "canvas"[\s\S]*note-paper-cornell-grid--editor-canvas/);
   assert.match(cues, /className="note-paper-cue-column/);
   assert.match(cues, /className="note-paper-cue-list"/);
-  assert.match(cues, /bg-\[color:var\(--app-accent\)\]/);
+  assert.match(cues, /bg-\[color:var\(--app-accent-deep\)\]/);
   assert.doesNotMatch(cues, /var\(--chrome(?:-foreground)?\)/);
   assert.match(body, /note-paper-body-column\$\{bodyMode === "canvas"/);
   assert.match(body, /<NoteCanvasEditor[\s\S]*onDocumentChange=\{onCanvasDocumentChange\}/);
