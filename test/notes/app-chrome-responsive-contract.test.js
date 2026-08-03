@@ -62,6 +62,10 @@ test("AppChrome は desktop rail handle と mobile navigation を分離する", 
   );
   assert.match(
     appShell,
+    /\.app-chrome-shell\.is-rail-collapsed\s+\.app-chrome-rail-handle\s*\{[\s\S]*transform:\s*translateX\(100%\);/,
+  );
+  assert.match(
+    appShell,
     /\.app-chrome-rail-handle:focus-visible,[\s\S]*outline:\s*2px solid var\(--app-focus\)[\s\S]*outline-offset:\s*3px;/,
   );
   assert.match(

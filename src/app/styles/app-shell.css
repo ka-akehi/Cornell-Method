@@ -61,6 +61,10 @@
   transform: translateX(50%);
 }
 
+.app-chrome-shell.is-rail-collapsed .app-chrome-rail-handle {
+  transform: translateX(100%);
+}
+
 .app-chrome-rail-handle:hover {
   border-color: var(--app-accent);
   color: var(--app-accent-deep);
