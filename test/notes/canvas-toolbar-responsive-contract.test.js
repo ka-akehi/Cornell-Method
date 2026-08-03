@@ -10,6 +10,16 @@ function readSource(relativePath) {
   return fs.readFileSync(path.join(projectRoot, relativePath), "utf8");
 }
 
+const toolbarStyleFiles = [
+  "src/app/styles/note-canvas-toolbar-layout.css",
+  "src/app/styles/note-canvas-toolbar-controls.css",
+  "src/app/styles/note-canvas-toolbar-responsive.css",
+];
+
+function readToolbarStyles() {
+  return toolbarStyleFiles.map(readSource).join("\n");
+}
+
 function readCssRuleBody(styles, selector) {
   const escapedSelector = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const match = styles.match(
@@ -21,7 +31,7 @@ function readCssRuleBody(styles, selector) {
 }
 
 test("Canvas drawing rail keeps visible labels inside its local scroll region", () => {
-  const styles = readSource("src/app/styles/note-canvas-toolbar.css");
+  const styles = readToolbarStyles();
   const drawingToolButtonStyles = readCssRuleBody(
     styles,
     ".note-canvas-toolbar-drawing-rail .note-canvas-tool-button",
@@ -74,7 +84,10 @@ test("Drawing tools render visible labels and retain accessible names", () => {
   const actions = readSource(
     "src/modules/notes/ui/components/canvas/toolbar-actions.tsx",
   );
-  const styles = readSource("src/app/styles/note-canvas-toolbar.css");
+  const floatingTooltip = readSource(
+    "src/modules/notes/ui/components/canvas/toolbar-floating-tooltip.tsx",
+  );
+  const styles = readToolbarStyles();
   const definitions = readSource(
     "src/modules/notes/ui/canvas/canvas-toolbar-definitions.ts",
   );
@@ -86,12 +99,15 @@ test("Drawing tools render visible labels and retain accessible names", () => {
   assert.match(actions, /showTooltip\?: boolean/);
   assert.match(toolbar, /tooltipMode="floating"/);
   assert.doesNotMatch(toolbar, /showTooltip=\{false\}/);
-  assert.match(actions, /createPortal/);
+  assert.match(floatingTooltip, /createPortal/);
   assert.match(actions, /onMouseEnter/);
   assert.match(actions, /onFocus/);
-  assert.match(actions, /anchor: HTMLButtonElement/);
-  assert.match(actions, /const anchorRect = anchor\.getBoundingClientRect\(\)/);
-  assert.doesNotMatch(actions, /group\.getBoundingClientRect\(\)/);
+  assert.match(floatingTooltip, /anchor: HTMLButtonElement/);
+  assert.match(
+    floatingTooltip,
+    /const anchorRect = anchor\.getBoundingClientRect\(\)/,
+  );
+  assert.doesNotMatch(floatingTooltip, /group\.getBoundingClientRect\(\)/);
   assert.match(
     styles,
     /\.note-canvas-toolbar-tooltip--floating\s*\{[\s\S]*?position: fixed;[\s\S]*?max-width: min\(19rem, calc\(100vw - 1\.5rem\)\);[\s\S]*?overflow: hidden;/,
@@ -104,8 +120,17 @@ test("Drawing tools render visible labels and retain accessible names", () => {
   }
 });
 
+test("Canvas toolbar CSS imports preserve layout, controls, and responsive cascade order", () => {
+  const globals = readSource("src/app/globals.css");
+
+  assert.match(
+    globals,
+    /@import "\.\/styles\/note-canvas-toolbar-layout\.css";[\s\S]*@import "\.\/styles\/note-canvas-toolbar-controls\.css";[\s\S]*@import "\.\/styles\/note-canvas-toolbar-responsive\.css";/,
+  );
+});
+
 test("Wrapped toolbar groups keep control hit areas intrinsic", () => {
-  const styles = readSource("src/app/styles/note-canvas-toolbar.css");
+  const styles = readToolbarStyles();
 
   assert.match(
     styles,

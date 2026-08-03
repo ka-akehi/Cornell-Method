@@ -10,12 +10,25 @@ function readSource(relativePath) {
   return fs.readFileSync(path.join(projectRoot, relativePath), "utf8");
 }
 
+const toolbarStyleFiles = [
+  "src/app/styles/note-canvas-toolbar-layout.css",
+  "src/app/styles/note-canvas-toolbar-controls.css",
+  "src/app/styles/note-canvas-toolbar-responsive.css",
+];
+
+function readToolbarStyles() {
+  return toolbarStyleFiles.map(readSource).join("\n");
+}
+
 test("Canvas toolbar keeps select internal and removes its visible operation group", () => {
   const toolbar = readSource(
     "src/modules/notes/ui/components/canvas/toolbar.tsx",
   );
   const actions = readSource(
     "src/modules/notes/ui/components/canvas/toolbar-actions.tsx",
+  );
+  const history = readSource(
+    "src/modules/notes/ui/components/canvas/toolbar-history-actions.tsx",
   );
   const definitions = readSource(
     "src/modules/notes/ui/canvas/canvas-toolbar-definitions.ts",
@@ -37,10 +50,12 @@ test("Canvas toolbar keeps select internal and removes its visible operation gro
     runtime,
     /selectable: (?:currentTool|tool) === "select", evented: true/,
   );
+  assert.match(history, /disabled=\{!canUndo\}/);
+  assert.match(history, /disabled=\{!canRedo\}/);
 });
 
 test("Canvas toolbar layout gives drawing tools a full row and preserves local rail scrolling", () => {
-  const styles = readSource("src/app/styles/note-canvas-toolbar.css");
+  const styles = readToolbarStyles();
 
   assert.doesNotMatch(styles, /operation/);
   assert.match(styles, /"drawing style erase history"/);

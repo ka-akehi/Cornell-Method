@@ -4,7 +4,8 @@ import {
   findToolDefinition,
   getToolGroup,
 } from "@/modules/notes/ui/canvas";
-import { CanvasHistoryActions, CanvasToolGroup } from "./toolbar-actions";
+import { CanvasToolGroup } from "./toolbar-actions";
+import { CanvasHistoryActions } from "./toolbar-history-actions";
 import { CanvasPaperSizeControls } from "./toolbar-paper-controls";
 import { CanvasStyleControls } from "./toolbar-style-controls";
 import type { NoteCanvasToolbarProps } from "@/modules/notes/ui/canvas";

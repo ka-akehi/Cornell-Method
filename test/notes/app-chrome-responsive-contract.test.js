@@ -16,7 +16,21 @@ function compact(source) {
 
 test("AppChrome は desktop rail handle と mobile navigation を分離する", () => {
   const appChrome = readSource("src/app/_components/app-chrome.tsx");
+  const appChromeParts = readSource(
+    "src/app/_components/app-chrome-parts.tsx",
+  );
   const appShell = readSource("src/app/styles/app-shell.css");
+
+  assert.match(appChrome, /from "\.\/app-chrome-parts";/);
+  assert.match(appChromeParts, /export function AppChromeIcon/);
+  assert.match(appChromeParts, /export function AppChromeNavigation/);
+  assert.match(appChromeParts, /export function AppChromeCreateLink/);
+  assert.match(appChromeParts, /export function AppChromeBrand/);
+  assert.doesNotMatch(appChrome, /mobileOverlayRef/);
+  assert.doesNotMatch(
+    compact(appChrome),
+    /<div id="app-chrome-mobile-overlay"[^>]*\bref=\{/,
+  );
 
   assert.match(
     appShell,

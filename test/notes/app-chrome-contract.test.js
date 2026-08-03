@@ -16,6 +16,9 @@ function compact(source) {
 
 test("共通 AppChrome は canonical route と main landmark を共有する", () => {
   const appChrome = readSource("src/app/_components/app-chrome.tsx");
+  const appChromeParts = readSource(
+    "src/app/_components/app-chrome-parts.tsx",
+  );
   const appShell = readSource("src/app/styles/app-shell.css");
   const foundation = readSource("src/app/styles/foundation.css");
   const layout = readSource("src/app/layout.tsx");
@@ -45,6 +48,15 @@ test("共通 AppChrome は canonical route と main landmark を共有する", (
 
   assert.match(appChrome, /^"use client";/m);
   assert.match(appChrome, /usePathname/);
+  assert.match(
+    appChrome,
+    /AppChromeBrand[\s\S]*AppChromeCreateLink[\s\S]*AppChromeIcon[\s\S]*AppChromeNavigation[\s\S]*from "\.\/app-chrome-parts";/,
+  );
+  assert.match(appChromeParts, /^"use client";/m);
+  assert.match(appChromeParts, /export function AppChromeIcon/);
+  assert.match(appChromeParts, /export function AppChromeNavigation/);
+  assert.match(appChromeParts, /export function AppChromeCreateLink/);
+  assert.match(appChromeParts, /export function AppChromeBrand/);
   assert.match(appChrome, /className=\{`app-chrome-shell\$\{isRailOpen/);
   assert.match(
     appChrome,
@@ -113,7 +125,12 @@ test("共通 AppChrome は canonical route と main landmark を共有する", (
   );
   assert.match(
     compact(appChrome),
-    /<div className="app-chrome-content" inert=\{isMobileNavOpen\}\s*>[\s\S]*<main id="app-main-content" className="app-main">[\s\S]*<\/main> <\/div> <div ref=\{mobileOverlayRef\} id="app-chrome-mobile-overlay"/,
+    /<div className="app-chrome-content" inert=\{isMobileNavOpen\}\s*>[\s\S]*<main id="app-main-content" className="app-main">[\s\S]*<\/main> <\/div> <div id="app-chrome-mobile-overlay"/,
+  );
+  assert.doesNotMatch(appChrome, /mobileOverlayRef/);
+  assert.doesNotMatch(
+    compact(appChrome),
+    /<div id="app-chrome-mobile-overlay"[^>]*\bref=\{/,
   );
   assert.match(appChrome, /id="app-chrome-mobile-panel"/);
   assert.match(
@@ -152,15 +169,15 @@ test("共通 AppChrome は canonical route と main landmark を共有する", (
   );
 
   assert.match(
-    appChrome,
+    appChromeParts,
     /href: "\/notes"[\s\S]*label: "ノート一覧"/,
   );
   assert.match(
-    appChrome,
+    appChromeParts,
     /href="\/notes\/new"[\s\S]*app-chrome-create-link[\s\S]*新規ノート/,
   );
   assert.match(
-    appChrome,
+    appChromeParts,
     /href="\/notes"[\s\S]*app-chrome-brand[\s\S]*aria-label="Cornell Method Notebook ノート一覧へ"/,
   );
   assert.match(layout, /<AppChrome>\{children\}<\/AppChrome>/);

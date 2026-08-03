@@ -1,0 +1,103 @@
+/* Give the drawing rail the full first row at tablet widths so its tools do
+   not wrap just to make room for a hidden group. */
+@media (max-width: 1439px) and (min-width: 641px) {
+  .note-canvas-toolbar {
+    grid-template-areas:
+      "drawing drawing"
+      "style style"
+      "erase history"
+      "paper paper";
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+
+  .note-canvas-toolbar-group--paper-size {
+    justify-self: stretch;
+  }
+
+  .note-canvas-paper-fields {
+    justify-content: flex-start;
+  }
+}
+
+@media (max-width: 640px) {
+  .note-canvas-toolbar {
+    grid-template-areas:
+      "drawing drawing"
+      "style style"
+      "erase history"
+      "paper paper";
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 0.5rem;
+    padding: 0.5rem;
+  }
+
+  .note-canvas-toolbar-drawing-rail {
+    width: 100%;
+    padding: 0.25rem;
+  }
+
+  .note-canvas-toolbar-group--style {
+    flex-wrap: wrap;
+  }
+
+  .note-canvas-toolbar-group--erase,
+  .note-canvas-toolbar-group--history {
+    min-width: 0;
+  }
+
+  .note-canvas-toolbar-group--erase .note-canvas-tool-button,
+  .note-canvas-toolbar-group--history .note-canvas-toolbar-action {
+    flex: 0 0 auto;
+    width: auto;
+    min-width: 2.75rem;
+    padding-inline: 0.35rem;
+  }
+
+  .note-canvas-paper-size {
+    width: 100%;
+    padding: 0.35rem 0.5rem;
+  }
+
+  .note-canvas-paper-size-summary {
+    display: flex;
+  }
+
+  .note-canvas-paper-size:not([open]) > .note-canvas-paper-size-content {
+    display: none;
+  }
+
+  .note-canvas-paper-size[open] > .note-canvas-paper-size-content {
+    display: grid;
+    padding-block: 0.45rem 0.15rem;
+  }
+
+  .note-canvas-paper-fields {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: stretch;
+    justify-content: stretch;
+  }
+
+  .note-canvas-size-field {
+    min-width: 0;
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .note-canvas-size-field-label {
+    align-self: flex-start;
+  }
+
+  .note-canvas-size-field-control {
+    width: 100%;
+  }
+
+  .note-canvas-size-field input {
+    width: 100%;
+  }
+
+  .note-canvas-paper-apply {
+    grid-column: 1 / -1;
+    justify-self: start;
+  }
+}
