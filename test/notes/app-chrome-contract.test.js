@@ -199,7 +199,27 @@ test("共通 AppChrome は canonical route と main landmark を共有する", (
   );
   assert.match(
     appShell,
-    /@media \(min-width: 901px\)[\s\S]*\.app-chrome-shell\.is-rail-collapsed \.app-chrome-rail-region\s*\{[\s\S]*flex-basis:\s*2\.75rem[\s\S]*width:\s*2\.75rem;/,
+    /\.app-chrome-rail-region\.is-collapsed,\s*\.app-chrome-shell\.is-rail-collapsed \.app-chrome-rail-region\s*\{[\s\S]*flex:\s*0 0 2\.75rem;[\s\S]*width:\s*2\.75rem;[\s\S]*min-width:\s*2\.75rem;/,
+  );
+  const collapsedRailRuleStart = appShell.indexOf(
+    ".app-chrome-rail-region.is-collapsed",
+  );
+  const desktopBreakpointStart = appShell.indexOf(
+    "@media (min-width: 901px)",
+  );
+  const mobileBreakpointStart = appShell.indexOf(
+    "@media (max-width: 900px)",
+  );
+  assert.ok(
+    collapsedRailRuleStart >= 0 &&
+      desktopBreakpointStart > collapsedRailRuleStart &&
+      mobileBreakpointStart > desktopBreakpointStart,
+    "collapsed gutter is defined before the responsive hide rules",
+  );
+  assert.doesNotMatch(
+    appShell.slice(desktopBreakpointStart, mobileBreakpointStart),
+    /is-rail-collapsed\s+\.app-chrome-rail-region/,
+    "desktop breakpoint does not reintroduce the collapsed gutter",
   );
   assert.match(
     appShell,

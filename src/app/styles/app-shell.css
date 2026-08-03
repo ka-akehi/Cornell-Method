@@ -21,8 +21,9 @@
 
 .app-chrome-rail-region.is-collapsed,
 .app-chrome-shell.is-rail-collapsed .app-chrome-rail-region {
-  flex-basis: 0;
-  width: 0;
+  flex: 0 0 2.75rem;
+  width: 2.75rem;
+  min-width: 2.75rem;
 }
 
 .app-chrome-rail[hidden],
@@ -411,11 +412,6 @@
   .app-chrome-mobile-overlay,
   .app-chrome-mobile-menu-button {
     display: none;
-  }
-
-  .app-chrome-shell.is-rail-collapsed .app-chrome-rail-region {
-    flex-basis: 2.75rem;
-    width: 2.75rem;
   }
 }
 
