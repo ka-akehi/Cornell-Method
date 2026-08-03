@@ -105,6 +105,30 @@ test("AppChrome は desktop rail handle と mobile navigation を分離する", 
     appChrome,
     /document\.activeElement === mobileMenuButtonRef\.current[\s\S]*document\.activeElement === desktopRailHandleRef\.current/,
   );
+  assert.match(appChrome, /const desktopRailRef = useRef<HTMLElement>\(null\)/);
+  assert.match(
+    appChrome,
+    /desktopRailRef\.current\?\.contains\(document\.activeElement\) === true/,
+  );
+  const desktopRailStart = appChrome.indexOf("<aside");
+  const desktopRailEnd = appChrome.indexOf(
+    'className="app-chrome-content"',
+  );
+  assert.ok(desktopRailStart >= 0 && desktopRailEnd > desktopRailStart);
+  const desktopRailMarkup = appChrome.slice(desktopRailStart, desktopRailEnd);
+  assert.match(
+    desktopRailMarkup,
+    /id="app-chrome-rail"[\s\S]*ref=\{desktopRailRef\}/,
+  );
+  assert.match(desktopRailMarkup, /<AppChromeBrand \/>/);
+  assert.match(
+    desktopRailMarkup,
+    /<AppChromeNavigation pathname=\{pathname\} \/>/,
+  );
+  assert.match(
+    desktopRailMarkup,
+    /<AppChromeCreateLink pathname=\{pathname\} \/>/,
+  );
   assert.match(appChrome, /window\.matchMedia\("\(max-width: 900px\)"\)/);
   assert.match(appChrome, /mediaQuery\.addEventListener\("change"/);
   assert.match(appChrome, /mediaQuery\.removeEventListener\("change"/);

@@ -24,6 +24,7 @@ export function AppChrome({ children }: AppChromeProps) {
   const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
   const [isRailOpen, setIsRailOpen] = useState(true);
   const desktopRailHandleRef = useRef<HTMLButtonElement>(null);
+  const desktopRailRef = useRef<HTMLElement>(null);
   const mobileMenuButtonRef = useRef<HTMLButtonElement>(null);
   const mobilePanelRef = useRef<HTMLElement>(null);
   const isMobileNavOpenRef = useRef(false);
@@ -127,7 +128,8 @@ export function AppChrome({ children }: AppChromeProps) {
       const shouldRestoreFocus =
         isMobileNavOpenRef.current ||
         document.activeElement === mobileMenuButtonRef.current ||
-        document.activeElement === desktopRailHandleRef.current;
+        document.activeElement === desktopRailHandleRef.current ||
+        desktopRailRef.current?.contains(document.activeElement) === true;
 
       setIsMobileNavOpen(false);
       setIsRailOpen(true);
@@ -179,6 +181,7 @@ export function AppChrome({ children }: AppChromeProps) {
         <aside
           id="app-chrome-rail"
           className="app-chrome-rail"
+          ref={desktopRailRef}
           aria-label="アプリナビゲーション"
           aria-hidden={!isRailOpen}
           hidden={!isRailOpen}
