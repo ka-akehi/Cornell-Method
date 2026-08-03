@@ -412,6 +412,10 @@
   .app-chrome-mobile-menu-button {
     display: none;
   }
+
+  .app-chrome-shell.is-rail-collapsed .app-main {
+    padding-left: calc(clamp(0.625rem, 2vw, 1.5rem) + 2.75rem);
+  }
 }
 
 @media (max-width: 900px) {

@@ -76,7 +76,7 @@ test("共通 AppChrome は canonical route と main landmark を共有する", (
   );
   assert.match(
     compact(appChrome),
-    /id="app-chrome-rail-toggle"[\s\S]*className="app-chrome-rail-handle"[\s\S]*aria-label=\{\s*isRailOpen \? "サイドバーを折りたたむ" : "サイドバーを展開する"\s*\}[\s\S]*aria-expanded=\{isRailOpen\}[\s\S]*aria-controls="app-chrome-rail"[\s\S]*name=\{isRailOpen \? "chevron-left" : "chevron-right"\}/,
+    /id="app-chrome-rail-toggle"[\s\S]*className="app-chrome-rail-handle"[\s\S]*aria-label=\{\s*isRailOpen \? "サイドバーを折りたたむ" : "サイドバーを展開する"\s*\}[\s\S]*aria-expanded=\{isRailOpen\}[\s\S]*aria-controls="app-chrome-rail"[\s\S]*name=\{isRailOpen \? "chevron-left" : "menu"\}/,
   );
   assert.match(appChrome, /desktopRailHandleRef/);
   assert.doesNotMatch(appChrome, /desktopRailToggle|desktopMenuButtonRef/);
@@ -212,6 +212,10 @@ test("共通 AppChrome は canonical route と main landmark を共有する", (
   assert.match(
     appShell,
     /@media \(min-width: 901px\)[\s\S]*\.app-chrome-mobile-header,[\s\S]*\.app-chrome-mobile-overlay,[\s\S]*\.app-chrome-mobile-menu-button\s*\{[\s\S]*display:\s*none;/,
+  );
+  assert.match(
+    appShell,
+    /@media \(min-width: 901px\)[\s\S]*\.app-chrome-shell\.is-rail-collapsed \.app-main\s*\{[\s\S]*padding-left:\s*calc\(clamp\(0\.625rem, 2vw, 1\.5rem\) \+ 2\.75rem\);/,
   );
   assert.match(
     appShell,

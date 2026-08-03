@@ -42,6 +42,10 @@ test("AppChrome は desktop rail handle と mobile navigation を分離する", 
   );
   assert.match(
     appShell,
+    /@media \(min-width: 901px\)[\s\S]*\.app-chrome-shell\.is-rail-collapsed \.app-main\s*\{[\s\S]*padding-left:\s*calc\(clamp\(0\.625rem, 2vw, 1\.5rem\) \+ 2\.75rem\);/,
+  );
+  assert.match(
+    appShell,
     /@media \(max-width: 900px\)[\s\S]*\.app-chrome-rail-region,[\s\S]*\.app-chrome-rail-handle\s*\{[\s\S]*display: none;/,
   );
   assert.match(
@@ -95,6 +99,10 @@ test("AppChrome は desktop rail handle と mobile navigation を分離する", 
   assert.match(
     compact(appChrome),
     /id="app-chrome-rail-toggle"[\s\S]*aria-expanded=\{isRailOpen\}[\s\S]*aria-controls="app-chrome-rail"[\s\S]*onClick=\{toggleRail\}/,
+  );
+  assert.match(
+    appChrome,
+    /name=\{isRailOpen \? "chevron-left" : "menu"\}/,
   );
   assert.match(
     compact(appChrome),

@@ -173,7 +173,7 @@ export function AppChrome({ children }: AppChromeProps) {
           onClick={toggleRail}
         >
           <AppChromeIcon
-            name={isRailOpen ? "chevron-left" : "chevron-right"}
+            name={isRailOpen ? "chevron-left" : "menu"}
             className="app-chrome-rail-handle-icon"
           />
         </button>
