@@ -62,7 +62,7 @@
 }
 
 .app-chrome-shell.is-rail-collapsed .app-chrome-rail-handle {
-  transform: translateX(100%);
+  transform: translateX(0);
 }
 
 .app-chrome-rail-handle:hover {
@@ -413,8 +413,9 @@
     display: none;
   }
 
-  .app-chrome-shell.is-rail-collapsed .app-main {
-    padding-left: calc(clamp(0.625rem, 2vw, 1.5rem) + 2.75rem);
+  .app-chrome-shell.is-rail-collapsed .app-chrome-rail-region {
+    flex-basis: 2.75rem;
+    width: 2.75rem;
   }
 }
 
