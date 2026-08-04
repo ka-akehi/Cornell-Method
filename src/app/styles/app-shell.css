@@ -1,5 +1,12 @@
 .app-chrome-shell {
   --app-mobile-header-height: 4.5rem;
+  --app-chrome-sidebar-expanded-width: 16rem;
+  --app-chrome-sidebar-collapsed-width: 3.5rem;
+  --app-chrome-sidebar-identity-height: 3.5rem;
+  --app-chrome-sidebar-control-size: 2.75rem;
+  --app-chrome-sidebar-expanded-control-width: 15.25rem;
+  --app-chrome-sidebar-icon-size: 1.25rem;
+  --app-chrome-sidebar-outer-inset: 0.375rem;
   display: flex;
   min-height: 100svh;
   width: 100%;
@@ -7,93 +14,30 @@
   color: var(--app-ink);
 }
 
-.app-chrome-rail-region {
-  position: sticky;
-  top: 0;
-  z-index: 20;
-  display: flex;
-  flex: 0 0 clamp(13.5rem, 18vw, 15.5rem);
-  width: clamp(13.5rem, 18vw, 15.5rem);
-  min-width: 0;
-  height: 100svh;
-  align-self: flex-start;
-}
-
-.app-chrome-rail-region.is-collapsed,
-.app-chrome-shell.is-rail-collapsed .app-chrome-rail-region {
-  flex: 0 0 2.75rem;
-  width: 2.75rem;
-  min-width: 2.75rem;
-}
-
-.app-chrome-rail[hidden],
 .app-chrome-mobile-overlay[hidden] {
   display: none !important;
 }
 
-.app-chrome-rail {
+.app-chrome-sidebar {
+  position: sticky;
+  top: 0;
+  z-index: 20;
   display: flex;
-  width: 100%;
-  min-width: 0;
-  height: 100%;
-  border-right: 1px solid var(--app-line);
-  background: rgb(251 250 246 / 76%);
-  box-shadow: 8px 0 30px rgb(79 65 45 / 4%);
-}
-
-.app-chrome-rail-handle {
-  position: absolute;
-  top: 1.25rem;
-  right: 0;
-  z-index: 30;
-  display: inline-flex;
-  width: 2.75rem;
-  min-width: 2.75rem;
-  height: 2.75rem;
-  min-height: 2.75rem;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-  border: 1px solid var(--app-line-strong);
-  border-radius: 0.55rem;
-  background: var(--app-surface);
-  color: var(--app-ink);
-  cursor: pointer;
-  transform: translateX(50%);
-}
-
-.app-chrome-shell.is-rail-collapsed .app-chrome-rail-handle {
-  transform: translateX(0);
-}
-
-.app-chrome-rail-handle:hover {
-  border-color: var(--app-accent);
-  color: var(--app-accent-deep);
-}
-
-.app-chrome-rail-handle-icon {
-  width: 1.25rem;
-  height: 1.25rem;
-}
-
-.app-chrome-rail-inner {
-  display: flex;
-  width: 100%;
-  min-width: 0;
+  box-sizing: border-box;
+  width: var(--app-chrome-sidebar-expanded-width);
+  height: 100svh;
+  flex: 0 0 auto;
+  align-self: flex-start;
   flex-direction: column;
-  padding: clamp(1.25rem, 3vw, 2rem) clamp(0.875rem, 2vw, 1.25rem)
-    1.25rem;
+  overflow: hidden;
+  border-right: 1px solid var(--app-line);
+  background: var(--app-surface);
+  box-shadow: none;
+  transition: width 160ms cubic-bezier(0.2, 0, 0, 1);
 }
 
-.app-chrome-rail-header {
-  display: flex;
-  min-width: 0;
-  align-items: center;
-}
-
-.app-chrome-rail-header .app-chrome-brand {
-  width: 100%;
-  min-width: 0;
+.app-chrome-shell.is-rail-collapsed .app-chrome-sidebar {
+  width: var(--app-chrome-sidebar-collapsed-width);
 }
 
 .app-chrome-content {
@@ -152,16 +96,176 @@
   line-height: 1.35;
 }
 
+.app-chrome-sidebar-identity {
+  position: relative;
+  box-sizing: border-box;
+  width: 100%;
+  height: var(--app-chrome-sidebar-identity-height);
+  min-height: var(--app-chrome-sidebar-identity-height);
+  flex: 0 0 var(--app-chrome-sidebar-identity-height);
+  overflow: hidden;
+  border-bottom: 1px solid var(--app-line);
+}
+
+.app-chrome-desktop-identity {
+  width: 100%;
+  height: 100%;
+  color: var(--app-ink);
+}
+
+.app-chrome-desktop-identity .app-chrome-brand-mark {
+  position: absolute;
+  top: 0.75rem;
+  left: 0.75rem;
+  width: 2rem;
+  height: 2rem;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  opacity: 1;
+  transition: opacity 100ms ease-out;
+}
+
+.app-chrome-desktop-identity .app-chrome-brand-copy {
+  position: absolute;
+  top: 0.625rem;
+  left: 3.5rem;
+  right: calc(
+    var(--app-chrome-sidebar-control-size) +
+      var(--app-chrome-sidebar-outer-inset) + 0.5rem
+  );
+  width: auto;
+  height: 2.25rem;
+  overflow: hidden;
+  opacity: 1;
+  transition:
+    opacity 100ms ease-out,
+    visibility 0ms linear 0ms;
+  visibility: visible;
+}
+
+.app-chrome-desktop-identity .app-chrome-brand-title {
+  overflow: hidden;
+  color: var(--app-ink);
+  font-size: 0.8125rem;
+  font-weight: 700;
+  letter-spacing: 0;
+  line-height: 1.125rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-chrome-desktop-identity .app-chrome-brand-subtitle {
+  overflow: hidden;
+  margin-top: 0.125rem;
+  color: var(--app-muted-ink);
+  font-size: 0.6875rem;
+  font-weight: 400;
+  line-height: 1rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-chrome-shell.is-rail-collapsed
+  .app-chrome-desktop-identity
+  .app-chrome-brand-copy {
+  opacity: 0;
+  pointer-events: none;
+  transition-delay: 0ms, 100ms;
+  visibility: hidden;
+}
+
+.app-chrome-shell.is-rail-collapsed .app-chrome-sidebar-identity {
+  height: var(--app-chrome-sidebar-identity-height);
+  min-height: var(--app-chrome-sidebar-identity-height);
+  flex-basis: var(--app-chrome-sidebar-identity-height);
+}
+
+.app-chrome-sidebar-toggle {
+  position: absolute;
+  top: var(--app-chrome-sidebar-outer-inset);
+  right: var(--app-chrome-sidebar-outer-inset);
+  display: inline-flex;
+  width: var(--app-chrome-sidebar-control-size);
+  min-width: var(--app-chrome-sidebar-control-size);
+  height: var(--app-chrome-sidebar-control-size);
+  min-height: var(--app-chrome-sidebar-control-size);
+  flex: 0 0 var(--app-chrome-sidebar-control-size);
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0.5rem;
+  background: transparent;
+  box-shadow: none;
+  color: var(--app-muted-ink);
+  cursor: pointer;
+  opacity: 1;
+  pointer-events: auto;
+  transition: opacity 100ms ease-out;
+}
+
+.app-chrome-shell.is-rail-collapsed .app-chrome-sidebar-toggle {
+  box-sizing: border-box;
+  top: var(--app-chrome-sidebar-outer-inset);
+  right: auto;
+  left: var(--app-chrome-sidebar-outer-inset);
+  display: flex;
+  width: var(--app-chrome-sidebar-control-size);
+  min-width: var(--app-chrome-sidebar-control-size);
+  height: var(--app-chrome-sidebar-control-size);
+  min-height: var(--app-chrome-sidebar-control-size);
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.app-chrome-shell.is-rail-collapsed
+  .app-chrome-sidebar-identity:hover
+  .app-chrome-sidebar-toggle,
+.app-chrome-shell.is-rail-collapsed
+  .app-chrome-sidebar-toggle:focus-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.app-chrome-shell.is-rail-collapsed
+  .app-chrome-sidebar-identity:hover
+  .app-chrome-brand-mark {
+  opacity: 0;
+}
+
+.app-chrome-sidebar-toggle:hover {
+  background: rgb(243 228 207 / 62%);
+  color: var(--app-accent-deep);
+}
+
+.app-chrome-sidebar-toggle:active {
+  background: var(--app-accent-soft);
+  color: var(--app-accent-deep);
+}
+
+.app-chrome-sidebar-toggle-icon,
+.app-chrome-nav-icon {
+  display: block;
+  width: var(--app-chrome-sidebar-icon-size);
+  height: var(--app-chrome-sidebar-icon-size);
+  flex: 0 0 var(--app-chrome-sidebar-icon-size);
+}
+
 .app-chrome-nav {
   display: grid;
   min-width: 0;
   gap: 0.3rem;
-  margin-top: clamp(2rem, 7vh, 4rem);
 }
 
 .app-chrome-nav-link,
 .app-chrome-create-link {
   display: flex;
+  box-sizing: border-box;
   min-width: 0;
   align-items: center;
   gap: 0.7rem;
@@ -175,8 +279,8 @@
   transition:
     background-color 150ms ease,
     border-color 150ms ease,
-    color 150ms ease,
-    transform 150ms ease;
+    box-shadow 150ms ease,
+    color 150ms ease;
 }
 
 .app-chrome-nav-link {
@@ -195,24 +299,10 @@
   color: var(--app-accent-deep);
 }
 
-.app-chrome-nav-icon {
-  width: 1.25rem;
-  height: 1.25rem;
-  flex: 0 0 1.25rem;
-}
-
 .app-chrome-nav-link > span,
 .app-chrome-create-link > span {
   min-width: 0;
   overflow-wrap: anywhere;
-}
-
-.app-chrome-rail-footer {
-  display: grid;
-  gap: 0.75rem;
-  margin-top: auto;
-  padding-top: 1.25rem;
-  border-top: 1px solid var(--app-line);
 }
 
 .app-chrome-create-link {
@@ -229,10 +319,202 @@
   color: #fffaf1;
 }
 
+.app-chrome-create-link--desktop {
+  width: var(--app-chrome-sidebar-expanded-control-width);
+  height: var(--app-chrome-sidebar-control-size);
+  min-height: var(--app-chrome-sidebar-control-size);
+  flex: 0 0 var(--app-chrome-sidebar-control-size);
+  justify-content: flex-start;
+  gap: 0.75rem;
+  margin: 0.5rem 0 0 var(--app-chrome-sidebar-outer-inset);
+  padding: 0 0.75rem;
+  border: 0;
+  border-radius: 0.5rem;
+  background: var(--app-accent-deep);
+  box-shadow: none;
+  color: #fffaf1;
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+}
+
+.app-chrome-create-link--desktop:hover,
+.app-chrome-create-link--desktop.is-selected,
+.app-chrome-create-link--desktop[aria-current="page"] {
+  background: var(--app-accent-deep);
+  box-shadow: 0 2px 8px rgb(79 65 45 / 16%);
+  color: #fffaf1;
+}
+
+.app-chrome-create-link--desktop:active,
+.app-chrome-create-link--desktop.is-selected:active,
+.app-chrome-create-link--desktop[aria-current="page"]:active {
+  background: var(--app-accent-deep);
+  box-shadow: inset 0 0 0 2px rgb(255 250 241 / 28%);
+  color: #fffaf1;
+}
+
+.app-chrome-navigation-scroll {
+  min-width: 0;
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow-y: auto;
+  margin-top: 0.5rem;
+  padding-block: 0.25rem 0.375rem;
+}
+
+.app-chrome-nav--desktop {
+  width: var(--app-chrome-sidebar-expanded-control-width);
+  gap: 0.25rem;
+  margin-left: var(--app-chrome-sidebar-outer-inset);
+}
+
+.app-chrome-nav-link--desktop {
+  position: relative;
+  width: 100%;
+  height: var(--app-chrome-sidebar-control-size);
+  min-height: var(--app-chrome-sidebar-control-size);
+  justify-content: flex-start;
+  gap: 0.75rem;
+  padding: 0 0.75rem;
+  border: 0;
+  border-radius: 0.5rem;
+  background: transparent;
+  box-shadow: none;
+  color: var(--app-muted-ink);
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+}
+
+.app-chrome-nav-link--desktop::before {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  width: 3px;
+  height: 1.25rem;
+  border-radius: 999px;
+  background: transparent;
+  content: "";
+  transform: translateY(-50%);
+}
+
+.app-chrome-nav-link--desktop:hover:not([aria-current="page"]) {
+  background: rgb(243 228 207 / 62%);
+  color: var(--app-accent-deep);
+}
+
+.app-chrome-nav-link--desktop:active:not([aria-current="page"]) {
+  background: var(--app-accent-soft);
+  color: var(--app-accent-deep);
+}
+
+.app-chrome-nav-link--desktop.is-selected,
+.app-chrome-nav-link--desktop[aria-current="page"] {
+  border: 0;
+  background: var(--app-accent-soft);
+  box-shadow: none;
+  color: var(--app-accent-deep);
+}
+
+.app-chrome-nav-link--desktop.is-selected::before,
+.app-chrome-nav-link--desktop[aria-current="page"]::before {
+  background: var(--app-accent-deep);
+}
+
+.app-chrome-nav-link--desktop.is-selected:hover,
+.app-chrome-nav-link--desktop[aria-current="page"]:hover {
+  background: var(--app-accent-soft);
+  box-shadow: inset 0 0 0 1px rgb(143 77 19 / 18%);
+  color: var(--app-accent-deep);
+}
+
+.app-chrome-nav-link--desktop.is-selected:active,
+.app-chrome-nav-link--desktop[aria-current="page"]:active {
+  background: var(--app-accent-soft);
+  box-shadow: inset 0 0 0 2px rgb(143 77 19 / 22%);
+  color: var(--app-accent-deep);
+}
+
+.app-chrome-control-label {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  opacity: 1;
+  text-overflow: ellipsis;
+  transition:
+    opacity 100ms ease-out,
+    visibility 0ms linear 0ms;
+  visibility: visible;
+  white-space: nowrap;
+}
+
+.app-chrome-shell.is-rail-collapsed .app-chrome-create-link--desktop,
+.app-chrome-shell.is-rail-collapsed .app-chrome-nav--desktop {
+  width: var(--app-chrome-sidebar-control-size);
+  margin-left: var(--app-chrome-sidebar-outer-inset);
+}
+
+.app-chrome-shell.is-rail-collapsed .app-chrome-create-link--desktop,
+.app-chrome-shell.is-rail-collapsed .app-chrome-nav-link--desktop {
+  box-sizing: border-box;
+  display: flex;
+  width: var(--app-chrome-sidebar-control-size);
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+  padding: 0;
+}
+
+.app-chrome-shell.is-rail-collapsed .app-chrome-control-label {
+  flex: 0 0 0;
+  opacity: 0;
+  pointer-events: none;
+  transition-delay: 0ms, 100ms;
+  visibility: hidden;
+}
+
+.app-chrome-sidebar-toggle:focus-visible,
+.app-chrome-create-link--desktop:focus-visible,
+.app-chrome-nav-link--desktop:focus-visible {
+  outline: 2px solid var(--app-focus);
+  outline-offset: 2px;
+}
+
+.app-chrome-tooltip-overlay {
+  position: fixed;
+  z-index: 60;
+  display: block;
+  box-sizing: border-box;
+  width: max-content;
+  max-width: 15rem;
+  min-height: 1.875rem;
+  padding: 0.375rem 0.5rem;
+  border: 1px solid var(--app-line-strong);
+  border-radius: 0.375rem;
+  background: var(--app-surface);
+  box-shadow: 0 8px 20px rgb(79 65 45 / 12%);
+  color: var(--app-ink);
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 1rem;
+  pointer-events: none;
+  transform: translateY(-50%);
+  animation: app-chrome-tooltip-in 100ms ease-out;
+  white-space: nowrap;
+}
+
+@keyframes app-chrome-tooltip-in {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
 .app-chrome-brand:focus-visible,
-.app-chrome-nav-link:focus-visible,
-.app-chrome-create-link:focus-visible,
-.app-chrome-rail-handle:focus-visible,
+.app-chrome-create-link--mobile:focus-visible,
+.app-chrome-nav-link--mobile:focus-visible,
 .app-chrome-menu-button:focus-visible,
 .app-chrome-mobile-panel-close:focus-visible,
 .app-chrome-mobile-backdrop:focus-visible {
@@ -241,10 +523,10 @@
 }
 
 .app-chrome-mobile-header {
-  display: block;
   position: sticky;
   top: 0;
   z-index: 20;
+  display: block;
   min-height: var(--app-mobile-header-height);
   border-bottom: 1px solid var(--app-line);
   background: rgb(251 250 246 / 94%);
@@ -407,6 +689,21 @@
   min-width: 0;
 }
 
+@media (prefers-reduced-motion: reduce) {
+  .app-chrome-sidebar,
+  .app-chrome-control-label,
+  .app-chrome-desktop-identity .app-chrome-brand-copy,
+  .app-chrome-sidebar-toggle,
+  .app-chrome-desktop-identity .app-chrome-brand-mark {
+    transition-delay: 0ms;
+    transition-duration: 0ms;
+  }
+
+  .app-chrome-tooltip-overlay {
+    animation-duration: 0ms;
+  }
+}
+
 @media (min-width: 901px) {
   .app-chrome-mobile-header,
   .app-chrome-mobile-overlay,
@@ -420,8 +717,8 @@
     display: block;
   }
 
-  .app-chrome-rail-region,
-  .app-chrome-rail-handle {
+  .app-chrome-sidebar,
+  .app-chrome-tooltip-overlay {
     display: none;
   }
 

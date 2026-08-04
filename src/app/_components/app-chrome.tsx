@@ -6,11 +6,16 @@ import {
   useEffect,
   useRef,
   useState,
+  type FocusEvent as ReactFocusEvent,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
+import { createPortal } from "react-dom";
 import {
   AppChromeBrand,
   AppChromeCreateLink,
+  AppChromeDesktopIdentity,
   AppChromeIcon,
   AppChromeNavigation,
 } from "./app-chrome-parts";
@@ -19,39 +24,157 @@ type AppChromeProps = {
   children: ReactNode;
 };
 
+const desktopRailToggleId = "app-chrome-rail-toggle";
+const tooltipViewportInset = 8;
+const tooltipBoxHeight = 30;
+
+function findDesktopTooltipAnchor(target: EventTarget | null) {
+  if (!(target instanceof Element)) {
+    return null;
+  }
+
+  return target.closest<HTMLElement>("[data-app-chrome-tooltip]");
+}
+
+function AppChromeDesktopTooltip({ anchor }: { anchor: HTMLElement | null }) {
+  const [, refreshPosition] = useState(0);
+
+  useEffect(() => {
+    if (!anchor) {
+      return;
+    }
+
+    const updatePosition = () => refreshPosition((value) => value + 1);
+    window.addEventListener("resize", updatePosition);
+    window.addEventListener("scroll", updatePosition, true);
+
+    return () => {
+      window.removeEventListener("resize", updatePosition);
+      window.removeEventListener("scroll", updatePosition, true);
+    };
+  }, [anchor]);
+
+  if (!anchor || typeof document === "undefined") {
+    return null;
+  }
+
+  const label = anchor.dataset.appChromeTooltip;
+  if (!label) {
+    return null;
+  }
+
+  const anchorRect = anchor.getBoundingClientRect();
+  const tooltipHalfHeight = tooltipBoxHeight / 2;
+  const minimumTop = tooltipViewportInset + tooltipHalfHeight;
+  const maximumTop = Math.max(
+    minimumTop,
+    window.innerHeight - tooltipViewportInset - tooltipHalfHeight,
+  );
+  const top = Math.min(
+    Math.max(anchorRect.top + anchorRect.height / 2, minimumTop),
+    maximumTop,
+  );
+  const left =
+    anchor.dataset.appChromeTooltipPlacement === "rail"
+      ? 64
+      : anchorRect.right + tooltipViewportInset;
+
+  return createPortal(
+    <span
+      className="app-chrome-tooltip-overlay"
+      aria-hidden="true"
+      style={{ left, top }}
+    >
+      {label}
+    </span>,
+    document.body,
+  );
+}
+
 export function AppChrome({ children }: AppChromeProps) {
   const pathname = usePathname();
   const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
   const [isRailOpen, setIsRailOpen] = useState(true);
+  const [desktopTooltipAnchor, setDesktopTooltipAnchor] =
+    useState<HTMLElement | null>(null);
+  const railToggleLabel = isRailOpen
+    ? "サイドバーを折りたたむ"
+    : "サイドバーを展開する";
   const desktopRailHandleRef = useRef<HTMLButtonElement>(null);
-  const desktopRailRef = useRef<HTMLElement>(null);
+  const desktopSidebarRef = useRef<HTMLElement>(null);
   const mobileMenuButtonRef = useRef<HTMLButtonElement>(null);
   const mobilePanelRef = useRef<HTMLElement>(null);
-  const isMobileNavOpenRef = useRef(false);
-  const shouldRestoreDesktopFocusRef = useRef(false);
-
-  useEffect(() => {
-    isMobileNavOpenRef.current = isMobileNavOpen;
-  }, [isMobileNavOpen]);
 
   const toggleRail = () => {
-    shouldRestoreDesktopFocusRef.current = true;
     setIsRailOpen((isOpen) => !isOpen);
   };
-
-  useEffect(() => {
-    if (!shouldRestoreDesktopFocusRef.current) {
-      return;
-    }
-
-    shouldRestoreDesktopFocusRef.current = false;
-    window.requestAnimationFrame(() => desktopRailHandleRef.current?.focus());
-  }, [isRailOpen]);
 
   const closeMobileNav = useCallback(() => {
     setIsMobileNavOpen(false);
     window.requestAnimationFrame(() => mobileMenuButtonRef.current?.focus());
   }, []);
+
+  const showDesktopTooltip = useCallback((anchor: HTMLElement) => {
+    setDesktopTooltipAnchor(anchor);
+  }, []);
+
+  const hideDesktopTooltip = useCallback((anchor?: HTMLElement) => {
+    setDesktopTooltipAnchor((currentAnchor) =>
+      !anchor || currentAnchor === anchor ? null : currentAnchor,
+    );
+  }, []);
+
+  const handleDesktopPointerOver = (
+    event: ReactPointerEvent<HTMLElement>,
+  ) => {
+    const anchor = findDesktopTooltipAnchor(event.target);
+    if (!anchor || !event.currentTarget.contains(anchor)) {
+      return;
+    }
+
+    const previousTarget = event.relatedTarget;
+    if (previousTarget instanceof Node && anchor.contains(previousTarget)) {
+      return;
+    }
+
+    showDesktopTooltip(anchor);
+  };
+
+  const handleDesktopPointerOut = (
+    event: ReactPointerEvent<HTMLElement>,
+  ) => {
+    const anchor = findDesktopTooltipAnchor(event.target);
+    if (!anchor) {
+      return;
+    }
+
+    const nextTarget = event.relatedTarget;
+    if (nextTarget instanceof Node && anchor.contains(nextTarget)) {
+      return;
+    }
+
+    hideDesktopTooltip(anchor);
+  };
+
+  const handleDesktopFocus = (event: ReactFocusEvent<HTMLElement>) => {
+    const anchor = findDesktopTooltipAnchor(event.target);
+    if (anchor?.matches(":focus-visible")) {
+      showDesktopTooltip(anchor);
+    }
+  };
+
+  const handleDesktopBlur = (event: ReactFocusEvent<HTMLElement>) => {
+    const anchor = findDesktopTooltipAnchor(event.target);
+    if (anchor) {
+      hideDesktopTooltip(anchor);
+    }
+  };
+
+  const handleDesktopKeyDown = (event: ReactKeyboardEvent<HTMLElement>) => {
+    if (event.key === "Escape") {
+      hideDesktopTooltip();
+    }
+  };
 
   useEffect(() => {
     const frameId = window.requestAnimationFrame(() => {
@@ -104,10 +227,16 @@ export function AppChrome({ children }: AppChromeProps) {
       if (!mobilePanelRef.current?.contains(document.activeElement)) {
         event.preventDefault();
         firstFocusableElement.focus();
-      } else if (event.shiftKey && document.activeElement === firstFocusableElement) {
+      } else if (
+        event.shiftKey &&
+        document.activeElement === firstFocusableElement
+      ) {
         event.preventDefault();
         lastFocusableElement.focus();
-      } else if (!event.shiftKey && document.activeElement === lastFocusableElement) {
+      } else if (
+        !event.shiftKey &&
+        document.activeElement === lastFocusableElement
+      ) {
         event.preventDefault();
         firstFocusableElement.focus();
       }
@@ -125,12 +254,13 @@ export function AppChrome({ children }: AppChromeProps) {
     const mediaQuery = window.matchMedia("(max-width: 900px)");
 
     const handleViewportChange = () => {
-      const shouldRestoreFocus =
-        isMobileNavOpenRef.current ||
-        document.activeElement === mobileMenuButtonRef.current ||
-        document.activeElement === desktopRailHandleRef.current ||
-        desktopRailRef.current?.contains(document.activeElement) === true;
+      const activeElement = document.activeElement;
+      const shouldRestoreFocus = mediaQuery.matches
+        ? desktopSidebarRef.current?.contains(activeElement) === true
+        : document.activeElement === mobileMenuButtonRef.current ||
+          mobilePanelRef.current?.contains(activeElement) === true;
 
+      setDesktopTooltipAnchor(null);
       setIsMobileNavOpen(false);
       setIsRailOpen(true);
 
@@ -155,53 +285,52 @@ export function AppChrome({ children }: AppChromeProps) {
     <div
       className={`app-chrome-shell${isRailOpen ? "" : " is-rail-collapsed"}`}
     >
-      <div
-        className={`app-chrome-rail-region${isRailOpen ? "" : " is-collapsed"}`}
+      <aside
+        id="app-chrome-sidebar"
+        ref={desktopSidebarRef}
+        className="app-chrome-sidebar"
+        aria-label="アプリナビゲーション"
+        onPointerOver={handleDesktopPointerOver}
+        onPointerOut={handleDesktopPointerOut}
+        onFocus={handleDesktopFocus}
+        onBlur={handleDesktopBlur}
+        onKeyDown={handleDesktopKeyDown}
       >
-        <button
-          id="app-chrome-rail-toggle"
-          ref={desktopRailHandleRef}
-          type="button"
-          className="app-chrome-rail-handle"
-          aria-label={
-            isRailOpen
-              ? "サイドバーを折りたたむ"
-              : "サイドバーを展開する"
-          }
-          aria-expanded={isRailOpen}
-          aria-controls="app-chrome-rail"
-          onClick={toggleRail}
-        >
-          <AppChromeIcon
-            name={isRailOpen ? "chevron-left" : "menu"}
-            className="app-chrome-rail-handle-icon"
+        <header className="app-chrome-sidebar-identity">
+          <AppChromeDesktopIdentity />
+          <button
+            id={desktopRailToggleId}
+            ref={desktopRailHandleRef}
+            type="button"
+            className="app-chrome-sidebar-toggle"
+            aria-label={railToggleLabel}
+            aria-expanded={isRailOpen}
+            aria-controls="app-chrome-sidebar"
+            data-app-chrome-tooltip={railToggleLabel}
+            data-app-chrome-tooltip-placement={isRailOpen ? "anchor" : "rail"}
+            onClick={toggleRail}
+          >
+            <AppChromeIcon
+              name={isRailOpen ? "panel-left-close" : "panel-left-open"}
+              className="app-chrome-sidebar-toggle-icon"
+            />
+          </button>
+        </header>
+        <AppChromeCreateLink
+          pathname={pathname}
+          isCollapsed={!isRailOpen}
+          variant="desktop"
+        />
+        <div className="app-chrome-navigation-scroll">
+          <AppChromeNavigation
+            pathname={pathname}
+            isCollapsed={!isRailOpen}
+            variant="desktop"
           />
-        </button>
+        </div>
+      </aside>
 
-        <aside
-          id="app-chrome-rail"
-          className="app-chrome-rail"
-          ref={desktopRailRef}
-          aria-label="アプリナビゲーション"
-          aria-hidden={!isRailOpen}
-          hidden={!isRailOpen}
-        >
-          <div className="app-chrome-rail-inner">
-            <header className="app-chrome-rail-header">
-              <AppChromeBrand />
-            </header>
-            <AppChromeNavigation pathname={pathname} />
-            <div className="app-chrome-rail-footer">
-              <AppChromeCreateLink pathname={pathname} />
-            </div>
-          </div>
-        </aside>
-      </div>
-
-      <div
-        className="app-chrome-content"
-        inert={isMobileNavOpen}
-      >
+      <div className="app-chrome-content" inert={isMobileNavOpen}>
         <header className="app-chrome-mobile-header">
           <div className="app-chrome-mobile-header-inner">
             <AppChromeBrand />
@@ -285,6 +414,8 @@ export function AppChrome({ children }: AppChromeProps) {
           </footer>
         </aside>
       </div>
+
+      <AppChromeDesktopTooltip anchor={desktopTooltipAnchor} />
     </div>
   );
 }
