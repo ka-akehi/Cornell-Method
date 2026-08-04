@@ -1,0 +1,183 @@
+.note-canvas-toolbar button {
+  position: relative;
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  min-height: 2.75rem;
+  border: 1px solid var(--paper-line);
+  border-radius: 0.4rem;
+  background: var(--paper);
+  padding: 0.35rem 0.6rem;
+  color: var(--paper-ink);
+  cursor: pointer;
+  font-size: 0.75rem;
+  font-weight: 700;
+  line-height: 1.2;
+  white-space: nowrap;
+  transition: border-color 150ms ease, background-color 150ms ease,
+    box-shadow 150ms ease, color 150ms ease;
+}
+
+.note-canvas-tool-icon {
+  display: inline-flex;
+  flex: 0 0 1.125rem;
+  width: 1.125rem;
+  height: 1.125rem;
+  align-items: center;
+  justify-content: center;
+}
+
+.note-canvas-toolbar-icon {
+  display: block;
+  width: 1.125rem;
+  height: 1.125rem;
+}
+
+.note-canvas-tool-label {
+  display: inline-block;
+  white-space: nowrap;
+}
+
+.note-canvas-toolbar button:hover:not(:disabled) {
+  border-color: var(--paper-accent);
+  background: #fff2df;
+  color: var(--paper-accent-deep);
+}
+
+.note-canvas-toolbar .note-canvas-tool-button[data-active="true"] {
+  isolation: isolate;
+  border-color: var(--paper-accent-deep);
+  background: #fff2df;
+  box-shadow: inset 0 -0.22rem 0 var(--paper-accent-deep);
+  color: var(--paper-accent-deep);
+  font-weight: 800;
+}
+
+.note-canvas-toolbar .note-canvas-tool-button[data-active="true"]::before {
+  position: absolute;
+  right: 0.45rem;
+  bottom: -0.12rem;
+  left: 0.45rem;
+  height: 0.18rem;
+  border-radius: 999px;
+  background: currentColor;
+  content: "";
+  z-index: 1;
+}
+
+.note-canvas-toolbar .note-canvas-alignment-button {
+  width: 2.15rem;
+  min-height: 2.25rem;
+  padding: 0.25rem;
+}
+
+.note-canvas-toolbar .note-canvas-alignment-button[data-active="true"] {
+  border-color: var(--paper-accent-deep);
+  background: #fff2df;
+  color: var(--paper-accent-deep);
+  box-shadow: inset 0 -0.18rem 0 var(--paper-accent-deep);
+}
+
+.note-canvas-toolbar-group--erase .note-canvas-tool-button {
+  border-color: rgb(164 72 72 / 42%);
+}
+
+.note-canvas-toolbar-group--erase
+  .note-canvas-tool-button[data-active="true"] {
+  border-color: var(--paper-danger);
+  background: rgb(164 72 72 / 13%);
+  box-shadow: inset 0 -0.22rem 0 var(--paper-danger);
+  color: var(--paper-danger);
+}
+
+.note-canvas-toolbar button:disabled {
+  cursor: not-allowed;
+  border-color: var(--paper-line);
+  background: var(--paper-soft);
+  color: var(--paper-ink-soft);
+  opacity: 0.55;
+}
+
+.note-canvas-toolbar-tooltip {
+  position: absolute;
+  top: calc(100% + 0.45rem);
+  left: 50%;
+  z-index: 5;
+  width: max-content;
+  max-width: min(19rem, calc(100vw - 1.5rem));
+  border: 1px solid var(--paper-line-strong);
+  border-radius: 0.35rem;
+  background: var(--paper-ink);
+  padding: 0.35rem 0.5rem;
+  color: var(--paper);
+  font-size: 0.68rem;
+  font-weight: 600;
+  line-height: 1.35;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transform: translate(-50%, -0.2rem);
+  transition: opacity 120ms ease, transform 120ms ease, visibility 120ms ease;
+}
+
+.note-canvas-toolbar-tooltip--floating {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 1000;
+  box-sizing: border-box;
+  width: max-content;
+  max-width: min(19rem, calc(100vw - 1.5rem));
+  overflow: hidden;
+  transform: translateY(-0.2rem);
+}
+
+.note-canvas-toolbar-tooltip--floating[data-positioned="true"] {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+}
+
+.note-canvas-toolbar button:hover:not(:disabled)
+  .note-canvas-toolbar-tooltip,
+.note-canvas-toolbar button:focus-visible .note-canvas-toolbar-tooltip {
+  opacity: 1;
+  visibility: visible;
+  transform: translate(-50%, 0);
+}
+
+.note-canvas-toolbar button:focus-visible,
+.note-canvas-toolbar input:focus-visible,
+.note-canvas-paper-size-summary:focus-visible,
+.note-canvas-viewport:focus-visible {
+  outline: 2px solid var(--paper-accent-deep);
+  outline-offset: 3px;
+  z-index: 2;
+}
+
+.note-canvas-toolbar-visually-hidden,
+.note-canvas-toolbar-status {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  border: 0;
+  padding: 0;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  clip-path: inset(50%);
+}
+
+.note-canvas-toolbar-status {
+  pointer-events: none;
+}
+
+.note-canvas-paper-apply {
+  border-color: var(--paper-accent);
+  background: #fff8ec;
+}

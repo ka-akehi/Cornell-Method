@@ -5,5 +5,7 @@
 @import "./styles/global-reset.css";
 @import "./styles/note-paper.css";
 @import "./styles/note-canvas-editor.css";
-@import "./styles/note-canvas-toolbar.css";
+@import "./styles/note-canvas-toolbar-layout.css";
+@import "./styles/note-canvas-toolbar-controls.css";
+@import "./styles/note-canvas-toolbar-responsive.css";
 @import "./styles/note-canvas-surface.css";

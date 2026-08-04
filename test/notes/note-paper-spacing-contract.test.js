@@ -14,12 +14,18 @@ test("create uses the shared app-main and paper spacing", () => {
   const appShell = readSource("src/app/styles/app-shell.css");
   const paper = readSource("src/app/styles/note-paper.css");
   const editor = readSource("src/modules/notes/ui/components/editor/editor.tsx");
+  const createPage = readSource("src/app/notes/new/page.tsx");
 
   assert.match(
     appShell,
     /\.app-main\s*\{[\s\S]*padding:\s*clamp\(0\.75rem, 1\.75vw, 1\.25rem\) clamp\(0\.625rem, 2vw, 1\.5rem\);/,
   );
   assert.doesNotMatch(appShell, /\.app-main:has\(> \.note-paper-page--create\)/);
+  assert.match(
+    createPage,
+    /<div className="note-paper-page">[\s\S]*<NoteEditor mode="create" \/>/,
+  );
+  assert.doesNotMatch(createPage, /note-paper-page--create/);
 
   assert.match(
     paper,
@@ -155,6 +161,10 @@ test("section dividers stay continuous instead of repeating inside padded childr
   );
   assert.match(
     paper,
+    /\.note-paper-shell button:focus-visible,[\s\S]*?\.note-paper-shell a:focus-visible\s*\{[\s\S]*outline:\s*2px solid var\(--app-focus\);[\s\S]*outline-offset:\s*3px;/,
+  );
+  assert.match(
+    paper,
     /\.note-paper-shell \.markdown-preview-heading,[\s\S]*?\.note-paper-shell \.markdown-preview-empty\s*\{[\s\S]*border-bottom:\s*0;/,
   );
   assert.doesNotMatch(
@@ -262,6 +272,10 @@ test("shared responsive paper rules remain in place for mobile and tablet widths
   assert.match(
     paper,
     /@media \(max-width: 640px\)[\s\S]*?\.note-paper-cornell-grid > :first-child\s*\{[\s\S]*?border-bottom:\s*1px solid var\(--paper-line-strong\);/,
+  );
+  assert.match(
+    paper,
+    /@media \(max-width: 640px\)[\s\S]*?\.note-paper-detail \.note-paper-cornell-grid > :last-child\s*\{[\s\S]*?border-top:\s*0;/,
   );
   assert.doesNotMatch(
     paper,

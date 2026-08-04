@@ -63,11 +63,11 @@ export function NoteDetailCueList({ cues }: { cues: NoteDetailResponse["cues"] }
   }
 
   return (
-    <ol>
+    <ol className="note-paper-cue-list">
       {cues.map((cue, index) => (
         <li
           key={cue.id}
-          className="min-w-0 border-b border-stone-300/70 py-3 first:pt-0 last:border-b-0 last:pb-0"
+          className="note-paper-cue-item min-w-0 !rounded-none !border-x-0 !border-t-0 border-b border-stone-300/70 !bg-transparent py-3 first:pt-0 last:border-b-0 last:pb-0"
         >
           <div className="flex min-w-0 items-start gap-3">
             <span

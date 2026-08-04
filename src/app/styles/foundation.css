@@ -1,21 +1,36 @@
 :root {
-  --background: #ebe8e1;
-  --foreground: #25302e;
-  --surface: #fffdf8;
-  --muted: #f5f1e8;
-  --muted-foreground: #5f6865;
-  --border: #d8d7d0;
-  --paper: #fffdf8;
+  --app-background: #f0ede6;
+  --app-surface: #fbfaf6;
+  --app-paper-surface: #fffdf8;
+  --app-ink: #2d2b27;
+  --app-muted-ink: #746f66;
+  --app-line: #d8d2c8;
+  --app-line-strong: #b9b0a3;
+  --app-accent: #b9681d;
+  --app-accent-deep: #8f4d13;
+  --app-accent-soft: #f3e4cf;
+  --app-focus: #a45e17;
+  --app-shadow: 0 18px 40px rgb(79 65 45 / 9%), 0 2px 8px rgb(79 65 45 / 6%);
+
+  --background: var(--app-background);
+  --foreground: var(--app-ink);
+  --surface: var(--app-surface);
+  --muted: #f5f1e9;
+  --muted-foreground: var(--app-muted-ink);
+  --border: var(--app-line);
+  --paper: var(--app-paper-surface);
   --paper-soft: #faf7ef;
-  --paper-ink: #25302e;
-  --paper-ink-soft: #5f6865;
-  --paper-line: #d8d7d0;
-  --paper-line-strong: #b9c0ba;
-  --paper-rule: rgb(185 192 186 / 34%);
-  --paper-accent: #c66b3d;
-  --paper-accent-deep: #98492c;
+  --paper-ink: var(--app-ink);
+  --paper-ink-soft: var(--app-muted-ink);
+  --paper-line: var(--app-line);
+  --paper-line-strong: var(--app-line-strong);
+  --paper-rule: rgb(185 176 163 / 34%);
+  --paper-accent: var(--app-accent);
+  --paper-accent-deep: var(--app-accent-deep);
   --paper-danger: #a44848;
-  --paper-shadow: 0 14px 34px rgb(47 54 49 / 8%), 0 2px 6px rgb(47 54 49 / 6%);
+  --paper-shadow: var(--app-shadow);
+
+  /* Compatibility tokens for the existing canvas spike and cue controls. */
   --chrome: #0d3022;
   --chrome-deep: #071f16;
   --chrome-foreground: #f7f0df;
@@ -40,8 +55,8 @@
 body {
   min-width: 0;
   background:
-    radial-gradient(circle at 20% 0, rgb(50 101 70 / 24%), transparent 36rem),
-    linear-gradient(180deg, var(--chrome-deep), var(--chrome) 18rem, var(--chrome));
+    radial-gradient(circle at 12% -8%, rgb(255 255 255 / 72%), transparent 32rem),
+    linear-gradient(135deg, #f5f2ec 0%, var(--app-background) 58%, #e9e4db 100%);
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
   overflow-x: clip;

@@ -4,7 +4,8 @@ import {
   findToolDefinition,
   getToolGroup,
 } from "@/modules/notes/ui/canvas";
-import { CanvasHistoryActions, CanvasToolGroup } from "./toolbar-actions";
+import { CanvasToolGroup } from "./toolbar-actions";
+import { CanvasHistoryActions } from "./toolbar-history-actions";
 import { CanvasPaperSizeControls } from "./toolbar-paper-controls";
 import { CanvasStyleControls } from "./toolbar-style-controls";
 import type { NoteCanvasToolbarProps } from "@/modules/notes/ui/canvas";
@@ -42,25 +43,25 @@ export function NoteCanvasToolbar({
             group={getToolGroup("draw")}
             tool={tool}
             onToolChange={onToolChange}
-            showTooltip={false}
+            tooltipMode="floating"
           />
           <CanvasToolGroup
             group={getToolGroup("line")}
             tool={tool}
             onToolChange={onToolChange}
-            showTooltip={false}
+            tooltipMode="floating"
           />
           <CanvasToolGroup
             group={getToolGroup("shape")}
             tool={tool}
             onToolChange={onToolChange}
-            showTooltip={false}
+            tooltipMode="floating"
           />
           <CanvasToolGroup
             group={getToolGroup("text")}
             tool={tool}
             onToolChange={onToolChange}
-            showTooltip={false}
+            tooltipMode="floating"
           />
         </div>
       </div>

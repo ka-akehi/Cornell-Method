@@ -35,6 +35,61 @@ test("Canvas surface keeps horizontal scrolling and adds a vertical scroll conta
   );
 });
 
+test("Canvas editor surfaces use the warm paper boundary without changing page sizing", () => {
+  const editor = readSource(
+    "src/modules/notes/ui/components/canvas/editor.tsx",
+  );
+  const editorStyles = readSource("src/app/styles/note-canvas-editor.css");
+  const surfaceStyles = readSource(
+    "src/app/styles/note-canvas-surface.css",
+  );
+
+  assert.match(
+    editor,
+    /className="note-canvas-editor note-canvas-editor--surface"/,
+  );
+  assert.match(
+    editorStyles,
+    /\.note-canvas-editor--surface\s*\{[\s\S]*border: 1px solid var\(--app-line\);[\s\S]*background: var\(--app-surface\);[\s\S]*border-radius: 0\.65rem;/,
+  );
+  assert.match(
+    editorStyles,
+    /\.note-paper-cornell-grid--editor-canvas > \.note-paper-cue-column\s*\{[\s\S]*border: 1px solid var\(--app-line\);[\s\S]*background: var\(--app-paper-surface\);[\s\S]*box-shadow:/,
+  );
+  assert.match(
+    surfaceStyles,
+    /\.note-canvas-viewport\s*\{[\s\S]*border: 1px solid var\(--app-line\);[\s\S]*background: var\(--app-surface\);[\s\S]*box-shadow:/,
+  );
+  assert.match(
+    surfaceStyles,
+    /\.note-canvas-stage\s*\{[\s\S]*max-width: none;[\s\S]*border: 1px solid var\(--app-line-strong\);[\s\S]*background: var\(--app-paper-surface\);/,
+  );
+});
+
+test("Narrow Canvas layouts keep horizontal overflow in page and rail containers", () => {
+  const editorStyles = readSource("src/app/styles/note-canvas-editor.css");
+  const surfaceStyles = readSource(
+    "src/app/styles/note-canvas-surface.css",
+  );
+
+  assert.match(
+    editorStyles,
+    /\.note-canvas-editor--surface\s*\{[\s\S]*max-width: 100%;|\.note-canvas-editor[\s\S]*max-width: 100%;/,
+  );
+  assert.match(
+    surfaceStyles,
+    /\.note-canvas-horizontal-scroll\s*\{[\s\S]*max-width: 100%;[\s\S]*overflow-x: auto;[\s\S]*overflow-y: clip;/,
+  );
+  assert.match(
+    surfaceStyles,
+    /@media \(max-width: 640px\)[\s\S]*?\.note-canvas-viewport--scrollable\s*\{[\s\S]*overflow: visible;[\s\S]*padding: 0\.5rem;/,
+  );
+  assert.doesNotMatch(
+    surfaceStyles,
+    /\.note-canvas-viewport\s*\{[^}]*overflow-x: auto;/,
+  );
+});
+
 test("Cue scrolling is only mounted when Cue items exist", () => {
   const cues = readSource("src/modules/notes/ui/components/editor/cues.tsx");
   const paperStyles = readSource("src/app/styles/note-paper.css");

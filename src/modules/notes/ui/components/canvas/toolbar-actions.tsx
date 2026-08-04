@@ -1,132 +1,147 @@
 "use client";
 
-import { useId } from "react";
+import { useId, useState } from "react";
 import type {
   CanvasNoteTool,
+  ToolDefinition,
   ToolGroupDefinition,
 } from "@/modules/notes/ui/canvas";
 import { ToolbarIcon } from "./toolbar-icon";
+import {
+  CanvasFloatingTooltip,
+  type CanvasTooltipTarget,
+} from "./toolbar-floating-tooltip";
+
+type CanvasToolTooltipMode = "inline" | "floating";
 
 type CanvasToolGroupProps = {
   group: ToolGroupDefinition;
   tool: CanvasNoteTool;
   onToolChange: (tool: CanvasNoteTool) => void;
   showTooltip?: boolean;
+  tooltipMode?: CanvasToolTooltipMode;
 };
+
+type CanvasToolButtonProps = {
+  item: ToolDefinition;
+  isActive: boolean;
+  descriptionId: string;
+  onToolChange: (tool: CanvasNoteTool) => void;
+  showTooltip: boolean;
+  floatingTooltip: boolean;
+  onTooltipHover?: (target: CanvasTooltipTarget | null) => void;
+  onTooltipFocus?: (target: CanvasTooltipTarget | null) => void;
+};
+
+function CanvasToolButton({
+  item,
+  isActive,
+  descriptionId,
+  onToolChange,
+  showTooltip,
+  floatingTooltip,
+  onTooltipHover,
+  onTooltipFocus,
+}: CanvasToolButtonProps) {
+  return (
+    <button
+      type="button"
+      className="note-canvas-tool-button"
+      data-tool={item.value}
+      data-active={isActive}
+      aria-pressed={isActive}
+      aria-label={item.ariaLabel}
+      aria-describedby={descriptionId}
+      title={item.description}
+      onClick={() => onToolChange(item.value)}
+      onMouseEnter={
+        floatingTooltip
+          ? (event) =>
+              onTooltipHover?.({ tool: item.value, anchor: event.currentTarget })
+          : undefined
+      }
+      onMouseLeave={
+        floatingTooltip ? () => onTooltipHover?.(null) : undefined
+      }
+      onFocus={
+        floatingTooltip
+          ? (event) =>
+              onTooltipFocus?.({ tool: item.value, anchor: event.currentTarget })
+          : undefined
+      }
+      onBlur={floatingTooltip ? () => onTooltipFocus?.(null) : undefined}
+    >
+      <span className="note-canvas-tool-icon" aria-hidden="true">
+        <ToolbarIcon name={item.icon} />
+      </span>
+      <span className="note-canvas-tool-label">{item.label}</span>
+      <span id={descriptionId} className="note-canvas-toolbar-visually-hidden">
+        {item.description}
+      </span>
+      {showTooltip && !floatingTooltip && (
+        <span className="note-canvas-toolbar-tooltip" aria-hidden="true">
+          {item.description}
+        </span>
+      )}
+    </button>
+  );
+}
 
 export function CanvasToolGroup({
   group,
   tool,
   onToolChange,
   showTooltip = true,
+  tooltipMode = "inline",
 }: CanvasToolGroupProps) {
   const idPrefix = useId();
+  const [hoveredTooltip, setHoveredTooltip] =
+    useState<CanvasTooltipTarget | null>(null);
+  const [focusedTooltip, setFocusedTooltip] =
+    useState<CanvasTooltipTarget | null>(null);
+  const floatingTooltip = tooltipMode === "floating";
+  const activeTooltipTarget = floatingTooltip
+    ? (hoveredTooltip ?? focusedTooltip)
+    : null;
+  const activeTooltipValue = activeTooltipTarget?.tool ?? null;
+  const activeTooltipItem =
+    group.tools.find((item) => item.value === activeTooltipValue) ?? null;
+  const activeTooltipAnchor = activeTooltipTarget?.anchor ?? null;
 
   return (
-    <div
-      className={`note-canvas-toolbar-group note-canvas-toolbar-group--${group.key}`}
-      role="group"
-      aria-label={group.ariaLabel}
-    >
-      {group.tools.map((item) => {
-        const isActive = tool === item.value;
-        const descriptionId = `${idPrefix}-${item.value}-description`;
+    <>
+      <div
+        className={`note-canvas-toolbar-group note-canvas-toolbar-group--${group.key}`}
+        role="group"
+        aria-label={group.ariaLabel}
+      >
+        {group.tools.map((item) => {
+          const isActive = tool === item.value;
+          const descriptionId = `${idPrefix}-${item.value}-description`;
 
-        return (
-          <button
-            key={item.value}
-            type="button"
-            className="note-canvas-tool-button"
-            data-tool={item.value}
-            data-active={isActive}
-            aria-pressed={isActive}
-            aria-label={item.ariaLabel}
-            aria-describedby={descriptionId}
-            title={item.description}
-            onClick={() => onToolChange(item.value)}
-          >
-            <span className="note-canvas-tool-icon" aria-hidden="true">
-              <ToolbarIcon name={item.icon} />
-            </span>
-            <span className="note-canvas-tool-label">{item.label}</span>
-            <span id={descriptionId} className="note-canvas-toolbar-visually-hidden">
-              {item.description}
-            </span>
-            {showTooltip && (
-              <span className="note-canvas-toolbar-tooltip" aria-hidden="true">
-                {item.description}
-              </span>
-            )}
-          </button>
-        );
-      })}
-    </div>
+          return (
+            <CanvasToolButton
+              key={item.value}
+              item={item}
+              isActive={isActive}
+              descriptionId={descriptionId}
+              onToolChange={onToolChange}
+              showTooltip={showTooltip}
+              floatingTooltip={floatingTooltip}
+              onTooltipHover={floatingTooltip ? setHoveredTooltip : undefined}
+              onTooltipFocus={floatingTooltip ? setFocusedTooltip : undefined}
+            />
+          );
+        })}
+      </div>
+      {floatingTooltip && (
+        <CanvasFloatingTooltip
+          item={activeTooltipItem}
+          anchor={activeTooltipAnchor}
+        />
+      )}
+    </>
   );
 }
 
-type CanvasHistoryActionsProps = {
-  canUndo: boolean;
-  canRedo: boolean;
-  onUndo: () => void;
-  onRedo: () => void;
-};
-
-export function CanvasHistoryActions({
-  canUndo,
-  canRedo,
-  onUndo,
-  onRedo,
-}: CanvasHistoryActionsProps) {
-  const idPrefix = useId();
-  const undoDescriptionId = `${idPrefix}-undo-description`;
-  const redoDescriptionId = `${idPrefix}-redo-description`;
-
-  return (
-    <div
-      className="note-canvas-toolbar-group note-canvas-toolbar-group--history"
-      role="group"
-      aria-label="Canvas 履歴"
-    >
-      <button
-        type="button"
-        className="note-canvas-toolbar-action"
-        onClick={onUndo}
-        disabled={!canUndo}
-        aria-label="Canvas の操作を元に戻す"
-        aria-describedby={undoDescriptionId}
-        title="Canvas の直前の操作を元に戻す"
-      >
-        <span className="note-canvas-tool-icon" aria-hidden="true">
-          <ToolbarIcon name="undo" />
-        </span>
-        <span className="note-canvas-tool-label">戻す</span>
-        <span id={undoDescriptionId} className="note-canvas-toolbar-visually-hidden">
-          Canvas の直前の操作を元に戻す
-        </span>
-        <span className="note-canvas-toolbar-tooltip" aria-hidden="true">
-          Canvas の直前の操作を元に戻す
-        </span>
-      </button>
-      <button
-        type="button"
-        className="note-canvas-toolbar-action"
-        onClick={onRedo}
-        disabled={!canRedo}
-        aria-label="Canvas の操作をやり直す"
-        aria-describedby={redoDescriptionId}
-        title="Canvas の取り消した操作をやり直す"
-      >
-        <span className="note-canvas-tool-icon" aria-hidden="true">
-          <ToolbarIcon name="redo" />
-        </span>
-        <span className="note-canvas-tool-label">やり直す</span>
-        <span id={redoDescriptionId} className="note-canvas-toolbar-visually-hidden">
-          Canvas の取り消した操作をやり直す
-        </span>
-        <span className="note-canvas-toolbar-tooltip" aria-hidden="true">
-          Canvas の取り消した操作をやり直す
-        </span>
-      </button>
-    </div>
-  );
-}
+export { CanvasHistoryActions } from "./toolbar-history-actions";
