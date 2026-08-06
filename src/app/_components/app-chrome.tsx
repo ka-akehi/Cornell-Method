@@ -100,6 +100,9 @@ export function AppChrome({ children }: AppChromeProps) {
   const railToggleLabel = isRailOpen
     ? "サイドバーを折りたたむ"
     : "サイドバーを展開する";
+  const mobileMenuLabel = isMobileNavOpen
+    ? "サイドメニューを閉じる"
+    : "サイドメニューを開く";
   const desktopRailHandleRef = useRef<HTMLButtonElement>(null);
   const desktopSidebarRef = useRef<HTMLElement>(null);
   const mobileMenuButtonRef = useRef<HTMLButtonElement>(null);
@@ -194,7 +197,7 @@ export function AppChrome({ children }: AppChromeProps) {
 
     mobilePanelRef.current
       ?.querySelector<HTMLElement>(
-        ".app-chrome-mobile-panel-close, a[href], button:not([disabled]), [tabindex]:not([tabindex='-1'])",
+        "a[href], button:not([disabled]), [tabindex]:not([tabindex='-1'])",
       )
       ?.focus();
 
@@ -212,7 +215,7 @@ export function AppChrome({ children }: AppChromeProps) {
       const focusableElements = mobilePanelRef.current
         ? Array.from(
             mobilePanelRef.current.querySelectorAll<HTMLElement>(
-              ".app-chrome-mobile-panel-close, a[href], button:not([disabled]), [tabindex]:not([tabindex='-1'])",
+              "a[href], button:not([disabled]), [tabindex]:not([tabindex='-1'])",
             ),
           )
         : [];
@@ -330,20 +333,21 @@ export function AppChrome({ children }: AppChromeProps) {
         </div>
       </aside>
 
-      <div className="app-chrome-content" inert={isMobileNavOpen}>
+      <div className="app-chrome-content">
         <header className="app-chrome-mobile-header">
           <div className="app-chrome-mobile-header-inner">
-            <AppChromeBrand />
+            <div
+              className="app-chrome-mobile-brand"
+              inert={isMobileNavOpen}
+            >
+              <AppChromeBrand />
+            </div>
             <button
               id="app-chrome-mobile-menu-button"
               ref={mobileMenuButtonRef}
               type="button"
               className="app-chrome-menu-button app-chrome-mobile-menu-button"
-              aria-label={
-                isMobileNavOpen
-                  ? "ナビゲーションを閉じる"
-                  : "ナビゲーションを開く"
-              }
+              aria-label={mobileMenuLabel}
               aria-expanded={isMobileNavOpen}
               aria-controls="app-chrome-mobile-overlay"
               onClick={() => {
@@ -354,12 +358,16 @@ export function AppChrome({ children }: AppChromeProps) {
                 }
               }}
             >
-              <AppChromeIcon name="menu" />
+              <AppChromeIcon name={isMobileNavOpen ? "close" : "menu"} />
             </button>
           </div>
         </header>
 
-        <main id="app-main-content" className="app-main">
+        <main
+          id="app-main-content"
+          className="app-main"
+          inert={isMobileNavOpen}
+        >
           {children}
         </main>
       </div>
@@ -375,7 +383,7 @@ export function AppChrome({ children }: AppChromeProps) {
         <button
           type="button"
           className="app-chrome-mobile-backdrop"
-          aria-label="ナビゲーションを閉じる"
+          aria-label="サイドメニューを閉じる"
           tabIndex={-1}
           onClick={closeMobileNav}
         />
@@ -385,20 +393,17 @@ export function AppChrome({ children }: AppChromeProps) {
           className="app-chrome-mobile-panel"
           aria-labelledby="app-chrome-mobile-overlay-title"
         >
-          <header className="app-chrome-mobile-panel-header">
-            <h2 id="app-chrome-mobile-overlay-title">ナビゲーション</h2>
-            <button
-              type="button"
-              className="app-chrome-mobile-panel-close"
-              aria-label="ナビゲーションを閉じる"
-              onClick={closeMobileNav}
-            >
-              <AppChromeIcon
-                name="close"
-                className="app-chrome-mobile-panel-close-icon"
-              />
-            </button>
-          </header>
+          <span
+            id="app-chrome-mobile-overlay-title"
+            className="app-chrome-mobile-panel-title"
+          >
+            サイドメニュー
+          </span>
+          <AppChromeCreateLink
+            pathname={pathname}
+            onNavigate={closeMobileNav}
+            variant="mobile"
+          />
           <div className="app-chrome-sidebar-body">
             <AppChromeNavigation
               pathname={pathname}
@@ -406,12 +411,6 @@ export function AppChrome({ children }: AppChromeProps) {
               variant="mobile"
             />
           </div>
-          <footer className="app-chrome-sidebar-footer">
-            <AppChromeCreateLink
-              pathname={pathname}
-              onNavigate={closeMobileNav}
-            />
-          </footer>
         </aside>
       </div>
 

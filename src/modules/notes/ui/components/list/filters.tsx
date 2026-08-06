@@ -53,7 +53,7 @@ export function NotesListFilters({
       onSubmit={onSubmit}
       className="min-w-0 space-y-4 rounded-[0.55rem] border border-[var(--app-line)] bg-[var(--app-surface)] p-4"
     >
-      <div className="grid gap-3 lg:grid-cols-[minmax(220px,1fr)_160px_160px_auto]">
+      <div className="grid gap-3 lg:grid-cols-[minmax(220px,1fr)_160px_160px]">
         <div className="min-w-0">
           <label
             htmlFor="notes-query"
@@ -103,16 +103,6 @@ export function NotesListFilters({
             onChange={(event) => onToChange(event.target.value)}
           />
         </div>
-
-        <div className="flex items-end lg:justify-end">
-          <button
-            type="button"
-            className="min-h-10 rounded-[0.45rem] border border-[var(--app-line-strong)] bg-[var(--app-surface)] px-3 py-2 text-sm font-medium text-[var(--app-ink)] transition-colors hover:border-[var(--app-accent)] hover:bg-[var(--app-accent-soft)] hover:text-[var(--app-accent-deep)] focus-visible:outline-2 focus-visible:outline-[var(--app-focus)] focus-visible:outline-offset-2"
-            onClick={onReset}
-          >
-            クリア
-          </button>
-        </div>
       </div>
 
       <div className="grid gap-3 lg:grid-cols-[minmax(220px,1fr)_auto]">
@@ -126,14 +116,24 @@ export function NotesListFilters({
           onRemoveTag={onRemoveTag}
         />
 
-        <button
-          type="button"
-          aria-pressed={reviewDue}
-          className="flex min-h-10 items-center self-start rounded-[0.45rem] border border-[var(--app-line-strong)] bg-[var(--app-surface)] px-3 py-2 text-sm font-medium text-[var(--app-ink)] transition-colors hover:border-[var(--app-accent)] hover:bg-[var(--app-accent-soft)] hover:text-[var(--app-accent-deep)] aria-pressed:border-[var(--app-accent)] aria-pressed:bg-[var(--app-accent-soft)] aria-pressed:text-[var(--app-accent-deep)] focus-visible:outline-2 focus-visible:outline-[var(--app-focus)] focus-visible:outline-offset-2 lg:mt-5"
-          onClick={() => onReviewDueChange(!reviewDue)}
-        >
-          <span>復習対象のみ</span>
-        </button>
+        <div className="flex flex-row items-center gap-2 self-start justify-self-start lg:items-end lg:justify-self-end">
+          <button
+            type="button"
+            aria-pressed={reviewDue}
+            className="flex min-h-10 w-fit items-center rounded-[0.45rem] border border-[var(--app-line-strong)] bg-[var(--app-surface)] px-3 py-2 text-sm font-medium text-[var(--app-ink)] transition-colors hover:border-[var(--app-accent)] hover:bg-[var(--app-accent-soft)] hover:text-[var(--app-accent-deep)] aria-pressed:border-[var(--app-accent)] aria-pressed:bg-[var(--app-accent-soft)] aria-pressed:text-[var(--app-accent-deep)] focus-visible:outline-2 focus-visible:outline-[var(--app-focus)] focus-visible:outline-offset-2 lg:mt-5"
+            onClick={() => onReviewDueChange(!reviewDue)}
+          >
+            <span>復習対象のみ</span>
+          </button>
+
+          <button
+            type="button"
+            className="min-h-10 w-fit rounded-[0.45rem] border border-[var(--app-line-strong)] bg-[var(--app-surface)] px-3 py-2 text-sm font-medium text-[var(--app-ink)] transition-colors hover:border-[var(--app-accent)] hover:bg-[var(--app-accent-soft)] hover:text-[var(--app-accent-deep)] focus-visible:outline-2 focus-visible:outline-[var(--app-focus)] focus-visible:outline-offset-2"
+            onClick={onReset}
+          >
+            クリア
+          </button>
+        </div>
       </div>
 
       {dateError && (

@@ -92,9 +92,8 @@ test("desktop AppChrome は same-DOM sidebar と canonical route を共有する
   const mobileBrand = appChromeParts.slice(mobileBrandStart);
   assert.match(
     desktopIdentity,
-    /<div className="app-chrome-desktop-identity">[\s\S]*<AppChromeBrandContent \/>/,
+    /<Link[\s\S]*href="\/notes"[\s\S]*className="app-chrome-desktop-identity"[\s\S]*aria-label="Cornell Method Notebook ノート一覧へ"[\s\S]*<AppChromeBrandContent \/>/,
   );
-  assert.doesNotMatch(desktopIdentity, /<Link\b|href=|tooltip/i);
   assert.match(
     mobileBrand,
     /<Link[\s\S]*href="\/notes"[\s\S]*className="app-chrome-brand"[\s\S]*aria-label="Cornell Method Notebook ノート一覧へ"/,
@@ -138,7 +137,7 @@ test("desktop AppChrome は same-DOM sidebar と canonical route を共有する
   assert.match(layout, /<AppChrome>\{children\}<\/AppChrome>/);
   assert.match(
     appChrome,
-    /<main id="app-main-content" className="app-main">[\s\S]*\{children\}[\s\S]*<\/main>/,
+    /<main[\s\S]*id="app-main-content"[\s\S]*className="app-main"[\s\S]*>[\s\S]*\{children\}[\s\S]*<\/main>/,
   );
 });
 
@@ -300,10 +299,20 @@ test("desktop sidebar geometry と visual state は 256px / 56px rail 契約を�
   assert.match(markRule, /border:\s*0;/);
   assert.match(markRule, /opacity:\s*1;/);
   assert.match(markRule, /transition:\s*opacity 100ms ease-out;/);
-  assert.doesNotMatch(
+  const collapsedBrandRule = readRule(
     appShell,
-    /\.app-chrome-shell\.is-rail-collapsed\s+\.app-chrome-desktop-identity\s+\.app-chrome-brand-mark\s*\{/,
+    ".app-chrome-shell.is-rail-collapsed\n  .app-chrome-desktop-identity\n  .app-chrome-brand-mark {",
   );
+  assert.match(collapsedBrandRule, /top:\s*calc\(50% - 1rem\);/);
+  assert.match(collapsedBrandRule, /left:\s*calc\(50% - 1rem\);/);
+  assert.match(collapsedBrandRule, /opacity:\s*1;/);
+  const desktopIdentityRule = readRule(
+    appShell,
+    ".app-chrome-desktop-identity {",
+  );
+  assert.match(desktopIdentityRule, /display:\s*block;/);
+  assert.match(desktopIdentityRule, /color:\s*var\(--app-ink\);/);
+  assert.match(desktopIdentityRule, /text-decoration:\s*none;/);
 
   const toggleRule = readRule(appShell, ".app-chrome-sidebar-toggle {");
   assert.match(toggleRule, /position:\s*absolute;/);
@@ -363,21 +372,16 @@ test("desktop sidebar geometry と visual state は 256px / 56px rail 契約を�
     collapsedToggleRevealRule,
     /\.app-chrome-sidebar-identity:hover\s+\.app-chrome-sidebar-toggle,/,
   );
+  assert.match(collapsedToggleRevealRule, /background:\s*var\(--app-surface\);/);
   assert.doesNotMatch(collapsedToggleRevealRule, /:focus-within/);
   assert.match(
     appShell,
     /\.app-chrome-shell\.is-rail-collapsed\s+\.app-chrome-sidebar-toggle:focus-visible[\s\S]*opacity:\s*1;/,
   );
-  const collapsedBrandHideRule = readRule(
+  assert.doesNotMatch(
     appShell,
-    ".app-chrome-shell.is-rail-collapsed\n  .app-chrome-sidebar-identity:hover\n  .app-chrome-brand-mark",
+    /\.app-chrome-shell\.is-rail-collapsed\s+\.app-chrome-sidebar-identity:hover\s+\.app-chrome-brand-mark\s*\{[\s\S]*opacity:\s*0;/,
   );
-  assert.match(collapsedBrandHideRule, /opacity:\s*0;/);
-  assert.match(
-    collapsedBrandHideRule,
-    /\.app-chrome-sidebar-identity:hover\s+\.app-chrome-brand-mark/,
-  );
-  assert.doesNotMatch(collapsedBrandHideRule, /:focus-within/);
 
   const brandCopyRule = readRule(
     appShell,

@@ -119,32 +119,32 @@ export function NoteDetailHeading({
 export function NoteDetailMetadata({ note }: { note: NoteDetailResponse }) {
   return (
     <div className="note-paper-metadata-content min-w-0">
-      <dl className="flex min-w-0 flex-wrap items-start gap-x-8 gap-y-3 py-3 text-sm">
-        <div className="min-w-[6rem]">
+      <dl className="note-paper-metadata-grid min-w-0 text-sm">
+        <div className="note-paper-metadata-field note-paper-metadata-field--date min-w-[6rem]">
           <dt className="text-xs font-semibold tracking-wide text-stone-500">学習日</dt>
           <dd className="mt-1 break-words text-stone-900">{formatDate(note.noteDate)}</dd>
         </div>
-        <div className="min-w-[10rem] max-w-full">
+        <div className="note-paper-metadata-field note-paper-metadata-field--source max-w-full">
           <dt className="text-xs font-semibold tracking-wide text-stone-500">学習元</dt>
           <dd className="mt-1 break-words text-stone-900">
             {formatSource(note.sourceType, note.sourceTitle)}
           </dd>
         </div>
-        <div className="min-w-[12rem] max-w-full flex-1">
+        <div className="note-paper-metadata-field note-paper-metadata-field--tags max-w-full">
           <dt className="text-xs font-semibold tracking-wide text-stone-500">タグ</dt>
           <dd className="mt-1 min-w-0">
             <NoteDetailTags tags={note.tags} />
           </dd>
         </div>
-      </dl>
-      <dl className="flex min-w-0 flex-wrap gap-x-6 gap-y-2 py-2 text-xs text-stone-500">
-        <div className="flex min-w-0 items-baseline gap-2">
-          <dt className="shrink-0 font-semibold">次回復習日</dt>
-          <dd className="break-words text-stone-700">{formatDate(note.nextReviewDate)}</dd>
-        </div>
-        <div className="flex min-w-0 items-baseline gap-2">
-          <dt className="shrink-0 font-semibold">最終復習日時</dt>
-          <dd className="break-words text-stone-700">{formatDateTime(note.reviewedAt)}</dd>
+        <div className="note-paper-metadata-review min-w-0 text-xs text-stone-500">
+          <div className="flex min-w-0 items-baseline gap-2">
+            <dt className="shrink-0 font-semibold">次回復習日</dt>
+            <dd className="break-words text-stone-700">{formatDate(note.nextReviewDate)}</dd>
+          </div>
+          <div className="flex min-w-0 items-baseline gap-2">
+            <dt className="shrink-0 font-semibold">最終復習日時</dt>
+            <dd className="break-words text-stone-700">{formatDateTime(note.reviewedAt)}</dd>
+          </div>
         </div>
       </dl>
     </div>

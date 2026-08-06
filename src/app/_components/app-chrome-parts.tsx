@@ -238,9 +238,13 @@ function AppChromeBrandContent() {
 
 export function AppChromeDesktopIdentity() {
   return (
-    <div className="app-chrome-desktop-identity">
+    <Link
+      href="/notes"
+      className="app-chrome-desktop-identity"
+      aria-label="Cornell Method Notebook ノート一覧へ"
+    >
       <AppChromeBrandContent />
-    </div>
+    </Link>
   );
 }
 

@@ -187,6 +187,17 @@ test("tag chips stay single-line while preserving full names and deletion", () =
   );
 });
 
+test("tag count stays visible near the heading without duplicating the limit hint", () => {
+  const tags = readSource("src/modules/notes/ui/components/editor/tags.tsx");
+
+  assert.match(
+    tags,
+    /<span\s+role="status"\s+aria-live="polite"\s+aria-atomic="true"[\s\S]*?>\s*タグ \{tags\.length\}\/12\s*<\/span>/,
+  );
+  assert.match(tags, /if \(tags\.length >= 12\) \{/);
+  assert.doesNotMatch(tags, /最大12件/);
+});
+
 test("tag edits clear stale tags API field errors without changing tag values", () => {
   const editor = readSource(
     "src/modules/notes/ui/components/editor/editor.tsx",

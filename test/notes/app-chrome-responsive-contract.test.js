@@ -28,7 +28,7 @@ test("AppChrome は 901px desktop same-DOM sidebar と 900px mobile UI を分離
   );
   assert.match(
     compact(appChrome),
-    /<aside id="app-chrome-sidebar" ref=\{desktopSidebarRef\} className="app-chrome-sidebar"[\s\S]*<header className="app-chrome-sidebar-identity"> <AppChromeDesktopIdentity \/> <button[\s\S]*id=\{desktopRailToggleId\}[\s\S]*<\/button> <\/header> <AppChromeCreateLink[\s\S]*variant="desktop"[\s\S]*<div className="app-chrome-navigation-scroll">[\s\S]*<AppChromeNavigation[\s\S]*variant="desktop"[\s\S]*<\/aside> <div className="app-chrome-content" inert=\{isMobileNavOpen\}/,
+    /<aside id="app-chrome-sidebar" ref=\{desktopSidebarRef\} className="app-chrome-sidebar"[\s\S]*<header className="app-chrome-sidebar-identity"> <AppChromeDesktopIdentity \/> <button[\s\S]*id=\{desktopRailToggleId\}[\s\S]*<\/button> <\/header> <AppChromeCreateLink[\s\S]*variant="desktop"[\s\S]*<div className="app-chrome-navigation-scroll">[\s\S]*<AppChromeNavigation[\s\S]*variant="desktop"[\s\S]*<\/aside> <div className="app-chrome-content">/,
   );
   assert.doesNotMatch(
     appChrome + appChromeParts,
@@ -54,6 +54,14 @@ test("AppChrome は 901px desktop same-DOM sidebar と 900px mobile UI を分離
   assert.match(
     appShell,
     /\.app-chrome-shell\.is-rail-collapsed \.app-chrome-sidebar-identity\s*\{[\s\S]*height:\s*var\(--app-chrome-sidebar-identity-height\);[\s\S]*flex-basis:\s*var\(--app-chrome-sidebar-identity-height\);/,
+  );
+  assert.match(
+    appShell,
+    /\.app-chrome-shell\.is-rail-collapsed\s+\.app-chrome-desktop-identity\s+\.app-chrome-brand-mark\s*\{[\s\S]*top:\s*calc\(50% - 1rem\);[\s\S]*left:\s*calc\(50% - 1rem\);[\s\S]*opacity:\s*1;/,
+  );
+  assert.doesNotMatch(
+    appShell,
+    /\.app-chrome-shell\.is-rail-collapsed\s+\.app-chrome-sidebar-identity:hover\s+\.app-chrome-brand-mark\s*\{[\s\S]*opacity:\s*0;/,
   );
   assert.match(
     appShell,
@@ -157,7 +165,7 @@ test("mobile header / overlay の focus trap、close、scroll lock 契約は維�
 
   assert.match(
     compact(appChrome),
-    /<header className="app-chrome-mobile-header"> <div className="app-chrome-mobile-header-inner"> <AppChromeBrand \/> <button id="app-chrome-mobile-menu-button" ref=\{mobileMenuButtonRef\}[\s\S]*className="app-chrome-menu-button app-chrome-mobile-menu-button"[\s\S]*aria-expanded=\{isMobileNavOpen\}[\s\S]*aria-controls="app-chrome-mobile-overlay"[\s\S]*<AppChromeIcon name="menu" \/>/,
+    /<header className="app-chrome-mobile-header"> <div className="app-chrome-mobile-header-inner"> <div className="app-chrome-mobile-brand" inert=\{isMobileNavOpen\}\s*> <AppChromeBrand \/> <\/div> <button id="app-chrome-mobile-menu-button" ref=\{mobileMenuButtonRef\}[\s\S]*className="app-chrome-menu-button app-chrome-mobile-menu-button"[\s\S]*aria-label=\{mobileMenuLabel\}[\s\S]*aria-expanded=\{isMobileNavOpen\}[\s\S]*aria-controls="app-chrome-mobile-overlay"[\s\S]*<AppChromeIcon name=\{isMobileNavOpen \? "close" : "menu"\} \/>/,
   );
   assert.match(
     appChromeParts,
@@ -174,13 +182,44 @@ test("mobile header / overlay の focus trap、close、scroll lock 契約は維�
   );
   assert.match(
     compact(appChrome),
-    /<button type="button" className="app-chrome-mobile-backdrop" aria-label="ナビゲーションを閉じる" tabIndex=\{-1\} onClick=\{closeMobileNav\} \/> <aside ref=\{mobilePanelRef\} id="app-chrome-mobile-panel"[\s\S]*<header className="app-chrome-mobile-panel-header">[\s\S]*<div className="app-chrome-sidebar-body"> <AppChromeNavigation pathname=\{pathname\} onNavigate=\{closeMobileNav\} variant="mobile" \/> <\/div> <footer className="app-chrome-sidebar-footer"> <AppChromeCreateLink pathname=\{pathname\} onNavigate=\{closeMobileNav\} \/> <\/footer> <\/aside>/,
+    /<button type="button" className="app-chrome-mobile-backdrop" aria-label="サイドメニューを閉じる" tabIndex=\{-1\} onClick=\{closeMobileNav\} \/> <aside ref=\{mobilePanelRef\} id="app-chrome-mobile-panel" className="app-chrome-mobile-panel" aria-labelledby="app-chrome-mobile-overlay-title"\s*> <span id="app-chrome-mobile-overlay-title" className="app-chrome-mobile-panel-title"\s*> サイドメニュー <\/span> <AppChromeCreateLink pathname=\{pathname\} onNavigate=\{closeMobileNav\} variant="mobile" \/> <div className="app-chrome-sidebar-body"> <AppChromeNavigation pathname=\{pathname\} onNavigate=\{closeMobileNav\} variant="mobile" \/> <\/div> <\/aside>/,
+  );
+  const mobilePanelStart = appChrome.indexOf(
+    '<aside\n          ref={mobilePanelRef}',
+  );
+  const mobilePanelEnd = appChrome.indexOf(
+    '        </aside>\n      </div>',
+    mobilePanelStart,
+  );
+  assert.ok(mobilePanelStart >= 0 && mobilePanelEnd > mobilePanelStart);
+  const mobilePanelMarkup = appChrome.slice(mobilePanelStart, mobilePanelEnd);
+  const panelTitleIndex = mobilePanelMarkup.indexOf(
+    '<span\n            id="app-chrome-mobile-overlay-title"',
+  );
+  const mobileCreateIndex = mobilePanelMarkup.indexOf(
+    '<AppChromeCreateLink',
+  );
+  const mobileNavigationIndex = mobilePanelMarkup.indexOf(
+    '<AppChromeNavigation',
+  );
+  assert.ok(
+    panelTitleIndex >= 0 &&
+      panelTitleIndex < mobileCreateIndex &&
+      mobileCreateIndex < mobileNavigationIndex,
+    "mobile panel source order is accessible title -> create -> navigation",
+  );
+  assert.match(
+    compact(mobilePanelMarkup),
+    /<AppChromeCreateLink pathname=\{pathname\} onNavigate=\{closeMobileNav\} variant="mobile" \/>/,
+  );
+  assert.doesNotMatch(
+    appChrome + appShell,
+    /app-chrome-mobile-panel-header|app-chrome-mobile-panel-close|<h2[^>]*>ナビゲーション<\/h2>/,
   );
   assert.match(
     appChrome,
-    /className="app-chrome-mobile-panel-close"[\s\S]*aria-label="ナビゲーションを閉じる"[\s\S]*onClick=\{closeMobileNav\}/,
+    /id="app-chrome-mobile-overlay-title"\s+className="app-chrome-mobile-panel-title"\s*>[\s\S]*サイドメニュー[\s\S]*<\/span>/,
   );
-  assert.match(appChrome, /id="app-chrome-mobile-overlay-title">ナビゲーション<\/h2>/);
   assert.match(appChrome, /event\.key === "Escape"/);
   assert.match(appChrome, /event\.key !== "Tab"/);
   assert.match(
@@ -196,11 +235,31 @@ test("mobile header / overlay の focus trap、close、scroll lock 契約は維�
     appChrome,
     /document\.body\.style\.overflow = previousBodyOverflow/,
   );
-  assert.match(appChrome, /inert=\{isMobileNavOpen\}/);
   assert.match(
     appChrome,
-    /querySelector<HTMLElement>\([\s\S]*app-chrome-mobile-panel-close/,
+    /<main[\s\S]*id="app-main-content"[\s\S]*className="app-main"[\s\S]*inert=\{isMobileNavOpen\}[\s\S]*>/,
   );
+  assert.match(
+    appChrome,
+    /if \(isMobileNavOpen\) \{[\s\S]*closeMobileNav\(\);[\s\S]*\} else \{[\s\S]*setIsMobileNavOpen\(true\);/,
+    "mobile toggle closes through the shared close handler and opens otherwise",
+  );
+  assert.doesNotMatch(appChrome, /<div className="app-chrome-content" inert=/);
+  const mobileButtonStart = appChrome.indexOf(
+    '<button\n              id="app-chrome-mobile-menu-button"',
+  );
+  const mobileButtonEnd = appChrome.indexOf('</button>', mobileButtonStart);
+  assert.ok(mobileButtonStart >= 0 && mobileButtonEnd > mobileButtonStart);
+  assert.doesNotMatch(
+    appChrome.slice(mobileButtonStart, mobileButtonEnd),
+    /inert=\{isMobileNavOpen\}/,
+    "the open-state header toggle remains outside inert content",
+  );
+  assert.match(
+    appChrome,
+    /querySelector<HTMLElement>\([\s\S]*a\[href\], button:not\(\[disabled\]\), \[tabindex\]:not\(\[tabindex='-1'\]\)/,
+  );
+  assert.doesNotMatch(appChrome, /app-chrome-mobile-panel-close/);
   assert.match(
     appChrome,
     /setIsMobileNavOpen\(false\)[\s\S]*mobileMenuButtonRef\.current\?\.focus\(\)/,
@@ -226,7 +285,11 @@ test("mobile header / overlay の focus trap、close、scroll lock 契約は維�
   );
   assert.match(
     appShell,
-    /\.app-chrome-mobile-panel\s*\{[\s\S]*width:\s*min\(20rem, calc\(100vw - 1\.5rem\)\);[\s\S]*overflow-y:\s*auto;/,
+    /\.app-chrome-mobile-panel\s*\{[\s\S]*box-sizing:\s*border-box;[\s\S]*width:\s*100%;[\s\S]*max-width:\s*100%;[\s\S]*overflow-y:\s*auto;/,
+  );
+  assert.match(
+    appShell,
+    /\.app-chrome-mobile-panel-title\s*\{[\s\S]*position:\s*absolute;[\s\S]*width:\s*1px;[\s\S]*height:\s*1px;[\s\S]*clip:\s*rect\(0, 0, 0, 0\);/,
   );
   assert.match(
     appShell,
@@ -234,7 +297,40 @@ test("mobile header / overlay の focus trap、close、scroll lock 契約は維�
   );
   assert.match(
     appShell,
-    /\.app-chrome-sidebar-footer\s*\{[\s\S]*margin-top:\s*auto;[\s\S]*border-top:\s*1px solid var\(--app-line\);/,
+    /\.app-chrome-mobile-overlay\s*\{[\s\S]*z-index:\s*40;[\s\S]*pointer-events:\s*none;/,
+    "overlay空白領域はheader toggleのhit testingを遮らない",
+  );
+  assert.match(
+    appShell,
+    /\.app-chrome-mobile-backdrop\s*\{[\s\S]*pointer-events:\s*auto;/,
+    "backdrop remains the pointer target for closing",
+  );
+  assert.match(
+    appShell,
+    /\.app-chrome-mobile-panel\s*\{[\s\S]*pointer-events:\s*auto;/,
+    "panel remains the pointer target for navigation",
+  );
+  assert.match(
+    appShell,
+    /\.app-chrome-create-link--mobile\s*\{[\s\S]*width:\s*100%;[\s\S]*height:\s*2\.75rem;[\s\S]*min-height:\s*2\.75rem;[\s\S]*background:\s*var\(--app-accent-deep\);[\s\S]*color:\s*#fffaf1;/,
+  );
+  assert.match(
+    appShell,
+    /\.app-chrome-create-link--mobile:(?:hover|active)[\s\S]*background:\s*var\(--app-accent-deep\);[\s\S]*color:\s*#fffaf1;/,
+  );
+  assert.match(
+    appShell,
+    /\.app-chrome-sidebar-body\s*\{[\s\S]*margin-top:\s*1rem;/,
+  );
+  assert.doesNotMatch(appChrome + appShell, /app-chrome-sidebar-footer/);
+  assert.doesNotMatch(
+    appShell,
+    /\.app-chrome-sidebar-footer\s*\{[\s\S]*margin-top:\s*auto;/,
   );
   assert.match(appShell, /@media \(max-width: 420px\)/);
+  assert.doesNotMatch(
+    appShell,
+    /@media \(max-width: 420px\)[\s\S]*\.app-chrome-mobile-panel\s*\{[\s\S]*width:/,
+    "small-screen padding must not override the full-width panel",
+  );
 });

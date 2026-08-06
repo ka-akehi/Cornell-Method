@@ -246,15 +246,15 @@ export function NotesList() {
 
   return (
     <div className="min-w-0 space-y-5">
-      <div className="app-page-header flex flex-wrap items-start justify-between gap-4 border-b pb-4">
+      <div className="app-page-header flex items-center justify-between gap-3 border-b pb-4">
         <div className="min-w-0">
-          <h1 className="text-2xl font-semibold tracking-tight text-[var(--app-ink)]">
+          <h1 className="truncate text-2xl font-semibold tracking-tight text-[var(--app-ink)]">
             ノート一覧
           </h1>
         </div>
         <Link
           href="/notes/new"
-          className="inline-flex min-h-10 w-full shrink-0 items-center justify-center rounded-[0.55rem] border border-[var(--app-accent-deep)] bg-[var(--app-accent-deep)] px-4 py-2 text-sm font-semibold text-[var(--app-surface)] transition-colors hover:border-[var(--app-accent-deep)] hover:bg-[var(--app-accent-deep)] focus-visible:outline-2 focus-visible:outline-[var(--app-focus)] focus-visible:outline-offset-2 sm:w-auto"
+          className="inline-flex min-h-10 w-fit shrink-0 items-center justify-center rounded-[0.55rem] border border-[var(--app-accent-deep)] bg-[var(--app-accent-deep)] px-4 py-2 text-sm font-semibold text-[var(--app-surface)] transition-colors hover:border-[var(--app-accent-deep)] hover:bg-[var(--app-accent-deep)] focus-visible:outline-2 focus-visible:outline-[var(--app-focus)] focus-visible:outline-offset-2"
         >
           新規作成
         </Link>

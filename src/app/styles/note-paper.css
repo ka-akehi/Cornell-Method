@@ -117,51 +117,69 @@
   overflow-wrap: anywhere;
 }
 
-/* Detail metadata uses the same three-column rhythm as the editor metadata grid. */
+/* Detail metadata keeps tags in a tall right-hand column while review stays below the left fields. */
 .note-paper-metadata-content {
   box-sizing: border-box;
   min-width: 0;
   width: 100%;
 }
 
-.note-paper-metadata-content > dl:first-child {
+.note-paper-metadata-grid {
   display: grid;
   box-sizing: border-box;
   min-width: 0;
   width: 100%;
   grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-rows: auto auto;
   column-gap: 0;
   row-gap: 0;
   margin: clamp(0.625rem, 1.25vw, 0.875rem) 0 0;
   padding: 0 0 clamp(0.625rem, 1.25vw, 0.875rem);
 }
 
-.note-paper-metadata-content > dl:first-child > div {
+.note-paper-metadata-grid > .note-paper-metadata-field {
   min-width: 0;
   padding: 0.1rem 0.625rem;
   border-left: 1px solid var(--paper-line);
 }
 
-.note-paper-metadata-content > dl:first-child > div:first-child {
+.note-paper-metadata-grid > .note-paper-metadata-field--date {
+  grid-column: 1;
+  grid-row: 1;
   padding-left: 0;
   border-left: 0;
 }
 
-.note-paper-metadata-content > dl:first-child dt {
+.note-paper-metadata-field--source {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+}
+
+.note-paper-metadata-field--tags {
+  grid-column: 3;
+  grid-row: 1 / span 2;
+}
+
+.note-paper-metadata-grid dt {
   color: var(--app-muted-ink);
 }
 
-.note-paper-metadata-content > dl:first-child dd {
+.note-paper-metadata-grid dd {
   color: var(--app-ink);
 }
 
 /* Review metadata is informational text, not another ruled section. */
-.note-paper-metadata-content > dl:last-child {
+.note-paper-metadata-review {
   box-sizing: border-box;
   min-width: 0;
-  width: 100%;
+  grid-column: 1 / span 2;
+  grid-row: 2;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.5rem 1.5rem;
   margin: 0;
-  padding: 0 0 clamp(0.625rem, 1.25vw, 0.875rem);
+  padding: 0.5rem 0 0;
   color: var(--app-muted-ink);
 }
 
@@ -360,8 +378,9 @@
     row-gap: 0.625rem;
   }
 
-  .note-paper-metadata-content > dl:first-child {
+  .note-paper-metadata-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-rows: auto auto auto;
     row-gap: 0.625rem;
   }
 
@@ -375,14 +394,28 @@
     border-top: 1px solid var(--paper-line);
   }
 
-  .note-paper-metadata-content > dl:first-child > div:nth-child(odd) {
+  .note-paper-metadata-grid > .note-paper-metadata-field--date {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  .note-paper-metadata-field--source {
+    grid-column: 2;
+    grid-row: 1 / span 2;
+  }
+
+  .note-paper-metadata-grid > .note-paper-metadata-field--tags {
+    grid-column: 1;
+    grid-row: 2;
+    padding-top: 0.625rem;
     padding-left: 0;
+    border-top: 1px solid var(--paper-line);
     border-left: 0;
   }
 
-  .note-paper-metadata-content > dl:first-child > div:nth-child(n + 3) {
-    padding-top: 0.625rem;
-    border-top: 1px solid var(--paper-line);
+  .note-paper-metadata-review {
+    grid-column: 1 / -1;
+    grid-row: 3;
   }
 
   .note-paper-detail .note-paper-cornell-grid {
@@ -416,8 +449,9 @@
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .note-paper-metadata-content > dl:first-child {
+  .note-paper-metadata-grid {
     grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: none;
   }
 
   .note-paper-meta-item,
@@ -427,8 +461,9 @@
     border-left: 0;
   }
 
-  .note-paper-metadata-content > dl:first-child > div,
-  .note-paper-metadata-content > dl:first-child > div:nth-child(odd) {
+  .note-paper-metadata-grid > .note-paper-metadata-field {
+    grid-column: 1;
+    grid-row: auto;
     padding: 0.625rem 0 0;
     border-top: 1px solid var(--paper-line);
     border-left: 0;
@@ -439,9 +474,15 @@
     border-top: 0;
   }
 
-  .note-paper-metadata-content > dl:first-child > div:first-child {
+  .note-paper-metadata-grid > .note-paper-metadata-field--date {
     padding-top: 0;
     border-top: 0;
+  }
+
+  .note-paper-metadata-review {
+    grid-column: 1;
+    grid-row: auto;
+    padding-top: 0;
   }
 
   .note-paper-cornell-grid > :first-child {

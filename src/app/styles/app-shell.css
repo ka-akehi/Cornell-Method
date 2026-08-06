@@ -108,9 +108,11 @@
 }
 
 .app-chrome-desktop-identity {
+  display: block;
   width: 100%;
   height: 100%;
   color: var(--app-ink);
+  text-decoration: none;
 }
 
 .app-chrome-desktop-identity .app-chrome-brand-mark {
@@ -181,6 +183,14 @@
   flex-basis: var(--app-chrome-sidebar-identity-height);
 }
 
+.app-chrome-shell.is-rail-collapsed
+  .app-chrome-desktop-identity
+  .app-chrome-brand-mark {
+  top: calc(50% - 1rem);
+  left: calc(50% - 1rem);
+  opacity: 1;
+}
+
 .app-chrome-sidebar-toggle {
   position: absolute;
   top: var(--app-chrome-sidebar-outer-inset);
@@ -219,6 +229,7 @@
   align-items: center;
   justify-content: center;
   padding: 0;
+  z-index: 1;
   opacity: 0;
   pointer-events: none;
 }
@@ -228,14 +239,9 @@
   .app-chrome-sidebar-toggle,
 .app-chrome-shell.is-rail-collapsed
   .app-chrome-sidebar-toggle:focus-visible {
+  background: var(--app-surface);
   opacity: 1;
   pointer-events: auto;
-}
-
-.app-chrome-shell.is-rail-collapsed
-  .app-chrome-sidebar-identity:hover
-  .app-chrome-brand-mark {
-  opacity: 0;
 }
 
 .app-chrome-sidebar-toggle:hover {
@@ -348,6 +354,38 @@
 .app-chrome-create-link--desktop:active,
 .app-chrome-create-link--desktop.is-selected:active,
 .app-chrome-create-link--desktop[aria-current="page"]:active {
+  background: var(--app-accent-deep);
+  box-shadow: inset 0 0 0 2px rgb(255 250 241 / 28%);
+  color: #fffaf1;
+}
+
+.app-chrome-create-link--mobile {
+  width: 100%;
+  height: 2.75rem;
+  min-height: 2.75rem;
+  flex: 0 0 2.75rem;
+  justify-content: flex-start;
+  gap: 0.75rem;
+  margin-top: 1rem;
+  padding: 0 0.75rem;
+  border: 0;
+  border-radius: 0.5rem;
+  background: var(--app-accent-deep);
+  box-shadow: none;
+  color: #fffaf1;
+}
+
+.app-chrome-create-link--mobile:hover,
+.app-chrome-create-link--mobile.is-selected,
+.app-chrome-create-link--mobile[aria-current="page"] {
+  background: var(--app-accent-deep);
+  box-shadow: 0 2px 8px rgb(79 65 45 / 16%);
+  color: #fffaf1;
+}
+
+.app-chrome-create-link--mobile:active,
+.app-chrome-create-link--mobile.is-selected:active,
+.app-chrome-create-link--mobile[aria-current="page"]:active {
   background: var(--app-accent-deep);
   box-shadow: inset 0 0 0 2px rgb(255 250 241 / 28%);
   color: #fffaf1;
@@ -473,6 +511,7 @@
 }
 
 .app-chrome-sidebar-toggle:focus-visible,
+.app-chrome-desktop-identity:focus-visible,
 .app-chrome-create-link--desktop:focus-visible,
 .app-chrome-nav-link--desktop:focus-visible {
   outline: 2px solid var(--app-focus);
@@ -516,7 +555,6 @@
 .app-chrome-create-link--mobile:focus-visible,
 .app-chrome-nav-link--mobile:focus-visible,
 .app-chrome-menu-button:focus-visible,
-.app-chrome-mobile-panel-close:focus-visible,
 .app-chrome-mobile-backdrop:focus-visible {
   outline: 2px solid var(--app-focus);
   outline-offset: 3px;
@@ -548,6 +586,10 @@
   min-width: 0;
 }
 
+.app-chrome-mobile-brand {
+  min-width: 0;
+}
+
 .app-chrome-menu-button {
   display: inline-flex;
   width: 2.75rem;
@@ -571,6 +613,7 @@
   position: fixed;
   z-index: 40;
   inset: 0;
+  pointer-events: none;
 }
 
 .app-chrome-mobile-backdrop {
@@ -580,6 +623,7 @@
   border: 0;
   background: rgb(45 43 39 / 24%);
   cursor: pointer;
+  pointer-events: auto;
 }
 
 .app-chrome-mobile-panel {
@@ -587,8 +631,11 @@
   top: var(--app-mobile-header-height);
   bottom: 0;
   left: 0;
+  right: 0;
   display: flex;
-  width: min(20rem, calc(100vw - 1.5rem));
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100%;
   min-width: 0;
   flex-direction: column;
   overflow-y: auto;
@@ -596,68 +643,24 @@
   border-right: 1px solid var(--app-line);
   background: var(--app-surface);
   box-shadow: 12px 0 30px rgb(79 65 45 / 14%);
+  pointer-events: auto;
 }
 
-.app-chrome-mobile-panel-header {
-  display: flex;
-  min-width: 0;
-  align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
-  padding-bottom: 1rem;
-  border-bottom: 1px solid var(--app-line);
-}
-
-.app-chrome-mobile-panel-header h2 {
-  min-width: 0;
-  margin: 0;
-  color: var(--app-ink);
-  font-size: 1rem;
-  line-height: 1.35;
-}
-
-.app-chrome-mobile-panel-close {
-  display: inline-flex;
-  width: 2.75rem;
-  min-width: 2.75rem;
-  height: 2.75rem;
-  min-height: 2.75rem;
-  align-items: center;
-  justify-content: center;
+.app-chrome-mobile-panel-title {
+  position: absolute;
+  width: 1px;
+  height: 1px;
   padding: 0;
-  border: 1px solid var(--app-line-strong);
-  border-radius: 0.55rem;
-  background: var(--app-surface);
-  color: var(--app-ink);
-  cursor: pointer;
-}
-
-.app-chrome-mobile-panel-close:hover {
-  border-color: var(--app-accent);
-  color: var(--app-accent-deep);
-}
-
-.app-chrome-mobile-panel-close-icon {
-  width: 1.25rem;
-  height: 1.25rem;
+  margin: -1px;
+  overflow: hidden;
+  border: 0;
+  white-space: nowrap;
+  clip: rect(0, 0, 0, 0);
 }
 
 .app-chrome-sidebar-body {
   min-width: 0;
-}
-
-.app-chrome-sidebar-footer {
-  margin-top: auto;
-  padding-top: 1.25rem;
-  border-top: 1px solid var(--app-line);
-}
-
-.app-chrome-mobile-panel .app-chrome-nav {
-  margin-top: 0;
-}
-
-.app-chrome-mobile-panel .app-chrome-create-link {
-  margin-top: 0;
+  margin-top: 1rem;
 }
 
 .app-main {
@@ -737,7 +740,6 @@
 
 @media (max-width: 420px) {
   .app-chrome-mobile-panel {
-    width: calc(100vw - 0.75rem);
     padding-inline: 0.75rem;
   }
 }

@@ -14,19 +14,22 @@ test("detail review metadata keeps its labels and values without enclosing borde
   const display = readSource(
     "src/modules/notes/ui/components/detail/display.tsx",
   );
+  const paper = readSource("src/app/styles/note-paper.css");
   const metadataStart = display.indexOf(
     "export function NoteDetailMetadata",
   );
   const metadata = display.slice(metadataStart);
-  const metadataDlClasses = [
-    ...metadata.matchAll(/<dl className="([^"]+)">/g),
-  ].map((match) => match[1]);
 
   assert.notEqual(metadataStart, -1, "NoteDetailMetadata should be present");
-  assert.equal(metadataDlClasses.length, 2);
-  for (const className of metadataDlClasses) {
-    assert.doesNotMatch(className, /\bborder-b\b/);
-  }
+  assert.match(
+    metadata,
+    /<dl className="note-paper-metadata-grid min-w-0 text-sm">/,
+  );
+  assert.doesNotMatch(metadata, /note-paper-metadata-grid[^>]*\bborder-b\b/);
+  assert.match(metadata, /note-paper-metadata-field--date/);
+  assert.match(metadata, /note-paper-metadata-field--source/);
+  assert.match(metadata, /note-paper-metadata-field--tags/);
+  assert.match(metadata, /<div className="note-paper-metadata-review/);
 
   assert.match(metadata, /<dt className="shrink-0 font-semibold">次回復習日<\/dt>/);
   assert.match(
@@ -37,5 +40,26 @@ test("detail review metadata keeps its labels and values without enclosing borde
   assert.match(
     metadata,
     /<dd className="break-words text-stone-700">\{formatDateTime\(note\.reviewedAt\)\}<\/dd>/,
+  );
+
+  assert.match(
+    paper,
+    /\.note-paper-metadata-field--source\s*\{[\s\S]*grid-column:\s*2;[\s\S]*grid-row:\s*1 \/ span 2;/,
+  );
+  assert.match(
+    paper,
+    /\.note-paper-metadata-field--tags\s*\{[\s\S]*grid-column:\s*3;[\s\S]*grid-row:\s*1 \/ span 2;/,
+  );
+  assert.match(
+    paper,
+    /\.note-paper-metadata-review\s*\{[\s\S]*grid-column:\s*1 \/ span 2;[\s\S]*grid-row:\s*2;/,
+  );
+  assert.match(
+    paper,
+    /@media \(max-width: 900px\) \{[\s\S]*\.note-paper-metadata-field--tags\s*\{[\s\S]*grid-column:\s*1;[\s\S]*grid-row:\s*2;/,
+  );
+  assert.match(
+    paper,
+    /@media \(max-width: 640px\) \{[\s\S]*\.note-paper-metadata-grid\s*\{[\s\S]*grid-template-columns: minmax\(0, 1fr\);[\s\S]*\.note-paper-metadata-grid > \.note-paper-metadata-field\s*\{[\s\S]*grid-column:\s*1;[\s\S]*grid-row:\s*auto;/,
   );
 });

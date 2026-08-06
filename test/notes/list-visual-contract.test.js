@@ -50,8 +50,17 @@ test("notes list keeps responsive wrapping and visible focus affordances", () =>
   const card = readSource(listFiles[4]);
   const pagination = readSource(listFiles[6]);
 
-  assert.match(list, /w-full[\s\S]*sm:w-auto/);
-  assert.match(filters, /min-w-0[\s\S]*lg:grid-cols-\[minmax\(220px,1fr\)_160px_160px_auto\]/);
+  assert.match(
+    list,
+    /app-page-header flex items-center justify-between[\s\S]*w-fit[\s\S]*shrink-0/,
+  );
+  assert.doesNotMatch(list, /\bw-full[\s\S]*sm:w-auto/);
+  assert.match(
+    filters,
+    /min-w-0[\s\S]*lg:grid-cols-\[minmax\(220px,1fr\)_160px_160px\]/,
+  );
+  assert.match(filters, /flex flex-row items-center gap-2[\s\S]*w-fit/);
+  assert.doesNotMatch(filters, /flex flex-col/);
   assert.match(tags, /flex flex-wrap gap-2/);
   assert.match(card, /flex min-w-0 flex-col[\s\S]*sm:flex-row/);
   assert.match(card, /flex flex-wrap items-center/);

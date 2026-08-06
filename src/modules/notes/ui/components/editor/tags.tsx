@@ -120,7 +120,14 @@ export function NoteEditorTagInput({
 
   return (
     <div className="min-w-0 space-y-1">
-      <span className="block text-sm font-medium text-stone-700">タグ</span>
+      <span
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+        className="block min-w-0 max-w-full whitespace-nowrap text-sm font-medium text-stone-700"
+      >
+        タグ {tags.length}/12
+      </span>
       {tags.length > 0 && (
         <div className="flex min-w-0 flex-wrap gap-1">
           {tags.map((tag, index) => (
@@ -213,7 +220,6 @@ export function NoteEditorTagInput({
           </div>
         </div>
       </div>
-      <p className="text-[0.6875rem] leading-5 text-stone-500">最大12件</p>
       {visibleError && (
         <p id={visibleErrorId} className="break-words text-xs leading-5 text-red-600">
           {visibleError}
