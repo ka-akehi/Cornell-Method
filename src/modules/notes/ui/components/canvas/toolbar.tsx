@@ -63,33 +63,32 @@ export function NoteCanvasToolbar({
             onToolChange={onToolChange}
             tooltipMode="floating"
           />
+          <CanvasToolGroup
+            group={getToolGroup("erase")}
+            tool={tool}
+            onToolChange={onToolChange}
+            tooltipMode="floating"
+          />
+          <CanvasHistoryActions
+            canUndo={canUndo}
+            canRedo={canRedo}
+            onUndo={onUndo}
+            onRedo={onRedo}
+          />
         </div>
       </div>
-
-      <CanvasStyleControls
-        styleTarget={styleTarget}
-        styleValues={styleValues}
-        onStyleChange={onStyleChange}
-      />
-
-      <CanvasToolGroup
-        group={getToolGroup("erase")}
-        tool={tool}
-        onToolChange={onToolChange}
-      />
-
-      <CanvasHistoryActions
-        canUndo={canUndo}
-        canRedo={canRedo}
-        onUndo={onUndo}
-        onRedo={onRedo}
-      />
 
       <CanvasPaperSizeControls
         key={pageKey}
         pageDimensions={pageDimensions}
         onPageDimensionsChange={onPageDimensionsChange}
-      />
+      >
+        <CanvasStyleControls
+          styleTarget={styleTarget}
+          styleValues={styleValues}
+          onStyleChange={onStyleChange}
+        />
+      </CanvasPaperSizeControls>
 
       <span
         className="note-canvas-toolbar-status"

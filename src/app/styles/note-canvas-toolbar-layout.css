@@ -6,9 +6,9 @@
 .note-canvas-toolbar {
   display: grid;
   grid-template-areas:
-    "drawing style erase history"
-    "paper paper paper paper";
-  grid-template-columns: minmax(0, 1fr) auto auto auto;
+    "drawing"
+    "paper";
+  grid-template-columns: minmax(0, 1fr);
   align-items: stretch;
   min-width: 0;
   max-width: 100%;
@@ -30,12 +30,6 @@
   border-radius: 0.65rem;
   background: rgb(255 253 248 / 72%);
   padding: 0.3rem;
-}
-
-.note-canvas-toolbar-group--erase {
-  grid-area: erase;
-  border-color: rgb(164 72 72 / 38%);
-  background: rgb(164 72 72 / 8%);
 }
 
 .note-canvas-toolbar-drawing-rail {
@@ -75,7 +69,8 @@
 }
 
 .note-canvas-toolbar-drawing-rail-inner
-  > .note-canvas-toolbar-group + .note-canvas-toolbar-group {
+  > .note-canvas-toolbar-group
+  + .note-canvas-toolbar-group {
   border-inline-start: 1px solid var(--paper-line-strong);
   margin-inline-start: 0.35rem;
   padding-inline-start: 0.45rem;
@@ -98,16 +93,17 @@
   outline-offset: 1px;
 }
 
-.note-canvas-toolbar-group--style {
-  grid-area: style;
-  align-self: center;
+.note-canvas-style-controls {
+  display: flex;
+  flex: 0 0 auto;
+  min-width: 0;
+  align-items: center;
+  flex-wrap: wrap;
   gap: 0.45rem;
-  border-color: var(--paper-line-strong);
-  background: rgb(250 247 239 / 88%);
 }
 
-.note-canvas-toolbar-group--style > .note-canvas-style-field,
-.note-canvas-toolbar-group--style > .note-canvas-style-alignment {
+.note-canvas-style-controls > .note-canvas-style-field,
+.note-canvas-style-controls > .note-canvas-style-alignment {
   flex: 0 0 auto;
   min-width: max-content;
 }
@@ -185,15 +181,15 @@
   cursor: not-allowed;
 }
 
-.note-canvas-toolbar-group--history {
-  grid-area: history;
-  align-self: center;
-  border-color: var(--paper-line-strong);
-  background: rgb(250 247 239 / 88%);
+.note-canvas-toolbar-drawing-history {
+  display: flex;
+  flex: 0 0 auto;
+  min-width: max-content;
+  align-items: stretch;
+  gap: 0.35rem;
 }
 
-.note-canvas-toolbar-group--erase .note-canvas-tool-button,
-.note-canvas-toolbar-group--history .note-canvas-toolbar-action {
+.note-canvas-toolbar-drawing-history .note-canvas-toolbar-action {
   flex: 0 0 auto;
   width: auto;
   min-width: 2.75rem;
@@ -260,19 +256,22 @@
 }
 
 .note-canvas-paper-size-content {
-  display: grid;
-  width: 100%;
-  max-width: 100%;
-  min-width: 0;
-  gap: 0.35rem;
-}
-
-.note-canvas-paper-fields {
   display: flex;
   width: 100%;
   max-width: 100%;
   min-width: 0;
-  align-items: end;
+  align-items: center;
+  gap: 0.45rem 0.5rem;
+  flex-wrap: wrap;
+}
+
+.note-canvas-paper-fields {
+  display: flex;
+  width: auto;
+  max-width: 100%;
+  min-width: 0;
+  flex: 0 0 auto;
+  align-items: center;
   justify-content: flex-start;
   gap: 0.4rem;
   flex-wrap: wrap;

@@ -6,10 +6,7 @@ import {
   useRef,
   useState,
 } from "react";
-import type {
-  CanvasNoteTool,
-  ToolDefinition,
-} from "@/modules/notes/ui/canvas";
+import type { CanvasNoteTool } from "@/modules/notes/ui/canvas";
 
 export type CanvasTooltipTarget = {
   tool: CanvasNoteTool;
@@ -18,17 +15,22 @@ export type CanvasTooltipTarget = {
 
 type FloatingTooltipPlacement = {
   anchor: HTMLButtonElement;
-  item: ToolDefinition;
+  item: FloatingTooltipItem;
   left: number;
   top: number;
   side: "top" | "bottom";
+};
+
+type FloatingTooltipItem = {
+  value: string;
+  description: string;
 };
 
 export function CanvasFloatingTooltip({
   item,
   anchor,
 }: {
-  item: ToolDefinition | null;
+  item: FloatingTooltipItem | null;
   anchor: HTMLButtonElement | null;
 }) {
   const tooltipRef = useRef<HTMLSpanElement>(null);

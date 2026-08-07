@@ -118,7 +118,7 @@ export function CanvasStyleControls({
 
   return (
     <div
-      className="note-canvas-toolbar-group note-canvas-toolbar-group--style"
+      className="note-canvas-style-controls"
       role="group"
       aria-label="Canvas スタイル"
     >

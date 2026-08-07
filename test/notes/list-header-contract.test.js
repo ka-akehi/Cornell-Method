@@ -55,6 +55,11 @@ test("notes list header keeps its heading and create link without redundant copy
   )[0];
 
   assert.ok(header && ts.isJsxElement(header));
+  const headerClasses = getStringAttribute(header.openingElement, "className");
+  assert.match(headerClasses, /\bflex\b/);
+  assert.match(headerClasses, /\bitems-center\b/);
+  assert.match(headerClasses, /\bjustify-between\b/);
+  assert.doesNotMatch(headerClasses, /\bflex-wrap\b/);
   assert.doesNotMatch(
     header.getText(source),
     /保存済みノートを検索し、詳細表示や復習に進みます。/,
@@ -82,6 +87,9 @@ test("notes list header keeps its heading and create link without redundant copy
     createLinks[0].openingElement,
     "className",
   );
+  assert.match(createLinkClass, /\bw-fit\b/);
+  assert.match(createLinkClass, /\bshrink-0\b/);
+  assert.doesNotMatch(createLinkClass, /\b(?:w-full|sm:w-auto)\b/);
   assert.match(createLinkClass, /bg-\[var\(--app-accent-deep\)\]/);
   assert.match(createLinkClass, /text-\[var\(--app-surface\)\]/);
 });

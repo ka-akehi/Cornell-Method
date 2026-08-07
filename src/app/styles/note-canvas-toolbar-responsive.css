@@ -1,11 +1,10 @@
-/* Give the drawing rail the full first row at tablet widths so its tools do
-   not wrap just to make room for a hidden group. */
+/* Give the drawing rail the full first row at tablet widths so its visible
+   labels stay in the local scroll region while the other controls use their
+   own rows. */
 @media (max-width: 1439px) and (min-width: 641px) {
   .note-canvas-toolbar {
     grid-template-areas:
       "drawing drawing"
-      "style style"
-      "erase history"
       "paper paper";
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   }
@@ -23,8 +22,6 @@
   .note-canvas-toolbar {
     grid-template-areas:
       "drawing drawing"
-      "style style"
-      "erase history"
       "paper paper";
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
     gap: 0.5rem;
@@ -36,21 +33,16 @@
     padding: 0.25rem;
   }
 
-  .note-canvas-toolbar-group--style {
-    flex-wrap: wrap;
-  }
-
-  .note-canvas-toolbar-group--erase,
-  .note-canvas-toolbar-group--history {
-    min-width: 0;
-  }
-
-  .note-canvas-toolbar-group--erase .note-canvas-tool-button,
-  .note-canvas-toolbar-group--history .note-canvas-toolbar-action {
+  .note-canvas-style-controls {
+    width: 100%;
     flex: 0 0 auto;
-    width: auto;
-    min-width: 2.75rem;
-    padding-inline: 0.35rem;
+    align-items: flex-start;
+  }
+
+  .note-canvas-paper-size-content {
+    display: grid;
+    align-items: start;
+    gap: 0.35rem;
   }
 
   .note-canvas-paper-size {
@@ -73,6 +65,8 @@
 
   .note-canvas-paper-fields {
     display: grid;
+    width: 100%;
+    flex: 0 0 auto;
     grid-template-columns: repeat(2, minmax(0, 1fr));
     align-items: stretch;
     justify-content: stretch;
