@@ -212,13 +212,17 @@ export function AppChrome({ children }: AppChromeProps) {
         return;
       }
 
-      const focusableElements = mobilePanelRef.current
+      const panelFocusableElements = mobilePanelRef.current
         ? Array.from(
             mobilePanelRef.current.querySelectorAll<HTMLElement>(
               "a[href], button:not([disabled]), [tabindex]:not([tabindex='-1'])",
             ),
           )
         : [];
+      const focusableElements = [
+        mobileMenuButtonRef.current,
+        ...panelFocusableElements,
+      ].filter((element): element is HTMLElement => element !== null);
       const firstFocusableElement = focusableElements[0];
       const lastFocusableElement =
         focusableElements[focusableElements.length - 1];
@@ -227,7 +231,7 @@ export function AppChrome({ children }: AppChromeProps) {
         return;
       }
 
-      if (!mobilePanelRef.current?.contains(document.activeElement)) {
+      if (!focusableElements.includes(document.activeElement as HTMLElement)) {
         event.preventDefault();
         firstFocusableElement.focus();
       } else if (
@@ -342,24 +346,20 @@ export function AppChrome({ children }: AppChromeProps) {
             >
               <AppChromeBrand />
             </div>
-            <button
-              id="app-chrome-mobile-menu-button"
-              ref={mobileMenuButtonRef}
-              type="button"
-              className="app-chrome-menu-button app-chrome-mobile-menu-button"
-              aria-label={mobileMenuLabel}
-              aria-expanded={isMobileNavOpen}
-              aria-controls="app-chrome-mobile-overlay"
-              onClick={() => {
-                if (isMobileNavOpen) {
-                  closeMobileNav();
-                } else {
-                  setIsMobileNavOpen(true);
-                }
-              }}
-            >
-              <AppChromeIcon name={isMobileNavOpen ? "close" : "menu"} />
-            </button>
+            {!isMobileNavOpen && (
+              <button
+                id="app-chrome-mobile-menu-button"
+                ref={mobileMenuButtonRef}
+                type="button"
+                className="app-chrome-menu-button app-chrome-mobile-menu-button"
+                aria-label={mobileMenuLabel}
+                aria-expanded={isMobileNavOpen}
+                aria-controls="app-chrome-mobile-overlay"
+                onClick={() => setIsMobileNavOpen(true)}
+              >
+                <AppChromeIcon name="menu" />
+              </button>
+            )}
           </div>
         </header>
 
@@ -380,6 +380,20 @@ export function AppChrome({ children }: AppChromeProps) {
         aria-labelledby="app-chrome-mobile-overlay-title"
         hidden={!isMobileNavOpen}
       >
+        {isMobileNavOpen && (
+          <button
+            id="app-chrome-mobile-menu-button"
+            ref={mobileMenuButtonRef}
+            type="button"
+            className="app-chrome-menu-button app-chrome-mobile-overlay-toggle"
+            aria-label={mobileMenuLabel}
+            aria-expanded={isMobileNavOpen}
+            aria-controls="app-chrome-mobile-overlay"
+            onClick={closeMobileNav}
+          >
+            <AppChromeIcon name="close" />
+          </button>
+        )}
         <button
           type="button"
           className="app-chrome-mobile-backdrop"

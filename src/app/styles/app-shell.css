@@ -609,6 +609,14 @@
   color: var(--app-accent-deep);
 }
 
+.app-chrome-mobile-overlay-toggle {
+  position: absolute;
+  top: 0.75rem;
+  right: clamp(0.875rem, 4vw, 1.5rem);
+  z-index: 1;
+  pointer-events: auto;
+}
+
 .app-chrome-mobile-overlay {
   position: fixed;
   z-index: 40;
@@ -739,6 +747,10 @@
 }
 
 @media (max-width: 420px) {
+  .app-chrome-mobile-overlay-toggle {
+    right: 0.75rem;
+  }
+
   .app-chrome-mobile-panel {
     padding-inline: 0.75rem;
   }

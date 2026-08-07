@@ -119,24 +119,24 @@ export function NoteDetailHeading({
 export function NoteDetailMetadata({ note }: { note: NoteDetailResponse }) {
   return (
     <div className="note-paper-metadata-content min-w-0">
-      <dl className="note-paper-metadata-grid min-w-0 text-sm">
-        <div className="note-paper-metadata-field note-paper-metadata-field--date min-w-[6rem]">
+      <div className="note-paper-metadata-grid min-w-0 text-sm">
+        <dl className="note-paper-metadata-field note-paper-metadata-field--date min-w-[6rem]">
           <dt className="text-xs font-semibold tracking-wide text-stone-500">学習日</dt>
           <dd className="mt-1 break-words text-stone-900">{formatDate(note.noteDate)}</dd>
-        </div>
-        <div className="note-paper-metadata-field note-paper-metadata-field--source max-w-full">
+        </dl>
+        <dl className="note-paper-metadata-field note-paper-metadata-field--source max-w-full">
           <dt className="text-xs font-semibold tracking-wide text-stone-500">学習元</dt>
           <dd className="mt-1 break-words text-stone-900">
             {formatSource(note.sourceType, note.sourceTitle)}
           </dd>
-        </div>
-        <div className="note-paper-metadata-field note-paper-metadata-field--tags max-w-full">
+        </dl>
+        <dl className="note-paper-metadata-field note-paper-metadata-field--tags max-w-full">
           <dt className="text-xs font-semibold tracking-wide text-stone-500">タグ</dt>
           <dd className="mt-1 min-w-0">
             <NoteDetailTags tags={note.tags} />
           </dd>
-        </div>
-        <div className="note-paper-metadata-review min-w-0 text-xs text-stone-500">
+        </dl>
+        <dl className="note-paper-metadata-review min-w-0 text-xs text-stone-500">
           <div className="flex min-w-0 items-baseline gap-2">
             <dt className="shrink-0 font-semibold">次回復習日</dt>
             <dd className="break-words text-stone-700">{formatDate(note.nextReviewDate)}</dd>
@@ -145,8 +145,8 @@ export function NoteDetailMetadata({ note }: { note: NoteDetailResponse }) {
             <dt className="shrink-0 font-semibold">最終復習日時</dt>
             <dd className="break-words text-stone-700">{formatDateTime(note.reviewedAt)}</dd>
           </div>
-        </div>
-      </dl>
+        </dl>
+      </div>
     </div>
   );
 }

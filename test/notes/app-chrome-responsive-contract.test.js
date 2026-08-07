@@ -165,7 +165,11 @@ test("mobile header / overlay の focus trap、close、scroll lock 契約は維�
 
   assert.match(
     compact(appChrome),
-    /<header className="app-chrome-mobile-header"> <div className="app-chrome-mobile-header-inner"> <div className="app-chrome-mobile-brand" inert=\{isMobileNavOpen\}\s*> <AppChromeBrand \/> <\/div> <button id="app-chrome-mobile-menu-button" ref=\{mobileMenuButtonRef\}[\s\S]*className="app-chrome-menu-button app-chrome-mobile-menu-button"[\s\S]*aria-label=\{mobileMenuLabel\}[\s\S]*aria-expanded=\{isMobileNavOpen\}[\s\S]*aria-controls="app-chrome-mobile-overlay"[\s\S]*<AppChromeIcon name=\{isMobileNavOpen \? "close" : "menu"\} \/>/,
+    /<header className="app-chrome-mobile-header"> <div className="app-chrome-mobile-header-inner"> <div className="app-chrome-mobile-brand" inert=\{isMobileNavOpen\}[^>]*> <AppChromeBrand \/> <\/div>/,
+  );
+  assert.match(
+    compact(appChrome),
+    /\{!isMobileNavOpen && \( <button id="app-chrome-mobile-menu-button" ref=\{mobileMenuButtonRef\}[^>]*className="app-chrome-menu-button app-chrome-mobile-menu-button"[\s\S]*aria-label=\{mobileMenuLabel\}[\s\S]*aria-expanded=\{isMobileNavOpen\}[\s\S]*aria-controls="app-chrome-mobile-overlay"[\s\S]*<AppChromeIcon name="menu" \/> <\/button> \)\}/,
   );
   assert.match(
     appChromeParts,
@@ -182,7 +186,7 @@ test("mobile header / overlay の focus trap、close、scroll lock 契約は維�
   );
   assert.match(
     compact(appChrome),
-    /<button type="button" className="app-chrome-mobile-backdrop" aria-label="サイドメニューを閉じる" tabIndex=\{-1\} onClick=\{closeMobileNav\} \/> <aside ref=\{mobilePanelRef\} id="app-chrome-mobile-panel" className="app-chrome-mobile-panel" aria-labelledby="app-chrome-mobile-overlay-title"\s*> <span id="app-chrome-mobile-overlay-title" className="app-chrome-mobile-panel-title"\s*> サイドメニュー <\/span> <AppChromeCreateLink pathname=\{pathname\} onNavigate=\{closeMobileNav\} variant="mobile" \/> <div className="app-chrome-sidebar-body"> <AppChromeNavigation pathname=\{pathname\} onNavigate=\{closeMobileNav\} variant="mobile" \/> <\/div> <\/aside>/,
+    /\{isMobileNavOpen && \( <button id="app-chrome-mobile-menu-button" ref=\{mobileMenuButtonRef\}[\s\S]*className="app-chrome-menu-button app-chrome-mobile-overlay-toggle"[\s\S]*aria-label=\{mobileMenuLabel\}[\s\S]*aria-expanded=\{isMobileNavOpen\}[\s\S]*aria-controls="app-chrome-mobile-overlay"[\s\S]*onClick=\{closeMobileNav\}\s*> <AppChromeIcon name="close" \/> <\/button> \)} <button type="button" className="app-chrome-mobile-backdrop" aria-label="サイドメニューを閉じる" tabIndex=\{-1\} onClick=\{closeMobileNav\} \/> <aside ref=\{mobilePanelRef\} id="app-chrome-mobile-panel" className="app-chrome-mobile-panel" aria-labelledby="app-chrome-mobile-overlay-title"\s*> <span id="app-chrome-mobile-overlay-title" className="app-chrome-mobile-panel-title"\s*> サイドメニュー <\/span> <AppChromeCreateLink pathname=\{pathname\} onNavigate=\{closeMobileNav\} variant="mobile" \/> <div className="app-chrome-sidebar-body"> <AppChromeNavigation pathname=\{pathname\} onNavigate=\{closeMobileNav\} variant="mobile" \/> <\/div> <\/aside>/,
   );
   const mobilePanelStart = appChrome.indexOf(
     '<aside\n          ref={mobilePanelRef}',
@@ -239,14 +243,15 @@ test("mobile header / overlay の focus trap、close、scroll lock 契約は維�
     appChrome,
     /<main[\s\S]*id="app-main-content"[\s\S]*className="app-main"[\s\S]*inert=\{isMobileNavOpen\}[\s\S]*>/,
   );
+  assert.match(appChrome, /onClick=\{\(\) => setIsMobileNavOpen\(true\)\}/);
   assert.match(
     appChrome,
-    /if \(isMobileNavOpen\) \{[\s\S]*closeMobileNav\(\);[\s\S]*\} else \{[\s\S]*setIsMobileNavOpen\(true\);/,
-    "mobile toggle closes through the shared close handler and opens otherwise",
+    /app-chrome-mobile-overlay-toggle[\s\S]*onClick=\{closeMobileNav\}/,
+    "mobile close toggle lives inside the dialog and uses the shared close handler",
   );
   assert.doesNotMatch(appChrome, /<div className="app-chrome-content" inert=/);
   const mobileButtonStart = appChrome.indexOf(
-    '<button\n              id="app-chrome-mobile-menu-button"',
+    'id="app-chrome-mobile-menu-button"\n                ref={mobileMenuButtonRef}',
   );
   const mobileButtonEnd = appChrome.indexOf('</button>', mobileButtonStart);
   assert.ok(mobileButtonStart >= 0 && mobileButtonEnd > mobileButtonStart);
@@ -262,7 +267,13 @@ test("mobile header / overlay の focus trap、close、scroll lock 契約は維�
   assert.doesNotMatch(appChrome, /app-chrome-mobile-panel-close/);
   assert.match(
     appChrome,
-    /setIsMobileNavOpen\(false\)[\s\S]*mobileMenuButtonRef\.current\?\.focus\(\)/,
+    /const focusableElements = \[[\s\S]*mobileMenuButtonRef\.current,[\s\S]*\.\.\.panelFocusableElements[\s\S]*\]/,
+    "mobile dialog focus trap includes the close toggle",
+  );
+  assert.match(
+    appChrome,
+    /setIsMobileNavOpen\(false\);\s*window\.requestAnimationFrame\(\(\) => mobileMenuButtonRef\.current\?\.focus\(\)\)/,
+    "mobile close restores focus after the conditional toggle remounts",
   );
 
   const pathnameChangeEffect = appChrome.match(
@@ -309,6 +320,11 @@ test("mobile header / overlay の focus trap、close、scroll lock 契約は維�
     appShell,
     /\.app-chrome-mobile-panel\s*\{[\s\S]*pointer-events:\s*auto;/,
     "panel remains the pointer target for navigation",
+  );
+  assert.match(
+    appShell,
+    /\.app-chrome-mobile-overlay-toggle\s*\{[\s\S]*position:\s*absolute;[\s\S]*top:\s*0\.75rem;[\s\S]*right:\s*clamp\(0\.875rem, 4vw, 1\.5rem\);[\s\S]*pointer-events:\s*auto;/,
+    "dialog close toggle remains visible and interactive in the mobile header area",
   );
   assert.match(
     appShell,

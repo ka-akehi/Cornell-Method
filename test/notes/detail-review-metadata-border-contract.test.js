@@ -23,13 +23,13 @@ test("detail review metadata keeps its labels and values without enclosing borde
   assert.notEqual(metadataStart, -1, "NoteDetailMetadata should be present");
   assert.match(
     metadata,
-    /<dl className="note-paper-metadata-grid min-w-0 text-sm">/,
+    /<div className="note-paper-metadata-grid min-w-0 text-sm">/,
   );
   assert.doesNotMatch(metadata, /note-paper-metadata-grid[^>]*\bborder-b\b/);
   assert.match(metadata, /note-paper-metadata-field--date/);
   assert.match(metadata, /note-paper-metadata-field--source/);
   assert.match(metadata, /note-paper-metadata-field--tags/);
-  assert.match(metadata, /<div className="note-paper-metadata-review/);
+  assert.match(metadata, /<dl className="note-paper-metadata-review/);
 
   assert.match(metadata, /<dt className="shrink-0 font-semibold">次回復習日<\/dt>/);
   assert.match(
@@ -52,7 +52,7 @@ test("detail review metadata keeps its labels and values without enclosing borde
   );
   assert.match(
     paper,
-    /\.note-paper-metadata-review\s*\{[\s\S]*grid-column:\s*1 \/ span 2;[\s\S]*grid-row:\s*2;/,
+    /\.note-paper-metadata-review\s*\{[\s\S]*grid-column:\s*1;[\s\S]*grid-row:\s*2;/,
   );
   assert.match(
     paper,
