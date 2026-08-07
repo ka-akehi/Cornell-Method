@@ -10,6 +10,8 @@
 
 この構成は、単にファイルを細かくするためではなく、変更理由ごとに責務を分け、UI と backend 実装、DB 実装、HTTP contract を疎結合にするための方針である。ただし、層や抽象を増やすこと自体を目的にしない。実装は小さく移行し、機能追加時に実際の変更理由が生じた境界から分ける。
 
+将来の製品主経路は Mac のデスクトップアプリ配布とする。ただし、開発・検証用の Next.js Web 起動形態は残す。デスクトップ版でも現行 MVP の local-first 方針を維持し、クラウド DB を必須にせず、各ユーザーの Mac 内 SQLite を基本とする。Electron を最短経路候補、Tauri + Node.js sidecar を代替候補として比較するが、いずれも実装着手済み・採用確定とは扱わない。
+
 ## 採用する考え方
 
 このプロジェクトの主アーキテクチャは **Modular Architecture** とする。`notes`, `backup`, `review-tasks`, `export` などの業務機能単位で責務を分け、各 module の中で UI、HTTP 境界、contract、server use case を必要な範囲だけ整理する。
@@ -38,6 +40,8 @@ Clean Architecture、Hexagonal Architecture、Layered Architecture、BFF as Adap
 - OpenAPI、schema 生成、client 生成は最初から必須にしない。Rust API 移行や contract drift が現実的なリスクになった時点で導入を検討する。
 - server 側は service / repository / mapper に分ける。ただし小さい endpoint では無理に全層を作らず、責務が混ざり始めた時点で分割する。
 - Prisma shape と API/UI DTO を同一視しない。
+- 配布物とユーザーデータの保存境界を明示する。`app bundle` は実行コード、Next.js 資産、Prisma Client / migration、必要な runtime / driver を含む読み取り専用の配布物とし、`user data directory` は SQLite の live DB、DB backup、設定、ログを持つ書き込み可能領域とする。
+- `optional note workspace / export directory` はユーザーが可搬性を求めて明示的に選択する領域とし、既定の user data directory や `Downloads` と混同しない。SQLite の live file を iCloud / Dropbox などの同期フォルダへ直接置くことは既定にしない。
 - directory や層の数を増やすことを成果にしない。成果は、変更範囲が狭くなり、仕様変更時の影響を追いやすくなることで判断する。
 - Phase 2 機能追加とアーキテクチャ移行を同じ task に混ぜない。
 
@@ -121,6 +125,18 @@ src/
         backup.mapper.ts
     infrastructure/
       prisma.ts
+      local-sqlite-path.ts
+      note-workspace.ts
+
+  desktop/                 # target / PoC boundary; not implemented yet
+    shell/
+      electron-main/       # shortest-path candidate
+      tauri/                # alternative candidate
+    local-runtime/
+      next-server.ts        # local Next.js runtime lifecycle
+    storage/
+      user-data-path.ts     # OS user data directory resolution
+      workspace-path.ts     # explicit note workspace / export path
 
   shared/
     ui/
@@ -145,6 +161,20 @@ src/
 contracts/
   openapi.yaml  # 将来必要になった場合のみ
 ```
+
+## Desktop shell / local runtime / storage boundary
+
+Desktop 配布時は、shell、ローカル Web runtime、永続化 adapter を次の責務に分ける。これは target architecture と Desktop PoC の境界であり、現在の Next.js / Prisma 実装へ直ちにディレクトリを追加する指示ではない。
+
+| 境界 | 責務 | 保持してはいけない責務 |
+| --- | --- | --- |
+| Desktop shell | `.app` の lifecycle、ウィンドウ、単一インスタンス、OS の file open / export dialog、user data path の決定、local runtime の起動・終了 | Notebook の business rule、Prisma query、Canvas の保存形式 |
+| local Next.js runtime | self-hosted の Node.js 上で App Router、Route Handler、既存 API contract を提供する。開発時は `next dev`、配布時は bundle された runtime と `next start` 相当の起動を比較する | `.app` 内へ live DB を書くこと、shell 固有 API を UI / domain に漏らすこと |
+| SQLite / filesystem adapter | `DATABASE_URL` の絶対 path 解決、user data directory の初期化、SQLite / Prisma migration、DB backup、将来の note workspace export / import | UI の状態、HTTP status、shell の window 制御 |
+
+`app bundle` には実行コード、Web 資産、Prisma Client / migration、必要な runtime / native driver を含める。`user data directory` は macOS の OS 管理領域を基本とし、SQLite live DB、DB backup、設定、ログを置く。初回起動時に領域を作成して migration を適用し、アプリ更新では bundle とデータ migration を分離する。アンインストールとデータ削除は別操作とし、更新で user data を消さない。
+
+ノートファイルを使う場合は、まず SQLite を運用上の正本とし、`optional note workspace / export directory` を export / backup / migration の出力先として扱う。将来、ノートファイルを正本、SQLite を再構築可能な index とする hybrid へ進むかは、必要性・整合性復旧・検索性能を確認して Phase 2 以降に決める。
 
 ## 各領域の責務
 
@@ -249,6 +279,8 @@ DB や filesystem など外部実装に依存する処理を置く。
 - SQLite backup provider
 - 将来の PDF provider
 - 将来の Postgres / Supabase provider
+- SQLite live file の path resolver と migration runner
+- 明示的に選択された note workspace の export / import adapter
 
 Repository は Prisma query / command に限定し、HTTP や React に依存しない。
 
@@ -336,6 +368,17 @@ Route Handler は HTTP endpoint であり、Next.js 側の BFF / adapter とし�
 Server Actions は Next.js 固有の境界になりやすいため、今回の主 API contract にはしない。使う場合も form submit の薄い adapter に限定し、正本は HTTP contract に寄せる。
 
 ここでいう BFF / adapter は補助的な見方であり、Next.js API 層を独立した巨大 backend にする意図ではない。Route Handler は request / response 変換と service 呼び出しに留める。
+
+### Desktop 配布時の Next.js runtime
+
+Next.js は self-hosted Node.js server として動かせるため、Desktop PoC では shell がローカル runtime を起動し、既存の App Router / Route Handler をローカル HTTP 境界として再利用する案を第一に比較する。開発用の `next dev` / local Web 起動は残し、配布版だけが `.app` 内の資産と user data directory の path を受け取る。
+
+- runtime が受け取る `DATABASE_URL` は user data directory 内の SQLite absolute path とする。
+- 初回起動時は user data directory の作成、DB 初期化、bundled migration の適用を行ってから画面を利用可能にする案を PoC で検証する。
+- app bundle 内の DB を更新する、またはアプリ更新時に user data を再生成する設計は採用しない。
+- `Downloads` を DB / backup の既定場所にしない。可搬性が必要な場合は shell の明示的な directory chooser を通した note workspace / export directory を使う。
+- Electron は Node.js、Next.js、Prisma、Playwright と同一の runtime / process model を保ちやすい最短経路候補である。ただし、Electron の採用は未確定であり、サイズ、署名、更新、security boundary を PoC で確認する。
+- Tauri は軽量 shell の代替候補だが、現行 Node.js / Prisma / Playwright をそのまま同梱できるとは仮定しない。Node.js runtime を sidecar / bundled resource として扱う構成、IPC、権限、配布 target を PoC で検証する。
 
 ## Rust API 移行への適合性
 
@@ -432,7 +475,19 @@ Phase 2 の主な機能は、次のように配置する。
 
 推奨: 当面 SQLite local を継続し、repository / provider 境界だけ確保する。実移行は別 spike にする。
 
-理由: Phase 2 機能と DB 移行を同時にやると判断点が増えすぎる。
+理由: デスクトップ版の前提にクラウド DB はなく、Phase 2 機能とオンライン DB 移行を同時にやると判断点が増えすぎる。Vercel / Supabase / Postgres はオンライン公開・同期が必要になった場合の任意の将来案として扱う。
+
+### Desktop shell と保存方式
+
+デスクトップ配布へ進む前に、次の判断を別 PoC / 設計 task として確定する。
+
+| 論点 | 選択肢 | 現時点の推奨 |
+| --- | --- | --- |
+| Desktop shell の選定 | Electron / Tauri + Node.js sidecar / その他 | Electron-first candidate と Tauri alternative を同じ最小 PoC で比較する |
+| user data / workspace path | OS user data directory / ユーザー選択 workspace | live DB・backup は OS user data、可搬ファイルだけ明示選択 workspace |
+| SQLite-only と hybrid の境界 | SQLite 正本 / file-only / file 正本 + local SQLite index | 第一段階は SQLite 正本 + file export / backup / migration |
+| export / import 契約 | `note.md` + `canvas.json` + `metadata.json` / パッケージ形式 | まず file layout と schema version、atomic write、復旧エラーを定義する |
+| 配布・署名・更新 PoC | Apple Silicon / Intel、署名、notarization、更新方式 | Prisma native runtime、Playwright / Chromium、migration、データ保持を含めて検証する |
 
 ## 参考資料
 
@@ -442,3 +497,10 @@ Phase 2 の主な機能は、次のように配置する。
 - `summary/20260705/api-data-lib-architecture-inventory-report.md`
 - `doc/technical/MVP_TECHNICAL_DESIGN.md`
 - `doc/review/MVP_DETAIL_GAP_INVENTORY.md`
+
+Desktop / local runtime の一次資料:
+
+- [Next.js: Self-Hosting](https://nextjs.org/docs/app/guides/self-hosting)
+- [Electron: `app` API / `app.getPath('userData')`](https://www.electronjs.org/docs/latest/api/app)
+- [Tauri: Node.js as a sidecar](https://v2.tauri.app/learn/sidecar-nodejs/)
+- [Prisma: SQLite database connector](https://docs.prisma.io/docs/orm/v6/overview/databases/sqlite)

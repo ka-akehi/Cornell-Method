@@ -13,7 +13,11 @@
 | 対象 | 参照先 | 確認内容 |
 | --- | --- | --- |
 | Next.js | `https://nextjs.org/docs` | App Router と最新バージョン表記 |
+| Next.js self-hosting | `https://nextjs.org/docs/app/guides/self-hosting` | Node.js server としての自己ホスト、runtime / cache の扱い |
 | Prisma | `https://www.prisma.io/docs` | Prisma ORM が SQLite を含む DB に対応 |
+| Prisma SQLite connector | `https://docs.prisma.io/docs/orm/v6/overview/databases/sqlite` | SQLite file URL、database file、driver adapter |
+| Electron | `https://www.electronjs.org/docs/latest/api/app` | `app.getPath('userData')` などの OS user data path |
+| Tauri Node.js sidecar | `https://v2.tauri.app/learn/sidecar-nodejs/` | Node.js runtime を sidecar として配布する場合の候補 |
 | Tailwind CSS | `https://tailwindcss.com/docs` | v4 系ドキュメント、ユーティリティベースのスタイリング |
 
 実装直前に `npm view` または公式ドキュメントで再確認し、破壊的変更がない範囲の安定版を採用します。
@@ -32,12 +36,61 @@
 | Markdown 表示 | `react-markdown` + `remark-gfm` + `rehype-sanitize` を候補 |
 | テスト | ESLint、TypeScript build、必要に応じて Playwright |
 | バックアップ | Node.js script で SQLite DB をコピー |
+| 配布 | 開発時は Next.js Web 起動を維持。将来は Mac desktop shell を比較する。Electron-first candidate、Tauri + Node.js sidecar alternative の採用は PoC 後 |
+| デスクトップ保存 | SQLite を user data directory に置く local-first。`app bundle` 内に live DB を置かず、`Downloads` を既定にしない |
+
+## Desktop 配布 / local-first 保存方針
+
+### 製品経路と現行 MVP の境界
+
+将来の製品主経路は Mac のデスクトップアプリ配布とする。ただし、開発・検証用の Next.js Web 起動形態は残す。現行 MVP はすでに Prisma + SQLite の local-first 構成であり、デスクトップ化を理由にクラウド DB を必須にしたり、現行の route、API、Prisma schema、手動保存、物理削除を作り替えたりしない。
+
+Desktop shell はまだ採用・実装確定ではない。Electron は Next.js / Node.js / Prisma / Playwright の組み合わせを最短距離で包みやすい候補、Tauri + Node.js sidecar は軽量 shell の代替候補として扱う。両案とも、Apple Silicon / Intel の配布差、native runtime / driver、Playwright / Chromium、署名・notarization・更新、process lifecycle、filesystem 権限を Desktop PoC で比較してから決める。
+
+### 配布物と書き込み可能データの境界
+
+| 境界 | 内容 | 配置・責務 |
+| --- | --- | --- |
+| `app bundle` | 実行コード、Next.js 資産、Prisma Client / migration、必要な Node.js runtime / SQLite driver、必要なら Playwright / Chromium の配布資産 | インストールされた `.app` 側。配布・更新対象であり、SQLite live file やユーザーのノートを保存しない |
+| `user data directory` | SQLite live DB、DB backup、アプリ設定、ログ、runtime state | macOS の OS 管理ユーザーデータ領域。Desktop shell が path を解決し、初回起動時に作成する。`Downloads` は既定保存先にしない |
+| `optional note workspace / export directory` | `note.md`、`canvas.json`、`metadata.json` 等のユーザーが直接扱う可搬ファイル | user data directory とは別の任意領域。ユーザーが明示的に選択した場合だけ export / import / workspace に使う |
+
+SQLite の live file は `.app` 内に置かない。Desktop shell または local runtime は初回起動時に user data directory と必要なサブディレクトリを作成し、bundle に含めた migration を適用してからアプリを利用可能にする案を PoC で検証する。アプリ更新は bundle の更新と user data migration を分離し、更新で既存 DB・backup・設定を削除しない。アンインストールとユーザーデータ削除も別操作として扱う。
+
+開発用 Web 起動では、既存の `.env` / `DATABASE_URL`、プロジェクト内の `dev.db`、論理的な `backup/` の扱いを維持する。配布版では同じ DB / backup adapter が user data directory の絶対 path を解決する形を比較し、`/backup` の UI と手動バックアップの MVP 契約を変更しない。
+
+### Desktop の backup / migration 段階
+
+現行 MVP のバックアップは SQLite DB ファイルの手動コピーである。Desktop 化に伴う次の項目は候補であり、実装済みとは記述しない。
+
+| 項目 | 現行 MVP | Desktop 化後の追加候補 |
+| --- | --- | --- |
+| 起動時初期化 | 開発手順で Prisma migration を適用 | 初回起動時に user data directory を作成し、migration を適用する。既存 DB の更新と初期化を分ける |
+| DB backup | 手動で SQLite DB ファイルを `backup/` へコピー、最新 3 世代を保持 | user data 内の DB backup、バックアップ対象・保持・復元手順を PoC で定義する |
+| note workspace backup | 現行 MVP の対象外 | workspace を使う場合にノートファイル単位で backup するかを決める |
+| export / import | 現行 MVP の契約外 | `note.md` + `canvas.json` + `metadata.json` または package 形式を定義する |
+| restore / corruption detection | 自動復元なし。必要時は手動で DB を戻す | DB / workspace の整合性検査、復元、atomic write、途中書き込みからの回復を別途設計する |
+
+### ノートファイルの段階導入
+
+ノートをユーザーが直接保有できるようにする案として、1 ノートを `note.md`、`canvas.json`、`metadata.json` のディレクトリ、または同等の package 形式で持つ候補を残す。ファイル内容の具体的な schema は未確定だが、少なくとも次を扱える必要がある。
+
+- `note.md`: Markdown の Cue / Summary / 互換本文など、テキストとして扱う内容。
+- `canvas.json`: `CanvasDocumentV1`、`page.width` / `page.height`、Canvas elements。
+- `metadata.json`: note id、title、noteDate、source、tags、nextReviewDate、reviewedAt、bodyMode、file schema version。Phase 2 の draft を export する場合は draft state も含める。
+- Canvas の text 要素から生成する `searchText` は派生値として保存候補にできるが、用紙サイズだけで変化させない。`schemaVersion` は Canvas と file package の両方で互換性確認に使う。
+
+Manager 推奨は段階導入である。第一段階では SQLite を運用上の正本として維持し、ノートファイルを export / backup / migration 用に追加する。将来、ファイルの可搬性・差分管理・外部ツール連携が実際に必要だと確認できた場合に、ノートファイルを正本、SQLite を再構築可能な local index とする hybrid を Phase 2 以降で検討する。file-only 化は、全文検索、タグ OR、atomic write、draft、review、整合性復旧を別途解く必要があるため、現時点では推奨しない。
+
+SQLite の live DB を iCloud / Dropbox 等の同期フォルダへ直接置くことは、同時更新・ロック・破損・部分同期のリスクがあるため既定にしない。可搬性が必要な場合は、明示的に選択した note workspace と export / import を優先する。
 
 ## 将来の Vercel / Supabase 移行検討
 
+この章は、オンライン公開・同期が必要になった場合の任意の将来案である。Mac デスクトップ版の既定方針は、cloud DB を必須にしない local SQLite とする。Vercel / Supabase / Postgres の比較はこのデスクトップ方針を上書きせず、オンライン経路を選ぶ場合だけ適用する。
+
 ### 背景
 
-発注者は、無料で運用できる範囲であれば、将来的にローカル実行だけでなく Vercel へデプロイし、SQLite ではなく Supabase を使う可能性を検討している。
+発注者は、無料で運用できる範囲でオンライン公開・同期が必要になった場合に、Vercel へデプロイし、SQLite ではなく Supabase を使う可能性を検討している。デスクトップ配布をオンライン公開へ置き換える話ではない。
 
 2026-06-15 時点の公式情報では、Vercel の Hobby plan は個人プロジェクト向けに Free とされている。Supabase は Free plan を提供し、Free plan では 2 free projects、Database Size 500 MB per project などの利用枠が示されている。
 
@@ -98,9 +151,9 @@ Vercel にデプロイすると、アプリへアクセスするための URL �
 | production URL も含めて完全に守る | Vercelの有料保護機能、またはアプリ側認証を検討 | 無料範囲を超える可能性があるため優先しない |
 | アプリ側Basic認証相当を実装する | Next.js middleware 等でID/パスワードを検証し、アプリ全体を保護する | Phase 2で採用する |
 
-Manager 判断:
+Manager 判断（オンライン経路に限る）:
 
-> Vercel deploy は「公開目的ではない」としてもURLが生成されるため、個人利用ならアクセス制御とセットでPhase 2にする。無料範囲を重視するため、まずはVercel有料保護機能ではなく、アプリ側Basic認証相当を実装する。
+> Vercel deploy は「公開目的ではない」としてもURLが生成されるため、オンライン経路を選ぶ場合はアクセス制御とセットでPhase 2にする。無料範囲を重視するため、まずはVercel有料保護機能ではなく、アプリ側Basic認証相当を実装する。デスクトップ版は引き続き local SQLite を既定とする。
 
 ### Basic認証相当のPhase 2要件
 
@@ -133,9 +186,9 @@ Vercel で SQLite 系の体験を維持したい場合の選択肢:
 | Supabase Postgres に移行 | Prisma の datasource を Postgres に変更する | Phase 2 有力候補 |
 | SQLite互換の外部DBを使う | Turso / libSQL などのリモートSQLite系を検討する | Phase 2候補 |
 
-Manager 判断:
+Manager 判断（オンライン経路に限る）:
 
-> Vercel に載せる段階では、SQLite ファイルをそのまま使うのではなく、Supabase Postgres などの外部DBへ移行する。SQLite互換にこだわる場合は Turso / libSQL などを別途比較する。
+> Vercel に載せる段階では、SQLite ファイルをそのまま使うのではなく、Supabase Postgres などの外部DBへ移行する。SQLite互換にこだわる場合は Turso / libSQL などを別途比較する。これはオンライン公開を選んだ場合だけの判断であり、デスクトップ版の SQLite local を変更しない。
 
 ### Supabase 以外のDB候補
 
@@ -159,7 +212,7 @@ Manager 推奨:
 
 結論:
 
-> MVP はローカル SQLite で小さく作る。ただし、DBアクセスとバックアップ処理を局所化し、将来 Vercel + Supabase へ移せる余地を残す。
+> MVP と将来のデスクトップ版はローカル SQLite で小さく維持する。DBアクセスとバックアップ処理を局所化し、オンライン公開・同期を選ぶ場合だけ Vercel + Supabase 等へ移せる余地を残す。
 
 ### Vercel公開時の実施手順
 
@@ -429,6 +482,10 @@ MVP は SQLite file URL だけをサポートします。
 | 実行時 fallback | `src/lib/prisma.ts` と `src/lib/backup/index.js` は未指定時に `file:./dev.db` を使う |
 | Prisma CLI fallback | `prisma.config.ts` は未指定時に `file:./dev.db` を使う |
 
+上表は開発用 Web 起動形態の MVP 契約である。Desktop 配布では、`DATABASE_URL` を user data directory 内の SQLite absolute path に解決する adapter を用意する案を検証する。`app bundle` 内の `.db` を live DB にしたり、更新時に bundle から DB を再コピーしたりしない。初回起動時に user data directory を作成し、同梱 migration を適用する。アプリ更新では migration の適用と bundle 更新を分け、既存データを削除しない。アンインストールとデータ削除も別操作とする。
+
+Desktop shell の候補は Electron-first、Tauri + Node.js sidecar alternative であり、いずれも未採用・未実装である。Apple Silicon / Intel の native runtime、Prisma driver、Playwright / Chromium の同梱、ローカル Next.js process の起動・終了を PoC で確認してから、`DATABASE_URL` の path resolver と migration runner の実装方法を決める。
+
 README 化時の推奨:
 
 - 新規環境では `.env.example` を元に `.env` を作り、`DATABASE_URL="file:./prisma/dev.db"` を明示する。
@@ -503,6 +560,10 @@ MVP は物理削除です。
 | 4 世代目以降 | 古いものから削除 |
 | ログ DB | MVP では作らない |
 | 復元 | MVP では自動復元なし。必要時は手動で DB ファイルを戻す |
+
+ここでいう `backup/` は開発用 Web 起動形態における現行 MVP の論理保存先であり、手動の SQLite DB コピーという契約を表す。Desktop 配布では、同じバックアップ処理を user data directory 内の backup 領域へ解決する候補を検討する。DB backup と optional note workspace のファイル backup を同じ単位とみなすか、export / import と復元・破損検出をどう組み合わせるかは未実装で、別 PoC / 運用設計で決める。
+
+アプリ起動時の migration / 初期化、DB と workspace のバックアップ、export / import、復元、破損検出は Desktop 化後の追加候補である。現行 MVP の自動バックアップ、Undo、soft delete、復元 API、`BackupLog` を実装済みとは扱わない。
 
 ### 実装単位
 
@@ -639,7 +700,12 @@ npm run prisma:migrate
 | Q-003 | Route Handler API を採用し、Server Actions は MVP 外でよいか | はい |
 | Q-004 | バックアップスクリプトは TypeScript ではなく Node.js script でもよいか | はい |
 | Q-005 | Rust API は MVP では採用せず、Phase 2 検討事項でよいか | はい |
+| Q-006 | Desktop shell を Electron と Tauri + Node.js sidecar のどちらにするか | Electron-first candidate と Tauri alternative の最小 PoC を比較して決める |
+| Q-007 | user data directory と optional note workspace / export directory の path をどう決めるか | live DB・backup は OS user data、可搬ファイルだけ明示選択 workspace |
+| Q-008 | SQLite-only と file + local SQLite index の境界をいつ変えるか | 第一段階は SQLite 正本 + note file export。必要性が確認できた場合だけ Phase 2 以降で hybrid を検討 |
+| Q-009 | `note.md` / `canvas.json` / `metadata.json` または package の export / import 契約をどうするか | schema version、atomic write、整合性検査、復旧手順を先に定義する |
+| Q-010 | Mac 配布・署名・更新をどう検証するか | Apple Silicon / Intel、native runtime / driver、Playwright / Chromium、migration、データ保持を含む PoC を行う |
 
 ## 次に決めること
 
-発注者確認後、この技術方針を元に Worker 向け実装タスクへ分割する。
+発注者確認後、Desktop shell の選定、user data / workspace path、SQLite-only と hybrid の境界、export / import 契約、配布・署名・更新 PoC の順に判断し、この技術方針を元に Worker 向け実装タスクへ分割する。Electron / Tauri の実装は、これらの判断と PoC 成功後に別タスクとして起票する。

@@ -11,7 +11,7 @@
 - 設計書一覧: `doc/README.md`
 - Manager / Worker 運用: `codex-queue/README.md`
 - Task Summary 運用: `summary/README.md`
-- 最新引き継ぎ: `HANDOFF_2026-08-06.md`
+- 最新引き継ぎ: `HANDOFF_2026-08-08.md`
 
 ### 仕様書の役割分担
 
@@ -57,7 +57,7 @@
 
 ### 現行 MVP と製品ロードマップの境界
 
-この章には、現行 MVP と Phase 2 以降の製品ロードマップを併記します。現行 MVP の実装・受け入れ判断は [`doc/implementation/MVP_CONTRACT.md`](doc/implementation/MVP_CONTRACT.md) を優先します。特に現行 MVP の削除は、詳細画面で確認 UI を表示した後に `DELETE /api/notes/:id` で物理削除し、削除後の Undo / 復元を保証しません。5 秒 Undo Snackbar、ソフトデリート、Undo buffer（`SoftDeleteBuffer`）、`/api/undo`、期限切れ後の purge は現行 MVP では提供せず、Phase 2 以降のロードマップです。
+この章には、現行 MVP と Phase 2 以降の製品ロードマップを併記します。現行 MVP の実装・受け入れ判断は [`doc/implementation/MVP_CONTRACT.md`](doc/implementation/MVP_CONTRACT.md) を優先します。現行 MVP は明示保存、SQLite DB の手動 backup、`/backup`、`GET /api/backups` / `POST /api/backups` を契約とし、自動保存・起動時自動 backup は提供しません。特に現行 MVP の削除は、詳細画面で確認 UI を表示した後に `DELETE /api/notes/:id` で物理削除し、削除後の Undo / 復元を保証しません。5 秒 Undo Snackbar、ソフトデリート、Undo buffer（`SoftDeleteBuffer`）、`/api/undo`、期限切れ後の purge は現行 MVP では提供せず、Phase 2 以降のロードマップです。
 
 ---
 
@@ -65,6 +65,8 @@
 
 - **タイトル**: コーネルメソッドノート記録アプリ
 - **利用想定**: ローカル環境での個人利用。認証・ユーザー管理は不要。
+- **将来の主な配布経路**: Mac のデスクトップアプリとして配布し、ユーザーがダウンロード・起動して使う形を主経路とする。開発・検証用の Next.js Web 起動形態は維持する。
+- **保存方針**: クラウド DB は必須にしない。現行 MVP はすでに Prisma + SQLite の local-first 構成であり、デスクトップ版でもユーザーごとの Mac 内 SQLite を基本とする。
 - **目的 / 成功条件**
   - コーネルメソッドのレイアウトでノートを作成・編集・閲覧できる。
   - Cue と Summary は Markdown（基本記法 + チェックボックス）で入力し、中央の本文領域はフリー入力 Canvas として文字・図形・線・ストロークを Prisma（SQLite）に永続化し、後から読み返せる。
@@ -72,6 +74,20 @@
   - タイトルエリアでタグ付けし、タグによる検索フィルタが可能（タグは `Tag` テーブルで一元管理）。
   - 保存済みノートの一覧は日付ソート（昇順/降順切替）で閲覧できる。
   - 編集内容はドラフト自動保存され、手動保存で正式版に反映できる。
+
+### 配布・保存境界
+
+将来のデスクトップ配布では、実行環境と書き込み可能なユーザーデータを分離する。以下の用語を全設計書で共通に使う。
+
+| 境界 | 保存するもの | 方針 |
+| --- | --- | --- |
+| `app bundle` | 実行コード、Next.js 資産、Prisma Client / migration、必要な Node.js runtime / driver、その他の配布資産 | `.app` 内は配布物として扱い、live SQLite DB やユーザー編集データを書き込まない |
+| `user data directory` | SQLite の live DB、DB backup、アプリ設定、ログなどの書き込み可能データ | macOS の OS 管理ユーザーデータ領域を基本とし、初回起動時に作成・初期化する。`Downloads` は既定保存先にしない |
+| `optional note workspace / export directory` | ユーザーが直接扱う Markdown、Canvas JSON、metadata などの可搬ファイル | 既定保存先とは分け、可搬性が必要なユーザーが明示的に選択する export / workspace として検討する |
+
+SQLite の live file は `.app` 内に置かない。初回起動時に `user data directory` を作成して bundled migration を適用し、アプリ更新とデータ更新を分離する。アンインストールとユーザーデータ削除は別操作として扱い、更新でユーザーデータを消さない。
+
+ノートファイルは段階導入とする。第一段階では SQLite を運用上の正本として維持し、ノートファイルを export / backup / migration 用に追加する。将来必要性が確認できた場合のみ、ノートファイルを正本、SQLite を再構築可能な index とする hybrid を Phase 2 以降で検討する。これは現行 MVP の Prisma schema、route、API、手動保存、物理削除を変更する方針ではない。
 
 ## 2. 機能要件（UI/UX）
 
@@ -139,6 +155,9 @@
 - 外部 API との連携なし。ネットワーク接続不要。
 - PDF 出力は Playwright（Chromium）を利用し、エクスポート API でリクエストごとに起動する。
 - Canvas 本文は共有の `CanvasDocumentV1` JSON 契約で扱う。描画ライブラリは保存形式を直接決めず、編集・閲覧 renderer と表示用の倍率を用紙サイズ・要素データから分離する。
+- 開発時は Next.js の Web 起動形態を残す。将来の Mac デスクトップ shell は Electron を最短経路候補、Tauri + Node.js sidecar を代替候補として比較し、採用・実装着手は Desktop PoC 後に決める。
+- デスクトップ版では `app bundle` と `user data directory` を分離する。SQLite の live DB、DB backup、設定、ログは user data 側に置き、クラウド DB や `Downloads` を既定にしない。
+- `optional note workspace / export directory` は、ユーザーが明示的に選んだときだけ使う可搬ファイル領域とする。SQLite を iCloud / Dropbox 等の同期フォルダへ直接置くことは既定にしない。
 
 ## 4. 状態遷移 / ルーティング
 
@@ -147,12 +166,13 @@
 | ノート一覧   | `/notes`        | 初期ロード / 検索中 / 結果表示 | ローカル検索（タイトル・日付・タグ） |
 | ノート詳細   | `/notes/[id]`   | 閲覧 / 編集 / 保存中 / エラー  | モードトグル（Undo Snackbar は Phase 2 以降） |
 | 新規作成     | `/notes/new`    | 初期テンプレロード / 下書き    | 保存後 `/notes/[id]` へ遷移          |
-| バックアップ | `/notes/backup` | 最新 3 世代の一覧 / 再取得     | 自動コピーの履歴 + リトライボタン    |
+| バックアップ（現行 MVP） | `/backup` | SQLite DB の手動コピー / 最新 3 世代の確認 | 現行 MVP の canonical route |
+| バックアップ管理（Phase 2 以降） | `/notes/backup` | 最新 3 世代の一覧 / 再取得     | 自動コピーの履歴 + リトライボタン    |
 | 復習タスク   | `/tasks/review` | タブ切替 / 完了操作            | 1 日後 / 1 週間後タスクの完了管理    |
 
 - RSC + Client Component のハイブリッド。フォーム部分は Client Component。
 - Phase 2 以降の Undo は Client 側で`setTimeout`管理し、期限切れ後は完全削除。
-- `/notes/backup` は最新 3 世代のバックアップ一覧と、失敗時の再試行ボタン/ログ確認リンクを提供する。
+- `/notes/backup` の自動コピー履歴、失敗時の再試行ボタン、ログ確認リンクは Phase 2 以降のロードマップである。現行 MVP は `/backup` と `GET /api/backups` / `POST /api/backups` による手動 SQLite DB コピーとする。
 
 ## 5. データモデル / API
 
@@ -194,7 +214,7 @@
 - `POST /api/notes` / `PATCH /api/notes/:id` は Notebook（確定版）と `NotebookDraftState`（自動保存）を並行して更新する。同じリクエスト body に `{ notebook: {...}, draft: {...} }` を含め、ドラフトのみ保存時は `draft` 部分だけを更新し、確定保存時に両方を更新する。ドラフトのバージョンは `version`（整数）と `autosave_version`（整数）を組み合わせて管理し、リクエストで送信された値と DB の値が一致した場合のみ更新する。不一致時は 409 を返し、`errors: [{ field: "draft.version", message: "outdated" }]` などフィールドを明示する。自動保存時は `autosave_version` のみ +1、確定保存時は `version` を +1 して `autosave_version=0` にリセットする。
 - （Phase 2 以降のロードマップ）`DELETE` 系 API は直ちにレコードを消さず `deletedAt` を設定し、`SoftDeleteBuffer` に ID/種別を記録する。Undo 期限内であれば `deletedAt=NULL` に戻して復元できる。期限切れまたは明示的な破棄で初めて物理削除する。
 - （Phase 2 以降のロードマップ）Undo は送信がシンプルな `POST /api/undo` を定義し、ボディに `{ entityType, entityId }` を渡すと `SoftDeleteBuffer` から対象を復元する。期限切れまたは存在しない場合は 410 を返す。
-- バックアップ画面向けに `GET /api/backups`（最新 3 世代 + 失敗履歴 + ログサマリ）、`POST /api/backups/retry`（失敗分の再試行）、`GET /api/backups/logs`（`backup_logs` テーブルを参照）を用意する。`POST /api/backups/retry` は `npm run backup:copy` と同じコマンドをキックする。
+- 現行 MVP のバックアップ API は `GET /api/backups`（最新 3 世代の一覧）と `POST /api/backups`（SQLite DB の手動コピー）である。`POST /api/backups/retry`、`GET /api/backups/logs`、失敗履歴・ログサマリは Phase 2 以降のロードマップとし、`backup_logs` を現行 MVP の model として追加しない。
 - ノート保存時に未登録タグが自動作成された場合、レスポンスに `{ createdTags: Tag[] }` を含めて UI が即座に反映できるようにする。
 - すべての API でエラーは JSON 形式に統一し、`{ code, message, errors? }` を返す。バリデーションや 409 競合エラー時は `errors: [{ field, message }]` でフィールド単位の詳細を含める。ドラフト競合時は `field` を `draft.version` または `draft.autosave_version` として返す。
 - `GET /api/notes` のクエリは `?query`, `?tags=tag1,tag2`, `?from`, `?to`, `?page`（1 始まり）を受け取り、`tags` は OR 条件で重複タグはロジック側で除外する。1 ページ 50 件固定でページングし、レスポンスには `page`, `totalPages`, `totalCount` を含める。
@@ -211,7 +231,7 @@
 - **パフォーマンス**: ローカル環境で主要操作（カード追加/削除/保存）が 200ms 以内に反映。
 - **アクセシビリティ**: キーボード操作で全要素にアクセス可能。ARIA ランドマークと適切なラベルを付与。
 - **テスト**: `npm run lint` 必須。可能であれば Playwright/E2E で主要フロー（作成 → 保存 → 閲覧）を自動化。
-- **バックアップ**: アプリ起動時のみ SQLite DB ファイルを `backup/` 配下へ `YYYY-MM-DDTHH-mm-ss` フォーマットのタイムスタンプ付きで自動コピー。直近 3 世代を保持し、4 世代目以降は最古を削除。コピー対象は DB ファイルのみ（ログ等は除外）。コピー処理は Node スクリプト化し、UI からの再試行も `npm run backup:copy`（同一コマンド）で実行する。コピー失敗時はトースト＋再試行ボタンで即リトライし、詳細は `/notes/backup` で確認できる。README には手動コピー手順も記載。エクスポートは Playwright による PDF 出力を採用（`GET /api/notes/export?from&to`）、印刷 UI は不要（PDF で代替）。将来の HTML 出力復帰は運用後に検討。
+- **バックアップ**: 現行 MVP は `/backup` または `POST /api/backups` から SQLite DB ファイルを `backup/` 配下へ手動コピーし、最新 3 世代を保持する。自動コピー、失敗時の再試行、ログ、`/notes/backup` は Phase 2 以降のロードマップ。Desktop 化後は同じ手動 DB backup を user data directory 内へ解決する案を検討する。エクスポートは将来 Playwright による PDF 出力を採用する（`GET /api/notes/export?from&to`）。
 - **アクセシビリティ補足**: 現時点では D&D 並び替えのキーボード操作は未実装（必要になれば上下移動ボタン等を追加）。モーダルのフォーカス制御も省略しており、後から追加可能。
 
 ## 7. 制約 / 前提
@@ -220,6 +240,10 @@
 - 画像やファイルの添付は対象外（テキストのみ）。
 - テンプレートデータは `src/templates/` 配下で定義し、ツリー形式で UI と連動させる。
 - 外部ライブラリ追加時は事前に記載（例: Markdown エディタ、カレンダーピッカー）。ショートカットは Cmd 系で統一する（Windows 環境も Cmd 相当のキーにマッピング）。
+- デスクトップ配布は将来の主経路だが、Electron / Tauri の採用や実装着手はまだ確定していない。比較・PoC で判断する。
+- `.app` の `app bundle` 内に SQLite の live DB を置かない。初回起動の user data 初期化、migration、更新、バックアップ、復元の詳細は Desktop PoC / 別実装タスクで確定する。
+- クラウド DB はデスクトップ版の前提にしない。Vercel / Supabase / Postgres はオンライン公開・同期が必要になった場合の任意の将来案として扱い、local SQLite 方針を上書きしない。
+- SQLite を同期フォルダへ直接置かず、可搬性が必要な場合は明示的な note workspace または export / import を使う方針を優先する。
 
 ## 8. スケジュール（例）
 
@@ -236,6 +260,13 @@
 - [x] 主要画面のスクリーンショットを README へ追加
 
 ## 10. 未決事項 / ToDo
+
+- 保留案 / 将来構想: Mac デスクトップ配布と local-first 保存
+  - デスクトップ版を将来の主経路とするが、開発用 Next.js Web 起動形態は残す。
+  - 第一段階は SQLite を運用上の正本とし、ノートファイルを export / backup / migration 用に追加する。file-only 化や file + local SQLite index への移行は Phase 2 以降で再評価する。
+  - 次に決める事項は、Desktop shell の選定、user data / workspace path、SQLite-only と hybrid の境界、export / import 契約、配布・署名・更新 PoC とする。
+  - Apple Silicon / Intel の配布差、SQLite / Prisma native runtime と Playwright / Chromium の同梱確認を PoC の検証項目に含める。
+  - Vercel / Supabase / Postgres はオンライン公開・同期が必要な場合だけ比較し、デスクトップ版の必須依存にはしない。
 
 - 保留案 / 将来構想: AI による自動復習クイズ生成
   - これは現時点では実装予定ではなく、MVP / Phase 2 の既存実装タスクには混ぜない。

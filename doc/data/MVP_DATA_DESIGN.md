@@ -21,6 +21,41 @@ MVP 実装対象の Prisma schema は `Notebook`, `NotebookCanvas`, `Cue`, `Tag`
 - MVP の削除は物理削除とする。`Notebook.deletedAt` は現 schema に残るが MVP API では使用しない。
 - `Notebook` 削除時は `Cue` と `NotebookTag` を外部キーの `onDelete: Cascade` で同時削除する。
 
+## 保存境界とノートファイル案
+
+現行 MVP の運用上の正本は SQLite DB です。デスクトップ配布でも、クラウド DB を必須にせず、ユーザーごとの Mac 内 SQLite を user data directory に置きます。`app bundle` には実行コード、Next.js 資産、Prisma Client / migration、必要な runtime / driver を含めますが、SQLite の live file は置きません。初回起動時に user data directory を作成して migration を適用し、アプリ更新とデータ更新を分離します。アンインストールとデータ削除は別操作です。
+
+ユーザーがノートを直接ファイルとして扱えるようにする場合は、`optional note workspace / export directory` を user data directory とは別に設ける。既定保存先は OS のユーザーデータ領域とし、`Downloads` は使わない。可搬性が必要なユーザーが明示的に選択した場合だけ、次のような構成または同等の package 形式へ export / import する案を候補にする。
+
+```text
+<note-workspace>/<note-id>/
+  note.md
+  canvas.json
+  metadata.json
+```
+
+候補ファイルの責務は次のとおりです。これは現行 MVP の DB model / API 契約ではなく、将来の export / import 契約を検討するための案です。
+
+| ファイル | 候補する内容 |
+| --- | --- |
+| `note.md` | Markdown の Cue / Summary / 互換本文などのテキスト。既存の本文欄を自動的にファイル正本へ変更しない |
+| `canvas.json` | `CanvasDocumentV1`、`page.width` / `page.height`、Canvas elements。要素の `x`, `y`, `width`, `height`, `points`, `style` を保持する |
+| `metadata.json` | note id、title、noteDate、source、tags（名称・色）、nextReviewDate、reviewedAt、bodyMode、file schema version。Phase 2 の draft を export する場合は draft state も候補に含める |
+
+Canvas の text 要素から生成する `searchText` は派生値であり、file package に含める場合も再生成可能な値として扱う。用紙サイズだけを変更して `searchText` を変えない。`schemaVersion` は Canvas document と file package の互換性確認に使い、未知の version や不正な JSON は import 時に拒否または隔離する方針を別途決める。
+
+### 保存方式の比較と段階導入
+
+| 方式 | 長所 | 短所 / リスク | 現時点の扱い |
+| --- | --- | --- | --- |
+| file-only | ユーザーがファイルを直接所有でき、差分確認・外部ツール利用・可搬性に向く | 全文検索、タグ OR、atomic write、draft、review、同時更新、整合性復旧を別途実装する必要がある | 採用しない。将来の候補に留める |
+| SQLite-only | 現行 API / Prisma / transaction / 検索 / 手動 DB backup を維持しやすい | ノートを直接扱う可搬ファイルではなく、外部ツールや同期との連携に export が必要 | 現行 MVP と第一段階の運用上の正本 |
+| file + local SQLite index | ファイルの可搬性と SQLite の検索・一覧性能を両立できる | 正本と index の整合性、再構築、atomic write、競合、schema version、削除・復旧を設計する必要がある | 必要性が確認できた場合に Phase 2 以降で検討 |
+
+Manager 推奨は、第一段階で SQLite を運用上の正本として維持し、ノートファイルを export / backup / migration 用に追加することです。将来、ユーザーがファイルを正本として扱う価値が確認できた場合に、ノートファイルを正本、SQLite を再構築可能な index とする hybrid へ段階移行する。ファイル保存を理由に新しい Prisma model / migration を現行 MVP へ追加しない。
+
+SQLite の live DB を iCloud / Dropbox 等の同期フォルダへ直接置くことは、同時更新、ロック、部分同期、破損のリスクがあるため既定にしない。可搬性が必要な場合は、明示的に選択した note workspace と export / import を優先する。
+
 ## 現 Prisma schema との対応
 
 MVP の物理 DB は SQLite で、Prisma model 名は PascalCase、テーブル名とカラム名は `@@map` / `@map` で snake_case に対応させます。
@@ -249,6 +284,17 @@ MVP の検索・絞り込みは以下に限定します。
 
 ## Migration / Seed のデータ設計判断
 
+### Desktop の DB 初期化・更新・backup 境界
+
+開発用 Web 起動では、現行の `DATABASE_URL` が指す SQLite file と `backup/` への手動コピーを維持する。Desktop 配布では、同じデータ model を user data directory 内の SQLite file に解決する adapter を検討する。
+
+- `.app` 内に live DB を置かない。`app bundle` に含める migration は読み取り専用の配布資産とし、初回起動時に user data directory を作成して適用する。
+- アプリ更新は bundle 更新と DB migration を分離し、既存の DB、DB backup、設定を更新で消さない。アンインストールと user data 削除は別操作とする。
+- 現行 MVP の backup は SQLite DB file の手動コピーであり、workspace file の backup、起動時 migration / 初期化、export / import、復元、破損検出は Desktop 化後の追加候補である。実装済みとは扱わない。
+- DB backup と note workspace backup を同じ復元単位にするか、`note.md` / `canvas.json` / `metadata.json` の atomic write・整合性検査をどう定義するかは、export / import 契約と合わせて別途決める。
+
+ファイル保存を追加するだけで、現行の `Notebook`, `NotebookCanvas`, `Cue`, `Tag`, `NotebookTag` へ新しい Prisma model や migration を追加することはしない。ファイルを正本に変える場合でも、schema change の必要性、再構築可能な index の扱い、既存データ移行を別の Phase 2 task として承認する。
+
 ### Migration
 
 MVP の migration は、`Notebook`, `NotebookCanvas`, `Cue`, `Tag`, `NotebookTag` の保存境界を作成します。用紙サイズの変更は `NotebookCanvas.documentJson` 内の JSON 更新で完結するため、ページ寸法専用の Prisma column / migration は追加しません。
@@ -299,7 +345,12 @@ MVP では seed は必須にしません。
 | Q-003 | 復習管理は `nextReviewDate` と `reviewedAt` のみでよいか | はい |
 | Q-004 | sourceType / sourceTitle を MVP に含めるか | 含める |
 | Q-005 | タグは MVP でも正規化するか | はい |
+| Q-006 | Desktop shell の選定をどうするか | Electron-first candidate と Tauri + Node.js sidecar alternative を PoC で比較する |
+| Q-007 | user data / workspace path をどう分けるか | live DB・DB backup は OS user data、可搬ファイルだけ明示選択 workspace |
+| Q-008 | SQLite-only と file + local SQLite index の境界をいつ変えるか | 第一段階は SQLite 正本 + note file export。必要性が確認できた場合だけ hybrid を検討 |
+| Q-009 | export / import のファイル契約をどうするか | `note.md` / `canvas.json` / `metadata.json` または package、schema version、atomic write、整合性検査を定義する |
+| Q-010 | Mac 配布・署名・更新をどう検証するか | Apple Silicon / Intel、Prisma native runtime / driver、Playwright / Chromium、migration、データ保持を PoC で確認する |
 
 ## 次に決めること
 
-発注者確認後、このデータ設計を元に MVP の画面設計へ進む。
+発注者確認後、Desktop shell の選定、user data / workspace path、SQLite-only と hybrid の境界、export / import 契約、配布・署名・更新 PoC の順に判断する。その後も、現行 MVP の SQLite schema と手動 backup 契約を保ったまま、必要なデータ移行 task へ分割する。

@@ -51,6 +51,18 @@ MVP 仕様書群の役割分担は以下です。
 
 Cornell Method Notebook は、ローカル個人利用向けの学習ノートアプリです。
 
+将来の製品主経路は Mac のデスクトップアプリとして配布し、ユーザーがダウンロード・起動して使う形とします。ただし、開発・検証用の Next.js Web 起動形態は維持します。デスクトップ版でもクラウド DB は必須ではなく、現行 MVP と同じく各ユーザーの Mac 内 SQLite を local-first の運用 DB とします。
+
+保存境界は次のとおりです。
+
+| 境界 | 要件 |
+| --- | --- |
+| `app bundle` | 実行コード、Next.js 資産、Prisma Client / migration、必要な runtime / driver を含む。インストールされた `.app` 内に SQLite の live file やユーザーデータを置かない |
+| `user data directory` | SQLite DB、DB backup、アプリ設定、ログ等の書き込み可能データを置く。OS のユーザーデータ領域を基本とし、初回起動時に作成・初期化する。`Downloads` を既定にしない |
+| `optional note workspace / export directory` | ユーザーが明示的に選ぶ Markdown、Canvas JSON、metadata 等の可搬ファイル領域。既定の DB 保存先とは分ける |
+
+アプリ更新は app bundle の更新と user data の migration を分離し、更新でユーザーデータを失わない。アンインストールとデータ削除は別操作とする。Electron を最短経路候補、Tauri + Node.js sidecar を代替候補として比較するが、shell の採用・実装着手は Desktop PoC 後に決めます。
+
 ユーザーは、コーネルメソッドの形式に沿って、学習内容を以下の単位で記録します。
 
 - タイトル、学習日、学習元
@@ -110,6 +122,7 @@ MVP は以下を満たしたとき成功とみなします。
 - 復習モードで本文を隠し、必要に応じて表示できる。
 - 復習済みとして `reviewedAt` と `nextReviewDate` を更新できる。
 - SQLite DB のバックアップを作成し、最新 3 世代を保持できる。
+- デスクトップ配布を行う場合、SQLite の live file が `.app` 外の user data directory にあり、アプリ更新で既存データが失われない境界を確認できる。
 - `npm run lint`、`npm run build`、Prisma 関連コマンドで基本検証できる。
 
 ## 業務範囲
@@ -128,6 +141,7 @@ MVP で扱う業務範囲は以下です。
 | ノート削除 | 確認後に物理削除する |
 | 復習 | Cue とサマリーを見て本文を想起し、復習済みにする |
 | バックアップ | DB ファイルを `backup/` 配下へコピーし、最新 3 世代を保持する |
+| 保存場所 | 現行 MVP はローカル SQLite。Desktop 配布時は user data directory に live DB を置く境界を採用候補とする |
 
 ### MVP で扱わない業務範囲
 
@@ -142,7 +156,8 @@ MVP で扱う業務範囲は以下です。
 - 専用の復習タスク画面
 - タグ管理専用画面
 - オンライン同期、外部 API 連携
-- Vercel / Supabase などへの本番デプロイ
+- Vercel / Supabase などへのオンライン本番デプロイ（必要になった場合の任意の将来案）
+- ノートファイルを正本にした file-only / hybrid 運用の確定実装
 
 ## MVP スコープ
 
@@ -175,6 +190,8 @@ MVP スコープは、既存 MVP 設計書で発注者承認済みの判断に�
 | タグ管理 UI | タグ名変更、削除、右クリックメニュー | ノート保存時の自動作成と候補一覧で足りる |
 | 高機能 Markdown エディタ | `@uiw/react-md-editor` など | textarea + preview で MVP を検証する |
 | 外部デプロイ | Vercel、Supabase、Basic 認証相当 | 個人ローカル利用を先に完成させる |
+| Desktop shell / 配布 PoC | Electron / Tauri + Node.js sidecar、署名・更新 | 現行 MVP の Web 起動を維持し、shell 選定と配布検証を別 task で行う |
+| ノートファイル | `note.md`、`canvas.json`、`metadata.json` または package、export / import | 第一段階は SQLite 正本。ファイル正本 + local SQLite index は必要性確認後に検討する |
 | Rust API | 別 API サーバー、補助プロセス | MVP の処理量では TypeScript API で十分 |
 
 ## 主要業務フロー概要
@@ -223,6 +240,8 @@ MVP スコープは、既存 MVP 設計書で発注者承認済みの判断に�
 3. システムは SQLite DB ファイルを `backup/` 配下へコピーする。
 4. システムは最新 3 世代を残し、4 世代目以降を古い順に削除する。
 5. 画面はバックアップ一覧を更新する。
+
+この `backup/` は現行の開発用 Web 起動形態における MVP 契約です。Desktop 配布では、同じ手動 SQLite DB コピーを user data directory 内へ解決する adapter を検討します。DB backup と optional note workspace のバックアップ単位、export / import、復元、破損検出は追加候補であり、現行 MVP の機能契約にはしません。
 
 ## 画面一覧概要
 
@@ -395,13 +414,17 @@ MVP の API 詳細は `doc/api/MVP_API_DESIGN.md` を正とします。
 - SQLite DB ファイルをバックアップできる。
 - 最新 3 世代を保持する。
 - バックアップからの自動復元は MVP 範囲外とし、必要な場合は手動復元手順を README 等へ記載する。
+- デスクトップ配布時は `.app` の app bundle と user data directory を分離し、live DB は user data directory に置く。
+- 初回起動時の user data directory 作成・migration、アプリ更新と DB 更新の分離、アンインストールとデータ削除の分離を要件とする。具体的な実装は Desktop PoC 後に決める。
+- `Downloads` を既定の保存先にしない。可搬性が必要な場合は明示的な note workspace / export directory を選べる設計を検討する。
+- SQLite の live DB を iCloud / Dropbox 等の同期フォルダへ直接置かない。同期・可搬性は note file export / import を優先する。
 
 ### セキュリティ
 
 - MVP はローカル個人利用を前提とし、認証は実装しない。
 - Markdown 表示では XSS 対策として sanitize を適用する。
 - 外部 API 連携は行わない。
-- Vercel 等へ公開 URL を持つ形でデプロイする場合は、Phase 2 で Basic 認証相当または別のアクセス制御を実装する。
+- Vercel 等へ公開 URL を持つ形でデプロイする場合は、オンライン経路を選んだ場合の任意の将来案として、Phase 2 で Basic 認証相当または別のアクセス制御を実装する。Desktop 版の前提ではない。
 
 ### アクセシビリティ
 
@@ -438,6 +461,8 @@ npm run prisma:migrate
 - Prisma schema と migration で DB 構造を管理する。
 - 実装タスクでは作業前後に `git status --short` を確認する。
 
+将来の Mac デスクトップ配布では、shell が local Next.js runtime を起動する構成を候補とする。Electron は最短経路候補、Tauri + Node.js sidecar は代替候補であり、いずれも採用・実装済みとは扱わない。Apple Silicon / Intel の配布差、SQLite / Prisma native runtime、Playwright / Chromium、署名・更新、local runtime の lifecycle を Desktop PoC で確認する。
+
 ### バックアップ運用
 
 - バックアップ対象は SQLite DB ファイルとする。
@@ -445,6 +470,8 @@ npm run prisma:migrate
 - ファイル名は日時が識別できる形式とする。
 - 最新 3 世代を保持し、4 世代目以降は古いものから削除する。
 - MVP ではバックアップログを DB 管理しない。
+
+上記は現行の開発用 Web 起動形態における手動 SQLite DB backup の契約です。Desktop 配布では `backup/` の論理役割を user data directory 内へ解決する案を検討します。DB backup と note workspace backup の単位、export / import、復元、破損検出、起動時 migration / 初期化は追加候補であり、実装済みとは記述しません。
 
 ### 障害時運用
 
@@ -497,7 +524,10 @@ npm run prisma:migrate
 - ノート削除は物理削除とし、Undo は実装しない。
 - 復習間隔の自動計算は行わない。
 - PDF 出力は実装しない。
-- Vercel / Supabase 移行は MVP 完了条件に含めない。
+- `.app` の app bundle 内に SQLite の live DB を置かない。user data directory 初期化・migration・更新・復元の詳細は Desktop PoC / 別 task で決める。
+- クラウド DB は必須にしない。Vercel / Supabase / Postgres はオンライン公開・同期が必要な場合の任意の将来案であり、デスクトップ版の local SQLite 方針を上書きしない。
+- `Downloads` を既定の DB / backup 保存先にしない。SQLite を同期フォルダへ直接置かず、可搬性が必要な場合は明示的な note workspace / export / import を優先する。
+- ノートファイルを正本にした file-only / hybrid への変更は MVP 完了条件に含めない。
 - 実装ファイルや既存仕様を変更する場合は、対象タスクで明示する。
 
 ## 未決事項
@@ -510,6 +540,11 @@ MVP 関連設計書上、主要なスコープ判断は発注者承認済みで�
 | U-002 | Playwright による MVP 主要フロー確認を必須にするか | `mvp-final-verification` タスク実施時 |
 | U-003 | 作成・編集キャンセル時に未保存変更の確認ダイアログを出すか | `mvp-note-form` タスク実施時 |
 | U-004 | Cue の空行を UI で自動除外するか、validation エラーにするか | `mvp-note-form` タスク実施時 |
+| U-005 | Desktop shell を Electron と Tauri + Node.js sidecar のどちらにするか | Desktop PoC 実施時 |
+| U-006 | user data / workspace path をどう分けるか | Desktop shell の path resolver / export 設計時 |
+| U-007 | SQLite-only と hybrid（file 正本 + local SQLite index）の境界をいつ変えるか | ファイル可搬性の必要性を確認した Phase 2 以降 |
+| U-008 | `note.md` / `canvas.json` / `metadata.json` または package の export / import 契約をどうするか | schema version、atomic write、整合性検査、復元設計時 |
+| U-009 | Apple Silicon / Intel の配布・署名・更新をどう検証するか | Desktop 配布・署名・更新 PoC 実施時 |
 
 ## 参照ドキュメント
 
@@ -520,6 +555,7 @@ MVP 関連設計書上、主要なスコープ判断は発注者承認済みで�
 - `doc/api/MVP_API_DESIGN.md`
 - `doc/screens/MVP_SCREEN_DESIGN.md`
 - `doc/technical/MVP_TECHNICAL_DESIGN.md`
+- `doc/technical/TARGET_ARCHITECTURE.md`
 - `doc/implementation/MVP_IMPLEMENTATION_TASKS.md`
 - `doc/workflows/MVP_WORKFLOW_DESIGN.md`
 - `doc/screens/MVP_SCREEN_INVENTORY.md`
