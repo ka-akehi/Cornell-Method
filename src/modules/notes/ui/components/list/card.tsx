@@ -1,5 +1,10 @@
 import Link from "next/link";
-import { formatDate, formatSource, getReviewStatus } from "@/modules/notes/model";
+import {
+  formatDate,
+  formatSource,
+  getReviewHistoryStatus,
+  getReviewStatus,
+} from "@/modules/notes/model";
 import type { NotebookListItem } from "@/modules/notes/contracts";
 import { todayDateString } from "@/shared/date";
 
@@ -19,8 +24,18 @@ function getReviewBadgeClassName(note: NotebookListItem) {
   return "border-[var(--app-line)] bg-[var(--app-surface)] text-[var(--app-muted-ink)]";
 }
 
+function getReviewHistoryBadgeClassName(note: NotebookListItem) {
+  if (note.reviewedAt !== null) {
+    return "border-[var(--app-accent)] bg-[var(--app-accent-soft)] text-[var(--app-accent-deep)]";
+  }
+
+  return "border-[var(--app-line)] bg-[var(--app-surface)] text-[var(--app-muted-ink)]";
+}
+
 export function NotesListCard({ note }: NotesListCardProps) {
+  const reviewHistoryStatus = getReviewHistoryStatus(note);
   const reviewStatus = getReviewStatus(note);
+  const reviewHistoryBadgeClassName = getReviewHistoryBadgeClassName(note);
   const reviewBadgeClassName = getReviewBadgeClassName(note);
 
   return (
@@ -57,27 +72,28 @@ export function NotesListCard({ note }: NotesListCardProps) {
         </div>
 
         <div className="flex flex-wrap items-center gap-1.5">
-          {note.tags.length > 0 ? (
-            note.tags.map((tag) => (
-              <span
-                key={tag.id}
-                className="max-w-full rounded-full border border-[var(--app-line)] px-2.5 py-1 text-xs font-medium text-[var(--app-ink)]"
-                style={{ backgroundColor: tag.color ?? "var(--app-accent-soft)" }}
-              >
-                <span className="inline-block max-w-[12rem] truncate align-bottom">
-                  {tag.name}
-                </span>
+          {note.tags.map((tag) => (
+            <span
+              key={tag.id}
+              className="max-w-full rounded-full border border-[var(--app-line)] px-2.5 py-1 text-xs font-medium text-[var(--app-ink)]"
+              style={{ backgroundColor: tag.color ?? "var(--app-accent-soft)" }}
+            >
+              <span className="inline-block max-w-[12rem] truncate align-bottom">
+                {tag.name}
               </span>
-            ))
-          ) : (
-            <span className="rounded-full border border-[var(--app-line)] bg-[var(--app-surface)] px-2.5 py-1 text-xs font-medium text-[var(--app-muted-ink)]">
-              タグなし
             </span>
-          )}
+          ))}
           <span
+            aria-label={`復習履歴: ${reviewHistoryStatus.label}`}
+            className={`rounded-full border px-2.5 py-1 text-xs font-medium ${reviewHistoryBadgeClassName}`}
+          >
+            {reviewHistoryStatus.label}
+          </span>
+          <span
+            aria-label={`次回復習: ${reviewStatus.label}`}
             className={`rounded-full border px-2.5 py-1 text-xs font-medium ${reviewBadgeClassName}`}
           >
-            {reviewStatus.label}
+            次回: {reviewStatus.label}
           </span>
         </div>
       </article>

@@ -2,6 +2,8 @@
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
+const vm = require("node:vm");
+const ts = require("typescript");
 const { test } = require("node:test");
 
 const projectRoot = path.resolve(__dirname, "../..");
@@ -17,6 +19,33 @@ const listFiles = [
 
 function readSource(relativePath) {
   return fs.readFileSync(path.join(projectRoot, relativePath), "utf8");
+}
+
+function loadNoteDisplayModule() {
+  const source = readSource("src/modules/notes/model/note-display.ts");
+  const output = ts.transpileModule(source, {
+    compilerOptions: {
+      module: ts.ModuleKind.CommonJS,
+      target: ts.ScriptTarget.ES2020,
+    },
+  }).outputText;
+  const moduleObject = { exports: {} };
+
+  vm.runInNewContext(output, {
+    Date,
+    Intl,
+    module: moduleObject,
+    exports: moduleObject.exports,
+    require(specifier) {
+      if (specifier === "@/shared/date") {
+        return { todayDateString: () => "2026-08-09" };
+      }
+
+      throw new Error(`Unexpected module: ${specifier}`);
+    },
+  });
+
+  return moduleObject.exports;
 }
 
 test("notes list uses the app warm surface, ink, line, accent, and focus tokens", () => {
@@ -71,11 +100,105 @@ test("notes list keeps responsive wrapping and visible focus affordances", () =>
   }
 });
 
-test("review status styling remains local to the list card while its label comes from the model", () => {
+test("notes list omits the empty-tag placeholder while retaining tag and review badges", () => {
   const card = readSource(listFiles[4]);
+  const tagsStart = card.indexOf("note.tags.map((tag) => (");
+  const historyBadgeStart = card.indexOf("aria-label={`復習履歴", tagsStart);
+  const nextReviewBadgeStart = card.indexOf("aria-label={`次回復習", historyBadgeStart);
 
+  assert.doesNotMatch(card, /タグなし/);
+  assert.notEqual(tagsStart, -1);
+  assert.match(card, /key=\{tag\.id\}/);
+  assert.match(card, /tag\.name/);
+  assert.match(card, /backgroundColor: tag\.color \?\? "var\(--app-accent-soft\)"/);
+  assert.match(card, /max-w-\[12rem\] truncate/);
+  assert.ok(historyBadgeStart > tagsStart);
+  assert.ok(nextReviewBadgeStart > historyBadgeStart);
+});
+
+test("review history and next review states remain independent", () => {
+  const { getReviewHistoryStatus, getReviewStatus } = loadNoteDisplayModule();
+  const cases = [
+    {
+      reviewedAt: null,
+      nextReviewDate: "2026-08-10",
+      historyLabel: "未復習",
+      reviewLabel: "復習予定日: 2026-08-10",
+    },
+    {
+      reviewedAt: "2026-08-08T12:00:00.000Z",
+      nextReviewDate: "2026-08-10",
+      historyLabel: "復習済み",
+      reviewLabel: "復習予定日: 2026-08-10",
+    },
+    {
+      reviewedAt: null,
+      nextReviewDate: "2026-08-08",
+      historyLabel: "未復習",
+      reviewLabel: "復習期限到来: 2026-08-08",
+    },
+    {
+      reviewedAt: "2026-08-08T12:00:00.000Z",
+      nextReviewDate: "2026-08-08",
+      historyLabel: "復習済み",
+      reviewLabel: "復習期限到来: 2026-08-08",
+    },
+    {
+      reviewedAt: null,
+      nextReviewDate: null,
+      historyLabel: "未復習",
+      reviewLabel: "復習予定なし",
+    },
+    {
+      reviewedAt: "2026-08-08T12:00:00.000Z",
+      nextReviewDate: null,
+      historyLabel: "復習済み",
+      reviewLabel: "復習予定なし",
+    },
+  ];
+
+  for (const reviewCase of cases) {
+    assert.equal(
+      getReviewHistoryStatus({ reviewedAt: reviewCase.reviewedAt }).label,
+      reviewCase.historyLabel,
+    );
+    assert.equal(
+      getReviewStatus(
+        {
+          reviewedAt: reviewCase.reviewedAt,
+          nextReviewDate: reviewCase.nextReviewDate,
+        },
+        "2026-08-09",
+      ).label,
+      reviewCase.reviewLabel,
+    );
+  }
+});
+
+test("review history and next review labels come from the model while styling stays local to the card", () => {
+  const card = readSource(listFiles[4]);
+  const model = readSource("src/modules/notes/model/note-display.ts");
+
+  assert.match(model, /export function getReviewHistoryStatus\(\n/);
+  assert.match(model, /note\.reviewedAt === null/);
+  assert.match(model, /label: "未復習"/);
+  assert.match(model, /label: "復習済み"/);
+  assert.doesNotMatch(
+    model.slice(model.indexOf("export function getReviewStatus")),
+    /reviewedAt/,
+  );
+  assert.match(model, /note\.nextReviewDate <= today/);
+  assert.match(model, /label: "復習予定なし"/);
+  assert.match(card, /getReviewHistoryStatus\(note\)/);
+  assert.match(card, /reviewHistoryStatus\.label/);
+  assert.match(card, /aria-label=\{`復習履歴: \$\{reviewHistoryStatus\.label\}`\}/);
+  assert.match(card, />\s*\{reviewHistoryStatus\.label\}\s*<\/span>/);
+  assert.doesNotMatch(card, /履歴: \{reviewHistoryStatus\.label\}/);
   assert.match(card, /getReviewStatus\(note\)/);
   assert.match(card, /reviewStatus\.label/);
+  assert.match(card, /次回: \{reviewStatus\.label\}/);
+  assert.match(card, /getReviewHistoryBadgeClassName\(note\)/);
   assert.match(card, /getReviewBadgeClassName\(note\)/);
+  assert.doesNotMatch(card, /reviewHistoryStatus\.className/);
   assert.doesNotMatch(card, /reviewStatus\.className/);
 });
