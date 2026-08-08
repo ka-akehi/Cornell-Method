@@ -10,7 +10,7 @@ function readSource(relativePath) {
   return fs.readFileSync(path.join(projectRoot, relativePath), "utf8");
 }
 
-test("view actions are placed in the title row without duplicating the old action bar", () => {
+test("view and review actions are placed in the title row without duplicating the old action bar", () => {
   const actions = readSource(
     "src/modules/notes/ui/components/detail/actions.tsx",
   );
@@ -47,6 +47,13 @@ test("view actions are placed in the title row without duplicating the old actio
   const viewActionsStart = actions.indexOf(
     "export function NoteDetailViewActions",
   );
+  const reviewModeActions = actions.slice(reviewModeActionsStart, viewActionsStart);
+  assert.match(reviewModeActions, /<NoteDetailHeadingActions>/);
+  assert.doesNotMatch(reviewModeActions, /note-paper-mode-actions/);
+  assert.match(
+    reviewModeActions,
+    /onClick=\{onBackToView\}[\s\S]*閲覧へ戻る/,
+  );
   const reviewActionsStart = actions.indexOf(
     "type NoteDetailReviewActionsProps",
   );
@@ -59,22 +66,37 @@ test("view actions are placed in the title row without duplicating the old actio
     display,
     /export function NoteDetailHeading\(\{[\s\S]*actions\?: ReactNode[\s\S]*<div className="note-paper-heading">[\s\S]*\{actions\}/,
   );
-  assert.match(
-    readView,
-    /<NoteDetailHeading[\s\S]*actions=\{mode === "view" \? modeActions : undefined\}/,
-  );
-  assert.match(readView, /\{mode === "review" && modeActions\}/);
+  assert.match(readView, /<NoteDetailHeading[\s\S]*actions=\{modeActions\}/);
+  assert.doesNotMatch(readView, /\{mode === "review" && modeActions\}/);
   assert.equal(
-    (readView.match(/\{modeActions\}/g) ?? []).length,
-    0,
-    "view actions should not remain as an unconditional action bar",
+    (readView.match(/actions=\{modeActions\}/g) ?? []).length,
+    1,
+    "view and review actions should share the title row action slot",
   );
 
   assert.match(modes, /onEdit=\{enterEditMode\}/);
   assert.match(
     modes,
-    /onReview=\{\(\) => \{[\s\S]*setShowBody\(false\);[\s\S]*setShowSummary\(false\);[\s\S]*setReviewNextDate\(note\.nextReviewDate \?\? ""\);[\s\S]*setMode\("review"\);/,
+    /import \{ addDaysToDateString, todayDateString \} from "@\/shared\/date";/,
   );
+  assert.match(
+    modes,
+    /onReview=\{\(\) => \{[\s\S]*setShowBody\(false\);[\s\S]*setShowSummary\(false\);[\s\S]*setReviewNextDate\(addDaysToDateString\(todayDateString\(\), 7\)\);[\s\S]*setMode\("review"\);/,
+  );
+  const reviewTransitionStart = modes.indexOf("onReview={() => {");
+  const reviewTransitionEnd = modes.indexOf("          />", reviewTransitionStart);
+  assert.notEqual(reviewTransitionStart, -1);
+  assert.notEqual(reviewTransitionEnd, -1);
+  assert.doesNotMatch(
+    modes.slice(reviewTransitionStart, reviewTransitionEnd),
+    /note\.nextReviewDate/,
+  );
+  assert.match(modes, /nextReviewDate: reviewNextDate \|\| null/);
+  assert.match(
+    modes,
+    /reviewNextDate=\{reviewNextDate\}[\s\S]*onReviewNextDateChange=\{setReviewNextDate\}/,
+  );
+  assert.match(modes, /setReviewNextDate\(data\?\.nextReviewDate \?\? ""\)/);
   assert.match(modes, /<NoteDetailReviewModeActions[\s\S]*onBackToView=/);
   assert.match(modes, /<NoteDetailEditActions onCancel=\{leaveEditMode\}/);
 

@@ -2,23 +2,23 @@
 
 ## 位置づけ
 
-このドキュメントは、Cornell Method Notebook MVP の最終検証で使う確認項目です。
+このドキュメントは、Cornell Method Notebook MVP の最終検証項目を定めます。
 
-MVP では、明示保存、物理削除、手動で管理する `nextReviewDate`、Cue / Summary の `textarea + Markdown preview`、中央のフリー入力 Canvas 本文、`/notes` の復習対象フィルタ、詳細画面内の復習モード、`/backup` の手動バックアップを確認対象とします。新規ノートの `nextReviewDate` は `noteDate + 7日` を初期値とし、1 日後 / 1 週間後の自動タスクや専用復習タスク画面は MVP の確認対象ではありません。
+MVP の確認対象は、明示保存、物理削除、手動で管理する `nextReviewDate`、Cue / Summary の `textarea + Markdown preview`、中央のフリー入力 Canvas 本文、`/notes` の復習対象フィルタ、詳細画面内の復習モード、`/backup` の手動バックアップです。新規ノートの `nextReviewDate` は `noteDate + 7日` を初期値とします。既存ノートの復習画面では保存値を再利用せず、画面を開いた時点の `Asia/Tokyo` 基準の現在日付 + 7日を初期表示します。1 日後 / 1 週間後の自動タスクや専用復習タスク画面は MVP の確認対象ではありません。
 
 MVP の初期データに seed は使いません。検証用データは `/notes/new` または `POST /api/notes` で作成します。
 
-`AGENTS.md` に含まれる将来仕様のうち、自動保存、Undo、PDF、専用復習タスク画面、D&D、NoteCard などは、このドキュメント末尾の「Phase 2 / 将来確認」に分離します。
+`doc/requirements/PRODUCT_SPEC.md` に含まれる将来仕様のうち、自動保存、Undo、PDF、専用復習タスク画面、D&D、NoteCard などは、このドキュメント末尾の「Phase 2 / 将来確認」に分離します。現行 MVP の受け入れ根拠は `doc/implementation/MVP_CONTRACT.md` です。
 
 ## 再実行可能な Playwright E2E
 
-主要 MVP フローの再実行には `npm run test:e2e` を使用します。前提は `npm install` 済みであることと、Playwright Chromium が未導入の場合に `npx playwright install chromium` を一度実行することです。`@playwright/test` は既存の `playwright` 本体と同じ `1.61.0` に揃えています。
+主要 MVP フローは `npm run test:e2e` で再実行します。`npm install` 済みであることを前提とし、Playwright Chromium が未導入の場合は `npx playwright install chromium` を一度実行します。`@playwright/test` は既存の `playwright` 本体と同じ `1.61.0` に揃えています。
 
 Playwright は `127.0.0.1:4173` の専用 web server を起動し、実行開始時に既存 migration から `prisma/e2e.db` を作成します。テスト終了時に削除する対象は `prisma/e2e.db` とその `-journal` / `-shm` / `-wal` sidecar だけです。`prisma/dev.db`、既存ノート、`backup/`、別ポートで動作中の server は使用・削除しません。worker は 1、serial suite で固定し、並列 fixture 競合を避けます。
 
-自動 E2E が現在カバーする範囲は、`/` → `/notes` redirect、現在日以前の日付を使ったタイトル・Cue・Summary の作成、保存後の `/notes/[id]` と Canvas viewer、編集保存、一覧 query 検索、詳細の復習モードでの本文表示 / 再非表示、`POST /api/notes/:id/review`、確認ダイアログ受け入れ後の物理削除と一覧 / API からの消失です。保存後に `GET /api/notes/:id` を呼び出し、Cue の `text` と `order` が保存前の内容・順序どおりに復元されることも確認します。失敗時は `test-results/` に trace・screenshot・video、`playwright-report/` に HTML report を生成します。これらは Git 管理対象外です。
+自動 E2E は、`/` → `/notes` redirect、現在日以前の日付を使ったタイトル・Cue・Summary の作成、保存後の `/notes/[id]` と Canvas viewer、編集保存、一覧 query 検索をカバーします。詳細の復習モードでは本文表示 / 再非表示と `POST /api/notes/:id/review`、削除では確認ダイアログ受け入れ後の物理削除と一覧 / API からの消失を確認します。保存後に `GET /api/notes/:id` を呼び出し、Cue の `text` と `order` が保存前の内容・順序どおりに復元されることも確認します。失敗時は `test-results/` に trace・screenshot・video、`playwright-report/` に HTML report を生成します。これらは Git 管理対象外です。
 
-2026-07-05 の `summary/20260705/mvp-ui-flow-reverification-report.md` は既存 DB と単発 QA 用データを使った記録であり、この自動 E2E の実行証拠とは別です。PDF export、Phase 2 の autosave、soft-delete / Undo、専用 review-tasks、NoteCard / D&D、起動時バックアップはこの E2E の coverage boundary 外です。
+2026-07-05 の `summary/20260705/mvp-ui-flow-reverification-report.md` は、既存 DB と単発 QA 用データを使った別の検証記録です。この自動 E2E の実行証拠には使用しません。PDF export、Phase 2 の autosave、soft-delete / Undo、専用 review-tasks、NoteCard / D&D、起動時バックアップはこの E2E の coverage boundary 外です。
 
 ## MVP 受け入れ確認
 
@@ -77,7 +77,7 @@ Playwright は `127.0.0.1:4173` の専用 web server を起動し、実行開始
 
 #### Canvas 操作・スタイル・図形内文字（2026-07-19 追加）
 
-以下の 6 項目は、既存の `CANVAS-DIMENSION-001`（用紙サイズ、保存・復元、resize 前後の要素不変）と責務を分けて確認する。コード・設計との静的照合結果は根拠欄に残すが、ブラウザ実機の pointer、touch、保存・再読込、viewport 証跡がない場合は `PASS` に繰り上げない。
+次の 6 項目は、既存の `CANVAS-DIMENSION-001`（用紙サイズ、保存・復元、resize 前後の要素不変）と分けて確認する。コード・設計との静的照合結果は根拠欄に残すが、ブラウザ実機の pointer、touch、保存・再読込、viewport 証跡がない場合は `PASS` に繰り上げない。
 
 - [ ] `CANVAS-INTERACTION-001` 空白および既存要素上からの Canvas 要素作成と gesture 開始対象の安全境界
   - 対象 route / 画面状態: `/notes/new` の編集状態、および `/notes/[id]` の編集状態。Canvas 本文を表示し、空白と 6 種類の基準要素（pen stroke、line、arrow、rect、ellipse、standalone text）を同一用紙に用意する。
@@ -212,6 +212,7 @@ Playwright は `127.0.0.1:4173` の専用 web server を起動し、実行開始
 - [ ] `/notes/[id]` の編集保存後に閲覧モードへ戻る
 - [ ] `/notes/[id]` の編集モードでキャンセルすると保存せず閲覧モードへ戻る
 - [ ] `/notes/[id]` の閲覧モードから復習モードへ切り替えられる
+- [ ] 過去・当日・未来の `nextReviewDate` を保存済みの既存ノートを `/notes/[id]` で復習モードへ切り替えると、保存値にかかわらず、復習画面へ入った時点の `Asia/Tokyo` 基準の現在日付 + 7日が次回復習日の初期値として表示される
 - [ ] `/notes/[id]` の復習モードでは本文が初期状態で非表示になる
 - [ ] `/notes/[id]` の復習モードでは Summary が初期状態で非表示になる
 - [ ] `/notes/[id]` の復習モードで Cue を見て想起し、本文を確認した後に Summary を開ける
@@ -221,8 +222,8 @@ Playwright は `127.0.0.1:4173` の専用 web server を起動し、実行開始
 - [ ] `/notes/[id]` の復習済み更新中はボタンが disabled になり `更新中...` が表示される
 - [ ] `/notes/[id]` の復習済み更新に失敗した場合に error 状態が表示される
 - [ ] `/notes/[id]` の復習済み更新で `reviewedAt` が更新される
-- [ ] `/notes/[id]` の復習済み更新で任意の `nextReviewDate` が保存される
-- [ ] `/notes/[id]` の復習済み更新で `nextReviewDate` を空にできる
+- [ ] `/notes/[id]` の復習画面で次回復習日を別の日付へ手動変更して復習済み更新できる
+- [ ] `/notes/[id]` の復習画面で次回復習日を空欄化して復習済み更新できる
 - [ ] `/notes/[id]` の復習済み更新成功後、画面に `reviewedAt` と更新後の `nextReviewDate` が反映される
 - [ ] `/notes/[id]` で削除操作を選ぶと確認 UI が表示される
 - [ ] `/notes/[id]` の削除確認をキャンセルすると削除されない
@@ -245,7 +246,7 @@ Playwright は `127.0.0.1:4173` の専用 web server を起動し、実行開始
 
 ### 4.1. NTE-020 / NTE-030 edit レイアウト / responsive
 
-以下は `/notes/new` と `/notes/[id]` の編集モードに共通するレイアウトの受け入れ条件です。各項目は指定 viewport で確認し、今回の文書追加では実ブラウザでの実施結果を記録しません。
+次に、`/notes/new` と `/notes/[id]` の編集モードに共通するレイアウトの受け入れ条件を示します。各項目は指定 viewport で確認します。この文書追加の時点では、実ブラウザでの実施結果を記録しません。
 
 #### 共通レイアウト
 
@@ -373,7 +374,7 @@ Playwright は `127.0.0.1:4173` の専用 web server を起動し、実行開始
 
 ### Canvas runtime QA 記録（2026-07-21）
 
-Canvas のブラウザ実機 QA は、API runtime 検証とは分離して `未実施` のままとした。権限昇格後は local server の listen に成功したが、Browser backend は利用できず、静的 source / docs の確認結果も runtime の PASS 根拠にはしていない。
+Canvas のブラウザ実機 QA は `未実施` とし、API runtime 検証と分けて記録した。権限昇格後は local server の listen に成功したが、Browser backend は利用できなかった。静的 source / docs の確認結果も runtime の PASS 根拠にはしていない。
 
 | 項目 | 記録 |
 | --- | --- |
@@ -397,7 +398,7 @@ Canvas のブラウザ実機 QA は、API runtime 検証とは分離して `未�
 
 ### Canvas runtime QA 追補（2026-07-22）
 
-in-app Browser で `http://localhost:3000` を操作し、2026-07-21 に未実施だった範囲の一部を継続した。fixture は `Canvas Browser QA 2026-07-22 2030`（ID `cmrvzkjpa0000mtrm7pgwm1xb`）として保持し、後続 QA で重ね描き、消しゴム、Undo / Redo、未確認 viewport を続けられる状態にした。
+in-app Browser で `http://localhost:3000` を操作し、2026-07-21 に未実施だった範囲の一部を確認した。fixture は `Canvas Browser QA 2026-07-22 2030`（ID `cmrvzkjpa0000mtrm7pgwm1xb`）として保持し、後続 QA で重ね描き、消しゴム、Undo / Redo、未確認 viewport を続けられる状態にした。
 
 | 項目 | 2026-07-22 の記録 |
 | --- | --- |
@@ -424,7 +425,7 @@ in-app Browser で `http://localhost:3000` を操作し、2026-07-21 に未実�
 
 ### Canvas toolbar runtime QA 追補（2026-07-24）
 
-2026-07-22 に実効約 1265px で確認された drawing rail collapse の CSS 修正後状態を、権限付き headless Playwright Chromium で再確認した。詳細は `summary/20260724/canvas-toolbar-browser-qa-runtime-20260724.md` を参照する。
+2026-07-22 に実効約 1265px で確認した drawing rail collapse について、CSS 修正後の状態を権限付き headless Playwright Chromium で再確認した。詳細は `summary/20260724/canvas-toolbar-browser-qa-runtime-20260724.md` を参照する。
 
 | 項目 | 2026-07-24 の記録 |
 | --- | --- |
@@ -456,7 +457,7 @@ in-app Browser で `http://localhost:3000` を操作し、2026-07-21 に未実�
 
 ### Canvas metadata 境界 hardening 追補（2026-07-24）
 
-unknown target の実 pointer 操作は Browser backend 不在のため未確認のままだが、関連 Worker の静的検証と保存境界の実装確認を記録する。pen runtime は Fabric 7 の `mouse:down:before` で metadata 欠落・unknown・preview・shape text editor target の brush 開始を抑止し、異常な `path:created` を cleanup する。converter 側は malformed metadata を共有境界で検証し、正規の `CanvasElementV1` 以外を例外なしで除外する。空白および既知要素の pen target allowlist、既存の geometry / style / text 変換は維持する。
+unknown target の実 pointer 操作は、Browser backend 不在のため未確認のままである。ここでは、関連 Worker の静的検証と保存境界の実装確認を記録する。pen runtime は Fabric 7 の `mouse:down:before` で metadata 欠落・unknown・preview・shape text editor target の brush 開始を抑止し、異常な `path:created` を cleanup する。converter 側は malformed metadata を共有境界で検証し、正規の `CanvasElementV1` 以外を例外なしで除外する。空白および既知要素の pen target allowlist、既存の geometry / style / text 変換は維持する。
 
 | 項目 | 結果 |
 | --- | --- |
@@ -529,9 +530,9 @@ Worker task は Browser backend `[]` と app-server `Operation not permitted` �
 | 既存ノート desktop edit | 1280 / 1440px の `/notes/[id]` で title、noteDate、source、tag、Cue、Canvas、Summary、`nextReviewDate` を復元。保存後の再読込、キャンセル、主要 field 到達性、body / document の viewport-wide 横幅不在を確認し、console / page error は 0。確認用ノートは削除後 GET 404、一覧 query の残留 `totalCount=0`。 | `PASS（desktop 1280 / 1440px の確認済み範囲）`。375 / 768px の mobile edit は未確認。 |
 | `nextReviewDate` UI | 新規 `noteDate=2026-07-25` で `2026-08-01` が初期表示・保存された。手動値 `2026-08-05` は `noteDate` 変更後も保持され、空欄は再読込・`noteDate` 変更後も空欄のまま維持された。 | `部分実施（確認済み範囲）`。review 成功 UI までの画面反映は未確認。 |
 
-### 2026-07-31 runtime QA / source reader 追補
+### 2026-07-31 runtime QA 追補
 
-今回の追補は、既存の受け入れ証跡マトリクスの判定単位を置き換えない。2026-07-25 に Manager 側の権限付き runtime で確認済みの desktop / Canvas subset は履歴として保持し、今回の Browser runtime blocker により過去の PASS を消さない。一方、今回実測できなかった scroll / drawing、mobile、または実 target の範囲を `PASS` と推測しない。
+この追補は、既存の受け入れ証跡マトリクスの判定単位を置き換えない。2026-07-25 に Manager 側の権限付き runtime で確認済みの desktop / Canvas subset は履歴として保持し、今回の Browser runtime blocker によって過去の PASS を変更しない。今回実測できなかった scroll / drawing、mobile、実 target の範囲も `PASS` と推測しない。
 
 #### Canvas scroll / wheel / touch QA
 
@@ -562,9 +563,9 @@ Worker task は Browser backend `[]` と app-server `Operation not permitted` �
 
 根拠: `summary/20260731/worker-mobile-note-runtime-20260731.md`。
 
-#### Postgres source reader / native failure fallback evidence
+### 過去の Postgres source reader 検証履歴（2026-07-31）
 
-Postgres target へ接続せず、現行 MVP schema の isolated frozen SQLite fixture に対して、source reader の native failure fallback と read-only invariant を確認した。この行の `PASS` は isolated evidence の範囲だけを表す。
+Postgres target へ接続せず、現行 MVP schema の isolated frozen SQLite fixture に対して、source reader の native failure fallback と read-only invariant を確認した。この検証は、方針決定前の移行用 script に対する履歴である。下表の `PASS` と `未確認` は当時の判定範囲を表し、値と根拠を変更せず保持する。現行の利用手順、SQLite backup、将来の移行計画には使用しない。
 
 | 確認項目 | 判定 | 事実 / 未確認範囲 |
 | --- | --- | --- |
@@ -579,7 +580,7 @@ Postgres target へ接続せず、現行 MVP schema の isolated frozen SQLite f
 
 ## 受け入れ証跡マトリクス
 
-上のチェックリストは確認項目の一覧であり、下表を確認済み範囲の正本とします。判定は記録単位の範囲に限ります。同じ section に含まれる未確認項目を、別の項目の PASS から推測して繰り上げません。`FAIL（静的照合）` は実装コードと現行 MVP 契約の照合で未達が確認されたもの、`未実施` は runtime 証跡がまだないものです。
+上のチェックリストは確認項目の一覧です。確認済み範囲の正本は下表とし、判定は各記録の範囲に限定します。同じ section の未確認項目を、別項目の PASS から推測して繰り上げません。`FAIL（静的照合）` は実装コードと現行 MVP 契約の照合で未達が確認されたもの、`未実施` は runtime 証跡がまだないものです。`POSTGRES-NATIVE-READER-20260731` は現行受け入れ対象から外した過去の検討履歴であり、当時の判定値と根拠の保存だけを目的に掲載します。
 
 | ID | 対象シナリオ | route と画面状態 | viewport / 実行形態 | 確認日 | fixture / 検証用データの扱い | 判定 | 参照 summary / 根拠ファイル |
 | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -597,9 +598,10 @@ Postgres target へ接続せず、現行 MVP schema の isolated frozen SQLite f
 | NTE030-VIEW-1440 | 閲覧の共通詳細シェル、概要 → Cornell → Summary の順序、本文表示 | `/notes/[id]`（閲覧） | 1440px、Puppeteer / headless Chromium runtime | 2026-07-15 | 一時ノート `QA-SCREENSHOT-NTE030-1784048555522` を作成し、確認後に削除。query で残存 0 件を確認 | PASS | `HANDOFF_2026-07-16.md` §4「PASS として記録された範囲」、`summary/20260715/0217-create-handoff-20260715-nte020-nte030-4ee10290-summary.md`、`doc/assets/screenshots/runtime-note-detail-view-1440.png` |
 | NTE030-REVIEW-1440 | 復習の共通詳細シェル、本文初期マスク、本文表示 / 再マスク、復習操作 | `/notes/[id]`（復習） | 1440px、Puppeteer / headless Chromium runtime | 2026-07-15 | 一時ノート `QA-SCREENSHOT-NTE030-1784048555522` を作成し、確認後に削除。query で残存 0 件を確認 | PASS | `HANDOFF_2026-07-16.md` §4「PASS として記録された範囲」、`summary/20260715/0217-create-handoff-20260715-nte020-nte030-4ee10290-summary.md`、`doc/assets/screenshots/runtime-note-detail-review-1440.png` |
 | NTE030-MOBILE-375-768 | 閲覧 / 復習の共通シェルと本文マスクの mobile runtime | `/notes/[id]`（閲覧・復習） | 375 / 768px。いずれも未確認 | 2026-07-15 | mobile runtime 用の確認・fixture は未実施 | 未実施 | `HANDOFF_2026-07-16.md` §4「未実施のまま残した範囲」、`summary/20260715/0155-qa-nte030-review-shared-shell-puppeteer-network-blocked-summary.md` |
-| MVP-REVIEW-EDGE-001 | 既存未設定 `nextReviewDate` の非補完、`noteDate` 変更時の手動設定日維持、review 成功後の画面反映 | `/notes/new`、`/notes/[id]`（編集・復習） | 1280 / 1440px の新規・編集 UI。review 成功 UI は未確認 | 2026-07-25 | 新規・既存ノートの `nextReviewDate` を初期値、手動値、空欄で確認。保存・再読込と `noteDate` 変更後の値を確認 | 部分実施（初期値・手動値保持・未設定維持を確認。review 成功 UI は未確認） | `summary/20260725/2230-mandatory-qa-manager-fallback-20260725.md`、`doc/implementation/MVP_CONTRACT.md` §4.1・§4.3 |
+| MVP-REVIEW-EDGE-001 | 編集モードで既存未設定 `nextReviewDate` を非補完、`noteDate` 変更時の手動設定日維持、review 成功後の画面反映 | `/notes/new`、`/notes/[id]`（編集・復習） | 1280 / 1440px の新規・編集 UI。review 成功 UI は未確認 | 2026-07-25 | 新規・既存ノートの `nextReviewDate` を初期値、手動値、空欄で確認。保存・再読込と `noteDate` 変更後の値を確認 | 部分実施（初期値・手動値保持・未設定維持を確認。review 成功 UI は未確認） | `summary/20260725/2230-mandatory-qa-manager-fallback-20260725.md`、`doc/implementation/MVP_CONTRACT.md` §4.1・§4.3 |
 | MVP-GAP-001（2026-07-16時点の履歴） | 新規 `nextReviewDate = noteDate + 7日` 初期値 | `/notes/new`（新規作成） | 静的照合（viewport / fixture なし） | 2026-07-16 | 当時の実装コード、現行 MVP 契約、実装状況を照合した履歴 | FAIL（静的照合・当時の判定） | `doc/implementation/IMPLEMENTATION_STATUS.md` §1・§5.2、`doc/implementation/MVP_CONTRACT.md` §4.1 |
 | MVP-REVIEW-DEFAULT-001 | 新規フォームの `nextReviewDate = noteDate + 7日` 初期値、月末・年末跨ぎ、既存ノートの未設定値非補完、明示値保持 | `/notes/new`、`/notes/[id]`（編集） | 1280 / 1440px、Manager fallback headless Playwright Chromium | 2026-07-25 | `2026-07-25` → `2026-08-01` の初期値、手動 `2026-08-05` の保持、空欄の維持を保存・再読込・`noteDate` 変更で確認。月末・年末跨ぎは 2026-07-21 の静的確認を保持 | 部分実施（runtime 確認済み範囲。review 成功 UI は未確認） | `summary/20260725/2230-mandatory-qa-manager-fallback-20260725.md`、`summary/20260721/1940-implement-new-note-review-date-default-20260721-24f5f31b-summary.md`、`doc/implementation/MVP_CONTRACT.md` §4.1 |
+| MVP-REVIEW-SCREEN-DEFAULT-001 | 既存ノートの復習画面開始時、保存済み `nextReviewDate`（過去・当日・未来）を初期値に再利用せず、`Asia/Tokyo` 基準の現在日付 + 7日を表示。手動変更・空欄化・保存成功後の response 反映も確認 | `/notes/[id]`（復習） | Browser runtime。実行時の Asia/Tokyo 日付を基準に確認 | 2026-08-08 | focused contract test で review 遷移の初期値計算、保存値非参照、手動変更・空欄化の state 引き継ぎ、成功 response 反映のコード契約を確認。画面 runtime は未実施 | 未実施（runtime） | `src/modules/notes/ui/components/detail/modes.tsx`、`src/shared/date/date-only.ts`、`test/notes/detail-actions-layout-contract.test.js`、`doc/implementation/MVP_CONTRACT.md` §4.3 |
 | MVP-GAP-002 | 復習開始時の Summary 初期非表示と Cue → 本文 → Summary の順序 | `/notes/[id]`（復習） | 静的照合（viewport / fixture なし） | 2026-07-16 | fixture なし。実装コード、現行 MVP 契約、実装状況を照合。runtime 未実施とは別に、Summary 初期非表示の未達を記録 | FAIL（静的照合） | `doc/implementation/IMPLEMENTATION_STATUS.md` §1・§5.2、`doc/implementation/MVP_CONTRACT.md` §4.3・§6 |
 | MVP-GAP-003 | 概要の Markdown preview / sanitize | `/notes/new`、`/notes/[id]`（編集・閲覧） | 静的照合（viewport / fixture なし） | 2026-07-16 | fixture なし。概要の保存は確認できるが、本文 / Summary と同じ Markdown preview / sanitize ではない | FAIL（静的照合） | `doc/implementation/IMPLEMENTATION_STATUS.md` §1・§5.2、`doc/implementation/MVP_CONTRACT.md` §2・§6 |
 | CANVAS-DIMENSION-001 | Canvas の既定 1200x800、320〜4000px の整数入力、保存後復元、resize 前後の要素データ不変、表示倍率との分離 | `/notes/new`、`/notes/[id]`（編集・閲覧・復習）、`/api/notes` | Manager 直接の権限付き headless Playwright Chromium、Browser runtime | 2026-07-25 | 初期 `1200x800`、320 / 4000 適用、319 / 4001・decimal・blank 拒否、幅 / 高さ変更前後の rect データ不変を確認。保存 run の page `1280x900` と viewer / edit / reload も確認 | PASS（確認済み範囲） | `summary/20260725/canvas-runtime-qa-completion-20260725.md`、`doc/implementation/MVP_CONTRACT.md` §6.1 |
@@ -611,10 +613,12 @@ Postgres target へ接続せず、現行 MVP schema の isolated frozen SQLite f
 | CANVAS-TOOLBAR-STYLE-001 | style input、alignment button、用紙入力、tool group の responsive / keyboard / touch 到達性、active・style target・alignment の visual / ARIA 状態、ページ縦 scroll と用紙局所横 scroll | `/notes/new`、`/notes/[id]`（編集） | Manager 直接の権限付き headless Playwright Chromium、375 / 768 / 1280 touch、keyboard / pointer / touch | 2026-07-25 | rail `305 / 461`・`346 / 461`、全 tool の ARIA / active state、Tab / Shift+Tab、focus-visible solid 2px、640x480 / invalid 319、page scroll、1920x1080 paper の local horizontal scroll を確認。1440px の既存確認は 2026-07-24 の summary を参照 | PASS（確認済み範囲） | `summary/20260725/canvas-runtime-qa-completion-20260725.md`、`summary/20260724/canvas-toolbar-browser-qa-runtime-20260724.md`、`doc/implementation/MVP_CONTRACT.md` §6.1・§6.2・§7 |
 | CANVAS-SCROLL-WHEEL-20260731 | Canvas の wheel / trackpad / touch scroll handoff、scroll 中の drawing 誤作成・既存要素不変 | `/notes/new`、必要に応じて `/notes/[id]`（編集・閲覧） | Browser runtime、375 / 768 / 1280px、wheel / touch / pointer | 2026-07-31 | Browser backend `[]`、localhost route 到達不可、新規 server bind `EPERM`。viewport metrics、input event、Canvas JSON、保存 request / GET、console / page error は未取得。2026-07-25 の別経路 subset は履歴として保持 | BLOCKED | `summary/20260731/worker-canvas-scroll-wheel-touch-qa-20260731.md` |
 | NTE020-MOBILE-RUNTIME-20260731 | mobile の新規 editor、既存 note edit、viewer、review、long input / validation overflow | `/notes/new`、`/notes/[id]`（編集・閲覧・復習） | 375 / 768px、Browser / headless Chromium runtime | 2026-07-31 | Browser backend `[]`、dedicated server bind `EPERM`、headless Chromium 起動失敗。curl の route 200 は visual / interaction PASS ではない。fixture / screenshot / browser listener は未作成 | BLOCKED | `summary/20260731/worker-mobile-note-runtime-20260731.md` |
-| POSTGRES-NATIVE-READER-20260731 | source reader の native failure fallback、CLI snapshot、read-only invariant、Canvas / row validation、targetless reconcile | `scripts/postgres-migration-common.js`、`scripts/postgres-reconcile.js` | isolated frozen SQLite fixture、temporary harness。実 Postgres target は対象外 | 2026-07-31 | require / constructor の `ERR_DLOPEN_FAILED` 注入から `/usr/bin/sqlite3` CLI fallback に到達。row digest、Canvas validation、source hash / size / sidecar 不変、temporary cleanup、targetless reconcile の未接続を確認 | PASS（isolated evidence の範囲のみ） | `summary/20260731/worker-postgres-native-reader-fallback-20260731.md`、`summary/20260731/1804-recheck-postgres-native-reader-fallback-evidence-20260731-d5caeaf3-summary.md` |
+| POSTGRES-NATIVE-READER-20260731 | 不採用方針決定前の source reader 検証履歴: native failure fallback、CLI snapshot、read-only invariant、Canvas / row validation、targetless reconcile | `scripts/postgres-migration-common.js`、`scripts/postgres-reconcile.js` | isolated frozen SQLite fixture、temporary harness。実 Postgres target は対象外 | 2026-07-31 | require / constructor の `ERR_DLOPEN_FAILED` 注入から `/usr/bin/sqlite3` CLI fallback に到達。row digest、Canvas validation、source hash / size / sidecar 不変、temporary cleanup、targetless reconcile の未接続を確認 | PASS（isolated evidence の範囲のみ） | `summary/20260731/worker-postgres-native-reader-fallback-20260731.md`、`summary/20260731/1804-recheck-postgres-native-reader-fallback-evidence-20260731-d5caeaf3-summary.md` |
 | PHASE2-BOUNDARY | 自動保存、Undo / soft delete、専用復習タスク、NoteCard / D&D、PDF、タグ管理 UI 等 | `/tasks/review`、`/notes/backup`、export 等（MVP 外） | 静的な契約照合。runtime 対象外 | 2026-07-16 | fixture なし。Phase 2 の未実施項目として扱い、MVP の PASS 集計には含めない | 未実施 | `doc/implementation/MVP_CONTRACT.md` §2・§9、本文書「Phase 2 / 将来確認」 |
 
 注記: 2026-07-18 の概要項目削除より前に実施した `NTE030-VIEW-1440`、`MVP-GAP-002`、`MVP-GAP-003` は、当時の画面・契約に対する履歴記録です。現在の受け入れ対象には含めず、過去の確認結果・未達理由を改変せずに保持します。
+
+`POSTGRES-NATIVE-READER-20260731` も、Postgres 不採用方針の決定前に取得した履歴です。SQLite backup の現行受け入れ項目 `MVP-BAK-001` とは別の記録であり、両者を同じ運用経路として扱いません。
 
 NTE-020 の `summary/20260714/2205-document-nte020-policy-c-responsive-acceptance-scenarios-3f7ff466-summary.md` と `summary/20260714/2319-document-nte020-policy-c-runtime-screenshots-3b94ae94-summary.md` は、受け入れ観点・screenshot task の記録です。実画面の判定は `summary/20260714/nte020-policy-c-layout-qa-report.md` と存在確認済みの PNG を根拠にし、edit runtime や長文 overflow を推測で PASS にしていません。
 
@@ -622,7 +626,7 @@ NTE-030 の `summary/20260715/0107-implement-nte030-review-shared-detail-shell-e
 
 ## Phase 2 / 将来確認
 
-以下は MVP 外です。MVP の必須受け入れ条件としては扱わず、Phase 2 以降の実装時に確認します。
+次の項目は MVP 外です。MVP の必須受け入れ条件には含めず、Phase 2 以降の実装時に確認します。
 
 専用の復習タスク画面、1 日後 / 1 週間後の自動タスク、`review status`、未完了タスクバッジは、この節だけで扱います。現行 MVP の確認項目（`nextReviewDate` の手動管理、`reviewedAt` の更新、詳細画面内復習）とは混同しません。
 
@@ -720,7 +724,7 @@ NTE-030 の `summary/20260715/0107-implement-nte030-review-shared-detail-shell-e
 
 ### Notes API runtime 検証記録（2026-07-21）
 
-権限昇格後に `npm run dev -- --hostname 127.0.0.1 --port 3107` の server listen に成功し、既存 DB を壊さない一意な QA note を用いて実リクエストを確認した。API runtime の判定は次のとおり。
+権限昇格後に `npm run dev -- --hostname 127.0.0.1 --port 3107` の server listen に成功した。一意な QA note を使い、既存 DB を壊さず実リクエストを確認した。API runtime の判定は次のとおり。
 
 | リクエスト | status | 確認結果 |
 | --- | --- | --- |

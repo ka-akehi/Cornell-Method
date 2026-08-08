@@ -4,10 +4,11 @@
 
 ## 文書の位置づけ
 
-このドキュメントは、Cornell Method Notebook の MVP 開発で参照するシステム仕様書です。
+本書は、Cornell Method Notebook の現行 MVP の業務要件と機能要件を定義します。
 
-`AGENTS.md` は将来構想を含むアプリ全体仕様の正本です。一方、MVP 開発中の実装判断は、この `doc/requirements/MVP_SYSTEM_SPEC.md` と以下の関連 MVP 設計書を起点にします。
+製品全体の方針とロードマップの正本は `doc/requirements/PRODUCT_SPEC.md` です。現行 MVP の実装と受け入れの判断では、`doc/implementation/MVP_CONTRACT.md` を正本とします。MVP の詳細は、本書と次の関連設計書を参照します。
 
+- `doc/requirements/PRODUCT_SPEC.md`
 - `doc/data/MVP_DATA_DESIGN.md`
 - `doc/api/MVP_API_DESIGN.md`
 - `doc/screens/MVP_SCREEN_DESIGN.md`
@@ -22,15 +23,17 @@
 - `doc/technical/MVP_TECHNICAL_DESIGN.md`
 - `doc/technical/MVP_DESIGN_TOOLING_GUIDE.md`
 - `doc/implementation/MVP_IMPLEMENTATION_TASKS.md`
+- `doc/implementation/MVP_CONTRACT.md`
 
-`AGENTS.md` と MVP 設計書の内容が異なる場合、MVP 実装では MVP 設計書を優先します。ただし、MVP 設計書で未定義の将来要件や全体方針は `AGENTS.md` を参照します。
+参照先は、製品全体の方針が `PRODUCT_SPEC.md`、現行 MVP の要件が本書、現行 MVP の実装・受け入れ契約が `MVP_CONTRACT.md` です。内容が異なる場合、MVP の実装・受け入れでは `MVP_CONTRACT.md` を優先し、将来要件や製品全体方針は `PRODUCT_SPEC.md` を参照します。
 
-この文書は、要件定義の観点で「何を実現するか」「どこまでを MVP とするか」「実装しないものは何か」を明確にするためのものです。詳細な DB カラム、API request / response、画面項目の完全な定義は、各個別設計書を参照します。
+本書では、MVP で実現する内容、MVP の範囲、対象外の機能を定義します。詳細な DB カラム、API request / response、画面項目は、各設計書で定義します。
 
 MVP 仕様書群の役割分担は以下です。
 
 | 文書 | 主な役割 |
 | --- | --- |
+| `doc/requirements/PRODUCT_SPEC.md` | 製品全体の方針、対象ユーザー、MVP / Phase 2 / 将来ロードマップ、配布・保存方針 |
 | `doc/requirements/MVP_SYSTEM_SPEC.md` | MVP の目的、スコープ、Phase 2 境界、主要要件の入口 |
 | `doc/workflows/MVP_WORKFLOW_DESIGN.md` | 利用者の業務フロー、操作順序、判断分岐、運用ルール |
 | `doc/screens/MVP_SCREEN_INVENTORY.md` | 画面単位の棚卸し、Action / Data、画面と API の対応 |
@@ -38,20 +41,21 @@ MVP 仕様書群の役割分担は以下です。
 | `doc/diagrams/MVP_BUSINESS_FLOW_DIAGRAMS.md` | 学習記録作成、検索・閲覧、復習、削除、バックアップの業務フロー図 |
 | `doc/diagrams/MVP_SEQUENCE_DIAGRAMS.md` | ノート作成、検索、編集、復習済み更新、バックアップ作成のシーケンス図 |
 | `doc/diagrams/MVP_STATE_DIAGRAMS.md` | 詳細画面モード、ノート復習状態の状態遷移図 |
-| `doc/diagrams/MVP_ER_DIAGRAM.md` | Notebook / Cue / Tag / NotebookTag のデータ関係図 |
+| `doc/diagrams/MVP_ER_DIAGRAM.md` | Notebook / NotebookCanvas / Cue / Tag / NotebookTag のデータ関係図 |
 | `doc/diagrams/MVP_SCREEN_TRANSITION_DIAGRAM.md` | `/notes`, `/notes/new`, `/notes/[id]`, `/backup` の画面遷移図 |
 | `doc/data/MVP_DATA_DESIGN.md` | MVP データモデル、採用 / 非採用エンティティ |
 | `doc/api/MVP_API_DESIGN.md` | MVP API の request / response、エラー、MVP 外 API |
 | `doc/screens/MVP_SCREEN_DESIGN.md` | 画面構成、表示要素、主要アクション、遷移 |
 | `doc/technical/MVP_TECHNICAL_DESIGN.md` | 技術構成、実装方針、検証方針 |
 | `doc/technical/MVP_DESIGN_TOOLING_GUIDE.md` | 外部ツール / 参考リソースの使いどころ、成果物受け渡し、レビュー時の注意 |
+| `doc/implementation/MVP_CONTRACT.md` | 現行 MVP の実装・受け入れ契約、canonical route、保存・削除・復習方式 |
 | `doc/implementation/MVP_IMPLEMENTATION_TASKS.md` | Worker タスク分割、実装順序、完了条件 |
 
 ## システム概要
 
 Cornell Method Notebook は、ローカル個人利用向けの学習ノートアプリです。
 
-将来の製品主経路は Mac のデスクトップアプリとして配布し、ユーザーがダウンロード・起動して使う形とします。ただし、開発・検証用の Next.js Web 起動形態は維持します。デスクトップ版でもクラウド DB は必須ではなく、現行 MVP と同じく各ユーザーの Mac 内 SQLite を local-first の運用 DB とします。
+将来は Mac デスクトップアプリを主な配布形態とします。開発と検証には Next.js Web 起動形態も維持します。現行 MVP、Phase 2、将来のデスクトップ版のいずれでも、ノートデータの唯一の正本は各ユーザーの Mac 内 SQLite です。クラウド DB、クラウド同期、オンラインサービスは製品スコープ外とします。
 
 保存境界は次のとおりです。
 
@@ -59,20 +63,20 @@ Cornell Method Notebook は、ローカル個人利用向けの学習ノート�
 | --- | --- |
 | `app bundle` | 実行コード、Next.js 資産、Prisma Client / migration、必要な runtime / driver を含む。インストールされた `.app` 内に SQLite の live file やユーザーデータを置かない |
 | `user data directory` | SQLite DB、DB backup、アプリ設定、ログ等の書き込み可能データを置く。OS のユーザーデータ領域を基本とし、初回起動時に作成・初期化する。`Downloads` を既定にしない |
-| `optional note workspace / export directory` | ユーザーが明示的に選ぶ Markdown、Canvas JSON、metadata 等の可搬ファイル領域。既定の DB 保存先とは分ける |
+| `PDF output destination` | SQLite から生成する PDF の外部出力領域。具体的な保存先は未決定で、既存仕様の確定前に固定しない |
 
-アプリ更新は app bundle の更新と user data の migration を分離し、更新でユーザーデータを失わない。アンインストールとデータ削除は別操作とする。Electron を最短経路候補、Tauri + Node.js sidecar を代替候補として比較するが、shell の採用・実装着手は Desktop PoC 後に決めます。
+アプリ更新では app bundle の更新と user data の migration を分離し、ユーザーデータを保持します。アンインストールとデータ削除も別の操作とします。Electron を最短経路候補、Tauri + Node.js sidecar を代替候補として比較し、shell の採用と実装着手は Desktop PoC 後に判断します。
 
 ユーザーは、コーネルメソッドの形式に沿って、学習内容を以下の単位で記録します。
 
 - タイトル、学習日、学習元
-- キーワード / 質問としての Cue
-- Markdown 形式の本文
-- Markdown 形式のサマリー
+- Markdown 形式の Cue
+- `CanvasDocumentV1` の自由配置 Canvas 本文
+- Markdown 形式の Summary
 - タグ
 - 次回復習日と復習済み日時
 
-MVP では、ノート作成、検索、閲覧、編集、復習、バックアップまでの学習サイクルを最小構成で成立させます。高度な自動保存、カード分割、Undo、PDF 出力、専用復習タスク画面は Phase 2 に送ります。
+MVP では、ノート作成、検索、閲覧、編集、復習、バックアップまでの学習サイクルを最小構成で成立させます。高度な自動保存、カード分割、Undo、PDF 出力、専用復習タスク画面は Phase 2 に送ります。MVP の内部データは SQLite のみを正本とし、PDF 生成は未実装です。
 
 ## 利用者 / 利用シーン
 
@@ -96,7 +100,7 @@ MVP では以下の利用者を想定しません。
 | --- | --- |
 | 学習直後の記録 | 書籍、講義、動画、記事などの内容をコーネル形式で記録する |
 | 後日の検索 | タイトル、本文、Cue、サマリー、タグ、日付で過去ノートを探す |
-| 想起練習 | Cue とサマリーを見て本文を思い出す |
+| 想起練習 | Cue を手がかりに本文を想起し、本文を表示して確認した後に Summary を開く |
 | 復習管理 | 次回復習日をもとに復習対象を確認し、復習済みにする |
 | ローカル保全 | SQLite DB ファイルのバックアップを作成し、破損や誤操作に備える |
 
@@ -104,9 +108,9 @@ MVP では以下の利用者を想定しません。
 
 ### 業務目的
 
-MVP の業務目的は、ユーザーが日々の学習を「記録、整理、要約、想起、復習」の流れで継続できる状態を作ることです。
+MVP の業務目的は、ユーザーが日々の学習を「記録、整理、要約、想起、復習」の流れで継続できることです。
 
-この目的を満たすため、MVP ではノート管理機能そのものよりも、コーネルメソッドの学習サイクルを回せることを優先します。
+この目的に合わせ、ノート管理機能はコーネルメソッドの学習サイクルに必要な範囲へ絞ります。
 
 ### 成功条件
 
@@ -117,9 +121,12 @@ MVP は以下を満たしたとき成功とみなします。
 - ノートをタイトル、日付、タグ、復習対象で絞り込める。
 - ノートを詳細画面で閲覧できる。
 - ノートを編集して保存できる。
-- Cue、本文、サマリーをコーネルメソッドに沿った構造で扱える。
-- Markdown の入力と表示ができる。
-- 復習モードで本文を隠し、必要に応じて表示できる。
+- Cue、Canvas 本文、Summary をコーネルメソッドに沿った構造で扱える。
+- 新規ノートの Canvas 本文を Canvas editor で入力・保存し、Canvas viewer で再表示できる。
+- Cue と Summary を Markdown として編集・保存し、安全に表示できる。
+- `bodyMode=markdown` の既存ノートを互換表示でき、Canvas へ自動変換しない。
+- 復習モードの開始時は Cue を表示し、本文と Summary の内容を初期非表示にできる。
+- 本文を表示して確認した後にだけ Summary を開ける。
 - 復習済みとして `reviewedAt` と `nextReviewDate` を更新できる。
 - SQLite DB のバックアップを作成し、最新 3 世代を保持できる。
 - デスクトップ配布を行う場合、SQLite の live file が `.app` 外の user data directory にあり、アプリ更新で既存データが失われない境界を確認できる。
@@ -136,12 +143,12 @@ MVP で扱う業務範囲は以下です。
 | ノート記録 | コーネル形式で学習ノートを作成する |
 | ノート整理 | タグ、学習元、Cue、サマリーを登録する |
 | ノート検索 | フリーワード、日付範囲、タグ、復習対象で絞り込む |
-| ノート閲覧 | Markdown 表示でノート内容を読む |
+| ノート閲覧 | Canvas 本文を viewer で表示する。既存 Markdown 本文は互換表示し、Cue / Summary は Markdown として安全に表示する |
 | ノート編集 | 保存済みノートを更新する |
 | ノート削除 | 確認後に物理削除する |
-| 復習 | Cue とサマリーを見て本文を想起し、復習済みにする |
+| 復習 | Cue で想起し、本文を表示して確認した後に Summary を開き、復習済みにする |
 | バックアップ | DB ファイルを `backup/` 配下へコピーし、最新 3 世代を保持する |
-| 保存場所 | 現行 MVP はローカル SQLite。Desktop 配布時は user data directory に live DB を置く境界を採用候補とする |
+| 保存場所 | 現行 MVP はローカル SQLite。Desktop 配布時も user data directory に live DB を置き、SQLite を唯一の正本とする |
 
 ### MVP で扱わない業務範囲
 
@@ -156,8 +163,8 @@ MVP で扱う業務範囲は以下です。
 - 専用の復習タスク画面
 - タグ管理専用画面
 - オンライン同期、外部 API 連携
-- Vercel / Supabase などへのオンライン本番デプロイ（必要になった場合の任意の将来案）
-- ノートファイルを正本にした file-only / hybrid 運用の確定実装
+- クラウド DB、クラウド同期、オンラインサービスへの接続や本番デプロイ。過去の Vercel / Supabase 等の検討は採用しない履歴であり、将来実装予定にはしない
+- ノートファイルを正本にした file-only / hybrid 運用。アプリ外のノート出力は SQLite から生成する PDF を基本とする
 
 ## MVP スコープ
 
@@ -165,47 +172,54 @@ MVP スコープは、既存 MVP 設計書で発注者承認済みの判断に�
 
 | 領域 | MVP で実装すること | 判断基準 |
 | --- | --- | --- |
-| ノート構造 | 本文は 1 つの Markdown 文字列として保存する | コーネル学習サイクルを最小構成で回すため |
+| ノート構造 | 新規本文は `bodyMode=canvas` とし、`NotebookCanvas.documentJson` に `CanvasDocumentV1` を保存する。`Notebook.body` は空文字とする | 自由配置 Canvas を現行本文の正本にするため |
+| 既存本文互換 | `bodyMode=markdown` と `Notebook.body` を既存ノートの互換モードとして保持する | 既存データを壊さず、Canvas へ自動変換しないため |
 | Cue | キーワード / 質問のリストとして保存する | 想起の手がかりを残すため |
-| Cue と本文の関連 | 厳密リンクは持たない | 実装コストに対して MVP 効果が限定的なため |
+| Cue と本文の関連 | 厳密リンクは持たない | 厳密リンクがなくても Cue を手がかりに想起でき、実装コストを抑えられるため |
 | タグ | 正規化して `Tag` / `NotebookTag` で扱う | 検索・分類の基本機能として必要なため |
 | 復習 | `nextReviewDate` と `reviewedAt` で管理する | 自動間隔反復なしでも復習サイクルを回せるため |
-| Markdown 入力 | `textarea + preview` から開始する | 依存と保守範囲を抑えるため |
+| 本文 UI | `bodyMode=canvas` は Canvas editor / viewer で扱う | Canvas 本文を Markdown textarea / preview の対象にしないため |
+| Cue / Summary | Markdown の textarea / preview で編集・表示する | Cue と Summary の既存 Markdown 契約を維持するため |
 | API | Next.js Route Handler で JSON API を実装する | UI / API / Prisma を TypeScript で揃えるため |
 | DB | Prisma + SQLite を採用する | ローカル個人利用に適しているため |
 | バックアップ | DB ファイルコピーと最新 3 世代保持 | 個人利用で最低限のデータ保全を行うため |
 
 ## Phase 2 送り
 
-以下は Phase 2 以降で検討します。MVP 実装中に必要性を感じても、仕様変更として確定せず、別タスクで扱います。
+以下は Phase 2 以降で検討します。MVP 実装中に必要性が生じても、現行 MVP の仕様には追加せず、別タスクで扱います。
+
+Phase 2 の追加機能も SQLite を唯一の正本として実装し、PDF は SQLite から生成する派生出力に限定します。
 
 | 領域 | Phase 2 候補 | MVP で送る理由 |
 | --- | --- | --- |
 | 自動保存 / 下書き | `NotebookDraftState`、楽観ロック、競合 UI | MVP では手動保存で十分に主要フローを確認できる |
 | Undo | `SoftDeleteBuffer` と削除復元 | MVP は確認ダイアログ + 物理削除で代替する |
-| カード分割本文 | `NoteCard`、`NoteCueLink`、D&D | まず本文 1 Markdown で学習サイクルを成立させる |
+| カード分割本文 | `NoteCard`、`NoteCueLink`、D&D | 現行 Canvas 本文との関係が未決定のため。Gate 0 後に Canvas 維持、カード併用、不採用を比較する |
 | 高度な復習 | 1 日後 / 7 日後タスク、進捗テーブル、バッジ | MVP は手動の `nextReviewDate` で復習対象を扱う |
 | 専用復習画面 | `/tasks/review` | MVP は `/notes` の復習対象フィルタと詳細復習モードで扱う |
 | PDF 出力 | `/api/notes/export`、Playwright PDF | 学習記録の中核ではないため |
 | タグ管理 UI | タグ名変更、削除、右クリックメニュー | ノート保存時の自動作成と候補一覧で足りる |
-| 高機能 Markdown エディタ | `@uiw/react-md-editor` など | textarea + preview で MVP を検証する |
-| 外部デプロイ | Vercel、Supabase、Basic 認証相当 | 個人ローカル利用を先に完成させる |
+| 高機能 Markdown エディタ | Cue / Summary と legacy Markdown 本文向けの `@uiw/react-md-editor` など | 現行の軽量な Markdown 入力で MVP を検証する。Canvas 本文は対象にしない |
+| 外部デプロイ | 対象外。Vercel、Supabase、Basic 認証相当は採用しない | 個人ローカル利用を製品境界とする |
 | Desktop shell / 配布 PoC | Electron / Tauri + Node.js sidecar、署名・更新 | 現行 MVP の Web 起動を維持し、shell 選定と配布検証を別 task で行う |
-| ノートファイル | `note.md`、`canvas.json`、`metadata.json` または package、export / import | 第一段階は SQLite 正本。ファイル正本 + local SQLite index は必要性確認後に検討する |
+| 外部出力 | SQLite から生成する PDF | Phase 2。PDF は派生出力であり、編集・復元・SQLite との双方向同期には使わない。生成は未実装 |
 | Rust API | 別 API サーバー、補助プロセス | MVP の処理量では TypeScript API で十分 |
+
+`NoteCard`、`CueCard`、`NoteCueLink` は現行 MVP に存在しません。Phase 2 でカードを採用する場合も、legacy `Notebook.body` を order 0 の `NoteCard` へ移すことや、`CanvasDocumentV1` をカードへ自動変換することは決定していません。Gate 0 通過後の本文モデル判断で、Canvas 維持、カード併用、カード不採用を比較します。
 
 ## 主要業務フロー概要
 
-詳細な業務フロー、判断分岐、運用ルールは `doc/workflows/MVP_WORKFLOW_DESIGN.md` を正とします。主要フローの図は `doc/diagrams/MVP_BUSINESS_FLOW_DIAGRAMS.md`、シーケンスは `doc/diagrams/MVP_SEQUENCE_DIAGRAMS.md`、状態遷移は `doc/diagrams/MVP_STATE_DIAGRAMS.md`、データ関係は `doc/diagrams/MVP_ER_DIAGRAM.md` を参照します。本章では、MVP システム仕様の入口として主要フローの概要のみを示します。
+業務フロー、判断分岐、運用ルールの正本は `doc/workflows/MVP_WORKFLOW_DESIGN.md` です。フロー図は `doc/diagrams/MVP_BUSINESS_FLOW_DIAGRAMS.md`、シーケンスは `doc/diagrams/MVP_SEQUENCE_DIAGRAMS.md`、状態遷移は `doc/diagrams/MVP_STATE_DIAGRAMS.md`、データ関係は `doc/diagrams/MVP_ER_DIAGRAM.md` を参照します。以下は主要フローの概要です。
 
 ### ノート作成フロー
 
 1. ユーザーは `/notes/new` を開く。
 2. タイトル、学習日、学習元、タグを入力する。
-3. Cue、本文、サマリー、次回復習日を入力する。
-4. 保存する。
-5. システムは Notebook、Cue、Tag、NotebookTag をトランザクションで保存する。
-6. 保存成功後、詳細画面 `/notes/[id]` へ遷移する。
+3. システムは `nextReviewDate` に `noteDate + 7日` を固定初期値として表示する。
+4. ユーザーは Cue と Summary を Markdown で入力し、Canvas editor で本文を記録する。次回復習日は保存前に変更またはクリアできる。
+5. 保存する。
+6. システムは `bodyMode=canvas` と空文字の `Notebook.body`、`NotebookCanvas.documentJson`、Cue、Tag、NotebookTag をトランザクションで保存する。
+7. 保存成功後、詳細画面 `/notes/[id]` へ遷移する。
 
 ### ノート検索 / 閲覧フロー
 
@@ -218,20 +232,24 @@ MVP スコープは、既存 MVP 設計書で発注者承認済みの判断に�
 ### ノート編集フロー
 
 1. ユーザーは詳細画面で編集モードへ切り替える。
-2. ノート内容、Cue、タグ、次回復習日を変更する。
-3. 保存する。
-4. システムは Notebook を更新し、Cue と Tag 関連をリクエスト内容で全置換する。
-5. 保存成功後、閲覧モードへ戻る。
+2. システムは保存済みの `nextReviewDate` を表示する。未設定なら空欄のまま表示する。
+3. ユーザーは Canvas editor または legacy Markdown 互換 UI で本文を変更し、Cue、Summary、タグ、次回復習日を変更する。`noteDate` を変更しても `nextReviewDate` は自動追従しない。
+4. 保存する。
+5. システムは Notebook と、Canvas 本文では NotebookCanvas を更新し、Cue と Tag 関連をリクエスト内容で全置換する。
+6. 保存成功後、閲覧モードへ戻る。
 
 ### 復習フロー
 
 1. ユーザーは `/notes` で復習対象フィルタを使う。
 2. 対象ノートの詳細画面を開く。
 3. 復習モードへ切り替える。
-4. Cue とサマリーを見て本文を思い出す。
-5. 必要に応じて本文を表示する。
-6. 復習済みにする。
-7. システムは `reviewedAt = now` とし、任意の `nextReviewDate` を保存する。
+4. システムは Cue を表示し、本文と Summary の内容を初期非表示にする。Summary の領域は維持し、本文を表示するまでは Summary を開けない状態にする。
+5. システムは保存済みの `nextReviewDate` を再利用せず、画面を開いた時点の `Asia/Tokyo` の現在日付 + 7日を復習用の次回復習日の初期値として表示する。
+6. ユーザーは Cue を手がかりに本文を想起する。
+7. ユーザーは本文を表示して確認する。
+8. ユーザーは Summary を開いて確認する。
+9. ユーザーは次回復習日を必要に応じて変更またはクリアし、復習済みにする。
+10. システムは `reviewedAt = now` とし、指定した `nextReviewDate` または null を保存する。成功後は API 応答の `nextReviewDate` を画面へ反映する。
 
 ### バックアップフロー
 
@@ -241,11 +259,11 @@ MVP スコープは、既存 MVP 設計書で発注者承認済みの判断に�
 4. システムは最新 3 世代を残し、4 世代目以降を古い順に削除する。
 5. 画面はバックアップ一覧を更新する。
 
-この `backup/` は現行の開発用 Web 起動形態における MVP 契約です。Desktop 配布では、同じ手動 SQLite DB コピーを user data directory 内へ解決する adapter を検討します。DB backup と optional note workspace のバックアップ単位、export / import、復元、破損検出は追加候補であり、現行 MVP の機能契約にはしません。
+この `backup/` は現行の開発用 Web 起動形態における MVP 契約です。Desktop 配布では、同じ手動 SQLite DB コピーの保存先を user data directory 内へ切り替える adapter を検討します。DB backup は SQLite の保全用コピーであり、SQLite から生成する PDF output とは別の単位です。PDF から SQLite へ戻す import と、PDF と SQLite の双方向同期は、現行 MVP と将来構想の対象にしません。
 
 ## 画面一覧概要
 
-詳細な画面棚卸し、Action / Data、画面と API の対応は `doc/screens/MVP_SCREEN_INVENTORY.md` を参照します。画面構成、表示要素、主要アクション、遷移の詳細は `doc/screens/MVP_SCREEN_DESIGN.md` を正とします。本章では、MVP システム仕様の入口として画面一覧の概要のみを示します。
+画面棚卸し、Action / Data、画面と API の対応は `doc/screens/MVP_SCREEN_INVENTORY.md` を参照します。画面構成、表示要素、主要アクション、遷移の正本は `doc/screens/MVP_SCREEN_DESIGN.md` です。以下は画面一覧の概要です。
 
 | 画面ID | パス | 画面名 | MVP での役割 |
 | --- | --- | --- | --- |
@@ -259,11 +277,22 @@ MVP では `/tasks/review` は作成しません。復習対象は `/notes` の�
 
 ## 機能要件
 
+### `nextReviewDate` の利用文脈
+
+| 文脈 | 初期表示または抽出条件 | ユーザー操作と保存後の扱い |
+| --- | --- | --- |
+| 新規ノート作成 | UI は `noteDate + 7日` を固定初期値として表示する | 保存前に変更またはクリアでき、指定値または未設定を保存する。この初期値は継続的な自動復習スケジューリングではない |
+| 既存ノート編集 | 保存済みの `nextReviewDate` を表示し、未設定なら空欄のまま表示する | 変更またはクリアできる。`noteDate` を変更しても自動追従せず、保存時に指定した値または未設定を保持する |
+| 既存ノートの復習画面 | 画面を開いた時点の `Asia/Tokyo` の現在日付 + 7日を固定初期値として表示し、保存済み値は再利用しない | 保存前に変更またはクリアできる。復習完了後は API 応答の `nextReviewDate` を画面へ反映する |
+| 一覧の `reviewDue` 絞り込み | `nextReviewDate` が設定済みで、かつ今日以前のノートだけを抽出する。未設定のノートは対象外とする | 参照だけを行い、保存データは更新しない |
+
 ### ノート作成
 
-- タイトル、学習日、学習元タイプ、学習元タイトル、タグ、Cue、本文、サマリー、次回復習日を入力できる。
+- タイトル、学習日、学習元タイプ、学習元タイトル、タグ、Cue、Canvas 本文、Summary、次回復習日を入力できる。
 - タイトルと学習日は必須とする。
-- 本文とサマリーは Markdown 文字列として保存する。
+- 新規ノートは `bodyMode=canvas` とし、`Notebook.body` を空文字、Canvas 本文を `NotebookCanvas.documentJson` 内の `CanvasDocumentV1` として保存する。
+- Cue と Summary は Markdown として編集・保存する。
+- `bodyMode=markdown` と `Notebook.body` は既存ノートの互換モードとして保持し、新規ノートの標準本文や自動移行元にしない。
 - 保存時、未登録タグは自動作成する。
 - 保存成功後は詳細画面へ遷移する。
 
@@ -271,22 +300,24 @@ MVP では `/tasks/review` は作成しません。復習対象は `/notes` の�
 
 - 保存済みノートを一覧表示できる。
 - 一覧にはタイトル、学習日、学習元、タグ、Cue 件数、要約状態、復習状態を表示する。
-- フリーワード検索は `title`, `body`, `summary`, `cue.text` を対象とする。
+- フリーワード検索は `title`、`summary`、`cue.text`、legacy `bodyMode=markdown` の `Notebook.body`、Canvas text 要素から生成した `NotebookCanvas.searchText` を対象とする。
+- Canvas の用紙寸法だけを変更した場合は、text 要素が変わらないため `NotebookCanvas.searchText` も変更しない。
 - タグ検索は OR 条件とする。
 - 日付範囲は `noteDate` を対象とする。
-- 復習対象フィルタは `nextReviewDate` が今日以前のノートを対象とする。
+- 復習対象フィルタは `nextReviewDate` が設定済みで、かつ今日以前のノートを対象とする。未設定のノートは対象外とする。
 - 並び順は `noteDate desc, updatedAt desc` 固定とする。
 
 ### ノート閲覧
 
 - 詳細画面の初期表示は閲覧モードとする。
-- タイトル、学習日、学習元、タグ、Cue、本文、サマリー、次回復習日、最終復習日を表示する。
-- Markdown 表示には sanitize を適用する。
+- タイトル、学習日、学習元、タグ、Cue、本文、Summary、次回復習日、最終復習日を表示する。
+- `bodyMode=canvas` の本文は Canvas viewer、`bodyMode=markdown` の既存本文は互換 Markdown 表示を使う。
+- Cue、Summary、legacy Markdown 本文の表示には sanitize を適用する。Canvas 本文を Markdown preview で表示しない。
 
 ### ノート編集
 
 - 詳細画面から編集モードへ切り替えられる。
-- 作成画面と同じ項目を編集できる。
+- 作成画面と同じ項目を編集できる。Canvas 本文は Canvas editor、既存 Markdown 本文は互換 UI で扱う。
 - 保存時、Cue と Tag 関連は全置換する。
 - キャンセル時は変更を破棄して閲覧モードへ戻る。
 - MVP では自動保存と楽観ロックは行わない。
@@ -300,12 +331,15 @@ MVP では `/tasks/review` は作成しません。復習対象は `/notes` の�
 ### 復習
 
 - 詳細画面で復習モードへ切り替えられる。
-- 復習モード初期状態では本文を非表示にする。
-- Cue とサマリーを表示する。
+- 復習モード初期状態では、想起に使う内容として Cue を表示し、本文と Summary の内容を非表示にする。
+- Summary は領域の位置を維持し、本文を表示するまでは開く操作を利用不可にする。
 - ユーザー操作で本文を表示 / 非表示にできる。
+- 本文を表示して確認した後、ユーザー操作で Summary を開ける。
 - 復習済みにした場合、`reviewedAt` を現在日時に更新する。
-- 次回復習日はユーザーが任意で設定する。
-- 自動採点、正誤判定、復習間隔の自動計算は行わない。
+- 復習用の次回復習日は、復習モードへ入った時点の `Asia/Tokyo` の現在日付 + 7日を固定初期値とする。保存済みの `nextReviewDate` は初期値に再利用しない。
+- 画面内に保存済みの次回復習日をメタ情報として残す場合は、保存済み値であることを示し、復習用の入力値と区別する。
+- ユーザーは復習完了前に次回復習日を変更またはクリアできる。復習成功後は API 応答の `nextReviewDate` を画面へ反映する。
+- 自動採点、正誤判定、`nextReviewDate` の保存後の追従更新、復習履歴に基づく継続的な間隔計算は行わない。新規作成画面と復習画面に固定初期値を表示する処理は、継続的な自動復習スケジューリングに当たらない。
 
 ### タグ
 
@@ -330,7 +364,8 @@ MVP のデータモデルは `doc/data/MVP_DATA_DESIGN.md` を正とします。
 
 | エンティティ | 役割 |
 | --- | --- |
-| `Notebook` | ノート本体、本文、サマリー、復習予定、復習済み日時を保持する |
+| `Notebook` | ノート本体、`bodyMode`、legacy Markdown 本文、Summary、復習予定、復習済み日時を保持する |
+| `NotebookCanvas` | `CanvasDocumentV1` の JSON、schema version、Canvas text 要素由来の `searchText` を保持する |
 | `Cue` | キーワード / 質問 / 論点を保持する |
 | `Tag` | タグマスタを保持する |
 | `NotebookTag` | Notebook と Tag の多対多関連を保持する |
@@ -339,7 +374,8 @@ MVP のデータモデルは `doc/data/MVP_DATA_DESIGN.md` を正とします。
 
 | エンティティ | 理由 |
 | --- | --- |
-| `NoteCard` | 本文は 1 つの Markdown 文字列として扱うため |
+| `CueCard` | 現行の左欄は `Cue` リストで扱い、カードモデルと D&D は Phase 2 の未決事項であるため |
+| `NoteCard` | 現行本文は `CanvasDocumentV1` であり、カードとの併用または移行を決定していないため |
 | `NoteCueLink` | Cue と本文の厳密リンクは Phase 2 で扱うため |
 | `NotebookDraftState` | 自動保存とドラフト管理は Phase 2 のため |
 | `NotebookReviewProgress` | MVP は `nextReviewDate` と `reviewedAt` で足りるため |
@@ -354,7 +390,9 @@ MVP のデータモデルは `doc/data/MVP_DATA_DESIGN.md` を正とします。
 | `noteDate` | 今日以前 |
 | `sourceType` | `book`, `lecture`, `video`, `article`, `other`, 未指定 |
 | `sourceTitle` | 0〜120 文字 |
-| `body` | 文字列。空でも保存可 |
+| `bodyMode` | 新規ノートは `canvas`。`markdown` は既存ノートの互換モード |
+| `body` | `bodyMode=canvas` では空文字。`bodyMode=markdown` では既存本文 Markdown |
+| `canvas` | `bodyMode=canvas` では `CanvasDocumentV1` が必須。用紙寸法は 320〜4000px の整数 |
 | `summary` | 文字列。空でも保存可 |
 | `nextReviewDate` | `noteDate` 以降、または未指定 |
 | `cue.text` | 1〜120 文字 |
@@ -370,7 +408,7 @@ MVP の API 詳細は `doc/api/MVP_API_DESIGN.md` を正とします。
 - 認証は行わない。
 - JSON API とする。
 - エラー形式は `{ code, message, errors? }` に統一する。
-- ノート作成 / 更新では Notebook、Cue、Tag を 1 リクエストで保存する。
+- ノート作成 / 更新では Notebook、Canvas 本文の場合の NotebookCanvas、Cue、Tag、NotebookTag を 1 リクエストで保存する。
 - ノート更新時、Cue と Tag 関連は全置換する。
 - 復習済み更新は専用 API に分ける。
 
@@ -403,8 +441,8 @@ MVP の API 詳細は `doc/api/MVP_API_DESIGN.md` を正とします。
 
 ### 性能
 
-- ローカル個人利用で快適に操作できることを優先する。
-- ノート作成、編集、削除、検索、復習済み更新は通常利用の件数で体感上待たされないことを目標にする。
+- ローカル個人利用で、操作を妨げない応答性を優先する。
+- ノート作成、編集、削除、検索、復習済み更新は、通常利用の件数で操作を中断させる待ち時間を生じさせないことを目標にする。
 - 一覧 API はページングを行い、1 ページ 50 件固定とする。
 - データ量増加で検索が遅くなった場合、インデックスや全文検索は Phase 2 で検討する。
 
@@ -416,15 +454,15 @@ MVP の API 詳細は `doc/api/MVP_API_DESIGN.md` を正とします。
 - バックアップからの自動復元は MVP 範囲外とし、必要な場合は手動復元手順を README 等へ記載する。
 - デスクトップ配布時は `.app` の app bundle と user data directory を分離し、live DB は user data directory に置く。
 - 初回起動時の user data directory 作成・migration、アプリ更新と DB 更新の分離、アンインストールとデータ削除の分離を要件とする。具体的な実装は Desktop PoC 後に決める。
-- `Downloads` を既定の保存先にしない。可搬性が必要な場合は明示的な note workspace / export directory を選べる設計を検討する。
-- SQLite の live DB を iCloud / Dropbox 等の同期フォルダへ直接置かない。同期・可搬性は note file export / import を優先する。
+- `Downloads` を既定の DB / backup 保存先にしない。PDF の具体的な出力先も未決定のため、この文書で固定しない。
+- SQLite の live DB を iCloud / Dropbox 等の同期フォルダへ置かない。クラウド同期やオンラインサービスは製品スコープ外とする。
 
 ### セキュリティ
 
 - MVP はローカル個人利用を前提とし、認証は実装しない。
 - Markdown 表示では XSS 対策として sanitize を適用する。
 - 外部 API 連携は行わない。
-- Vercel 等へ公開 URL を持つ形でデプロイする場合は、オンライン経路を選んだ場合の任意の将来案として、Phase 2 で Basic 認証相当または別のアクセス制御を実装する。Desktop 版の前提ではない。
+- オンライン公開 URL、クラウド DB、クラウド同期のアクセス制御は設計しない。これらは製品スコープ外であり、Desktop 版の前提でもない。
 
 ### アクセシビリティ
 
@@ -441,7 +479,7 @@ MVP の API 詳細は `doc/api/MVP_API_DESIGN.md` を正とします。
 
 ### 検証
 
-MVP 実装では少なくとも以下を実行対象とします。
+MVP 実装では、少なくとも次のコマンドを実行します。
 
 ```bash
 npm run lint
@@ -461,7 +499,7 @@ npm run prisma:migrate
 - Prisma schema と migration で DB 構造を管理する。
 - 実装タスクでは作業前後に `git status --short` を確認する。
 
-将来の Mac デスクトップ配布では、shell が local Next.js runtime を起動する構成を候補とする。Electron は最短経路候補、Tauri + Node.js sidecar は代替候補であり、いずれも採用・実装済みとは扱わない。Apple Silicon / Intel の配布差、SQLite / Prisma native runtime、Playwright / Chromium、署名・更新、local runtime の lifecycle を Desktop PoC で確認する。
+将来の Mac デスクトップ版では、shell が local Next.js runtime を起動する構成を候補とします。Desktop PoC では、Electron と Tauri + Node.js sidecar を比較し、Apple Silicon / Intel の配布差、SQLite / Prisma native runtime、Playwright / Chromium、署名・更新、local runtime の lifecycle を検証します。いずれの候補も、現時点では採用・実装済みではありません。
 
 ### バックアップ運用
 
@@ -471,7 +509,7 @@ npm run prisma:migrate
 - 最新 3 世代を保持し、4 世代目以降は古いものから削除する。
 - MVP ではバックアップログを DB 管理しない。
 
-上記は現行の開発用 Web 起動形態における手動 SQLite DB backup の契約です。Desktop 配布では `backup/` の論理役割を user data directory 内へ解決する案を検討します。DB backup と note workspace backup の単位、export / import、復元、破損検出、起動時 migration / 初期化は追加候補であり、実装済みとは記述しません。
+上記は現行の開発用 Web 起動形態における手動 SQLite DB backup の契約です。Desktop 配布では、`backup/` に相当する保存先を user data directory 内に設ける案を検討します。DB backup はデータ保全用のコピーであり、PDF output は外部出力です。復元、破損検出、起動時 migration / 初期化は追加候補であり、実装済みとは扱いません。
 
 ### 障害時運用
 
@@ -509,9 +547,9 @@ npm run prisma:migrate
 
 ### Markdown 表示エラー
 
-- Markdown の構文誤りは保存エラーにしない。
+- Cue、Summary、legacy Markdown 本文の構文誤りは保存エラーにしない。
 - 表示時に解釈できない記法があっても、可能な範囲でテキストとして表示する。
-- XSS につながる HTML や危険な属性は sanitize で除去する。
+- XSS につながる HTML や危険な属性は sanitize で除去する。Canvas 本文はこの Markdown 表示処理の対象にしない。
 
 ## 制約
 
@@ -519,15 +557,17 @@ npm run prisma:migrate
 - 認証、ユーザー管理、権限管理は実装しない。
 - 外部 API とは連携しない。
 - 画像、ファイル添付は扱わない。
-- 本文は MVP では 1 つの Markdown 文字列とする。
+- 新規ノートの本文は `bodyMode=canvas` の `CanvasDocumentV1` とし、`Notebook.body` は空文字にする。
+- `bodyMode=markdown` と `Notebook.body` は既存ノートの互換表示に限り、自動変換しない。
+- Cue と Summary は Markdown として編集・保存し、安全に表示する。Canvas 本文は Markdown editor / preview の対象にしない。
 - Cue と本文の厳密リンクは持たない。
 - ノート削除は物理削除とし、Undo は実装しない。
-- 復習間隔の自動計算は行わない。
+- 保存済みの `nextReviewDate` を `noteDate` の変更へ自動追従させず、復習履歴に基づく間隔も継続計算しない。新規作成画面と復習画面の固定初期値は表示する。
 - PDF 出力は実装しない。
 - `.app` の app bundle 内に SQLite の live DB を置かない。user data directory 初期化・migration・更新・復元の詳細は Desktop PoC / 別 task で決める。
-- クラウド DB は必須にしない。Vercel / Supabase / Postgres はオンライン公開・同期が必要な場合の任意の将来案であり、デスクトップ版の local SQLite 方針を上書きしない。
-- `Downloads` を既定の DB / backup 保存先にしない。SQLite を同期フォルダへ直接置かず、可搬性が必要な場合は明示的な note workspace / export / import を優先する。
-- ノートファイルを正本にした file-only / hybrid への変更は MVP 完了条件に含めない。
+- SQLite はノートデータの唯一の正本とする。クラウド DB、クラウド同期、オンラインサービスは製品スコープ外であり、Vercel / Supabase / Postgres を将来実装予定として扱わない。
+- `Downloads` を既定の DB / backup 保存先にしない。外部出力は SQLite から生成する PDF を基本とし、具体的な PDF 出力先は未決定のまま残す。
+- PDF は SQLite から生成する派生出力に限る。編集用データ形式や復元用正本には使わず、PDF から SQLite へ戻す import や双方向同期も行わない。PDF 生成は MVP 未実装である。
 - 実装ファイルや既存仕様を変更する場合は、対象タスクで明示する。
 
 ## 未決事項
@@ -541,22 +581,24 @@ MVP 関連設計書上、主要なスコープ判断は発注者承認済みで�
 | U-003 | 作成・編集キャンセル時に未保存変更の確認ダイアログを出すか | `mvp-note-form` タスク実施時 |
 | U-004 | Cue の空行を UI で自動除外するか、validation エラーにするか | `mvp-note-form` タスク実施時 |
 | U-005 | Desktop shell を Electron と Tauri + Node.js sidecar のどちらにするか | Desktop PoC 実施時 |
-| U-006 | user data / workspace path をどう分けるか | Desktop shell の path resolver / export 設計時 |
-| U-007 | SQLite-only と hybrid（file 正本 + local SQLite index）の境界をいつ変えるか | ファイル可搬性の必要性を確認した Phase 2 以降 |
-| U-008 | `note.md` / `canvas.json` / `metadata.json` または package の export / import 契約をどうするか | schema version、atomic write、整合性検査、復元設計時 |
-| U-009 | Apple Silicon / Intel の配布・署名・更新をどう検証するか | Desktop 配布・署名・更新 PoC 実施時 |
+| U-006 | user data directory と PDF output destination の path をどう分けるか | Desktop shell の path resolver / PDF export 設計時 |
+| U-007 | PDF export の生成 provider、レイアウト、エラー処理をどう定義するか | Phase 2 の PDF export 設計時 |
+| U-008 | Apple Silicon / Intel の配布・署名・更新をどう検証するか | Desktop 配布・署名・更新 PoC 実施時 |
+| U-009 | Canvas 本文を維持するか、NoteCard を併用するか、カードを採用しないか | Gate 0 通過後の本文モデル判断時 |
 
 ## 参照ドキュメント
 
 ### リポジトリ内
 
 - `AGENTS.md`
+- `doc/requirements/PRODUCT_SPEC.md`
 - `doc/data/MVP_DATA_DESIGN.md`
 - `doc/api/MVP_API_DESIGN.md`
 - `doc/screens/MVP_SCREEN_DESIGN.md`
 - `doc/technical/MVP_TECHNICAL_DESIGN.md`
 - `doc/technical/TARGET_ARCHITECTURE.md`
 - `doc/implementation/MVP_IMPLEMENTATION_TASKS.md`
+- `doc/implementation/MVP_CONTRACT.md`
 - `doc/workflows/MVP_WORKFLOW_DESIGN.md`
 - `doc/screens/MVP_SCREEN_INVENTORY.md`
 - `doc/diagrams/MVP_UML_DESIGN.md`

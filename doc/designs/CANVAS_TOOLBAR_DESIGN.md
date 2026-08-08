@@ -1,27 +1,40 @@
 # Canvas ツールバー v2 情報設計・操作設計
 
 作成日: 2026-07-19（JST）
-状態: v2 実装済み（静的確認）／browser runtime QA 未確認
+現行照合日: 2026-08-08
+状態: v2 実装済み（静的確認、一部 runtime 確認済み）／MVP Gate 0 Browser QA 未完了
 対象: Canvas 本文 toolbar の visual / information architecture と、それに結び付く操作・スタイル・用紙設定の契約
 
 ## 1. 目的と v2 の結論
 
-本書は、Canvas 本文の操作を壊さず、draw.io から借りるべき「道具の役割が見える」「現在の状態が分かる」「設定が操作と混ざらない」という toolbar の視覚・情報設計と、toolbar から利用する操作・スタイル・用紙設定の境界を記録する。Canvas の保存形式、Fabric の座標計算、API、DB の実装詳細は対象外とし、必要な保存・復元不変条件だけを契約として参照する。v2 の markup / CSS は実装済みだが、以下の受け入れ観点は browser runtime QA の証跡ではない。
+本書は、Canvas 本文の現行操作を維持したまま、toolbar の視覚・情報設計を定める。draw.io から「道具の役割が見える」「現在の状態が分かる」「設定が操作と混ざらない」という考え方を取り入れ、toolbar から利用する操作・スタイル・用紙設定の境界を記録する。Canvas の保存形式、Fabric の座標計算、API、DB の実装詳細は対象外とし、保存・復元に必要な不変条件だけを契約として参照する。v2 の markup / CSS は実装済みだが、後述の受け入れ観点は browser runtime QA の証跡ではない。
 
 参照画像は /Users/blp542/Desktop/スクショ/スクリーンショット 2026-07-19 9.56.19.png。画像は v2 導入前の `/notes/new` 本文列を確認するための比較基準であり、現行 UI のスクリーンショットとして扱わない。
 
-v2 の決定事項は次のとおり。
+v2 は次を採用する。
 
 - **icon-first、短い可視ラベル併用**を採用する。アイコンを主な視覚アンカーにし、ラベルは選択、ペン、直線、矢印、四角、円、文字、消しゴム、戻す、やり直すのように短くする。
 - アイコンは toolbar 内の小さな inline SVG または CSS で表現できる範囲に限定する。絵文字、Unicode 記号を実アイコンとして使うこと、新しいアイコンライブラリ依存を追加することは禁止する。
-- 選択、描画、線、図形、文字、消しゴム、履歴を、同じ高さのボタン列ではなく、背景・separator・active 表現の異なる操作グループとして見せる。
+- 選択、描画、線、図形、文字、消しゴム、履歴を、背景・separator・active 表現の異なる操作グループとして見せる。
 - 用紙設定は描画操作の rail に入れず、強い境界を持つ独立パネルとして右端または別行に置く。用紙の幅・高さは zoom と呼ばない。
 - tool の lifecycle（初期 `select`、`pen` 継続、配置 tool の配置後 `select` 遷移）、オブジェクト単位の消しゴム、CanvasDocumentV1、Canvas の client Undo / Redo、320〜4000px の用紙寸法、ページ縦 scroll と Canvas 横 scroll は維持する。
 - `pen` / `line` / `arrow` / `rect` / `ellipse` / `text` は、空白だけでなく既存のアプリ所有 Canvas 要素上からも新規作成を開始できる。未知 metadata の一時 Fabric object は新規 gesture の対象にしない。
 - 図形のドラッグ作成は一定の移動量を超えたときだけ開始・確定し、小さなクリック／ダブルクリックは不要な図形を作らない。`select` / `rect` / `ellipse` で対象図形をダブルクリックした場合は、図形外形を表示したまま図形内文字編集へ入る。
-- 文字だけのカテゴリ見出しを横一列に並べる構成は廃止する。group 名は主に ARIA と tooltip の意味に移し、可視上は group の背景・separator とボタン内の短いラベルで役割を示す。
+- 文字だけのカテゴリ見出しを横一列に並べる構成は廃止する。group 名は主に ARIA と tooltip で伝え、画面上では group の背景・separator とボタン内の短いラベルで役割を示す。
 
-v2 は draw.io の全機能を再現するものではない。道具箱としての認識しやすさを高める最小変更であり、操作の追加や保存契約の拡張ではない。
+v2 は draw.io の全機能を対象外とする。変更範囲は道具の識別と状態確認を改善する toolbar に限定し、操作や保存契約は拡張しない。
+
+## 現行の確認入口と作業制約
+
+現行の実装状態は [`IMPLEMENTATION_STATUS.md`](../implementation/IMPLEMENTATION_STATUS.md)、runtime の確認範囲は [`TEST_SCENARIOS.md`](../testing/TEST_SCENARIOS.md)、最新の再開条件は [`HANDOFF_2026-08-08.md`](../../HANDOFF_2026-08-08.md) を参照します。
+
+2026-07-25 の Manager fallback には toolbar、寸法、style などの確認済み範囲がありますが、最新の Browser runtime QA と MVP Gate 0 は完了していません。
+
+Browser backend が利用できず必須項目が `BLOCKED` または `NOT RUN` の間は、静的確認や過去の subset を現行 toolbar の受け入れ完了と扱いません。
+
+Gate 0 通過後の実装順は [`POST_MVP_IMPLEMENTATION_PLAN.md`](../implementation/POST_MVP_IMPLEMENTATION_PLAN.md) を参照します。
+
+部分消しゴムは現行 MVP の実装入口ではなく、別文書の「Gate 0 通過後・未投入」の設計候補です。
 
 ## 2. v2 導入前の比較基準と現行実装の整理
 
@@ -33,7 +46,7 @@ v2 は draw.io の全機能を再現するものではない。道具箱とし�
 
 参照画像では、ノート本文の上に「操作」「描く」「線」「図形」「文字」「消去」「履歴」「用紙サイズ」が一列で表示されている。各カテゴリは小さな日本語見出し、各操作は白い角丸のテキストボタンである。選択中の選択ボタンだけが薄い橙色と下側の marker を持つ。
 
-画像上の違和感は、機能の不足ではなく次の構造から生じている。
+画像から確認した構造上の課題は次のとおりである。
 
 - すべての操作が同じ白いボタン、同じ最小高さ、ほぼ同じ文字の太さで、選択・描画・消去・履歴の優先度が見えない。
 - 見出しは小さく薄い一方、ボタンの文字は大きく、group 名より個々のラベルが目立つ。結果として見出しが操作グループの説明として機能しない。
@@ -109,7 +122,7 @@ Desktop（広い本文列、paper は独立した下段）:
     │                    ║ 用紙  [幅 1200 px] [高さ 800 px] [適用]                                  │
     └──────────────────────────────────────────────────────────────────────────────────────────────────────┘
 
-実際の desktop では rail 内の tool は可能な限り一行に置く。wireframe の改行は説明用であり、描画 tool の button を縦に一つずつ並べる指定ではない。縦線は group separator、二重線は paper panel の境界を表す。group の面は薄く異なる背景で示し、ボタンの面より group の面が広く見えるようにする。
+desktop では rail 内の tool を可能な限り一行に置く。wireframe の改行は説明用であり、描画 tool の button を縦に一つずつ並べる指定ではない。縦線は group separator、二重線は paper panel の境界を表す。group の面は薄く異なる背景で示し、ボタンの面より group の面が広く見えるようにする。
 
 Tablet（641〜1099px）:
 
@@ -155,7 +168,7 @@ narrow では選択・消しゴム・履歴を drawing rail の中へ入れず�
 
 ### 4.1 Visual tokens
 
-既存の paper palette を優先して再利用する。新しい色や依存を増やすのではなく、役割を CSS class に割り当てる。
+既存の paper palette を再利用し、各役割を CSS class に割り当てる。新しい色や依存は追加しない。
 
 | token / role | 用途 | v2 の表示 |
 | --- | --- | --- |
@@ -183,7 +196,7 @@ group の背景を変えるときも、色差を小さくし、paper palette を
 | invalid | tool には使わない | tool には使わない | aria-invalid="true"、paper-danger border、inline error と role="alert" |
 | live status | current tool、no-op、whole erase 結果を必要に応じて status に通知 | undo / redo の結果を必要に応じて通知 | 適用成功時の幅・高さを status に通知してよい |
 
-active は「橙色の背景だけ」では不十分である。marker、太さまたは border、aria-pressed、現在の tool の status を最低限組み合わせる。disabled は opacity だけでなく native disabled 属性を必ず使う。
+active は marker、太さまたは border、aria-pressed、現在の tool の status を組み合わせ、橙色の背景以外でも判別できるようにする。disabled は native disabled 属性を必ず使い、opacity だけに依存しない。
 
 ### 4.3 Tooltip と ARIA
 
@@ -226,7 +239,7 @@ toolbar の style controls は、Canvas の描画・文字の基本スタイル�
 
 ### 5.3 消しゴム
 
-現行の erase は部分消去ではなく、hit した Fabric object 全体を削除する。v2 ではこの意味を見た目と説明に固定する。
+現行の erase は、hit した Fabric object 全体を削除する。v2 の見た目と説明も、この object 単位の消去に合わせる。
 
 - 表示 label は「消しゴム」、group / button の accessible name と tooltip は「消しゴムツール」とする。説明は「クリックまたはなぞって、触れた要素を消去する」とする。
 - click または drag / なぞりで hit した stroke、line、arrow、rect、ellipse、text を対象要素として object 単位で削除する。
@@ -275,15 +288,15 @@ CSS の order だけで視覚的な row と DOM の Tab 順を大きく反転さ
 
 ### 7.1 静的に確認できる現行実装
 
-- `src/app/notes/_components/note-canvas-toolbar.tsx` に local SVG icon、短い visible label、group の ARIA、active state、tooltip、style controls、用紙寸法入力・validation、Undo / Redo、narrow の paper disclosure がある。
+- `src/modules/notes/ui/components/canvas/toolbar.tsx` と同じディレクトリの `toolbar-actions.tsx`、`toolbar-history-actions.tsx`、`toolbar-paper-controls.tsx`、`toolbar-style-controls.tsx` に local SVG icon、短い visible label、group の ARIA、active state、tooltip、style controls、用紙寸法入力・validation、Undo / Redo、narrow の paper disclosure がある。
 - `src/app/globals.css` に operation / drawing rail / style / erase / history / paper の面、separator、active・disabled・focus・invalid の状態、desktop / tablet / narrow の行構成、drawing rail の local horizontal scroll がある。
-- toolbar から利用する tool lifecycle（初期 `select`、`pen` 継続、配置後 `select` 遷移）、既存要素上の重ね描き、4px drag threshold、図形内文字、whole-object eraser、client history、CanvasDocumentV1 の page 寸法・要素不変契約は `note-canvas-editor.tsx`、Fabric adapter、共有 Canvas 契約に接続している。
+- toolbar から利用する tool lifecycle（初期 `select`、`pen` 継続、配置後 `select` 遷移）、既存要素上の重ね描き、4px drag threshold、図形内文字、whole-object eraser、client history、CanvasDocumentV1 の page 寸法・要素不変契約は `src/modules/notes/ui/components/canvas/editor.tsx`、`src/modules/notes/ui/hooks/use-note-canvas-runtime.ts`、`src/shared/canvas/adapters/fabric/**`、共有 Canvas 契約に接続している。
 
 ### 7.2 Browser runtime QA の境界
 
-現行実装の browser runtime QA は未確認である。特に、各 viewport の表示、keyboard / touch 到達性、tooltip / focus、pointer による重ね描き・図形内文字・style 反映、保存・再読込、wheel / trackpad / touch scroll は PASS と判定しない。確認項目は `doc/testing/TEST_SCENARIOS.md` の `CANVAS-DIMENSION-001`、`CANVAS-INTERACTION-001`、`CANVAS-GESTURE-001`、`CANVAS-SHAPE-TEXT-001`、`CANVAS-STYLE-001`、`CANVAS-PERSISTENCE-STYLE-001`、`CANVAS-TOOLBAR-STYLE-001` に記録する。
+現行の browser runtime QA は、過去の Manager fallback で確認済みの subset と、最新 handoff で `BLOCKED` / `NOT RUN` の必須範囲を分けて扱う。各 viewport の表示、keyboard / touch 到達性、tooltip / focus、pointer による重ね描き・図形内文字・style 反映、保存・再読込、wheel / trackpad / touch scroll の全体受け入れは、Gate 0 完了まで PASS と判定しない。確認項目は `doc/testing/TEST_SCENARIOS.md` の `CANVAS-DIMENSION-001`、`CANVAS-INTERACTION-001`、`CANVAS-GESTURE-001`、`CANVAS-SHAPE-TEXT-001`、`CANVAS-STYLE-001`、`CANVAS-PERSISTENCE-STYLE-001`、`CANVAS-TOOLBAR-STYLE-001` に記録する。
 
-`npm run lint`、型検査、build、`git diff --check` の成功は静的検証であり、browser runtime PASS の代替ではない。runtime 結果が得られた場合は `IMPLEMENTATION_STATUS.md`、`CURRENT_STATUS.md`、`HANDOFF_2026-07-19.md`、`TEST_SCENARIOS.md` を証跡に合わせて同期する。
+`npm run lint`、型検査、build、`git diff --check` の成功は静的検証であり、browser runtime PASS の代替ではない。runtime 結果が得られた場合は `IMPLEMENTATION_STATUS.md`、`HANDOFF_2026-08-08.md`、`TEST_SCENARIOS.md` を証跡に合わせて同期する。
 
 ## 8. 今回の対象外
 
@@ -303,7 +316,7 @@ CSS の order だけで視覚的な row と DOM の Tab 順を大きく反転さ
 
 ## 9. 現行契約と QA 観点
 
-以下は現行 toolbar の契約と browser runtime QA の確認観点であり、実施済み判定の一覧ではない。静的実装確認と runtime の判定は `doc/implementation/IMPLEMENTATION_STATUS.md`、実施結果は `doc/testing/TEST_SCENARIOS.md` を正本とする。
+次に、現行 toolbar の契約と browser runtime QA の確認観点を示す。実施済み判定は含まない。静的実装確認と runtime の判定は `doc/implementation/IMPLEMENTATION_STATUS.md`、実施結果は `doc/testing/TEST_SCENARIOS.md` を正本とする。
 
 ### 9.1 見た目
 
@@ -358,4 +371,6 @@ CSS の order だけで視覚的な row と DOM の Tab 順を大きく反転さ
 
 ## 10. 設計・実装履歴
 
-2026-07-19 時点で、v2 の toolbar 設計と実装同期は完了している。以前の実装着手前の比較情報は §2 に履歴として残し、旧 Worker task 名、実装依頼手順、変更ファイル制限は現行の作業指示として扱わない。現行の残課題は §7.2 とテストシナリオに記載した browser runtime QA である。
+2026-07-19 時点で、v2 の toolbar 設計と実装同期を静的に確認した。実装着手前の比較情報は §2 に履歴として残す。旧 Worker task 名、実装依頼手順、変更ファイル制限は現行の作業指示として扱わない。過去の runtime subset と残る Browser QA は §7.2 とテストシナリオに分けて記録する。
+
+Gate 0 通過前に toolbar の新しい coding task を開始しない。

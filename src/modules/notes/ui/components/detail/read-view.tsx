@@ -2,6 +2,7 @@
 
 import type { ReactNode } from "react";
 import type { NoteDetailResponse } from "@/modules/notes/contracts";
+import { formatDate } from "@/modules/notes/model";
 import {
   NoteDetailBody,
   NoteDetailCueList,
@@ -12,11 +13,15 @@ import {
 import { MarkdownPreview } from "@/shared/markdown";
 
 type ReadMode = "view" | "review";
+type ReviewSuccessFeedback = {
+  nextReviewDate: string | null;
+};
 
 type NoteDetailReadViewProps = {
   note: NoteDetailResponse;
   mode: ReadMode;
   error: string | null;
+  reviewSuccess: ReviewSuccessFeedback | null;
   showBody: boolean;
   showSummary: boolean;
   onShowBody: () => void;
@@ -31,6 +36,7 @@ export function NoteDetailReadView({
   note,
   mode,
   error,
+  reviewSuccess,
   showBody,
   showSummary,
   onShowBody,
@@ -45,13 +51,23 @@ export function NoteDetailReadView({
       <section className="note-paper-section note-paper-metadata-section min-w-0 !space-y-0 !p-0">
         <NoteDetailHeading
           title={note.title}
-          actions={mode === "view" ? modeActions : undefined}
+          actions={modeActions}
         />
 
         <NoteDetailMetadata note={note} />
       </section>
 
-      {mode === "review" && modeActions}
+      {reviewSuccess && (
+        <div
+          role="status"
+          aria-live="polite"
+          aria-atomic="true"
+          className="mb-2 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm leading-6 text-emerald-800"
+        >
+          <p className="font-semibold">復習済みにしました。</p>
+          <p>次回復習日: {formatDate(reviewSuccess.nextReviewDate)}</p>
+        </div>
+      )}
 
       {error && (
         <div

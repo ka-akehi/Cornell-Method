@@ -4,11 +4,11 @@
 
 ## 位置づけ
 
-このドキュメントは、Cornell Method Notebook MVP の設計、レビュー、説明資料作成で使える外部ツールと参考リソースの運用ガイドです。
+Cornell Method Notebook MVP の設計、レビュー、説明資料作成で使う外部ツールと参考リソースの運用を定めます。
 
-参照元は `/Users/kazuya/Downloads/prompts/docs/参考サイト一覧.md` の「参照元URLカタログ」です。外部サイトの内容は設計補助として扱い、仕様の正本はこのリポジトリ内の `AGENTS.md` と MVP 設計書群です。
+参照元は `/Users/kazuya/Downloads/prompts/docs/参考サイト一覧.md` の「参照元URLカタログ」です。外部サイトは設計補助に限って使います。製品全体の方針は `doc/requirements/PRODUCT_SPEC.md`、現行 MVP の実装と受け入れ契約は `doc/implementation/MVP_CONTRACT.md`、詳細は MVP 設計書群を正本とします。
 
-このガイドは npm 依存追加、アプリ実装、API 実装、Prisma schema / migration 変更を目的としません。外部 AI UI ツールや外部プレビューサイトの成果物は、リポジトリへ持ち込んだうえでレビューし、採用範囲を明示してから実装タスク化します。
+対象は外部ツールと参考リソースの運用に限り、npm 依存追加、アプリ実装、API 実装、Prisma schema / migration 変更は含みません。外部 AI UI ツールや外部プレビューサイトの成果物はリポジトリへ持ち込み、レビューで採用範囲を決めてから実装タスク化します。
 
 ## ツール分類
 
@@ -40,13 +40,13 @@ Codex 内で Mermaid を編集し、構文や表示崩れが疑わしい場合�
 
 `doc/screens/MVP_SCREEN_DESIGN.md` や `doc/screens/MVP_SCREEN_INVENTORY.md` に、画面項目、空状態、エラー状態、ボタン配置、遷移後状態が不足している場合に使います。
 
-Google Stitch / Claude Design で UI 案を作った場合も、その出力は仕様確定済みとは扱いません。採用する画面構成、採用しない演出、MVP / Phase 2 の境界を明示してから、Markdown の画面設計または実装タスクへ落とします。
+Google Stitch / Claude Design で作った UI 案は、レビュー前の候補として扱います。採用する画面構成、採用しない演出、MVP / Phase 2 の境界を明示してから、Markdown の画面設計または実装タスクへ落とします。
 
 ### Codex 内 Design Studio 運用
 
 Google Stitch / Claude Design のような流れを Codex 内で回す場合は、repo-local plugin `cornell-design-studio` と `doc/design-studio/` を使います。
 
-この運用では、外部ツールに画面案を作らせる代わりに、次の成果物をリポジトリ内で作成します。
+この運用では、外部ツールに画面案を作らせる工程を、次のリポジトリ内成果物に置き換えます。
 
 - design brief
 - UI バリエーション比較
@@ -68,7 +68,7 @@ plugin 反映後は新しい Codex セッションで、`Cornell Design Studio` 
 
 ### DB 定義書の追加検討
 
-MVP の DB 正本は `doc/data/MVP_DATA_DESIGN.md` と Prisma schema です。DB 定義書テンプレートは、以下を追加で整理したくなった場合の参考にします。
+MVP の DB 正本は `doc/data/MVP_DATA_DESIGN.md` と Prisma schema です。DB 定義書テンプレートは、次の情報を追加で整理する場合の参考にします。
 
 - カラム単位の型、必須、default、unique、index
 - 削除方針
@@ -86,13 +86,13 @@ AI 駆動開発や品質レビュー記事は、次の観点を設計レビュ�
 
 ### README / 設計書の Docs-as-Code 運用
 
-README と `doc/` 配下は、設計判断、実装タスク、検証結果を Git の差分で追える形にします。外部記事やテンプレートから得た観点は、長文転載ではなく、このリポジトリ向けの判断基準、チェック項目、タスクに変換して記録します。
+README と `doc/` 配下は、設計判断、実装タスク、検証結果を Git の差分で追える形にします。外部記事やテンプレートから得た観点は、このリポジトリ向けの判断基準、チェック項目、タスクに変換して記録し、長文のまま転載しません。
 
 ### UI プロトタイプを外部生成した場合の Codex への受け渡し
 
-外部生成した画面案は、スクリーンショットや生成コードをそのまま実装へ流さず、まずレビュー対象の成果物として扱います。
+外部生成した画面案はレビュー対象の成果物として扱い、スクリーンショットや生成コードを実装へ直接流しません。
 
-Codex に渡すときは、対象画面、目的、採用範囲、MVP / Phase 2 区分、セキュリティ上の注意を明示します。Codex は既存の Next.js / React / Tailwind 構成と MVP 設計書に合わせて、必要な部分だけ実装タスクへ変換します。
+Codex に渡すときは、対象画面、目的、採用範囲、MVP / Phase 2 区分、セキュリティ上の注意を明示します。Codex は既存の Next.js / React / Tailwind 構成と MVP 設計書に合わせ、採用範囲だけを実装タスクへ変換します。
 
 ### 設計説明資料を Marp で作る場合の運用
 
@@ -122,7 +122,7 @@ Marp は、設計レビュー会や発注者説明用のスライドを Markdown
 
 ## 成果物の受け渡し
 
-外部ツールで作ったものは、以下のいずれかでリポジトリへ持ち込みます。
+外部ツールで作ったものは、次のいずれかでリポジトリへ持ち込みます。
 
 - Markdown
 - Mermaid
@@ -173,7 +173,7 @@ Codex へ渡す際に必要な情報:
 
 ## 参照元 URL カタログの扱い
 
-参照元 URL は、根拠確認、再要約、snapshot 更新時の入口です。レビュー時は URL 一覧そのものではなく、プロジェクト内の設計書、review_rule、fix_pattern、cross-cutting rule に変換された知識を優先します。
+参照元 URL は、根拠確認、再要約、snapshot 更新時の入口です。レビューでは、プロジェクト内の設計書、review_rule、fix_pattern、cross-cutting rule に変換された知識を優先します。
 
 | 対象 | URL | 用途 |
 | --- | --- | --- |

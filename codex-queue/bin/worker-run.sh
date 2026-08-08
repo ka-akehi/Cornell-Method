@@ -31,6 +31,14 @@ changed_files_since() {
     ! -path "$queue_dir/tasks-ui/*" \
     ! -path "$queue_dir/tasks-api/*" \
     ! -path "$watch_root/.git/*" \
+    ! -path "$watch_root/.next/*" \
+    ! -path "$watch_root/codex-queue/.state/*" \
+    ! -path "$watch_root/node_modules/*" \
+    ! -path "$watch_root/coverage/*" \
+    ! -path "$watch_root/playwright-report/*" \
+    ! -path "$watch_root/test-results/*" \
+    ! -path "$watch_root/out/*" \
+    ! -path "$watch_root/build/*" \
     2>/dev/null | sed "s#^$watch_root/##" | sort || true
 }
 
@@ -55,7 +63,8 @@ is_coding_task() {
 
 run_codex_default() {
   prompt_file="$1"
-  codex exec --skip-git-repo-check < "$prompt_file"
+  worker_report="$2"
+  codex exec --skip-git-repo-check --output-last-message "$worker_report" < "$prompt_file"
 }
 
 is_model_unavailable_output() {
@@ -66,14 +75,15 @@ is_model_unavailable_output() {
 run_codex_with_model_fallback() {
   prompt_file="$1"
   model="$2"
+  worker_report="$3"
 
   if [ -z "$model" ] || [ "$model" = "none" ]; then
-    run_codex_default "$prompt_file"
+    run_codex_default "$prompt_file" "$worker_report"
     return $?
   fi
 
   output_file="$(mktemp "${TMPDIR:-/tmp}/codex-worker-model.XXXXXX")"
-  if codex exec --skip-git-repo-check --model "$model" < "$prompt_file" > "$output_file" 2>&1; then
+  if codex exec --skip-git-repo-check --model "$model" --output-last-message "$worker_report" < "$prompt_file" > "$output_file" 2>&1; then
     cat "$output_file"
     rm -f "$output_file"
     return 0
@@ -86,7 +96,8 @@ run_codex_with_model_fallback() {
   if is_model_unavailable_output "$output_file"; then
     rm -f "$output_file"
     status_log "Model unavailable for coding task; retrying with default model: $model"
-    run_codex_default "$prompt_file"
+    : > "$worker_report"
+    run_codex_default "$prompt_file" "$worker_report"
     return $?
   fi
 
@@ -97,17 +108,18 @@ run_codex_with_model_fallback() {
 run_codex_task() {
   task_file="$1"
   prompt_file="$2"
+  worker_report="$3"
 
   if [ "${CODEX_WORKER_MODEL+x}" = "x" ]; then
     if [ -z "${CODEX_WORKER_MODEL}" ] || [ "${CODEX_WORKER_MODEL}" = "none" ]; then
-      run_codex_default "$prompt_file"
+      run_codex_default "$prompt_file" "$worker_report"
     else
-      codex exec --skip-git-repo-check --model "$CODEX_WORKER_MODEL" < "$prompt_file"
+      codex exec --skip-git-repo-check --model "$CODEX_WORKER_MODEL" --output-last-message "$worker_report" < "$prompt_file"
     fi
   elif is_coding_task "$task_file"; then
-    run_codex_with_model_fallback "$prompt_file" "$coding_worker_model"
+    run_codex_with_model_fallback "$prompt_file" "$coding_worker_model" "$worker_report"
   else
-    run_codex_default "$prompt_file"
+    run_codex_default "$prompt_file" "$worker_report"
   fi
 }
 
@@ -170,6 +182,7 @@ while true; do
     status_log "Running: $running"
     changed_since="$(mktemp "${TMPDIR:-/tmp}/codex-worker.XXXXXX")"
     run_output="$(mktemp "${TMPDIR:-/tmp}/codex-worker-output.XXXXXX")"
+    worker_report="$(mktemp "${TMPDIR:-/tmp}/codex-worker-report.XXXXXX")"
     runtime_prompt="$(make_runtime_prompt "$running")"
     progress_file="$(progress_file_for "$running")"
     export WORKER_PROGRESS_FILE="$progress_file"
@@ -178,16 +191,16 @@ while true; do
     export WORKER_NAME="$worker_name"
     set_progress "$progress_file" 5 "starting" "Task claimed"
 
-    if run_codex_task "$running" "$runtime_prompt" > "$run_output" 2>&1; then
+    if run_codex_task "$running" "$runtime_prompt" "$worker_report" > "$run_output" 2>&1; then
       set_progress "$progress_file" 90 "finalizing" "Codex execution finished"
       cat "$run_output"
       report_changed_files_since "$changed_since"
       mv "$running" "$root/done/$base"
       set_progress "$progress_file" 95 "summary" "Writing task summary"
-      summary_file="$("$script_dir/write-task-summary.sh" --status done --task "$root/done/$base" --changed-since "$changed_since" --watch-root "$watch_root" --worker "$worker_name" --kind worker-task || true)"
+      summary_file="$("$script_dir/write-task-summary.sh" --status done --task "$root/done/$base" --changed-since "$changed_since" --watch-root "$watch_root" --worker "$worker_name" --kind worker-task --worker-report "$worker_report" || true)"
       set_progress "$progress_file" 100 "done" "Task completed"
       rm -f "$changed_since"
-      rm -f "$run_output"
+      rm -f "$run_output" "$worker_report"
       rm -f "$runtime_prompt" "$progress_file"
       if [ -n "$summary_file" ]; then
         status_log "Summary: $summary_file"
@@ -202,7 +215,7 @@ while true; do
       summary_file="$("$script_dir/write-task-summary.sh" --status failed --task "$root/failed/$base" --changed-since "$changed_since" --watch-root "$watch_root" --worker "$worker_name" --kind worker-task --failure-output "$run_output" || true)"
       set_progress "$progress_file" 100 "failed" "Task failed"
       rm -f "$changed_since"
-      rm -f "$run_output"
+      rm -f "$run_output" "$worker_report"
       rm -f "$runtime_prompt" "$progress_file"
       if [ -n "$summary_file" ]; then
         status_log "Summary: $summary_file"

@@ -177,8 +177,14 @@ codex-queue/bin/worker-progress.sh --percent 60 --phase "implementation" --messa
 Worker は `queued` から `running` に移動できた `*.task.md` だけを実行し、終了後に `done` または `failed` へ移動します。
 
 Worker task の完了/失敗時には、`codex-queue/bin/write-task-summary.sh` が `summary/YYYYMMDD/HHMM-*-summary.md` を自動作成します。
-summary は raw log を含めず、変更ファイル、確認結果、次に読む最小ファイルだけを残します。
+summary には、変更ファイル、確認結果、次に読む最小ファイルを記録します。
+成功時の `Worker Report` には、`codex exec --output-last-message` が出力した assistant の最終メッセージだけを保存します。
+stdout / stderr の raw log、tool trace、`run_output` 全文は summary に保存しません。
+最終メッセージの専用出力ファイルが空または存在しない場合も summary を作成し、取得できなかったことを記録します。
+32,000 文字を超える最終メッセージは切り詰め、summary にその旨を明記します。
 失敗時は raw log 全文ではなく、Worker が取得した実行出力から推定原因と短い抜粋を `Failure Reason` に残します。
+最終メッセージの取得を有効にするには、起動中の各 Worker runner を再起動してください。
+各 runner を再起動した後に処理を開始する task から `Worker Report` が追加されます。
 `open-wezterm-worker-layout.sh` で起動した場合、通知 Worker は完了/失敗メッセージを Manager Codex pane へ転送します。
 `WORKER_NOTIFY_AUTO_SUBMIT=0` を指定すると、メッセージ入力だけ行い自動送信を止められます。
 同スクリプトで起動する最初の Worker ウィンドウには、`worker-status.sh --watch` の進捗監視ペインも作成されます。監視ペインは Common Worker の下側を 50% 使用し、UI / API Worker のログ領域を狭めない構成です。

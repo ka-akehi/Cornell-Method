@@ -4,18 +4,18 @@
 
 ## 位置づけ
 
-このドキュメントは、フルリニューアル版 Cornell Method Notebook の MVP API 設計案です。
+フルリニューアル版 Cornell Method Notebook の MVP API 設計を定めます。
 
-MVP API は、ノート作成・検索・閲覧・編集・削除・復習済み更新・タグ候補取得・バックアップに絞ります。自動保存、Undo、PDF 出力、高度な復習タスクは Phase 2 とします。
+MVP API は、ノート作成、検索、閲覧、編集、削除、復習済み更新、タグ候補取得、バックアップに絞ります。自動保存、Undo、PDF 出力、高度な復習タスクは Phase 2 とします。
 
-現コードは `Notebook`, `NotebookCanvas`, `Cue`, `Tag`, `NotebookTag` を中心にした MVP 構成です。この文書の request / response / error は、現行の `src/app/api/**`, `src/modules/notes/contracts/note.schema.ts`, `prisma/schema.prisma` に寄せた実装・テスト期待値として扱います。
+現コードは `Notebook`, `NotebookCanvas`, `Cue`, `Tag`, `NotebookTag` を中心にした MVP 構成です。この文書の request / response / error は、現行の `src/app/api/**`, `src/modules/notes/contracts/note.schema.ts`, `prisma/schema.prisma` と整合させた実装とテストの期待値として扱います。
 
 ## API 設計方針
 
 - 認証は行わない。ローカル個人利用を前提にする。
 - API は JSON を返す。ただし `DELETE /api/notes/:id` の成功時だけ HTTP 204 No Content とし、body を返さない。
 - エラー形式は `{ code, message, errors? }` に統一する。
-- ノート作成・更新では、Notebook、Cue、Tag を 1 リクエストで保存する。
+- ノート作成と更新では、Notebook、Cue、Tag を 1 リクエストで保存する。
 - ノート更新時、Cue と Tag 関連はリクエスト内容で全置換する（発注者承認済み）。
 - Cue / Tag の差分更新は MVP では行わず、必要になった場合の Phase 2 要件とする。
 - Cue と本文の厳密リンクは扱わない。
@@ -47,8 +47,8 @@ MVP API は、ノート作成・検索・閲覧・編集・削除・復習済み
 ### `errors[].field` の表記
 
 - ネストは dot notation とする。例: `tags.12.name`, `cues.0.text`
-- request body が JSON として読めない、または object ではない場合は、root field として空文字 `""` が入る場合がある。
-- 型不一致や enum 不一致など Zod 標準エラーになる項目は、現コードでは Zod の標準 `message` を返す。実装・テストで固定すべきプロダクト独自メッセージは、本書の validation 表に明記する。
+- request body が JSON として読めない場合や object ではない場合は、root field を表す空文字 `""` が入ることがある。
+- 型不一致や enum 不一致など Zod 標準エラーになる項目は、現コードでは Zod の標準 `message` を返す。実装とテストで固定するプロダクト独自メッセージは、この文書の validation 表に明記する。
 
 ## 共通ステータス
 
@@ -153,9 +153,9 @@ MVP API は、ノート作成・検索・閲覧・編集・削除・復習済み
 
 ### CanvasDocumentV1
 
-`canvas` は本文領域の保存・復元に使う JSON です。`schemaVersion=1`、`page.background="paper"` を固定し、`page.width` / `page.height` は整数 px とします。既定値は `1200 x 800`、許容範囲は幅・高さとも `320〜4000`（境界値を含む）です。`elements` の各要素は `x`, `y`, `width`, `height`, `points`, `style` などの既存データを保持します。
+`canvas` は本文領域の保存と復元に使う JSON です。`schemaVersion=1`、`page.background="paper"` を固定し、`page.width` / `page.height` は整数 px とします。既定値は `1200 x 800`、許容範囲は幅、高さとも `320〜4000`（境界値を含む）です。`elements` の各要素は `x`, `y`, `width`, `height`, `points`, `style` などの既存データを保持します。
 
-用紙サイズ変更リクエストは `canvas.page.width` / `canvas.page.height` だけを変更します。要素の座標・寸法・points・style を API が自動変形してはならず、用紙を小さくして境界外になる要素も削除・移動・縮小しません。既存の 1200x800 Canvas document は自動変換せず、そのまま復元します。
+用紙サイズ変更リクエストは `canvas.page.width` / `canvas.page.height` だけを変更します。API は要素の座標、寸法、points、style を自動変形せず、用紙を小さくして境界外になる要素も削除、移動、縮小しません。既存の 1200x800 Canvas document は自動変換せず、そのまま復元します。
 
 Canvas JSON は既存の `NotebookCanvas.documentJson` 保存領域を利用し、用紙サイズのための新しい Prisma column / migration は追加しません。`NotebookCanvas.searchText` は Canvas の text 要素から生成し、用紙サイズの変更だけでは値を変更しません。
 
@@ -400,7 +400,7 @@ HTTP 200。更新後の `Note detail` を返す。
 
 HTTP 400。`POST /api/notes` と同じ。
 
-validation は not found 確認より先に行う。したがって、存在しない `id` でも body が不正なら 404 ではなく 400 を返す。
+body validation は not found 確認より先に行うため、存在しない `id` でも body が不正なら 404 ではなく 400 を返す。
 
 ### Not Found
 
@@ -524,7 +524,7 @@ HTTP 400
 | body が JSON として読めない、または object ではない | `""` | Zod 標準メッセージ |
 | `nextReviewDate` が `YYYY-MM-DD` ではない、または存在しない日付 | `nextReviewDate` | `YYYY-MM-DD形式で入力してください` |
 
-validation は not found 確認より先に行う。したがって、存在しない `id` でも body が不正なら 404 ではなく 400 を返す。
+body validation は not found 確認より先に行うため、存在しない `id` でも body が不正なら 404 ではなく 400 を返す。
 
 ### Not Found
 
@@ -735,7 +735,7 @@ MVP の固定 validation message は次を正とする。
 
 ## MVP から外す API
 
-次の API は MVP 外です。MVP API の実装・テスト期待値に混ぜない。
+次の API は MVP 外です。MVP API の実装とテストの期待値に混ぜません。
 
 | API | 理由 |
 | --- | --- |
@@ -759,4 +759,4 @@ MVP の固定 validation message は次を正とする。
 
 ## 次に決めること
 
-発注者確認後、この API 設計を元に MVP 技術選定と実装タスク分割へ進む。
+発注者確認後、この API 設計を基に MVP 技術選定と実装タスク分割へ進みます。

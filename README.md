@@ -1,19 +1,51 @@
 # Cornell Method Notebook MVP
 
-ローカル個人利用向けの Cornell Method Notebook アプリです。Next.js App Router、React、Prisma、SQLite を使い、学習ノートの作成、検索、閲覧、編集、復習、バックアップまでの MVP フローをローカル環境で動かせるようにしています。
+ローカルで個人利用する Cornell Method Notebook アプリです。Next.js App Router、React、Prisma、SQLite を使い、学習ノートの作成から検索、閲覧、編集、復習、バックアップまでを扱います。
 
 MVP の主な機能:
 
 - ノート作成
-- 一覧検索
+- 一覧検索（title、Summary、Cue、legacy Markdown 本文、Canvas text）
 - 詳細閲覧 / 編集 / 復習モード
-- Markdown preview
+- Canvas 本文の editor / viewer
+- Cue / Summary の Markdown 入力と安全な preview
+- 既存 Markdown 本文の互換表示
 - タグ登録とタグ検索
 - SQLite DB バックアップ
 
-Local は認証を無効化して従来どおり利用できます。Vercel Preview / Production
-では、アプリ側の単一ユーザー Basic Auth が page と全 API を保護します。ユーザー管理や
-外部 API 連携はありません。
+現行の利用経路は、認証なしでローカル PC 上に起動し、SQLite へ保存する経路だけです。依存関係の取得を除き、起動と利用にネットワーク接続や外部サービスは必要ありません。
+
+## 現行の状態と作業入口
+
+2026-08-08 時点の実装状態は [`doc/implementation/IMPLEMENTATION_STATUS.md`](doc/implementation/IMPLEMENTATION_STATUS.md) で確認します。
+
+MVP の受け入れ項目と確認済み範囲は [`doc/testing/TEST_SCENARIOS.md`](doc/testing/TEST_SCENARIOS.md) のチェックリストと受け入れ証跡マトリクスで確認します。
+
+最新の Browser runtime QA の制約、再開条件、`Next Read` は [`HANDOFF_2026-08-08.md`](HANDOFF_2026-08-08.md) に記録しています。
+
+Gate 0（人力 MVP 結合テスト）は未通過です。
+
+最新の handoff では Browser backend が利用できず、必須の UI runtime QA に `BLOCKED` または `NOT RUN` が残っています。
+
+過去の screenshot、静的確認、部分的な runtime 確認、queue の完了表示だけでは Gate 0 の通過と判定しません。
+
+Gate 0 の完了条件と、その後の実装順は [`doc/implementation/POST_MVP_IMPLEMENTATION_PLAN.md`](doc/implementation/POST_MVP_IMPLEMENTATION_PLAN.md) を参照します。
+
+Gate 0 を発注者が明示的に閉じるまで、Phase 2、Mac desktop、PDF export、部分消しゴムなどの coding task を投入しません。
+
+主な現行実装パスは次のとおりです。
+
+| 責務 | 現行パス |
+| --- | --- |
+| route | `src/app/notes/page.tsx`、`src/app/notes/new/page.tsx`、`src/app/notes/[id]/page.tsx`、`src/app/backup/page.tsx` |
+| ノート UI | `src/modules/notes/ui/components/editor/**`、`src/modules/notes/ui/components/detail/**`、`src/modules/notes/ui/components/canvas/**` |
+| Canvas 共通契約・Fabric adapter | `src/shared/canvas/**` |
+| ノート保存・検索 | `src/server/notes/infrastructure/**` |
+| バックアップ | `src/app/api/backups/route.ts`、`src/server/backup/application/**`、`src/server/backup/infrastructure/local-sqlite-backup-provider.js`、`src/modules/backup/ui/components/backup-page.tsx` |
+
+上表のパスは、2026-08-08 の作業ツリーで `rg --files src` により確認した現行入口です。
+
+`src/lib/backup/index.js` は既存 import 互換の再エクスポートであり、バックアップ実装の主入口として扱いません。
 
 ## セットアップ
 
@@ -28,32 +60,11 @@ Local は認証を無効化して従来どおり利用できます。Vercel Prev
 npm install
 ```
 
-Local では `DATABASE_URL` を Prisma CLI と Next runtime に明示した SQLite URL として共有します。shell で指定した値は `.env` より優先され、未指定時は `file:./dev.db` を使います。`npm run backup:copy` も Local SQLite 専用です。空文字・空白のみ・非 `file:` URL・パスが空の `file:` URL は、別 DB へ fallback せずエラー終了します。`.env` が存在するのに読み込めない場合も fallback せずエラー終了します。custom path を使う場合も、同じプロジェクトルート基準の SQLite URL を設定してください。`file:./relative.db`、`file:/absolute/path.db`、`file:///absolute/path.db` の relative / absolute URL を使用でき、query (`?`)・fragment (`#`) と `file://host/path` の authority は非対応として明示的に拒否します。パス中の `%20` などの percent encoding は decode せず、`encoded%20name.db` という実ファイル名として扱います。
+現行製品でサポートする `DATABASE_URL` は、ローカル SQLite ファイルを指す `file:` URL だけです。設定は任意で、未指定時はプロジェクトルートの `file:./dev.db` を Prisma CLI、Next runtime、`npm run backup:copy` で共有します。別の SQLite ファイルを使う場合は、shell または未追跡の `.env` に `file:` URL を設定します。shell の値は `.env` より優先されます。
 
-Vercel Preview / Production では `DATABASE_URL` に PostgreSQL runtime URL（Supabase transaction pooler）を必須とし、SQLite fallback は行いません。PostgreSQL の Prisma CLI / migration には `DIRECT_URL` の direct connection URL を使い、runtime が `DIRECT_URL` を参照することはありません。実際の公開環境の URL は環境変数へ設定し、リポジトリへ記載しないでください。
+`DATABASE_URL` の空文字、空白のみ、パスが空の `file:` URL はエラーになります。`file:` 以外の URL は現行製品のサポート対象外です。Next runtime には過去の検討資産が残っており、一部のサポート対象外 URL を受理します。空値や不正な SQLite URL から別 DB への fallback は行いません。`.env` が存在していて読み込めない場合も、fallback せずエラーになります。別のパスを使う場合は、同じプロジェクトルートを基準にした SQLite URL を設定してください。
 
-Basic Auth の設定:
-
-```env
-# Local は未設定または false で無効。Local で確認するときだけ true にする。
-BASIC_AUTH_ENABLED="false"
-BASIC_AUTH_USER=""
-BASIC_AUTH_PASSWORD=""
-```
-
-Local で `BASIC_AUTH_ENABLED=true` にする場合は user / password も設定します。Preview /
-Production は `BASIC_AUTH_ENABLED` 未設定でも有効扱いになり、`BASIC_AUTH_USER` または
-`BASIC_AUTH_PASSWORD` の欠落、空値、無効な設定、または hosted 環境での
-`BASIC_AUTH_ENABLED=false` は fail closed になります。これらの値は Vercel の Preview /
-Production 環境変数またはローカルの未追跡 `.env` にだけ設定し、実値をリポジトリへ書かないでください。
-
-Basic Auth は HTTPS 前提です。認証情報は cookie、localStorage、DB、URL query、client-side
-code には保存しません。Vercel Deployment Protection は Preview への補助的な保護であり、
-アプリ API の認証証跡や Production API の代替ではありません。
-
-```env
-DATABASE_URL="file:./prisma/dev.db"
-```
+使用できる relative / absolute URL は、`file:./relative.db`、`file:/absolute/path.db`、`file:///absolute/path.db` です。query (`?`)、fragment (`#`)、`file://host/path` の authority は拒否します。パス中の `%20` などの percent encoding は decode せず、`encoded%20name.db` という実ファイル名として扱います。
 
 Prisma Client を生成し、SQLite DB を作成します。
 
@@ -62,7 +73,7 @@ npm run prisma:generate
 npm run prisma:migrate
 ```
 
-MVP では seed は不要です。`package.json` に seed script はなく、初期データは `/notes/new` の UI または `POST /api/notes` から作成します。
+MVP は seed を使いません。`package.json` に seed script はなく、初期データは `/notes/new` の UI または `POST /api/notes` から作成します。
 
 開発サーバーを起動します。
 
@@ -85,153 +96,72 @@ http://localhost:3000/notes
 | `npm run lint` | ESLint を実行 |
 | `npm run prisma:generate` | Prisma Client を生成 |
 | `npm run prisma:migrate` | Prisma migration を適用し SQLite DB を作成 / 更新 |
-| `npm run postgres:baseline:check` | Postgres MVP baseline SQL と schema の静的境界を確認 |
-| `npm run postgres:import` | 明示 source SQLite から空の許可済み検証 target へ import（`--dry-run` 対応） |
-| `npm run postgres:reconcile` | 明示 source と許可済み Postgres target を read-only 照合 |
-| `npm run postgres:export` | `DIRECT_URL` から明示 output へ logical export を作成する operator CLI |
-| `npm run postgres:restore` | 明示 input を isolated target へ single-transaction restore し、T2 reconcile を実行 |
-| `npm run postgres:retention:dry-run` | 明示 export directory の日次 7 / 週次 4 retention 候補を表示（削除なし） |
-| `npm run postgres:retention:prune` | dry-run 相当の plan を再検査して、確認済み候補だけを削除 |
 | `npm run backup:copy` | プロジェクトルートの `.env`（shell の `DATABASE_URL` があればそちらを優先）と同じ SQLite DB を `backup/` 配下へコピー |
 | `npm run diagrams:build` | Mermaid 図を `.mmd` に抽出し、SVG を生成 |
 
-Postgres の baseline / import / reconcile は、Vercel build、Next runtime、SQLite backup とは分離した operator-only workflow です。実行前に `npm run prisma:migrate:postgres` で direct connection に baseline を適用し、source は `--source` または `SOURCE_SQLITE_PATH` で必ず明示してください。import target には `DIRECT_URL`、`POSTGRES_TARGET_PROJECT`、`POSTGRES_TARGET_ENVIRONMENT`、`POSTGRES_TARGET_ALLOWLIST`（`project:environment` の完全一致）が必要で、runtime の `DATABASE_URL`、transaction pooler、Production label、既存行の無条件上書きは拒否します。
+### 過去の検討資産
 
-まず source の freeze / inventory だけを確認する例:
-
-```bash
-SOURCE_SQLITE_PATH=/absolute/path/to/frozen.db \
-npm run postgres:import -- --dry-run
-```
-
-検証 target への実 import / 照合は、URL の実値を shell または secret manager から渡して実行します。以下は値を含まない形の例です。
-
-```bash
-DIRECT_URL="$POSTGRES_DIRECT_URL" \
-POSTGRES_TARGET_PROJECT=verification-project \
-POSTGRES_TARGET_ENVIRONMENT=verification \
-POSTGRES_TARGET_ALLOWLIST=verification-project:verification \
-SOURCE_SQLITE_PATH=/absolute/path/to/frozen.db \
-npm run postgres:import
-
-DIRECT_URL="$POSTGRES_DIRECT_URL" \
-POSTGRES_TARGET_PROJECT=verification-project \
-POSTGRES_TARGET_ENVIRONMENT=verification \
-POSTGRES_TARGET_ALLOWLIST=verification-project:verification \
-SOURCE_SQLITE_PATH=/absolute/path/to/frozen.db \
-npm run postgres:reconcile
-```
-
-失敗時は transaction を完了扱いにせず、source の本文・タイトル・タグ名・Cue text・Canvas text はログへ出しません。詳細な option は各 script の `--help` を確認してください。
-
-### Postgres logical export / restore / retention（operator only）
-
-Postgres の export / restore は、Next.js の route、ブラウザ、Vercel request、Vercel build、`src/server/backup` の Local provider から呼び出しません。operator または CI の Node CLI が direct connection の `DIRECT_URL` と、operator が管理する外部 storage path だけを使います。`DATABASE_URL`、runtime pooler、Production の暗黙 target、repository root、`backup/`、`.next/`、Vercel filesystem は使用しません。
-
-Local SQLite backup との境界は変わりません。`/backup`、`POST /api/backups`、`npm run backup:copy` は SQLite ファイルを `backup/` にコピーし、最新 3 世代を保持する現行 MVP の契約です。Postgres の logical export はこの世代管理や Local API へ混ぜません。
-
-前提として、operator 環境に PostgreSQL client tools（`pg_dump`、custom dump の restore には `pg_restore`、plain SQL の restore には `psql`）を用意し、URL は secret manager または shell の環境変数から渡します。URL、password、token、ノート本文を command output、ログ、README、summary へ展開しないでください。
-
-#### Export
-
-output path と format は必須です。出力先の親 directory は operator が事前に作成した、repository 外の管理対象 storage にしてください。`--format custom` は `.dump`、`--format plain` は `.sql` を使います。
-
-```bash
-DIRECT_URL="$POSTGRES_DIRECT_URL" \
-npm run postgres:export -- \
-  --format custom \
-  --output /secure/postgres-exports/postgres-export-2026-07-26T12-00-00Z.dump \
-  --allow-unencrypted-staging
-```
-
-これは `pg_dump` による暗号化前の staging export です。script は `encrypted: false` と `productionBackupComplete: false` を返します。圧縮方式、暗号化、off-site copy、access control、削除保護は operator / storage provider の責務であり、この repository は storage provider を実装しません。暗号化と off-site copy が完了するまで Production backup 完了として扱わないでください。既存 file の上書きには追加で `--overwrite` が必要です。実行前の command 構成だけを確認する場合は同じ引数に `--dry-run` を付けます。
-
-#### Restore
-
-restore は Production には実装していません。target environment が `prod` / `production` の場合は拒否し、isolated な別 project / DB を第一候補にします。restore target は dump の schema を含むため、T2 import の「baseline 適用済みで空」の target ではなく、current MVP / Phase 2 table と `_prisma_migrations` がまだ存在しない空の database を用意してください。既存 application schema がある場合は停止し、無条件 overwrite、`--clean`、`--create` は行いません。
-
-次の二重確認、direct URL、project / environment と完全一致する allowlist、明示 source をすべて指定します。source は restore 前に freeze された SQLite snapshot で、restore 完了後に同じ snapshot を T2 reconcile へ渡します。
-
-```bash
-DIRECT_URL="$POSTGRES_RESTORE_DIRECT_URL" \
-SOURCE_SQLITE_PATH=/absolute/path/to/frozen.db \
-npm run postgres:restore -- \
-  --format custom \
-  --input /secure/postgres-exports/postgres-export-2026-07-26T12-00-00Z.dump \
-  --target-project verification-project \
-  --target-environment verification \
-  --allow-target verification-project:verification \
-  --confirm-isolated-target \
-  --confirm-empty-target
-```
-
-restore は `pg_restore` または `psql` の single transaction で実行し、失敗時は成功扱いにしません。成功後は T2 の `postgres:reconcile` と同じ比較を自動実行し、row count、ID set、parent ID / foreign key orphan、scalar / UTC 日時、Canvas `document_json` の hash・deep equality・page geometry・element geometry / points / style / text、`search_text` を確認します。不一致なら exit code 1 で復旧検証未完了とします。command 構成だけの確認は `--dry-run` で行えますが、実 restore の完了判定にはなりません。
-
-restore 後、reconcile が PASS でも、isolated app instance を target DB に接続して synthetic data の CRUD smoke を行ってください。作成 → 一覧 / 詳細取得 → title / Summary / Canvas text の更新 → 再読込・検索確認 → 削除 → 一覧から消えること、の順で確認し、fixture は最後に削除します。実データや個人ノート本文を smoke のログへ書かないでください。Production cutover 前は、少なくとも baseline import target と logical export restore target を分けてこの手順を完了させます。
-
-#### Retention
-
-retention は storage provider や scheduler ではなく、明示された operator-managed directory の filename を読む dry-run / safe prune です。標準 filename は `postgres-export-YYYY-MM-DDTHH-mm-ssZ.sql` または `.dump` で、UTC の filename 日付を基準に最新の異なる 7 日から日次 7 世代、残りから最新の異なる ISO 週 4 世代を保持します。
-
-```bash
-POSTGRES_EXPORT_DIR=/secure/postgres-exports \
-npm run postgres:retention:dry-run
-
-POSTGRES_EXPORT_DIR=/secure/postgres-exports \
-npm run postgres:retention:prune
-```
-
-dry-run は削除候補の path をすべて表示します。prune は `--apply --confirm-prune` を要求し、plan 後に file の inode・size・更新時刻を再確認して変化があれば全体を中止します。repository、Vercel filesystem、SQLite `backup/` のファイルは Postgres Production backup として扱わず、暗号化済み off-site copy の保持・削除は operator / storage provider 側で別途管理してください。
+リポジトリには、現行方針の決定前に作成した Vercel、Supabase、PostgreSQL、hosted Basic Auth 関連の設定や script が残っています。これらは採用しない検討履歴と legacy tooling であり、現行のセットアップ、利用手順、運用経路、製品ロードマップには含めません。資産を削除するか保管するかは、別の read-only 棚卸し後に判断します。
 
 ## 主要画面
 
 | パス | 画面 |
 | --- | --- |
 | `/notes` | ノート一覧。フリーワード、日付、タグ、復習対象で検索 |
-| `/notes/new` | ノート作成 |
-| `/notes/[id]` | ノート詳細。閲覧、編集、復習モードを切り替え |
+| `/notes/new` | Canvas 本文、Markdown の Cue / Summary を使うノート作成 |
+| `/notes/[id]` | Canvas または既存 Markdown 本文の詳細。閲覧、編集、復習モードを切り替え |
 | `/backup` | SQLite DB バックアップの作成と一覧確認 |
 
 ## MVP 受け入れ材料
 
-受け入れ証跡の正本は [受け入れ証跡マトリクス](doc/testing/TEST_SCENARIOS.md#受け入れ証跡マトリクス) です。各記録に route、画面状態、viewport または API / CLI / 静的照合、確認日、fixture の扱い、判定、参照 summary / 根拠を記録しています。
+受け入れ証跡の正本は [受け入れ証跡マトリクス](doc/testing/TEST_SCENARIOS.md#受け入れ証跡マトリクス) です。各記録には、route、画面状態、viewport または API / CLI / 静的照合、確認日、fixture の扱い、判定、参照 summary / 根拠を記載しています。
 
-2026-07-05 時点の MVP 主要 UI フローは Playwright Chromium で検証済みです。操作デモ相当の確認結果は `summary/20260705/mvp-ui-flow-reverification-report.md` を参照してください。ただし、この route-level flow の PASS は NTE-020 の edit レイアウト全 viewport 確認や NTE-030 の mobile runtime 確認まで意味しません。
+2026-07-05 時点の MVP 主要 UI フローは Playwright Chromium で検証済みです。確認結果は `summary/20260705/mvp-ui-flow-reverification-report.md` を参照してください。この PASS の対象は当時の route-level flow であり、Canvas 導入後の現行 UI に対する Gate 0 の証拠ではありません。NTE-020 の edit レイアウト全 viewport 確認と NTE-030 の mobile runtime 確認も含みません。
 
-実操作デモ: [一覧 → 詳細 → 編集 → 保存 → 閲覧 / 再読込（WebM）](doc/assets/demos/mvp-note-flow.webm)（1280 × 900）。
+実操作デモ（Canvas 導入前の履歴）: [一覧 → 詳細 → 編集 → 保存 → 閲覧 / 再読込（WebM）](doc/assets/demos/mvp-note-flow.webm)（1280 × 900）。
 
-画面例:
+次の画面例は Canvas 導入前の Markdown 本文 UI を含む履歴資料です。現行の新規本文を textarea / preview とする仕様や、現行 Canvas UI の runtime PASS を示すものではありません。
+
+画面例（履歴）:
 
 | 画面 | スクリーンショット |
 | --- | --- |
 | `/notes`: ノート一覧、検索、日付 / タグフィルタ、範囲 validation | [1440px](doc/assets/screenshots/runtime-notes-list-1440.png) |
-| `/notes/new`: 新規作成、既存タグ候補選択、自由入力タグ追加 | [375px](doc/assets/screenshots/nte020-policy-c-new-375.png) / [768px](doc/assets/screenshots/nte020-policy-c-new-768.png) / [1280px](doc/assets/screenshots/nte020-policy-c-new-1280.png) / [1440px](doc/assets/screenshots/nte020-policy-c-new-1440.png) |
-| `/notes/[id]`: 閲覧、編集保存、復習モード、削除 | [閲覧 1440px](doc/assets/screenshots/runtime-note-detail-view-1440.png) / [編集保存 1440px（主要 UI flow）](doc/assets/screenshots/runtime-note-detail-edit-1440.png) / [復習 1440px](doc/assets/screenshots/runtime-note-detail-review-1440.png) |
+| `/notes/new`: Canvas 導入前の新規作成、既存タグ候補選択、自由入力タグ追加 | [375px](doc/assets/screenshots/nte020-policy-c-new-375.png) / [768px](doc/assets/screenshots/nte020-policy-c-new-768.png) / [1280px](doc/assets/screenshots/nte020-policy-c-new-1280.png) / [1440px](doc/assets/screenshots/nte020-policy-c-new-1440.png) |
+| `/notes/[id]`: Canvas 導入前の閲覧、編集保存、復習モード、削除 | [閲覧 1440px](doc/assets/screenshots/runtime-note-detail-view-1440.png) / [編集保存 1440px（主要 UI flow）](doc/assets/screenshots/runtime-note-detail-edit-1440.png) / [復習 1440px](doc/assets/screenshots/runtime-note-detail-review-1440.png) |
 | `/backup`: バックアップ一覧表示、バックアップ作成 | [1440px](doc/assets/screenshots/runtime-backup-1440.png) |
 
-### NTE-030 runtime screenshot の確認内容
+### NTE-030 runtime screenshot の確認内容（Canvas 導入前の履歴）
 
-1440px の実画面では、閲覧／復習がタイトル・学習日／学習元／タグのメタ情報 → Cornell（Cue／本文）→ Summary の基本構造を共有し、復習時に本文領域だけをマスクして表示 / 再マスクできることを確認しています。375 / 768px の閲覧 / 復習 runtime は未確認です。復習時 Summary の初期非表示はコード上の実装状態と、runtime 未確認の事実を分けて扱っています。詳細は証跡マトリクスの `NTE030-MOBILE-375-768` を参照してください。
+当時の 1440px 実画面では、閲覧／復習がタイトル・学習日／学習元／タグのメタ情報 → Cornell（Cue／本文）→ Summary の基本構造を共有することを確認しました。復習時の本文表示 / 再マスクも当時の Markdown 本文 UI に対する記録です。現行の Canvas viewer / editor の受け入れ判定には使いません。
+
+375 / 768px の閲覧 / 復習 runtime は未確認です。現行コードでは、復習時の本文・Summary 内容の初期非表示と、本文表示後だけ Summary を開ける制御を静的に確認していますが、Browser runtime では未確認です。詳細は証跡マトリクスの `NTE030-MOBILE-375-768` と `MVP-REVIEW-SCREEN-DEFAULT-001` を参照してください。
 
 ### QA 証跡の確認済み範囲と未確認範囲
 
-- 確認済み: 2026-07-05 の主要 UI flow、Notes CRUD / validation / review / search、Markdown sanitize / checkbox、`npm run backup:copy`。NTE-020 の `/notes/new` は 375 / 768 / 1280 / 1440px、NTE-030 の `/notes/[id]` 閲覧 / 復習は 1440px を確認済みです。
-- 未確認: NTE-020 の `/notes/[id]` edit runtime（2026-07-05 の編集保存フローと、NTE-020 Policy C の edit レイアウト QA は別の確認単位です）、NTE-020 の 375px 長い Markdown / 長いタグ / 長い field error、NTE-030 の 375 / 768px 閲覧 / 復習 runtime。
-- MVP 契約との差分: 静的照合で、新規 `nextReviewDate = noteDate + 7日` 初期値が未達です。これは runtime 未実施とは別に `FAIL（静的照合）` として記録しています。復習時 Summary の初期非表示は現行コードへ反映済みですが、対象 viewport の runtime 確認は未実施です。
+- 確認済み（Canvas 導入前の履歴）: 2026-07-05 の主要 UI flow、Notes CRUD / validation / review / search、Markdown sanitize / checkbox、`npm run backup:copy`。NTE-020 の `/notes/new` は 375 / 768 / 1280 / 1440px、NTE-030 の `/notes/[id]` 閲覧 / 復習は 1440px を確認済みです。判定値は履歴として保持し、現行 Canvas UI の Gate 0 判定へ読み替えません。
+- 未確認（Canvas 導入前の観点を含む履歴）: NTE-020 の `/notes/[id]` edit runtime、NTE-020 の 375px 長い Markdown / 長いタグ / 長い field error、NTE-030 の 375 / 768px 閲覧 / 復習 runtime。2026-07-05 の編集保存フローと、NTE-020 Policy C の edit レイアウト QA は別の確認単位です。
+- 過去の静的差分（2026-07-16 時点の履歴）: 当時の静的照合では、新規 `nextReviewDate = noteDate + 7日` 初期値と復習時 Summary の初期非表示を `FAIL（静的照合）` と記録しました。`MVP-GAP-001` と `MVP-GAP-002` の判定値は履歴として保持しますが、現行契約との差分を示すものではありません。
+- 現行コードの静的確認: 復習開始時の本文・Summary 内容の初期非表示、本文表示後の Summary 開示、復習開始時点の `Asia/Tokyo` の現在日付 + 7日の初期値、保存済み `nextReviewDate` の非再利用、変更・クリア、成功応答値の反映を確認しています。
+- 現行 Browser runtime: 最新 QA は Browser backend を利用できず未実施です。静的確認と過去の screenshot を現行 runtime PASS に読み替えず、Gate 0 は未通過のままです。
 - Phase 2: autosave、Undo / soft delete、専用復習タスク、NoteCard / D&D、PDF export、タグ管理 UI などは MVP の PASS に含めず、`TEST_SCENARIOS.md` の Phase 2 節で管理します。
 
-### NTE-020 方針Cの実画面確認（新規作成画面）
+### NTE-020 方針Cの実画面確認（Canvas 導入前の履歴）
 
-以下は、NTE-020 方針Cの新規ノート作成画面を実画面で確認したスクリーンショットです。新規作成画面の確認結果であり、`/notes/[id]` の編集画面の確認結果は含みません。
+NTE-020 方針Cの旧 Markdown 新規ノート作成画面を確認したスクリーンショットです。現行の Canvas editor / viewer 仕様や Gate 0 の証拠には使いません。`/notes/[id]` の編集画面の確認結果も含みません。
 
 | Viewport | 確認内容 | スクリーンショット |
 | --- | --- | --- |
 | 375px | Cornell部分のみ横スクロールを許容。 | ![NTE-020 方針C 新規作成 375px](doc/assets/screenshots/nte020-policy-c-new-375.png) |
 | 768px | タブレット幅での新規作成画面。 | ![NTE-020 方針C 新規作成 768px](doc/assets/screenshots/nte020-policy-c-new-768.png) |
-| 1280px | Cue / Note 約30% / 70%、本文入力とPreviewの横並び。 | ![NTE-020 方針C 新規作成 1280px](doc/assets/screenshots/nte020-policy-c-new-1280.png) |
-| 1440px | Cue / Note 約30% / 70%、本文入力とPreviewの横並び。 | ![NTE-020 方針C 新規作成 1440px](doc/assets/screenshots/nte020-policy-c-new-1440.png) |
+| 1280px | Cue / Note 約30% / 70%、旧本文 textarea と Markdown Preview の横並び。 | ![NTE-020 方針C 新規作成 1280px](doc/assets/screenshots/nte020-policy-c-new-1280.png) |
+| 1440px | Cue / Note 約30% / 70%、旧本文 textarea と Markdown Preview の横並び。 | ![NTE-020 方針C 新規作成 1440px](doc/assets/screenshots/nte020-policy-c-new-1440.png) |
 
-スクリーンショットを再取得する場合は、開発サーバーを起動してから主要画面を開き、画像を `doc/assets/screenshots/` 配下へ保存してください。
+過去の画面資料を再現する必要がある場合は、開発サーバーを起動してから主要画面を開き、画像を `doc/assets/screenshots/` 配下へ保存してください。
+
+この手順は、旧画面資料の再現方法を残したものです。
+
+現行 Gate 0 の再開指示ではありません。
 
 ```bash
 npm run dev -- -H 127.0.0.1 -p 3000
@@ -248,16 +178,17 @@ npm run dev -- -H 127.0.0.1 -p 3000
 
 ## 基本操作
 
-1. `/notes/new` でタイトル、学習日、Cue、本文、サマリー、タグ、次回復習日を入力します。
+1. `/notes/new` でタイトル、学習日、Markdown の Cue / Summary、Canvas 本文、タグ、次回復習日を入力します。新規ノートの次回復習日は `noteDate + 7日` で始まり、保存前に変更またはクリアできます。
 2. 保存すると `/notes/[id]` の詳細画面へ移動します。
 3. `/notes` で作成済みノートを検索します。
 4. 詳細画面で閲覧、編集、復習モードを切り替えます。
-5. 復習モードでは Cue を見て本文を想起し、本文表示と復習済み更新を行います。Summary の初期非表示は現行契約との差分として証跡マトリクスに記録しています。
-6. `/backup` または `npm run backup:copy` で SQLite DB をバックアップします。
+5. 復習モードでは Cue だけを想起情報として先に確認します。本文と Summary の内容は初期非表示で、本文を表示して確認した後に Summary を開きます。本文表示前は Summary を開けません。
+6. 復習用の次回復習日は、復習モードへ入った時点の `Asia/Tokyo` の現在日付 + 7日で始まり、保存済み値を再利用しません。復習完了前に変更またはクリアでき、成功後は API 応答値が画面へ反映されます。
+7. `/backup` または `npm run backup:copy` で SQLite DB をバックアップします。
 
 ## ノートの削除と復元
 
-ノートの削除は詳細画面で確認 UI を表示し、確認後に `DELETE /api/notes/:id` を実行して Notebook を物理削除します。Cue と NotebookTag の関連も cascade で削除されます。MVP では削除後の Undo / 復元を保証しません。
+ノートの削除は詳細画面で確認 UI を表示し、確認後に `DELETE /api/notes/:id` を実行して Notebook を物理削除します。NotebookCanvas、Cue、NotebookTag の関連も cascade で削除されます。MVP では削除後の Undo / 復元を保証しません。
 
 5 秒 Undo Snackbar、ソフトデリート、Undo buffer（`SoftDeleteBuffer`）、`/api/undo`、期限切れ後の purge は現行 MVP には含まれず、Phase 2 以降の機能です。
 
@@ -266,11 +197,16 @@ npm run dev -- -H 127.0.0.1 -p 3000
 MVP の DB は Prisma + SQLite です。主なモデルは次のとおりです。
 
 - `Notebook`: ノート本体
+- `NotebookCanvas`: Canvas 本文の `CanvasDocumentV1` JSON と一覧検索用 `searchText`
 - `Cue`: キーワード / 質問
 - `Tag`: タグ
 - `NotebookTag`: ノートとタグの中間テーブル
 
-2026-07-18 の `prisma/migrations/20260718011243_remove_notebook_overview/migration.sql` 適用により、Notebook の旧 overview 列は削除済みです。現行のノート項目はタイトル、学習日、学習元、タグ、Cue、本文、Summary、次回復習日、最終復習日時です。
+新規ノートは `bodyMode=canvas` で作成します。`Notebook.body` は空文字とし、本文の正本を `NotebookCanvas.documentJson` 内の `CanvasDocumentV1` に保存します。`bodyMode=markdown` と `Notebook.body` は既存ノートの互換表示に限り、Canvas へ自動変換しません。Cue と Summary は Markdown のまま編集・保存し、sanitize した preview で表示します。
+
+一覧のフリーワード検索は title、Summary、Cue、legacy Markdown の `Notebook.body`、Canvas text 要素から生成した `NotebookCanvas.searchText` を対象にします。Canvas の用紙寸法だけを変更した場合は text 要素が変わらないため、`searchText` も変えません。
+
+2026-07-18 の `prisma/migrations/20260718011243_remove_notebook_overview/migration.sql` 適用により、Notebook の旧 overview 列は削除済みです。現行のノート項目はタイトル、学習日、学習元、タグ、Cue、Canvas または legacy Markdown 本文、Summary、次回復習日、最終復習日時です。
 
 DB の作成と migration は次で行います。
 
@@ -295,7 +231,11 @@ npm run prisma:generate
 - 画面から作成: `/backup`
 - コマンドで作成: `npm run backup:copy`
 
-`npm run backup:copy` は開始時にプロジェクト直下の `.env` を読み込みます。shell の `DATABASE_URL` は上書きされず、空・空白・非 `file:` URL・空 path の URL、query / fragment 付き URL、authority 付き `file://` URL や、custom path の DB が存在しない場合は fallback の `dev.db` をコピーせずエラーになります。runtime と同じく、percent-encoded path は decode せず URL の文字列どおりの実ファイル名を対象にします。
+`npm run backup:copy` は開始時にプロジェクト直下の `.env` を読み込みます。shell の `DATABASE_URL` は上書きしません。
+
+空・空白・非 `file:` URL・空 path の URL、query / fragment 付き URL、authority 付き `file://` URL はエラーになります。custom path の DB が存在しない場合も同じです。fallback の `dev.db` はコピーしません。
+
+runtime と同様に、percent-encoded path は decode せず、URL の文字列どおりの実ファイル名を対象にします。
 
 仕様:
 
@@ -304,8 +244,7 @@ npm run prisma:generate
 - 4 世代目以降は古いものから削除されます。
 - バックアップファイルからの自動復元は MVP 外です。
 
-復元が必要な場合は、アプリを停止した上でバックアップされた `.db` を手動で DB ファイルの場所へ戻す運用になります。
-これはバックアップファイルの手動復旧であり、ノート削除後の Undo / 個別復元機能ではありません。
+復元する場合は、アプリを停止してから、バックアップされた `.db` を手動で DB ファイルの場所へ戻します。これはバックアップファイルの手動復旧であり、ノート削除後の Undo / 個別復元機能ではありません。
 
 ## 検証
 
@@ -320,19 +259,21 @@ npm run build
 
 主要フローの手動確認:
 
-- `/notes/new` でノートを作成できる。
-- `/notes` でタイトル、日付、タグ、復習対象による検索ができる。
-- `/notes/[id]` で詳細閲覧できる。
-- 詳細画面で編集して保存できる。
-- 詳細画面の復習モードで本文の表示 / 非表示と復習済み更新ができる。
+- `/notes/new` で Canvas 本文と Markdown の Cue / Summary を持つノートを作成できる。
+- `/notes` で title、Summary、Cue、legacy Markdown 本文、Canvas `searchText` のフリーワード検索と、日付、タグ、復習対象による絞り込みができる。
+- `/notes/[id]` で Canvas viewer または legacy Markdown 互換表示の本文を閲覧できる。
+- 詳細画面で Canvas editor または legacy Markdown 互換 UI を使って編集し、保存できる。
+- 詳細画面の復習モードで Cue → 本文表示・確認 → Summary 開示の順序を保ち、次回復習日を変更またはクリアして復習済み更新ができる。復習開始時は `Asia/Tokyo` の現在日付 + 7日を初期表示し、成功後は API 応答値を反映する。
 - `/backup` または `npm run backup:copy` でバックアップを作成できる。
 
 ## 設計書
 
-MVP の仕様と設計は次を参照してください。
+MVP の仕様と設計は、次の文書を参照してください。
 
 - `doc/README.md`
+- `doc/requirements/PRODUCT_SPEC.md`
 - `doc/requirements/MVP_SYSTEM_SPEC.md`
+- `doc/implementation/MVP_CONTRACT.md`
 - `doc/workflows/MVP_WORKFLOW_DESIGN.md`
 - `doc/screens/MVP_SCREEN_INVENTORY.md`
 - `doc/diagrams/MVP_UML_DESIGN.md`
@@ -344,7 +285,7 @@ MVP の仕様と設計は次を参照してください。
 
 ## Design Studio
 
-Google Stitch / Claude Design のように、画面案作成、比較、実装受け渡しを Codex 内で回すための repo-local plugin とテンプレートを用意しています。
+画面案の作成、比較、実装への受け渡しを Codex 内で行う repo-local plugin とテンプレートです。Google Stitch / Claude Design に似た流れを扱います。
 
 初回のみ Codex CLI で marketplace と plugin を追加します。
 
@@ -365,11 +306,14 @@ MVP では次の機能は対象外です。
 - 専用復習タスク画面
 - D&D によるカード並び替え
 - バックアップからの自動復元
-- ユーザー管理、共有、外部同期（Hosted の単一ユーザー Basic Auth は公開境界として別途提供）
+- 認証、ユーザー管理、共有、外部同期
 
-ビルドは network restricted 環境でも通るよう、Google Fonts 取得を使わず system font stack を使用します。Next.js 16 の Turbopack build は一部 sandbox で port bind 制限に当たるため、`npm run build` は `next build --webpack` を使います。
+`NoteCard`、`CueCard`、`NoteCueLink` は現行 MVP に存在しません。Canvas 本文との関係は Phase 2 の未決事項であり、Gate 0 通過後に Canvas 維持、カード併用、カード不採用を比較します。legacy `Notebook.body` の order 0 カード化や Canvas からの自動変換は決定していません。
+
+部分消しゴムは [`doc/designs/CANVAS_PARTIAL_ERASER_DESIGN.md`](doc/designs/CANVAS_PARTIAL_ERASER_DESIGN.md) の将来提案です。
+
+Gate 0 通過後に現行パスと正本の状態を再確認してから、投入可否を判断します。
+
+network restricted 環境でもビルドできるよう、Google Fonts を取得せず system font stack を使います。Next.js 16 の Turbopack build は一部 sandbox の port bind 制限に当たるため、`npm run build` では `next build --webpack` を実行します。
 
 2026-06-21 時点で `npm audit --audit-level=moderate` は moderate 3 件を報告します。対象は `brace-expansion` と Next.js 経由の `postcss` です。依存更新は MVP final verification では実施していません。
-
-このアプリは Local では個人利用向けに認証を無効化できます。Vercel Preview /
-Production へ配置する場合は、上記の app-level Basic Auth と HTTPS を必ず設定してください。

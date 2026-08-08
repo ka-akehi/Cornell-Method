@@ -4,11 +4,11 @@
 
 ## 目的
 
-この文書は、`doc/technical/TARGET_ARCHITECTURE.md` を正として、現行 MVP の動作を壊さずにアーキテクチャを段階移行するための実行計画を整理する。
+`doc/technical/TARGET_ARCHITECTURE.md` を正として、現行 MVP の動作を維持しながらアーキテクチャを段階移行する実行計画を定める。
 
-この移行は Phase 2 機能追加を始める前の土台作りであり、機能追加そのものではない。目的は、後続の Worker coding task を小さく切れるように、移行順序、依存関係、タスク粒度、完了条件、検証方針を明確にすることである。
+この移行は Phase 2 機能追加前の土台作りに限る。移行順序、依存関係、タスク粒度、完了条件、検証方針を定めることで、後続の Worker coding task を小さく分けられるようにする。
 
-成果は「層やディレクトリが増えること」ではなく、既存 MVP の UI / API / backup / Markdown の主要フローを維持したまま、変更理由ごとの責務が追いやすくなることで判断する。
+既存 MVP の UI / API / backup / Markdown の主要フローを維持し、変更理由ごとの責務を追いやすくできたかで移行の成果を判断する。
 
 ## 前提となる設計方針
 
@@ -44,10 +44,10 @@
 - UI component に fetch、payload 変換、複雑な form state、表示 component が集中している。
 - 将来差し替えの可能性が高い副作用境界がある。例: Prisma、filesystem backup、PDF provider。
 
-逆に、次の場合は移動しない。
+次の場合は移動しない。
 
 - 既存ファイルが十分小さく、次の変更理由がまだ見えていない。
-- wrapper が単に同名関数を呼ぶだけで、責務を隠せていない。
+- wrapper が同名関数を呼ぶだけで、責務を隠せていない。
 - 抽象化のために import 経路だけが増え、検証可能な安定化がない。
 
 ## 推奨移行順序
@@ -62,7 +62,7 @@
 
 ### 2. Prisma singleton / server infrastructure 境界整理
 
-目的: Prisma の生成・共有場所を `server/infrastructure` に寄せ、Route Handler が DB client の所在を直接意識しない状態へ近づける。
+目的: Prisma の生成と共有の場所を `server/infrastructure` に寄せ、Route Handler の DB client 配置への依存を減らす。
 
 - 既存 singleton がある場合は、それを移動または re-export する最小変更に留める。
 - DB schema や migration は変更しない。
@@ -84,7 +84,7 @@
 
 ### 5. notes route handler の薄型化
 
-目的: `app/api/notes/**/route.ts` を HTTP adapter に寄せる。
+目的: `app/api/notes/**/route.ts` の責務を request parse、service call、response に絞る。
 
 - list/get/create/update/delete/review のうち、まず read 系から service / repository へ移す。
 - 次に command 系を移す。
@@ -100,7 +100,7 @@
 
 ### 7. UI component / hook 分割
 
-目的: NotesList、NoteEditor、NoteDetailModes の巨大化を抑え、UI state と表示 component の責務を分ける。
+目的: NotesList、NoteEditor、NoteDetailModes から UI state と表示 component の責務を分ける。
 
 - まず remote 導入後に、fetch / payload 変換を component から除く。
 - 次に form state、tag input、cue editor、markdown field など、既に責務が見えている単位で分ける。
@@ -140,7 +140,7 @@
 
 ## 最初に着手すべき coding task
 
-最初に着手すべき task は `arch-api-shared-http-errors` とする。
+最初の task は `arch-api-shared-http-errors` とする。
 
 理由:
 
@@ -165,7 +165,7 @@
 - backup に触れた場合は `/backup` 表示、`POST /api/backups`、必要なら `npm run backup:copy` を確認する。
 - 検証できない場合は、実行したコマンド、失敗理由、未確認リスクを task summary に残す。
 
-docs/review task は、対象ファイル作成または更新後に `git diff -- <file>`、未追跡ファイルの場合は `sed -n` などで内容確認する。
+docs/review task では、対象ファイルの作成または更新後に `git diff -- <file>` で内容を確認する。未追跡ファイルは `sed -n` などで確認する。
 
 ## 判断保留事項
 

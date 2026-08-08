@@ -9,6 +9,7 @@ import {
   NotesRemoteError,
 } from "@/modules/notes/remote";
 import { normalizeSourceType } from "@/modules/notes/model";
+import { addDaysToDateString, todayDateString } from "@/shared/date";
 import {
   NoteDetailEditActions,
   NoteDetailReviewActions,
@@ -21,6 +22,9 @@ import { NoteDetailReadView } from "./read-view";
 
 type Mode = "view" | "edit" | "review";
 type UrlMode = Exclude<Mode, "review">;
+type ReviewSuccessFeedback = {
+  nextReviewDate: string | null;
+};
 
 export type NoteDetailModesProps = {
   initialNote: NoteDetailResponse;
@@ -42,6 +46,8 @@ export function NoteDetailModes({
   const [reviewing, setReviewing] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [reviewSuccess, setReviewSuccess] =
+    useState<ReviewSuccessFeedback | null>(null);
 
   function replaceModeUrl(nextMode: UrlMode) {
     const nextSearchParams = new URLSearchParams(searchParams.toString());
@@ -57,6 +63,7 @@ export function NoteDetailModes({
   }
 
   function enterEditMode() {
+    setReviewSuccess(null);
     replaceModeUrl("edit");
     setMode("edit");
   }
@@ -67,13 +74,20 @@ export function NoteDetailModes({
   }
 
   async function submitReview() {
+    const submittedNextReviewDate = reviewNextDate || null;
+
     setReviewing(true);
     setError(null);
+    setReviewSuccess(null);
 
     try {
       const data = await completeReview(note.id, {
         nextReviewDate: reviewNextDate || null,
       });
+      const confirmedNextReviewDate =
+        data.nextReviewDate !== undefined
+          ? data.nextReviewDate
+          : submittedNextReviewDate;
 
       setNote((current) => ({
         ...current,
@@ -83,6 +97,7 @@ export function NoteDetailModes({
       setReviewNextDate(data?.nextReviewDate ?? "");
       setShowBody(false);
       setShowSummary(false);
+      setReviewSuccess({ nextReviewDate: confirmedNextReviewDate });
       setMode("view");
       router.refresh();
     } catch (caught) {
@@ -158,6 +173,7 @@ export function NoteDetailModes({
       note={note}
       mode={mode}
       error={error}
+      reviewSuccess={reviewSuccess}
       showBody={showBody}
       showSummary={showSummary}
       onShowBody={() => setShowBody(true)}
@@ -181,9 +197,10 @@ export function NoteDetailModes({
           <NoteDetailViewActions
             onEdit={enterEditMode}
             onReview={() => {
+              setReviewSuccess(null);
               setShowBody(false);
               setShowSummary(false);
-              setReviewNextDate(note.nextReviewDate ?? "");
+              setReviewNextDate(addDaysToDateString(todayDateString(), 7));
               setMode("review");
             }}
           />

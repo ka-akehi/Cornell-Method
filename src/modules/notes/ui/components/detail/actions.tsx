@@ -3,18 +3,6 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 
-function NoteDetailModeActionBar({ children }: { children: ReactNode }) {
-  return (
-    <div
-      className="note-paper-mode-actions"
-      role="group"
-      aria-label="ノートモード操作"
-    >
-      {children}
-    </div>
-  );
-}
-
 function NoteDetailHeadingActions({ children }: { children: ReactNode }) {
   return (
     <div
@@ -47,7 +35,7 @@ export function NoteDetailReviewModeActions({
   onBackToView: () => void;
 }) {
   return (
-    <NoteDetailModeActionBar>
+    <NoteDetailHeadingActions>
       <button
         type="button"
         onClick={onBackToView}
@@ -55,7 +43,7 @@ export function NoteDetailReviewModeActions({
       >
         閲覧へ戻る
       </button>
-    </NoteDetailModeActionBar>
+    </NoteDetailHeadingActions>
   );
 }
 

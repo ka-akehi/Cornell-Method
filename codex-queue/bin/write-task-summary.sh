@@ -8,6 +8,8 @@ watch_root=""
 worker_name=""
 task_kind="worker-task"
 failure_output=""
+worker_report=""
+worker_report_max_chars=32000
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -39,6 +41,10 @@ while [ "$#" -gt 0 ]; do
       failure_output="$2"
       shift 2
       ;;
+    --worker-report)
+      worker_report="$2"
+      shift 2
+      ;;
     *)
       echo "Unknown argument: $1" >&2
       exit 2
@@ -47,7 +53,7 @@ while [ "$#" -gt 0 ]; do
 done
 
 if [ -z "$status" ] || [ -z "$task_file" ] || [ -z "$changed_since" ] || [ -z "$watch_root" ]; then
-  echo "Usage: write-task-summary.sh --status <done|failed> --task <path> --changed-since <file> --watch-root <path> [--worker <name>] [--kind <kind>] [--failure-output <path>]" >&2
+  echo "Usage: write-task-summary.sh --status <done|failed> --task <path> --changed-since <file> --watch-root <path> [--worker <name>] [--kind <kind>] [--failure-output <path>] [--worker-report <path>]" >&2
   exit 2
 fi
 
@@ -78,6 +84,14 @@ changed_files="$(find "$watch_root" -type f -newer "$changed_since" \
   ! -path "$watch_root/codex-queue/tasks-ui/*" \
   ! -path "$watch_root/codex-queue/tasks-api/*" \
   ! -path "$watch_root/summary/*" \
+  ! -path "$watch_root/.next/*" \
+  ! -path "$watch_root/codex-queue/.state/*" \
+  ! -path "$watch_root/node_modules/*" \
+  ! -path "$watch_root/coverage/*" \
+  ! -path "$watch_root/playwright-report/*" \
+  ! -path "$watch_root/test-results/*" \
+  ! -path "$watch_root/out/*" \
+  ! -path "$watch_root/build/*" \
   2>/dev/null | sed "s#^$watch_root/##" | sort || true)"
 
 next_read_files="$(printf '%s\n' "$changed_files" | sed '/^$/d' | head -n 20)"
@@ -105,6 +119,41 @@ if [ "$status" = "failed" ] && [ -n "$failure_output" ] && [ -s "$failure_output
     failure_excerpt="$(tail -n 12 "$failure_output" | sed 's/[|]/\\|/g' || true)"
   fi
 fi
+
+worker_report_available=0
+worker_report_truncated=0
+if [ "$status" = "done" ] && [ -n "$worker_report" ] && [ -s "$worker_report" ]; then
+  worker_report_available=1
+  # Node decodes UTF-8 independently of LC_ALL; for...of counts Unicode code points.
+  worker_report_chars="$(node -e '
+    const fs = require("node:fs");
+    const report = fs.readFileSync(process.argv[1], "utf8");
+    const limit = Number(process.argv[2]);
+    let count = 0;
+    for (const character of report) {
+      count += 1;
+      if (count > limit) break;
+    }
+    process.stdout.write(String(count));
+  ' "$worker_report" "$worker_report_max_chars")"
+  if [ "$worker_report_chars" -gt "$worker_report_max_chars" ]; then
+    worker_report_truncated=1
+  fi
+fi
+
+write_truncated_worker_report() {
+  node -e '
+    const fs = require("node:fs");
+    const report = fs.readFileSync(process.argv[1], "utf8");
+    const limit = Number(process.argv[2]);
+    const output = [];
+    for (const character of report) {
+      if (output.length >= limit) break;
+      output.push(character);
+    }
+    process.stdout.write(output.join(""));
+  ' "$worker_report" "$worker_report_max_chars"
+}
 
 {
   printf '%s\n' '---'
@@ -158,6 +207,22 @@ fi
     printf '| F-003 | fact | 失敗理由の推定: %s | Failure Reason |\n' "$failure_reason"
   fi
   printf '| A-001 | assumption | 後続作業ではこの summary の Next Read を起点にすれば raw log 再読を避けられる。 | summary 運用ルール |\n\n'
+
+  if [ "$status" = "done" ]; then
+    printf '## Worker Report\n\n'
+    if [ "$worker_report_available" -eq 1 ]; then
+      if [ "$worker_report_truncated" -eq 1 ]; then
+        write_truncated_worker_report
+        printf '\n\n'
+        printf '%s\n\n' '> Worker Report は 32,000 文字の上限で切り詰めた。'
+      else
+        cat "$worker_report"
+        printf '\n\n'
+      fi
+    else
+      printf '%s\n\n' 'Worker の最終報告を取得できなかった（専用出力ファイルが空または存在しない）。'
+    fi
+  fi
 
   if [ "$status" = "failed" ]; then
     printf '## Failure Reason\n\n'

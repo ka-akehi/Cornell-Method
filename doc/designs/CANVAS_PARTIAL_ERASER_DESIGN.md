@@ -1,8 +1,17 @@
 # Canvas 部分消去 設計提案
 
 作成日: 2026-07-18（JST）
-状態: 提案（この文書ではコード、設定、DB、マイグレーションを変更しない）
+現行照合日: 2026-08-08
+状態: Gate 0 通過後・未投入の設計候補（この文書ではコード、設定、DB、マイグレーションを変更しない）
 対象: `CanvasDocumentV1` と Fabric.js 7.4.0 を使う Canvas 本文
+
+この文書は部分消しゴムの将来提案です。
+
+現行 MVP は whole-object eraser（触れた要素を object 単位で消去する消しゴム）を提供し、部分消しゴムは実装済み機能ではありません。
+
+Gate 0（人力 MVP 結合テスト）と Browser runtime QA が完了し、発注者が後続作業を承認するまで、Phase 1-A〜1-D の coding 案を投入しません。
+
+実装を開始する場合は、[`IMPLEMENTATION_STATUS.md`](../implementation/IMPLEMENTATION_STATUS.md)、[`TEST_SCENARIOS.md`](../testing/TEST_SCENARIOS.md)、[`HANDOFF_2026-08-08.md`](../../HANDOFF_2026-08-08.md)、[`POST_MVP_IMPLEMENTATION_PLAN.md`](../implementation/POST_MVP_IMPLEMENTATION_PLAN.md) を確認し、`rg --files src` で現行パスを再確認します。
 
 ## 1. 結論
 
@@ -11,7 +20,7 @@
 1. 現行の `消しゴム` は `オブジェクト全体を消す` モードとして固定する。既存の自由線、直線、矢印、四角、円、テキストを対象にでき、現在の UI / 履歴挙動を壊さない。
 2. 将来の `部分消去` は、最初は `stroke`（自由線）だけを対象にする。ページ座標上の消しゴム軌跡と自由線の polyline を計算し、残った連続区間を複数の `stroke` 要素へ分割して `CanvasDocumentV1` として保存する。
 
-部分消去の正本は、Fabric の内部 JSON、`eraser` / `clipPath` / `mask`、Canvas の画像データではなく、アプリ所有の vector JSON とします。分割後の要素は現在の V1 の `type`, `points`, `style`, `z` だけで表現できるため、最初の部分消去では `schemaVersion` を 1 のまま維持し、Prisma migration や `NotebookCanvas` の新しいカラムを追加しません。
+部分消去の正本には、アプリ所有の vector JSON を使います。Fabric の内部 JSON、`eraser` / `clipPath` / `mask`、Canvas の画像データは保存しません。分割後の要素は現在の V1 の `type`, `points`, `style`, `z` だけで表現できるため、最初の部分消去では `schemaVersion` を 1 のまま維持し、Prisma migration や `NotebookCanvas` の新しいカラムを追加しません。
 
 `line`、`arrow`、`rect`、`ellipse`、`text` の輪郭や字形だけを削る意味は種類ごとに異なります。最初の部分消去モードではこれらを変更せず、対象外であることを UI に明示します。全体を消したい場合は、既存のオブジェクト消去モードを使います。
 
@@ -40,10 +49,10 @@
 | ファイル | 現行の責務 | 部分消去で注意する点 |
 | --- | --- | --- |
 | `src/shared/canvas/index.ts`（公開 facade。実体は `canvas-document-types.ts`、`canvas-document-defaults.ts`、`canvas-document-validation.ts`、`canvas-document-serialization.ts`、`canvas-document-search.ts`） | V1 の型、既定ページ、validation、serialize / restore、`searchText` 抽出 | 部分消去後もこの契約だけを通す。V1 に mask や gap の未知フィールドを足さない |
-| `src/app/spikes/canvas/_lib/fabric-adapter.ts` | V1 と Fabric オブジェクトの相互変換 | Fabric オブジェクトを正本にせず、分割処理はページ座標の V1 を入力にする |
-| `src/app/notes/_components/note-canvas-editor.tsx` | Fabric の描画、編集、現在の全体消去、ページサイズ、Canvas 履歴 | pointer move ごとに履歴を積まず、消去開始時の状態から pointer up 時に一度だけ commit する |
-| `src/app/notes/_components/note-canvas-viewer.tsx` | 保存済み V1 の read-only 描画と text の補助表示 | V1 の複数 stroke は特別な viewer 実装なしで描画できる。text の検索・補助表示は従来どおり |
-| `src/server/notes/infrastructure/command.repository.ts` | V1 validation、JSON 保存、`searchText` 再生成、`NotebookCanvas` upsert | 分割後も全体 document を検証し、`searchText` はサーバーで再生成する |
+| `src/shared/canvas/adapters/fabric/fabric-adapter.ts` | V1 と Fabric オブジェクトの相互変換 | Fabric オブジェクトを正本にせず、分割処理はページ座標の V1 を入力にする |
+| `src/modules/notes/ui/components/canvas/editor.tsx`、`src/modules/notes/ui/hooks/use-note-canvas-runtime.ts` | Fabric の描画、編集、現在の全体消去、ページサイズ、Canvas 履歴 | pointer move ごとに履歴を積まず、消去開始時の状態から pointer up 時に一度だけ commit する |
+| `src/modules/notes/ui/components/canvas/viewer.tsx` | 保存済み V1 の read-only 描画と text の補助表示 | V1 の複数 stroke は特別な viewer 実装なしで描画できる。text の検索・補助表示は従来どおり |
+| `src/server/notes/infrastructure/notebook.command.repository.ts`、`src/server/notes/infrastructure/canvas.persistence.ts` | V1 validation、JSON 保存、`searchText` 再生成、`NotebookCanvas` upsert | 分割後も全体 document を検証し、`searchText` はサーバーで再生成する |
 | `src/server/notes/infrastructure/read.repository.ts` | `NotebookCanvas.searchText` を含む一覧検索 | stroke の分割では値を変えない。text 全体消去時だけ再計算結果から該当文が消える |
 | `prisma/schema.prisma` | `Notebook` と 1:1 の `NotebookCanvas` 保存境界 | 部分消去専用の行、mask、履歴、fragment table は追加しない |
 | `doc/implementation/MVP_CONTRACT.md` ほか | 現行 MVP の正本 | この設計は提案書であり、正本の契約を直接変更しない |
@@ -117,7 +126,7 @@ type CanvasElementV1 = {
 | `ellipse` | `fabric.Ellipse` | 同上。部分的な穴は V1 shape だけでは表せない |
 | `text` | 編集可能な `fabric.Textbox` | 部分消去すると見た目と検索用全文、再編集時の文字列が不一致になる |
 
-Fabric から V1 へ戻す際は `getBoundingRect()` を使い、points を bounds へスケールして再構成します。arrow は group の bounds を経由します。このため、部分消去処理を「Fabric オブジェクトを切って、その直後に `fabricCanvasToDocument()` する」方式にすると、元の points、group の bounds、rotation を意図せず変えるリスクがあります。部分消去の source of truth は `history.present` または直前に保存された V1 とし、処理結果を `fabricDocumentToCanvas()` で再描画します。
+Fabric から V1 へ戻す際は `getBoundingRect()` を使い、points を bounds へスケールして再構成します。arrow は group の bounds を経由します。Fabric オブジェクトを切った直後に `fabricCanvasToDocument()` を実行すると、元の points、group の bounds、rotation が変わるおそれがあります。部分消去は `history.present` または直前に保存された V1 を入力とし、処理結果を `fabricDocumentToCanvas()` で再描画します。
 
 ### 3.4 現在のオブジェクト消去と履歴
 
@@ -136,7 +145,7 @@ Fabric から V1 へ戻す際は `getBoundingRect()` を使い、points を boun
 | `消しゴム（全体）` | 全 element type | Fabric の hit target を要素単位で削除する。現在の `消しゴム` の互換挙動 |
 | `部分消去（自由線）` | `stroke` のみ | 消しゴム軌跡に重なった自由線の区間だけを削除し、残りを複数 stroke として保存する |
 
-`部分消去（自由線）` が `line`、`arrow`、`rect`、`ellipse`、`text` に触れても、そのモードでは変更しません。ツールチップ、補助説明、`aria-describedby`、画面内 status に「自由線のみ。図形・矢印・テキストは全体消去を使用」と明示します。部分消去の見た目と whole erase の意味を一つの曖昧なボタンへ混ぜないことが、誤削除を避ける最小の UX です。
+`部分消去（自由線）` が `line`、`arrow`、`rect`、`ellipse`、`text` に触れても、そのモードでは変更しません。ツールチップ、補助説明、`aria-describedby`、画面内 status に「自由線のみ。図形・矢印・テキストは全体消去を使用」と明示します。部分消去と whole erase に別のボタンと説明を与え、誤削除を防ぎます。
 
 ### 4.2 要素別の判断
 
@@ -229,15 +238,15 @@ pageY = (clientY - rect.top)  / rect.height * page.height
 | keyboard 操作 | `[` / `]` で直径を 4 px 単位で変更する案 |
 | 圧力感度 | 初期対象外。radius は gesture 中固定 |
 
-ユーザーが指定する radius は、消しゴム円の半径です。実際に stroke の中心線を除去する判定では、描画された stroke の太さも考慮し、次の `effectiveRadius` を使います。
+内部で使う `radius` は消しゴム円の半径で、UI の `消しゴム径` の半分に当たります。stroke の中心線を除去する判定では、描画された stroke の太さも考慮し、次の `effectiveRadius` を使います。
 
 ```text
 effectiveRadius = eraserRadius + max(stroke.style.strokeWidth ?? 3, 1) / 2
 ```
 
-これは消しゴムの円が線の描画領域に触れたら消える、というユーザーに理解しやすい意味です。strokeWidth の検証値が不正な場合は V1 validation で拒否し、アルゴリズム内部では fallback `3` を使います。
+この式により、消しゴムの円が線の描画領域に触れた区間を消去します。strokeWidth の検証値が不正な場合は V1 validation で拒否し、アルゴリズム内部では fallback `3` を使います。
 
-pointer move の点をそれぞれ独立した円とみなすのではなく、隣接点を結ぶ swept capsule として扱います。高速な pointer move の間に隙間ができないことが目的です。ブラウザが提供する coalesced events が使える場合は利用してもよいですが、保存はしません。
+pointer move の隣接点を swept capsule で結び、高速な移動でも未消去の隙間ができないようにします。ブラウザが提供する coalesced events が使える場合は利用してもよいですが、保存はしません。
 
 ページ端では pointer を `0〜page.width` / `0〜page.height` に clamp します。消しゴム円がページ外へはみ出しても、要素をページ境界で clipping しません。境界上の要素は、ページ内の消しゴム円に触れた区間だけを消します。もともとページ外にある点も、同じ座標規則で判定します。
 
@@ -257,11 +266,11 @@ pointer move の点をそれぞれ独立した円とみなすのではなく、�
 8. 元要素を fragment 群で同じ配列位置に置き換える。fragment は元の順番で隣接させ、他要素の順序を変えない。
 9. 結果全体を `validateCanvasDocument()` / `serializeCanvasDocument()` に通す。上限超過なら、見た目も履歴も保存通知も含めて gesture 全体を atomic に破棄する。
 
-この方式は保存された polyline の精度を保つ方式であり、元の pointer raster を再現する pixel eraser ではありません。元の stroke points に存在しない細かな曲率は推測せず、保存済み segment の geometry だけを対象にします。
+この方式は、保存済み polyline の精度で消去区間を計算します。元の pointer raster や、stroke points に存在しない細かな曲率は再現せず、保存済み segment の geometry だけを対象にします。
 
 ### 6.5 element ID、座標、style、z の規則
 
-分割すると一つの元要素を複数要素へ表すため、全 fragment に同じ ID を複製することはしません。V1 には lineage field がなく、ID 重複は選択、React key、将来の差分更新を壊すためです。
+一つの元要素を複数の fragment へ分割するとき、全 fragment に同じ ID は複製しません。V1 には lineage field がなく、ID 重複は選択、React key、将来の差分更新を壊すためです。
 
 - 元の `id` は、元の points 順で最も早い survivor にだけ引き継ぐ。
 - 2 個目以降の survivor は `createElementId("stroke")` で新しい ID を発行する。
@@ -288,7 +297,7 @@ pointer move の点をそれぞれ独立した円とみなすのではなく、�
 
 ### 7.1 Adapter の境界
 
-部分消去の純粋な処理は、Fabric API を知らない shared canvas utility に置くことを推奨します。想定する責務は次の分離です。
+部分消去の純粋な処理は、Fabric API に依存しない shared canvas utility に置くことを推奨します。責務は次のように分けます。
 
 ```text
 history.present (CanvasDocumentV1)
@@ -351,7 +360,7 @@ V1 の分割 stroke は通常の複数 Polyline なので、`NoteCanvasViewer` �
 
 ### 8.3 将来 autosave / API 差分送信
 
-現行 MVP では autosave / 409 は実装しません。将来 `NotebookDraftState` を導入する際は、pointer event 一つごとの送信ではなく、**一回の erase gesture を一つの mutation** として送ります。
+現行 MVP では autosave / 409 は実装しません。将来 `NotebookDraftState` を導入する際は、**一回の erase gesture を一つの mutation** として送ります。pointer event ごとの送信は行いません。
 
 初期の安全な選択肢は、既存の 2 MiB 上限内で gesture 後の Canvas 全体を送ることです。通信量の測定後に差分送信を導入する場合は、次の要素差分を推奨します。
 
@@ -432,7 +441,7 @@ V1 の分割 stroke は通常の複数 Polyline なので、`NoteCanvasViewer` �
 
 処理は、まず bounds で候補 stroke を絞り、その後 segment 距離を計算します。目標は通常の手書き document で pointer move の UI が追従し、pointer up の分割処理が 200ms 以内に完了することです。20,000 points の worst case は別測定とし、超過時は UI をブロックし続けず、未 commit のままエラー表示して戻します。
 
-毎 move に document 全体を JSON serialize したり Fabric canvas 全体を再構成したりしないことが重要です。最終 pointer up の一回だけ validation / serialize / history commit を行い、preview の再描画は requestAnimationFrame 単位で制御します。
+document 全体の JSON serialize と Fabric canvas 全体の再構成は、pointer move ごとには実行しません。最終 pointer up の一回だけ validation / serialize / history commit を行い、preview の再描画は requestAnimationFrame 単位で制御します。
 
 ### 10.2 セキュリティと堅牢性
 
@@ -511,24 +520,30 @@ V1 の分割 stroke は通常の複数 Polyline なので、`NoteCanvasViewer` �
 - raw Fabric JSON、未知 style field、巨大 text、巨大 points、悪意のある SVG / HTML が正本へ入らないこと。
 - 保存 JSON が `NotebookCanvas.documentJson` のみで、画像 asset、Fabric internal eraser、mask の別保存を作らないこと。
 
-## 13. 段階導入と次の coding task
+## 13. Gate 0 通過後の候補段階（未投入）
 
-### Phase 0: この設計（完了条件）
+この節は、Gate 0 通過後に部分消しゴムを採用すると決めた場合の設計候補です。
+
+現在の queue への投入順、実装開始、MVP の現行機能を示しません。
+
+各候補の開始前に、現行の正本と `rg --files src` の結果を再確認します。
+
+### 候補 0: この設計の確認（実装未着手）
 
 対象: `doc/designs/CANVAS_PARTIAL_ERASER_DESIGN.md` と索引リンクのみ。
 
 - 方式比較、要素別挙動、座標 / 半径 / 境界 / 上限、履歴、互換性、API 方針が確定している。
 - `CanvasDocumentV1`、Fabric adapter、Prisma、DB、依存関係、生成物を変更しない。
 
-### Phase 1-A: 現行 object erase の回帰固定
+### 候補 A（旧 Phase 1-A 相当）: 現行 object erase の回帰固定（Gate 0 通過後・未投入）
 
 想定 task 名: `CANVAS-ERASER-001-object-erase-contract`
 
 対象ファイル:
 
-- `src/app/notes/_components/note-canvas-editor.tsx`
-- `src/app/notes/_components/note-canvas-toolbar.tsx`
-- `src/app/spikes/canvas/_components/fabric-canvas-panel.tsx`
+- `src/modules/notes/ui/components/canvas/editor.tsx`
+- `src/modules/notes/ui/components/canvas/toolbar.tsx`
+- `src/modules/notes/ui/hooks/use-note-canvas-runtime.ts`
 - 既存の Canvas テスト fixture / `doc/testing/TEST_SCENARIOS.md` は実装 task の受け入れ証跡として必要な範囲だけ
 
 実装内容:
@@ -550,16 +565,16 @@ V1 の分割 stroke は通常の複数 Polyline なので、`NoteCanvasViewer` �
 - 50 history 上限と新規操作後の redo 破棄。
 - `npm run lint`、`npm run build`、対象 route の手動確認。
 
-### Phase 1-B: 自由線の pure partial eraser
+### 候補 B（旧 Phase 1-B 相当）: 自由線の pure partial eraser（Gate 0 通過後・未投入）
 
 想定 task 名: `CANVAS-ERASER-002-stroke-split-geometry`
 
 対象ファイル:
 
-- 新規 `src/shared/canvas/canvas-eraser.ts`
+- 新規候補 `src/shared/canvas/canvas-eraser.ts`（現時点では存在しない）
 - `src/shared/canvas/index.ts`
-- 必要最小限の canvas document helper（既存 `canvas-document.ts` を直接変更する場合は V1 契約を壊さない範囲に限定）
-- pure geometry fixture / test file
+- 必要最小限の Canvas document helper（既存の `src/shared/canvas/canvas-document-*.ts` を直接変更する場合は V1 契約を壊さない範囲に限定）
+- pure geometry fixture / test file（新規候補。現時点では存在しない）
 
 実装内容:
 
@@ -573,16 +588,17 @@ V1 の分割 stroke は通常の複数 Polyline なので、`NoteCanvasViewer` �
 - V1 の `schemaVersion=1`、既存 element shape、既存上限を維持する。
 - input path、DPR、Fabric object を保存結果へ混ぜない。
 
-### Phase 1-C: Editor への partial mode 統合
+### 候補 C（旧 Phase 1-C 相当）: Editor への partial mode 統合（Gate 0 通過後・未投入）
 
 想定 task 名: `CANVAS-ERASER-003-editor-partial-stroke`
 
 対象ファイル:
 
-- `src/app/notes/_components/note-canvas-editor.tsx`
-- `src/app/notes/_components/note-canvas-toolbar.tsx`
-- `src/app/spikes/canvas/_lib/fabric-adapter.ts`
-- 必要に応じて `src/app/notes/_components/note-canvas-viewer.tsx`（V1 fragment の read-only 回帰だけ）
+- `src/modules/notes/ui/components/canvas/editor.tsx`
+- `src/modules/notes/ui/components/canvas/toolbar.tsx`
+- `src/modules/notes/ui/hooks/use-note-canvas-runtime.ts`
+- `src/shared/canvas/adapters/fabric/fabric-adapter.ts`
+- 必要に応じて `src/modules/notes/ui/components/canvas/viewer.tsx`（V1 fragment の read-only 回帰だけ）
 
 実装内容:
 
@@ -598,13 +614,14 @@ V1 の分割 stroke は通常の複数 Polyline なので、`NoteCanvasViewer` �
 - page size を変えても既存 elements と `searchText` が変わらない。
 - `fabricCanvasToDocument()` の bounds / arrow group を partial geometry の入力にしない。
 
-### Phase 1-D: Persistence / QA の回帰確認
+### 候補 D（旧 Phase 1-D 相当）: Persistence / QA の回帰確認（Gate 0 通過後・未投入）
 
 想定 task 名: `CANVAS-ERASER-004-persistence-qa`
 
 対象ファイル:
 
-- `src/server/notes/infrastructure/command.repository.ts`
+- `src/server/notes/infrastructure/notebook.command.repository.ts`
+- `src/server/notes/infrastructure/canvas.persistence.ts`
 - `src/server/notes/infrastructure/read.repository.ts`
 - `src/shared/canvas/index.ts`（公開 facade。Canvas document の実装は責務別ファイルに分割）
 - `prisma/schema.prisma` は変更せず、変更不要であることを確認する
@@ -623,7 +640,7 @@ V1 の分割 stroke は通常の複数 Polyline なので、`NoteCanvasViewer` �
 
 ### Phase 2: line / vector shape の再評価（未着手）
 
-自由線の運用結果と runtime QA の後に、必要性が実際に確認された場合だけ別 task とします。
+自由線の運用結果と runtime QA で必要性を確認できた場合だけ、別 task とします。
 
 - line は 2 点の segment 分割を検証できるが、`line` の ID / z / bounds、切断後の複数 line の意味を別途固定する。
 - arrow は shaft と矢尻の lifecycle を決めるまで partial 対象にしない。
@@ -633,7 +650,7 @@ V1 の分割 stroke は通常の複数 Polyline なので、`NoteCanvasViewer` �
 
 ## 14. 未決定事項と判断期限
 
-この設計で実装方針は決めていますが、次の事項は runtime の体験または将来要件を見て決めます。
+次の事項は、runtime の体験または将来要件を確認して決めます。
 
 1. radius の初期値 `12` page px が、5 px stroke、fit 表示、touch 操作で十分か。実機 QA で `8〜32` の範囲を調整する。
 2. partial mode の非対応要素へ触れた時の status 文言と cursor 表現。挙動の契約は「非対応で変更しない」で固定する。

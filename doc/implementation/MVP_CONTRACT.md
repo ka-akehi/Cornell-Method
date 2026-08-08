@@ -5,15 +5,15 @@
 
 ## 1. 位置づけと正本
 
-この文書は、現在実装・受け入れ判断を行う小さな MVP の契約です。D-01〜D-05 で確定した範囲、canonical route、API、保存・削除・復習の扱いをここで固定します。
+この文書は、現行 MVP の実装・受け入れ契約です。D-01〜D-05 で確定した範囲と、canonical route、API、保存・削除・復習の扱いを定めます。
 
-- [`AGENTS.md`](../../AGENTS.md) は、MVP と将来の Phase 2 以降を含む製品全体の仕様・ロードマップです。AGENTS.md に残る高度機能の記述は削除せず、製品全体の将来境界として扱います。
-- この文書は、現行 MVP の実装・受け入れ判断に使う正本です。AGENTS.md のロードマップ記述と現行 MVP の契約が異なる場合、現行 MVP の判断ではこの文書を優先します。
+- [`PRODUCT_SPEC.md`](../requirements/PRODUCT_SPEC.md) は、MVP と将来の Phase 2 以降を含む製品全体の仕様・ロードマップです。製品全体の将来境界は本書ではなく PRODUCT_SPEC.md で管理します。
+- この文書は、現行 MVP の実装・受け入れ判断に使う正本です。PRODUCT_SPEC.md のロードマップ記述と現行 MVP の契約が異なる場合、現行 MVP の判断ではこの文書を優先します。
 - 詳細な request / response、画面状態、データ項目は API・画面・データ設計書で補足します。詳細書とこの文書が現行 MVP の範囲で矛盾した場合は、この文書を先に更新してから詳細書を追従させます。
 
 ## 2. MVP の目的と対象範囲
 
-MVP の目的は、ローカル個人利用で、Cornell Method のノートを「Cue で整理する → 中央のフリー入力 Canvas に本文を記録する → Summary で要約する → 閲覧・復習する」流れを、明示保存で最後まで完了できるようにすることです。既存の Markdown 本文モードは互換表示のために保持し、既存データを Canvas へ自動変換しません。
+MVP は、ローカル個人利用で、Cornell Method のノートを「Cue で整理する → 中央のフリー入力 Canvas に本文を記録する → Summary で要約する → 閲覧・復習する」という一連の流れを、明示保存で完了できるようにします。既存の Markdown 本文モードは互換表示のために保持し、既存データを Canvas へ自動変換しません。
 
 ### MVP に含めるもの
 
@@ -57,7 +57,7 @@ MVP の目的は、ローカル個人利用で、Cornell Method のノートを�
 - 更新時の Cue とタグ関連は、リクエストに含まれる一覧で全置換します。MVP では Cue / Tag の差分 patch は扱いません。
 - MVP では `draft` payload、autosave、`version` / `autosaveVersion`、古い保存を拒否する `409` を扱いません。
 - 新規ノートの `nextReviewDate` は `noteDate + 7日` を初期値とします。ユーザーは保存前に変更または空欄化できます。
-- 既存ノートの `nextReviewDate` が未設定でも自動補完しません。`noteDate` を変更しても、ユーザーが設定した次回復習日を自動移動しません。
+- 既存ノートの編集では、未設定の `nextReviewDate` を自動補完しません。`noteDate` を変更しても、明示済みの次回復習日を自動移動しません。
 
 ### 4.2 削除方式
 
@@ -69,7 +69,8 @@ MVP の目的は、ローカル個人利用で、Cornell Method のノートを�
 ### 4.3 復習方式
 
 - 復習日はユーザーが手動で管理する `nextReviewDate` だけを使います。
-- 新規ノートの初期値は前記のとおり `noteDate + 7日` です。復習後の日付はユーザーが次回日として入力するか、空欄にできます。
+- 既存ノートの復習画面では、画面を開いた時点の `Asia/Tokyo` 基準の現在日付 + 7日を次回復習日の初期値として表示します。保存済みの `nextReviewDate` は、過去・当日・未来を問わず初期値に再利用しません。
+- 復習画面では、ユーザーが次回復習日を変更または空欄化できます。復習成功後は API response の `nextReviewDate` を画面へ反映します。
 - `/notes/[id]` の復習モードでは Cue を先に表示し、本文を初期非表示にして想起を行います。本文はユーザー操作で表示できます。
 - Summary は復習開始時に初期非表示とし、想起後にユーザーが開いて確認します。
 - 「復習済み」の確定は `POST /api/notes/:id/review` で行い、`reviewedAt` を現在日時に更新します。
@@ -239,14 +240,14 @@ MVP と Phase 2 の境界を実装・受け入れ時に混同しないため、�
 MVP の route、API、データ、保存、削除、復習、Markdown、端末対応のいずれかを変更する場合は、次の順で更新します。
 
 1. この文書 `doc/implementation/MVP_CONTRACT.md` に決定内容、採用日、MVP / Phase 2 の境界を反映する。
-2. 製品全体のロードマップや Phase 2 の位置づけが変わる場合は [`AGENTS.md`](../../AGENTS.md) を更新する。既存の将来要件を現行 MVP として扱うかどうかをここで明示する。
+2. 製品全体のロードマップや Phase 2 の位置づけが変わる場合は [`PRODUCT_SPEC.md`](../requirements/PRODUCT_SPEC.md) を更新する。既存の将来要件を現行 MVP として扱うかどうかをここで明示する。
 3. [`doc/README.md`](../README.md) の設計書一覧と Primary Entry Points を更新する。
 4. 影響する詳細書を更新する。対象は必要に応じて `doc/api/MVP_API_DESIGN.md`、`doc/data/MVP_DATA_DESIGN.md`、`doc/screens/`、`doc/testing/TEST_SCENARIOS.md`、`README.md` です。
 5. 実装状態と受け入れ結果は、仕様変更と混ぜずに `doc/implementation/IMPLEMENTATION_STATUS.md` と `doc/testing/TEST_SCENARIOS.md` へ、現行コードと実際の証跡に基づいて反映する。静的確認と browser runtime QA は別の判定として保持する。
 
 ## 11. Runtime QA 状態（2026-07-25）
 
-この節は現行 MVP 契約に対する runtime の証拠範囲を示す。確認済み subset をシナリオ全体の PASS や Phase 2 機能の実装済みへ繰り上げない。今回の Manager fallback の根拠は [`summary/20260725/2230-mandatory-qa-manager-fallback-20260725.md`](../../summary/20260725/2230-mandatory-qa-manager-fallback-20260725.md)、Canvas の既確認範囲は `summary/20260725/canvas-runtime-qa-completion-20260725.md`、受け入れ証跡の判定は [`doc/testing/TEST_SCENARIOS.md`](../testing/TEST_SCENARIOS.md) を参照する。
+次表は、現行 MVP 契約に対する runtime の証拠範囲である。確認済み subset をシナリオ全体の PASS や Phase 2 機能の実装済みへ繰り上げない。Manager fallback の根拠は [`summary/20260725/2230-mandatory-qa-manager-fallback-20260725.md`](../../summary/20260725/2230-mandatory-qa-manager-fallback-20260725.md)、Canvas の既確認範囲は `summary/20260725/canvas-runtime-qa-completion-20260725.md`、受け入れ証跡の判定は [`doc/testing/TEST_SCENARIOS.md`](../testing/TEST_SCENARIOS.md) を参照する。
 
 | 領域 | runtime で確認した範囲 | 残る境界 |
 | --- | --- | --- |
@@ -259,4 +260,4 @@ autosave、soft-delete Undo、専用復習タスク、NoteCard / D&D、PDF、タ
 
 ## 12. 現行契約の保守メモ
 
-2026-07-25 時点で、Canvas の用紙寸法、表示倍率との分離、要素データ不変、toolbar、重なり、図形内文字、style の契約と、Manager fallback による確認済み runtime 範囲を本書へ反映済みです。現行コードの静的確認は `doc/implementation/IMPLEMENTATION_STATUS.md`、受け入れシナリオと runtime QA 境界は `doc/testing/TEST_SCENARIOS.md`、再開時の要約は `HANDOFF_2026-07-25.md` と `summary/20260725/2230-mandatory-qa-manager-fallback-20260725.md` を参照します。厳密 4px、wheel / trackpad、mobile edit、review 成功 UI などの未確認事項は、証拠が追加されるまで PASS に置き換えません。
+2026-07-25 時点で、本書には Canvas の用紙寸法、表示倍率との分離、要素データ不変、toolbar、重なり、図形内文字、style の契約と、Manager fallback で確認した runtime 範囲を反映済みです。静的確認は `doc/implementation/IMPLEMENTATION_STATUS.md`、受け入れシナリオと runtime QA 境界は `doc/testing/TEST_SCENARIOS.md`、再開時の要約は `HANDOFF_2026-07-25.md` と `summary/20260725/2230-mandatory-qa-manager-fallback-20260725.md` を参照します。厳密 4px、wheel / trackpad、mobile edit、review 成功 UI などの未確認事項は、証拠が追加されるまで PASS に置き換えません。

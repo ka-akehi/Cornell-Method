@@ -11,6 +11,8 @@
 
 履歴注記: 本書の候補一覧は概要項目を含む旧仕様の設計計画です。現行のノート項目・受け入れ判断は `doc/implementation/MVP_CONTRACT.md` を正とします。
 
+現在の正本注記: 本書の作業手順と当時の `AGENTS.md` 参照は履歴として保持します。現在の製品全体方針は `doc/requirements/PRODUCT_SPEC.md`、現行 MVP の業務・機能要件は `doc/requirements/MVP_SYSTEM_SPEC.md`、実装・受け入れ判断は `doc/implementation/MVP_CONTRACT.md` を参照します。
+
 ## 作業体制
 
 - ユーザーは発注者として、仕様判断・優先順位・方針決定を行う。
@@ -21,7 +23,10 @@
 
 ## 参照するファイル
 
-- `AGENTS.md`: 現在の仕様の正本
+- `AGENTS.md`: 作成時点の仕様正本（履歴）
+- `doc/requirements/PRODUCT_SPEC.md`: 現在の製品全体仕様・ロードマップ
+- `doc/requirements/MVP_SYSTEM_SPEC.md`: 現在の MVP 業務・機能要件
+- `doc/implementation/MVP_CONTRACT.md`: 現在の MVP 実装・受け入れ契約
 - `doc/review/AS_IS_DESIGN_INVENTORY.md`: 現行コードから確認できる As-Is 設計棚卸し
 - `doc/requirements/CORNELL_METHOD_SPEC_REVIEW.md`: コーネルメソッド観点の仕様レビュー
 - `doc/requirements/MVP_CLASSIFICATION_DRAFT.md`: MVP / Phase 2 分類案
