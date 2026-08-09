@@ -38,7 +38,7 @@ concrete trigger, impact, and changed line.
 Resolve these from the request and repository state:
 
 - review target: pull request, branch diff, commit, staged changes, or working tree
-- comparison base, normally the pull request base or `main`
+- comparison base, normally the pull request base or `develop` for feature work
 - stated change intent and acceptance criteria
 - changed files and affected runtime paths
 - commands that can be run safely in the current environment
@@ -53,25 +53,58 @@ instructions and current contracts in this order:
 
 1. Root `AGENTS.md`.
 2. The current handoff file referenced by `AGENTS.md` under "最新引き継ぎ".
-3. `doc/implementation/MVP_CONTRACT.md` for the current MVP behavior.
-4. `doc/technical/TARGET_ARCHITECTURE.md` for placement and dependency rules.
-5. `doc/implementation/IMPLEMENTATION_STATUS.md` for implemented, partial, and
+3. `doc/requirements/PRODUCT_SPEC.md` for product principles, roadmap, and the
+   local-first / desktop boundary.
+4. `doc/requirements/MVP_SYSTEM_SPEC.md` for current MVP business and functional
+   requirements.
+5. `doc/implementation/MVP_CONTRACT.md` for current MVP implementation and
+   acceptance behavior.
+6. `doc/technical/TARGET_ARCHITECTURE.md` for placement and dependency rules.
+7. `doc/implementation/IMPLEMENTATION_STATUS.md` for implemented, partial, and
    runtime-unverified boundaries.
-6. Relevant sections of `doc/testing/TEST_SCENARIOS.md` for changed behavior.
-7. More specific `AGENTS.md` files, design documents, summaries, or task records
-   only when they govern the changed files.
+8. Relevant sections of `doc/testing/TEST_SCENARIOS.md` for changed behavior.
+9. More specific `AGENTS.md` files and design documents when they govern the
+   changed files.
 
 Apply this precedence:
 
-- Current MVP behavior and acceptance: `MVP_CONTRACT.md`.
+- Current MVP implementation and acceptance: `MVP_CONTRACT.md`.
+- Current MVP business/functional requirements: `MVP_SYSTEM_SPEC.md`.
 - Placement and dependency direction: `TARGET_ARCHITECTURE.md`.
-- Product roadmap and future behavior: root `AGENTS.md`.
+- Product principles and future roadmap: `PRODUCT_SPEC.md`.
 - Static/runtime verification status: `IMPLEMENTATION_STATUS.md` and
   `TEST_SCENARIOS.md`.
 
 Do not treat a Phase 2 roadmap item as a missing MVP feature. Do not treat an
 implementation-status statement as stronger evidence than the current code or a
 newer runtime result.
+
+## Intent and drift model
+
+Before reviewing implementation details, read
+`references/arctic-review-rubric.md`.
+
+Keep two evidence sets separate:
+
+- **Intent evidence**: explicit instructions, PR/Issue text, acceptance criteria,
+  approved decisions, and canonical repository contracts.
+- **Actual-change evidence**: the diff, changed runtime paths, unchanged
+  callers/callees, tests, and verification results.
+
+Reconstruct intent before using the diff body. Do not treat the code that was
+written as proof that it was requested. If intent is missing or contradictory,
+mark Drift as `Not scored` instead of inventing a target.
+
+Classify material misalignment as:
+
+- **DNF (Did Not Follow)**: required behavior is missing or partial, an explicit
+  constraint is violated, or the change solves a different problem.
+- **UC (Unrequested Change)**: the diff adds behavior, contracts, schema,
+  dependencies, configuration, or refactoring outside the intended scope.
+
+Do not penalize narrowly necessary tests, validation, documentation, or safety
+support. Use the rubric's 0-100 bands as a review-priority signal, never as a
+standalone merge gate.
 
 ## Review workflow
 
@@ -91,7 +124,51 @@ change affects any of these areas:
 
 Do not begin with naming or formatting comments.
 
-### 2. Reconstruct the affected path
+### 2. Reconstruct the intended change
+
+Before interpreting the diff, write a compact internal intent record from the
+request, PR/Issue, acceptance criteria, approved decisions, and canonical
+contracts:
+
+- required outcomes;
+- explicit constraints and invariants;
+- prohibited or out-of-scope work;
+- narrowly necessary supporting work;
+- expected acceptance evidence;
+- unresolved ambiguity.
+
+Do not infer intent from the final implementation. When the evidence is
+insufficient, keep the ambiguity explicit and do not score Drift.
+
+### 3. Backtranslate the actual changes
+
+After the intent record is fixed, translate the diff into a concise list of the
+changes it actually makes:
+
+- user-visible behavior;
+- API, DTO, validation, and error contracts;
+- persistence, transaction, schema, and migration behavior;
+- CanvasDocumentV1 and legacy Markdown compatibility;
+- state, concurrency, failure handling, and significant performance;
+- dependencies, configuration, and trust boundaries;
+- tests, documentation, and verification evidence.
+
+Separate observed facts from inference. Inspect unchanged code only as far as
+needed to prove the actual effect.
+
+### 4. Assess DNF, UC, and Drift
+
+Compare the intended outcomes with the backtranslated changes using
+`references/arctic-review-rubric.md`.
+
+- Identify every material DNF item.
+- Separate beneficial/necessary support from bad UC.
+- Assign a 0-100 score and classification only when intent evidence is adequate.
+- Explain the evidence behind the band; never report a bare score.
+- Do not turn harmless scope differences into findings.
+- Do not let low Drift suppress correctness, security, or data-safety findings.
+
+### 5. Reconstruct the affected path
 
 For each changed behavior, trace the relevant path end to end where applicable:
 
@@ -104,7 +181,7 @@ For Canvas changes, also trace:
 Use this trace to find contract drift, dropped fields, stale state, non-atomic
 writes, and incorrect dependency direction.
 
-### 3. Test adversarial cases mentally and, when safe, at runtime
+### 6. Test adversarial cases mentally and, when safe, at runtime
 
 At minimum consider:
 
@@ -118,7 +195,7 @@ At minimum consider:
   filesystem failure
 - mobile width, keyboard operation, focus, labels, and error announcements
 
-### 4. Run safe verification
+### 7. Run safe verification
 
 Use the repository's actual scripts. The normal static verification set is:
 
@@ -152,11 +229,31 @@ Safety rules:
 Record every command run and its result. Separate verification failures caused
 by the change from environment limitations.
 
+### 8. Build Spotlight and validate candidates
+
+Rank at most five changed areas that deserved the deepest inspection. Prioritize
+correctness, data safety, security, current-MVP/public contracts,
+persistence/transactions, Canvas/legacy compatibility, concurrency, and
+significant performance before architecture or maintainability.
+
+Spotlight is not a finding quota. For each area, record the evidence inspected
+and whether it produced a finding, was cleared, or remains a residual risk.
+
+Before publishing any candidate, apply both the ARCTIC-style critic in
+`references/arctic-review-rubric.md` and the Finding acceptance test below.
+Suppress style-only, speculative, unsupported, and low-value comments.
+
 ## Detailed checklist
 
-Before writing findings, read `references/review-checklist.md` and apply only the
-sections relevant to the changed files and runtime path. The checklist is a
-search aid, not a quota: do not create a finding merely because an item exists.
+Before writing findings:
+
+1. read `references/arctic-review-rubric.md` for intent reconstruction,
+   DNF/UC, Drift, Spotlight, and candidate-critic rules;
+2. read `references/review-checklist.md` and apply only the sections relevant to
+   the changed files and runtime path.
+
+Both references are search aids, not quotas. Do not create a finding merely
+because an item exists.
 
 ## Severity
 
@@ -186,6 +283,10 @@ Include a finding only when all are true:
 4. The user or system impact can be explained.
 5. The evidence survives inspection of relevant callers, contracts, and guards.
 6. A practical fix direction and verification scenario can be proposed.
+7. The issue affects the intended change or a material repository invariant
+   crossed by the diff.
+8. The comment is important enough for a senior engineer to raise and is not
+   merely style, preference, or speculative cleanup.
 
 Mark uncertain inferences as assumptions. Prefer `Confidence: Medium` or omit the
 finding when evidence is insufficient.
@@ -206,6 +307,23 @@ Use this structure:
 - Test: Specific regression or runtime scenario
 - Review heuristic: Reusable lesson for a human reviewer
 - Confidence: High | Medium
+
+## Intent and drift assessment
+- Intent evidence: PR / Issue / acceptance criteria / canonical contract
+- Required outcomes: concise list
+- DNF: material unmet or partial requirements, or `該当なし`
+- Bad UC: material unrequested changes, or `該当なし`
+- Necessary support not penalized: concise list or `該当なし`
+- Drift: `18 / 100 - Minor` or `Not scored`
+- Rationale: evidence for the band
+- Confidence: High | Medium | Low
+
+## Spotlight
+1. `path or runtime area`
+   - Why: high-value review reason
+   - Evidence inspected: callers, contracts, tests, runtime result
+   - Result: Finding emitted | Cleared | Residual risk
+   - Related finding: identifier or `なし`
 
 ## Contract and scope assessment
 - State whether the change matches the current MVP contract and whether any
@@ -231,6 +349,10 @@ Use this structure:
 Order findings by severity, then by confidence and user impact. Keep one root
 cause per finding. Do not bury findings below a general summary.
 
+Drift is not a severity substitute. A low-drift P1 still blocks. High Drift
+without a concrete defect or violated contract is reported as a scope concern,
+not automatically promoted to P0/P1/P2.
+
 When no finding qualifies, write:
 
 ```text
@@ -238,13 +360,13 @@ When no finding qualifies, write:
 重大な問題は確認できませんでした。
 ```
 
-Then still report the reviewed scope, verification performed, and any runtime
-area that remains unverified.
+Then still report Intent and Drift, Spotlight, the reviewed scope, verification
+performed, and any runtime area that remains unverified.
 
 ## Invocation examples
 
 ```text
-$cornell-code-review mainとの差分を厳格にレビューしてください。
+$cornell-code-review developとの差分を厳格にレビューしてください。
 ```
 
 ```text
