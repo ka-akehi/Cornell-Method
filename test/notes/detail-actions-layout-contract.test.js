@@ -98,7 +98,10 @@ test("view and review actions are placed in the title row without duplicating th
   );
   assert.match(modes, /setReviewNextDate\(data\?\.nextReviewDate \?\? ""\)/);
   assert.match(modes, /<NoteDetailReviewModeActions[\s\S]*onBackToView=/);
-  assert.match(modes, /<NoteDetailEditActions onCancel=\{leaveEditMode\}/);
+  assert.match(
+    modes,
+    /<NoteDetailEditActions onCancel=\{\(\) => leaveEditMode\(\)\} \/>/,
+  );
 
   assert.match(
     paper,

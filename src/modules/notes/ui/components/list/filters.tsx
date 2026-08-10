@@ -1,6 +1,7 @@
 import type { FormEvent } from "react";
 import type { TagDto } from "@/modules/notes/contracts";
 import { isDateRangeInvalid } from "@/modules/notes/model";
+import { openDatePicker } from "../date-picker";
 import { NotesListTags } from "./tags";
 
 type NotesListFiltersProps = {
@@ -82,6 +83,7 @@ export function NotesListFilters({
             type="date"
             className="mt-1 min-h-10 w-full rounded-[0.45rem] border border-[var(--app-line-strong)] bg-[var(--app-paper-surface)] px-3 py-2 text-sm text-[var(--app-ink)] focus-visible:border-[var(--app-focus)] focus-visible:outline-2 focus-visible:outline-[var(--app-focus)] focus-visible:outline-offset-2"
             value={from}
+            onClick={openDatePicker}
             onBlur={onDateBlur}
             onChange={(event) => onFromChange(event.target.value)}
           />
@@ -99,6 +101,7 @@ export function NotesListFilters({
             type="date"
             className="mt-1 min-h-10 w-full rounded-[0.45rem] border border-[var(--app-line-strong)] bg-[var(--app-paper-surface)] px-3 py-2 text-sm text-[var(--app-ink)] focus-visible:border-[var(--app-focus)] focus-visible:outline-2 focus-visible:outline-[var(--app-focus)] focus-visible:outline-offset-2"
             value={to}
+            onClick={openDatePicker}
             onBlur={onDateBlur}
             onChange={(event) => onToChange(event.target.value)}
           />

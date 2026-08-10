@@ -6,6 +6,7 @@ const path = require("node:path");
 const util = require("node:util");
 
 const BASELINE_MIGRATION_NAME = "20260726000000_postgres_baseline";
+const NOTEBOOK_TAG_ORDER_MIGRATION_NAME = "20260809090000_add_notebook_tag_order";
 const SOURCE_TABLES = [
   "notebooks",
   "notebook_canvases",
@@ -45,7 +46,7 @@ const SOURCE_COLUMNS = {
     "updated_at",
   ],
   tags: ["id", "name", "color", "created_at"],
-  notebook_tags: ["notebook_id", "tag_id"],
+  notebook_tags: ["notebook_id", "tag_id", "order"],
   cues: ["id", "notebook_id", "text", "order", "created_at", "updated_at"],
 };
 const REQUIRED_NON_NULL_COLUMNS = {
@@ -69,7 +70,7 @@ const REQUIRED_NON_NULL_COLUMNS = {
     "updated_at",
   ],
   tags: ["id", "name", "created_at"],
-  notebook_tags: ["notebook_id", "tag_id"],
+  notebook_tags: ["notebook_id", "tag_id", "order"],
   cues: ["id", "notebook_id", "text", "order", "created_at", "updated_at"],
 };
 const DATE_COLUMNS = {
@@ -447,8 +448,8 @@ function readSourceSnapshot(sourcePath) {
         `SELECT "id", "name", "color", "created_at" FROM "tags" ORDER BY "id"`,
       ),
       notebook_tags: reader.all(
-        `SELECT "notebook_id", "tag_id" FROM "notebook_tags"
-         ORDER BY "notebook_id", "tag_id"`,
+        `SELECT "notebook_id", "tag_id", "order" FROM "notebook_tags"
+         ORDER BY "notebook_id", "order", "tag_id"`,
       ),
       cues: reader.all(
         `SELECT "id", "notebook_id", "text", "order", "created_at", "updated_at"
@@ -729,17 +730,25 @@ async function assertPostgresBaseline(client) {
 
   const migrationResult = await client.query(
     `SELECT "migration_name", "finished_at", "rolled_back_at", "applied_steps_count"
-     FROM "_prisma_migrations" WHERE "migration_name" = $1`,
-    [BASELINE_MIGRATION_NAME],
+     FROM "_prisma_migrations" WHERE "migration_name" = ANY($1::text[])`,
+    [[BASELINE_MIGRATION_NAME, NOTEBOOK_TAG_ORDER_MIGRATION_NAME]],
   );
-  const migration = migrationResult.rows[0];
-  if (
-    migration === undefined ||
-    migration.finished_at === null ||
-    migration.rolled_back_at !== null ||
-    migration.applied_steps_count < 1
-  ) {
-    throw new Error("Postgres target に完了済みの MVP baseline migration がありません");
+  const migrations = new Map(
+    migrationResult.rows.map((migration) => [migration.migration_name, migration]),
+  );
+  for (const migrationName of [
+    BASELINE_MIGRATION_NAME,
+    NOTEBOOK_TAG_ORDER_MIGRATION_NAME,
+  ]) {
+    const migration = migrations.get(migrationName);
+    if (
+      migration === undefined ||
+      migration.finished_at === null ||
+      migration.rolled_back_at !== null ||
+      migration.applied_steps_count < 1
+    ) {
+      throw new Error(`Postgres target に完了済みの migration がありません: ${migrationName}`);
+    }
   }
 }
 
@@ -751,8 +760,8 @@ async function fetchTargetRows(client) {
     notebook_canvases: `SELECT "notebook_id", "schema_version", "document_json", "search_text",
       "created_at", "updated_at" FROM "notebook_canvases" ORDER BY "notebook_id"`,
     tags: `SELECT "id", "name", "color", "created_at" FROM "tags" ORDER BY "id"`,
-    notebook_tags: `SELECT "notebook_id", "tag_id" FROM "notebook_tags"
-      ORDER BY "notebook_id", "tag_id"`,
+    notebook_tags: `SELECT "notebook_id", "tag_id", "order" FROM "notebook_tags"
+      ORDER BY "notebook_id", "order", "tag_id"`,
     cues: `SELECT "id", "notebook_id", "text", "order", "created_at", "updated_at"
       FROM "cues" ORDER BY "id"`,
   };
@@ -826,7 +835,7 @@ async function insertSourceRows(client, rows) {
     cues: `INSERT INTO "cues"
       ("id", "notebook_id", "text", "order", "created_at", "updated_at")
       VALUES ($1, $2, $3, $4, $5, $6)`,
-    notebook_tags: `INSERT INTO "notebook_tags" ("notebook_id", "tag_id") VALUES ($1, $2)`,
+    notebook_tags: `INSERT INTO "notebook_tags" ("notebook_id", "tag_id", "order") VALUES ($1, $2, $3)`,
   };
 
   for (const row of rows.notebooks) {
@@ -881,7 +890,7 @@ async function insertSourceRows(client, rows) {
   }
 
   for (const row of rows.notebook_tags) {
-    await client.query(statements.notebook_tags, [row.notebook_id, row.tag_id]);
+    await client.query(statements.notebook_tags, [row.notebook_id, row.tag_id, row.order]);
   }
 }
 
@@ -1145,7 +1154,7 @@ function reconcileRows(sourceRows, targetRows) {
   );
   compareScalarRows(sourceRows, targetRows, "tags", ["id", "name", "color", "created_at"], mismatches);
   compareScalarRows(sourceRows, targetRows, "cues", ["id", "notebook_id", "text", "order", "created_at", "updated_at"], mismatches);
-  compareScalarRows(sourceRows, targetRows, "notebook_tags", ["notebook_id", "tag_id"], mismatches);
+  compareScalarRows(sourceRows, targetRows, "notebook_tags", ["notebook_id", "tag_id", "order"], mismatches);
   compareCanvasRows(sourceRows, targetRows, mismatches);
 
   const sourceOrphans = findOrphans(sourceRows);
@@ -1221,6 +1230,7 @@ function projectRoot() {
 
 module.exports = {
   BASELINE_MIGRATION_NAME,
+  NOTEBOOK_TAG_ORDER_MIGRATION_NAME,
   PHASE_2_TABLES,
   SOURCE_COLUMNS,
   SOURCE_TABLES,

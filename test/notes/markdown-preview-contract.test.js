@@ -11,6 +11,15 @@ function readSource(relativePath) {
 }
 
 const markdownField = readSource("src/shared/markdown/markdown-field.tsx");
+const markdownTaskList = readSource(
+  "src/shared/markdown/markdown-task-list.js",
+);
+const {
+  getMarkdownTaskIndex,
+  markMarkdownTaskInputs,
+  promoteMarkdownTaskInputMarkers,
+  updateMarkdownTaskMarker,
+} = require(path.join(projectRoot, "src/shared/markdown/markdown-task-list.js"));
 const packageJson = JSON.parse(readSource("package.json"));
 const packageLock = JSON.parse(readSource("package-lock.json"));
 
@@ -33,7 +42,7 @@ test("Markdown preview allowlists safe DocBase HTML extensions", () => {
   );
   assert.match(
     markdownField,
-    /rehypePlugins=\{\[\s*rehypeRaw,\s*\[rehypeSanitize, markdownSanitizeSchema\],\s*\]\}/s,
+    /rehypePlugins=\{\[\s*markMarkdownTaskInputs,\s*rehypeRaw,\s*promoteMarkdownTaskInputMarkers,\s*\[rehypeSanitize, markdownSanitizeSchema\],\s*\]\}/s,
   );
 
   assert.match(markdownField, /u: \(\{ children \}\)/);
@@ -155,12 +164,184 @@ test("Markdown preview suppresses only GFM task-list markers", () => {
   assert.match(markdownField, /remarkPlugins=\{\[remarkGfm, remarkSoftLineBreaks\]\}/);
   assert.match(
     markdownField,
-    /rehypePlugins=\{\[\s*rehypeRaw,\s*\[rehypeSanitize, markdownSanitizeSchema\],\s*\]\}/s,
+    /rehypePlugins=\{\[\s*markMarkdownTaskInputs,\s*rehypeRaw,\s*promoteMarkdownTaskInputMarkers,\s*\[rehypeSanitize, markdownSanitizeSchema\],\s*\]\}/s,
   );
   assert.match(markdownField, /readOnly/);
   assert.match(markdownField, /tabIndex=\{-1\}/);
   assert.match(markdownField, /onClick=\{\(event\) => event\.preventDefault\(\)\}/);
   assert.match(markdownField, /onChange=\{\(event\) => event\.preventDefault\(\)\}/);
+});
+
+test("detail read renderer opts into keyboard and pointer task toggles", () => {
+  const readViewStart = markdownField.indexOf(
+    "function createMarkdownReadViewComponents",
+  );
+  const readViewEnd = markdownField.indexOf(
+    "function MarkdownDocument",
+    readViewStart,
+  );
+  const readViewComponents = markdownField.slice(readViewStart, readViewEnd);
+
+  assert.match(markdownField, /export function MarkdownReadView/);
+  assert.match(readViewComponents, /input: \(\{ type, checked, node \}\)/);
+  assert.match(readViewComponents, /getMarkdownTaskIndex\(node\)/);
+  assert.match(readViewComponents, /if \(currentTaskIndex === null\)/);
+  assert.doesNotMatch(readViewComponents, /node\?\.position/);
+  assert.doesNotMatch(readViewComponents, /let taskIndex = 0/);
+  assert.match(readViewComponents, /taskToggleDisabled/);
+  assert.match(
+    readViewComponents,
+    /readOnly[\s\S]*disabled[\s\S]*tabIndex=\{-1\}/,
+  );
+  assert.match(
+    readViewComponents,
+    /onTaskToggle\(currentTaskIndex, event\.currentTarget\.checked\)/,
+  );
+  assert.match(
+    readViewComponents,
+    /aria-label=\{`タスク \$\{currentTaskIndex \+ 1\}/,
+  );
+  assert.match(readViewComponents, /focus-visible:ring-2/);
+  assert.match(markdownField, /markMarkdownTaskInputs/);
+  assert.match(markdownField, /promoteMarkdownTaskInputMarkers/);
+  assert.match(markdownTaskList, /const markdownTaskInputMarker =/);
+  assert.match(markdownTaskList, /function getMarkdownTaskIndex\(node\)/);
+  assert.match(markdownTaskList, /node\.position/);
+  assert.match(
+    markdownTaskList,
+    /function updateMarkdownTaskMarker\(markdown, taskIndex, checked\)/,
+  );
+});
+
+test("parser task markers keep SSR and hydration checkbox attributes aligned", async () => {
+  const React = (await import("react")).default;
+  const { renderToString } = await import("react-dom/server");
+  const { default: ReactMarkdown } = await import("react-markdown");
+  const rehypeRaw = (await import("rehype-raw")).default;
+  const rehypeSanitizeModule = await import("rehype-sanitize");
+  const rehypeSanitize = rehypeSanitizeModule.default;
+  const { defaultSchema } = rehypeSanitizeModule;
+  const { default: remarkGfm } = await import("remark-gfm");
+  const schema = {
+    ...defaultSchema,
+    tagNames: Array.from(
+      new Set([...(defaultSchema.tagNames ?? []), "div"]),
+    ),
+  };
+  const fixture = [
+    '<input type="checkbox">',
+    "",
+    "- [ ] first",
+    "  - [x] nested",
+    '  <input type="checkbox" checked>',
+    "  - [ ] child",
+    "",
+    "<div>",
+    "- [ ] raw html task-like text",
+    "</div>",
+    "",
+    "<div>",
+    "",
+    "- [x] task inside raw container",
+    "",
+    "</div>",
+    "",
+    "```md",
+    "- [ ] fenced",
+    "```",
+    "",
+    '<input type="checkbox" checked disabled>',
+    "",
+    "- [X] last",
+  ].join("\n");
+
+  function renderFixture() {
+    const states = [];
+    const html = renderToString(
+      React.createElement(
+        ReactMarkdown,
+        {
+          remarkPlugins: [remarkGfm],
+          rehypePlugins: [
+            markMarkdownTaskInputs,
+            rehypeRaw,
+            promoteMarkdownTaskInputMarkers,
+            [rehypeSanitize, schema],
+          ],
+          components: {
+            input: ({ node, type, checked }) => {
+              if (type !== "checkbox") return null;
+
+              const taskIndex = getMarkdownTaskIndex(node);
+              const isChecked = Boolean(checked);
+              const isRawHtmlInput = taskIndex === null;
+              states.push({
+                taskIndex,
+                checked: isChecked,
+                raw: isRawHtmlInput,
+              });
+
+              return React.createElement("input", {
+                type: "checkbox",
+                checked: isChecked,
+                readOnly: true,
+                disabled: true,
+                tabIndex: -1,
+                "aria-label": isRawHtmlInput
+                  ? isChecked
+                    ? "完了済み"
+                    : "未完了"
+                  : `タスク ${taskIndex + 1}、${
+                      isChecked ? "完了済み" : "未完了"
+                    }`,
+                className: "task-checkbox",
+              });
+            },
+          },
+        },
+        fixture,
+      ),
+    );
+
+    return { html, states };
+  }
+
+  const server = renderFixture();
+  const client = renderFixture();
+
+  assert.equal(client.html, server.html);
+  assert.deepEqual(server.states, [
+    { taskIndex: null, checked: false, raw: true },
+    { taskIndex: 0, checked: false, raw: false },
+    { taskIndex: 1, checked: true, raw: false },
+    { taskIndex: null, checked: true, raw: true },
+    { taskIndex: 2, checked: false, raw: false },
+    { taskIndex: 3, checked: true, raw: false },
+    { taskIndex: null, checked: true, raw: true },
+    { taskIndex: 4, checked: true, raw: false },
+  ]);
+  const expectedTaskLines = [
+    ["- [ ] first", "- [x] first"],
+    ["  - [x] nested", "  - [ ] nested"],
+    ["  - [ ] child", "  - [x] child"],
+    ["- [x] task inside raw container", "- [ ] task inside raw container"],
+    ["- [X] last", "- [ ] last"],
+  ];
+  for (const [taskIndex, [, toggledLine]] of expectedTaskLines.entries()) {
+    const nextChecked = !server.states.filter((state) => !state.raw)[taskIndex].checked;
+    assert.match(
+      updateMarkdownTaskMarker(fixture, taskIndex, nextChecked),
+      new RegExp(toggledLine.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")),
+    );
+  }
+  assert.match(server.html, /aria-label="タスク 2、完了済み"/);
+  assert.match(server.html, /aria-label="タスク 5、完了済み"/);
+  assert.match(server.html, /readOnly=""[^>]*disabled=""[^>]*tabindex="-1"/);
+  assert.match(server.html, /class="task-checkbox"/);
+  assert.doesNotMatch(
+    server.html,
+    /__cornellMarkdownTaskInput|cornellMarkdownTaskIndex/,
+  );
 });
 
 test("Markdown preview keeps block-code framing on pre instead of inline code", () => {
@@ -191,6 +372,33 @@ test("MarkdownField provides an accessible input/preview toggle", () => {
   assert.match(markdownField, /preview === "visible" && \(/);
 });
 
+test("Summary hides only the shared preview heading and keeps the preview contract", () => {
+  const summary = readSource(
+    "src/modules/notes/ui/components/editor/summary.tsx",
+  );
+  const body = readSource("src/modules/notes/ui/components/editor/body.tsx");
+  const summaryFieldStart = summary.indexOf("<MarkdownField");
+  const summaryFieldEnd = summary.indexOf("/>", summaryFieldStart) + 2;
+  const bodyFieldStart = body.indexOf("<MarkdownField");
+  const bodyFieldEnd = body.indexOf("/>", bodyFieldStart) + 2;
+  const summaryField = summary.slice(summaryFieldStart, summaryFieldEnd);
+  const bodyField = body.slice(bodyFieldStart, bodyFieldEnd);
+
+  assert.match(markdownField, /showPreviewHeading\?: boolean;/);
+  assert.match(markdownField, /showPreviewHeading = true,/);
+  assert.match(
+    markdownField,
+    /showPreviewHeading && \(\s*<h3 className="markdown-preview-heading/s,
+  );
+  assert.match(markdownField, />\s*Markdown Preview\s*<\/h3>/);
+
+  assert.match(summaryField, /preview="visible"/);
+  assert.match(summaryField, /showPreviewHeading=\{false\}/);
+  assert.match(summaryField, /previewEmptyLabel="サマリーのプレビューはまだありません。"/);
+  assert.match(bodyField, /preview="visible"/);
+  assert.doesNotMatch(bodyField, /showPreviewHeading=\{false\}/);
+});
+
 test("Markdown preview uses compact blockquote padding without changing its boundary", () => {
   assert.ok(
     markdownField.includes(
@@ -208,7 +416,11 @@ test("body, summary, detail, and read view share the Markdown renderer", () => {
   ]) {
     const source = readSource(relativePath);
     assert.match(source, /@\/shared\/markdown/);
-    assert.match(source, /Markdown(?:Field|Preview)/);
+    if (relativePath.endsWith("detail/read-view.tsx")) {
+      assert.match(source, /MarkdownReadView/);
+    } else {
+      assert.match(source, /Markdown(?:Field|Preview)/);
+    }
   }
 });
 

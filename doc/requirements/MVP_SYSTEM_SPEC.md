@@ -1,6 +1,6 @@
 # MVP システム仕様書
 
-確認日: 2026-07-18
+確認日: 2026-08-09
 
 ## 文書の位置づけ
 
@@ -179,7 +179,7 @@ MVP スコープは、既存 MVP 設計書で発注者承認済みの判断に�
 | タグ | 正規化して `Tag` / `NotebookTag` で扱う | 検索・分類の基本機能として必要なため |
 | 復習 | `nextReviewDate` と `reviewedAt` で管理する | 自動間隔反復なしでも復習サイクルを回せるため |
 | 本文 UI | `bodyMode=canvas` は Canvas editor / viewer で扱う | Canvas 本文を Markdown textarea / preview の対象にしないため |
-| Cue / Summary | Markdown の textarea / preview で編集・表示する | Cue と Summary の既存 Markdown 契約を維持するため |
+| Cue / Summary | 編集画面では Markdown の textarea / Markdown Preview で編集・表示し、詳細画面の Summary は操作可能な読み取り領域で表示する | Cue と Summary の既存 Markdown 契約と、編集 Preview・詳細表示の責務を分けるため |
 | API | Next.js Route Handler で JSON API を実装する | UI / API / Prisma を TypeScript で揃えるため |
 | DB | Prisma + SQLite を採用する | ローカル個人利用に適しているため |
 | バックアップ | DB ファイルコピーと最新 3 世代保持 | 個人利用で最低限のデータ保全を行うため |
@@ -195,7 +195,7 @@ Phase 2 の追加機能も SQLite を唯一の正本として実装し、PDF は
 | 自動保存 / 下書き | `NotebookDraftState`、楽観ロック、競合 UI | MVP では手動保存で十分に主要フローを確認できる |
 | Undo | `SoftDeleteBuffer` と削除復元 | MVP は確認ダイアログ + 物理削除で代替する |
 | カード分割本文 | `NoteCard`、`NoteCueLink`、D&D | 現行 Canvas 本文との関係が未決定のため。Gate 0 後に Canvas 維持、カード併用、不採用を比較する |
-| 高度な復習 | 1 日後 / 7 日後タスク、進捗テーブル、バッジ | MVP は手動の `nextReviewDate` で復習対象を扱う |
+| 高度な復習 | 1 日後 / 7 日後タスク、進捗テーブル、専用復習タスクの未完了バッジ | MVP は手動の `nextReviewDate` で復習対象を扱う |
 | 専用復習画面 | `/tasks/review` | MVP は `/notes` の復習対象フィルタと詳細復習モードで扱う |
 | PDF 出力 | `/api/notes/export`、Playwright PDF | 学習記録の中核ではないため |
 | タグ管理 UI | タグ名変更、削除、右クリックメニュー | ノート保存時の自動作成と候補一覧で足りる |
@@ -232,8 +232,8 @@ Phase 2 の追加機能も SQLite を唯一の正本として実装し、PDF は
 ### ノート編集フロー
 
 1. ユーザーは詳細画面で編集モードへ切り替える。
-2. システムは保存済みの `nextReviewDate` を表示する。未設定なら空欄のまま表示する。
-3. ユーザーは Canvas editor または legacy Markdown 互換 UI で本文を変更し、Cue、Summary、タグ、次回復習日を変更する。`noteDate` を変更しても `nextReviewDate` は自動追従しない。
+2. システムは保存済みの `noteDate` を表示専用で表示し、保存済みの `nextReviewDate` を表示する。未設定の `nextReviewDate` は空欄のまま表示する。
+3. ユーザーは Canvas editor または legacy Markdown 互換 UI で本文を変更し、Cue、Summary、タグ、次回復習日を変更する。保存後の通常編集画面では `noteDate` を変更できない。
 4. 保存する。
 5. システムは Notebook と、Canvas 本文では NotebookCanvas を更新し、Cue と Tag 関連をリクエスト内容で全置換する。
 6. 保存成功後、閲覧モードへ戻る。
@@ -282,13 +282,13 @@ MVP では `/tasks/review` は作成しません。復習対象は `/notes` の�
 | 文脈 | 初期表示または抽出条件 | ユーザー操作と保存後の扱い |
 | --- | --- | --- |
 | 新規ノート作成 | UI は `noteDate + 7日` を固定初期値として表示する | 保存前に変更またはクリアでき、指定値または未設定を保存する。この初期値は継続的な自動復習スケジューリングではない |
-| 既存ノート編集 | 保存済みの `nextReviewDate` を表示し、未設定なら空欄のまま表示する | 変更またはクリアできる。`noteDate` を変更しても自動追従せず、保存時に指定した値または未設定を保持する |
+| 既存ノート編集 | 保存済みの `noteDate` を表示専用で表示する。`nextReviewDate` は保存済みの値を表示し、未設定なら空欄のまま表示する | `nextReviewDate` は `noteDate` と独立して変更またはクリアできる。保存後の通常編集では `noteDate` を変更できず、保存済みの値を学習日から自動再計算しない |
 | 既存ノートの復習画面 | 画面を開いた時点の `Asia/Tokyo` の現在日付 + 7日を固定初期値として表示し、保存済み値は再利用しない | 保存前に変更またはクリアできる。復習完了後は API 応答の `nextReviewDate` を画面へ反映する |
 | 一覧の `reviewDue` 絞り込み | `nextReviewDate` が設定済みで、かつ今日以前のノートだけを抽出する。未設定のノートは対象外とする | 参照だけを行い、保存データは更新しない |
 
 ### ノート作成
 
-- タイトル、学習日、学習元タイプ、学習元タイトル、タグ、Cue、Canvas 本文、Summary、次回復習日を入力できる。
+- タイトル、学習日、学習元タイプ、学習元タイトル、タグ、Cue、Canvas 本文、Summary、次回復習日を入力できる。作成画面の学習日は `noteDate` として保存する。
 - タイトルと学習日は必須とする。
 - 新規ノートは `bodyMode=canvas` とし、`Notebook.body` を空文字、Canvas 本文を `NotebookCanvas.documentJson` 内の `CanvasDocumentV1` として保存する。
 - Cue と Summary は Markdown として編集・保存する。
@@ -299,7 +299,12 @@ MVP では `/tasks/review` は作成しません。復習対象は `/notes` の�
 ### ノート一覧 / 検索
 
 - 保存済みノートを一覧表示できる。
-- 一覧にはタイトル、学習日、学習元、タグ、Cue 件数、要約状態、復習状態を表示する。
+- 一覧にはタイトル、学習日、学習元、タグ、Cue 件数、要約状態、復習履歴、次回復習状態を表示する。
+- 復習履歴は `reviewedAt` だけで判定し、`null` を `未復習`、`null` 以外を `復習済み` と表示する。
+- 次回復習状態は `nextReviewDate` だけで判定し、未来を `復習予定日`、今日以前を `復習期限到来`、未設定を `復習予定なし` と表示する。復習履歴と次回復習状態は独立して表示する。
+- 復習履歴 2 通りと次回復習状態 3 通りの 6 組み合わせを受け入れ、一方の値から他方の表示を推定しない。
+- 一覧カードでは、タグがある場合にタグ名と色を表示し、複数タグを折り返し、長いタグ名を省略表示する。タグがない場合は `タグなし` を表示しない。詳細画面など他のタグ表示箇所の既存 `タグなし` 表示はこの要件の対象外とする。
+- 一覧の復習履歴・次回復習状態の表示は、Phase 2 の専用復習タスク、`review status`、未完了タスクバッジとは別の表示契約とする。
 - フリーワード検索は `title`、`summary`、`cue.text`、legacy `bodyMode=markdown` の `Notebook.body`、Canvas text 要素から生成した `NotebookCanvas.searchText` を対象とする。
 - Canvas の用紙寸法だけを変更した場合は、text 要素が変わらないため `NotebookCanvas.searchText` も変更しない。
 - タグ検索は OR 条件とする。
@@ -313,12 +318,16 @@ MVP では `/tasks/review` は作成しません。復習対象は `/notes` の�
 - タイトル、学習日、学習元、タグ、Cue、本文、Summary、次回復習日、最終復習日を表示する。
 - `bodyMode=canvas` の本文は Canvas viewer、`bodyMode=markdown` の既存本文は互換 Markdown 表示を使う。
 - Cue、Summary、legacy Markdown 本文の表示には sanitize を適用する。Canvas 本文を Markdown preview で表示しない。
+- 詳細画面の Summary は編集画面の Markdown Preview ではなく、閲覧・復習で使う操作可能な読み取り領域とする。Summary を表示した後は、checked / unchecked の GFM task-list checkbox を toggle できる。
+- Summary checkbox の toggle は対応する task-list marker の状態だけを変更し、task の本文、Summary 内の順序、checkbox 以外の Markdown を変更しない。変更は画面上の未保存状態として扱い、toggle ごとに API を呼ばない。
+- 詳細画面で Summary の保存を明示的に実行した場合だけ、既存の `PATCH /api/notes/:id` を使って Summary Markdown を保存する。成功時は表示中ノートを更新して dirty 状態を解除し、失敗時は未保存状態と error を保持する。破棄または保存せずにモードを離れる場合は元の Summary に戻し、DB を更新しない。
 
 ### ノート編集
 
 - 詳細画面から編集モードへ切り替えられる。
-- 作成画面と同じ項目を編集できる。Canvas 本文は Canvas editor、既存 Markdown 本文は互換 UI で扱う。
+- 作成画面の項目を表示し、タイトル、学習元、タグ、Cue、本文、Summary、次回復習日を編集できる。学習日は現在値を表示するだけで変更できない。Canvas 本文は Canvas editor、既存 Markdown 本文は互換 UI で扱う。
 - 保存時、Cue と Tag 関連は全置換する。
+- 編集画面の Markdown Preview に表示する GFM checkbox は表示専用とし、クリックしても Summary の入力値や保存データを変更しない。
 - キャンセル時は変更を破棄して閲覧モードへ戻る。
 - MVP では自動保存と楽観ロックは行わない。
 
@@ -335,16 +344,21 @@ MVP では `/tasks/review` は作成しません。復習対象は `/notes` の�
 - Summary は領域の位置を維持し、本文を表示するまでは開く操作を利用不可にする。
 - ユーザー操作で本文を表示 / 非表示にできる。
 - 本文を表示して確認した後、ユーザー操作で Summary を開ける。
+- Summary を開いた後の checkbox toggle と Summary の明示保存は、復習完了とは別に実行する。復習完了操作は `POST /api/notes/:id/review` で `reviewedAt` と `nextReviewDate` を更新するが、Summary を保存済みと扱ったり dirty 状態を解除したりしない。復習完了でモードを離れ、Summary を別途保存していない場合は、保存せずに離れるルールに従って変更を破棄する。
 - 復習済みにした場合、`reviewedAt` を現在日時に更新する。
 - 復習用の次回復習日は、復習モードへ入った時点の `Asia/Tokyo` の現在日付 + 7日を固定初期値とする。保存済みの `nextReviewDate` は初期値に再利用しない。
 - 画面内に保存済みの次回復習日をメタ情報として残す場合は、保存済み値であることを示し、復習用の入力値と区別する。
 - ユーザーは復習完了前に次回復習日を変更またはクリアできる。復習成功後は API 応答の `nextReviewDate` を画面へ反映する。
 - 自動採点、正誤判定、`nextReviewDate` の保存後の追従更新、復習履歴に基づく継続的な間隔計算は行わない。新規作成画面と復習画面に固定初期値を表示する処理は、継続的な自動復習スケジューリングに当たらない。
+- Summary の操作可能化のために新しい API、schema、migration は追加しない。Summary の autosave、draft、Undo も MVP には含めない。
 
 ### タグ
 
 - ノート保存時に未登録タグを自動作成する。
 - タグ候補一覧を取得できる。
+- ノートに付いたタグは、保存時の `tags` 配列の index をノート内の追加順として `NotebookTag.order` に 0 始まりで保存し、作成・編集後の一覧・詳細 response と各画面でその順序を維持する。
+- `GET /api/tags` の候補一覧はタグ名昇順で返す。候補の並び順は、ノートに付いたタグの保存・表示順とは別の契約とする。
+- 過去の順序を持たない既存 `NotebookTag` 行は migration で、Notebook ごとに Tag 名昇順、同名は `tagId` 昇順の 0 始まりで初期化する。過去の追加順は推測しない。
 - 1 ノートにつきタグは最大 12 個とする。
 - 重複タグは保存しない。
 - MVP ではタグ専用の作成、編集、削除 API と管理 UI は作らない。
@@ -387,7 +401,7 @@ MVP のデータモデルは `doc/data/MVP_DATA_DESIGN.md` を正とします。
 | 対象 | ルール |
 | --- | --- |
 | `title` | 1〜120 文字 |
-| `noteDate` | 今日以前 |
+| `noteDate` | 作成時に入力する今日以前の `noteDate`。保存後の通常編集では表示専用 |
 | `sourceType` | `book`, `lecture`, `video`, `article`, `other`, 未指定 |
 | `sourceTitle` | 0〜120 文字 |
 | `bodyMode` | 新規ノートは `canvas`。`markdown` は既存ノートの互換モード |
@@ -410,6 +424,8 @@ MVP の API 詳細は `doc/api/MVP_API_DESIGN.md` を正とします。
 - エラー形式は `{ code, message, errors? }` に統一する。
 - ノート作成 / 更新では Notebook、Canvas 本文の場合の NotebookCanvas、Cue、Tag、NotebookTag を 1 リクエストで保存する。
 - ノート更新時、Cue と Tag 関連は全置換する。
+- `POST /api/notes` は、今日以前で必須の `noteDate` を作成したノートへ保存する。保存後の通常編集画面では学習日を変更できない。
+- `PATCH /api/notes/:id` は保存済みの現在値と同じ `noteDate` の送信を許可する。同値でも `noteDate` は更新しない。現在値と異なる `noteDate` は、他の値を更新せず 400 `invalid_body` とし、`errors` に `field: "noteDate"`、`message: "保存後の学習日は編集できません"` のフィールドエラーを返す。
 - 復習済み更新は専用 API に分ける。
 
 ### エンドポイント
@@ -422,7 +438,7 @@ MVP の API 詳細は `doc/api/MVP_API_DESIGN.md` を正とします。
 | PATCH | `/api/notes/:id` | ノート更新 |
 | DELETE | `/api/notes/:id` | ノート削除 |
 | POST | `/api/notes/:id/review` | 復習済み更新 |
-| GET | `/api/tags` | タグ候補一覧 |
+| GET | `/api/tags` | タグ候補一覧。名前昇順。ノート内タグの表示順とは別 |
 | GET | `/api/backups` | バックアップ一覧 |
 | POST | `/api/backups` | バックアップ作成 |
 
@@ -562,7 +578,7 @@ npm run prisma:migrate
 - Cue と Summary は Markdown として編集・保存し、安全に表示する。Canvas 本文は Markdown editor / preview の対象にしない。
 - Cue と本文の厳密リンクは持たない。
 - ノート削除は物理削除とし、Undo は実装しない。
-- 保存済みの `nextReviewDate` を `noteDate` の変更へ自動追従させず、復習履歴に基づく間隔も継続計算しない。新規作成画面と復習画面の固定初期値は表示する。
+- 学習日と `nextReviewDate` は独立して扱う。`nextReviewDate` は独立して変更でき、保存済みの値を学習日から自動再計算しない。保存後の通常編集では学習日は表示専用とする。復習履歴に基づく間隔も継続計算せず、新規作成画面と復習画面の固定初期値は表示する。
 - PDF 出力は実装しない。
 - `.app` の app bundle 内に SQLite の live DB を置かない。user data directory 初期化・migration・更新・復元の詳細は Desktop PoC / 別 task で決める。
 - SQLite はノートデータの唯一の正本とする。クラウド DB、クラウド同期、オンラインサービスは製品スコープ外であり、Vercel / Supabase / Postgres を将来実装予定として扱わない。

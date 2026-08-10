@@ -14,7 +14,10 @@ export async function findNotes(input: NotesQuery) {
     take: PAGE_SIZE,
     include: {
       _count: { select: { cues: true } },
-      tags: { include: { tag: true } },
+      tags: {
+        orderBy: { order: "asc" },
+        include: { tag: true },
+      },
       canvas: { select: { notebookId: true } },
     },
   });
@@ -28,7 +31,10 @@ export async function findNoteDetail(id: string) {
     },
     include: {
       cues: { orderBy: { order: "asc" } },
-      tags: { include: { tag: true } },
+      tags: {
+        orderBy: { order: "asc" },
+        include: { tag: true },
+      },
       canvas: true,
     },
   });

@@ -1,6 +1,6 @@
 # 実装状況サマリ
 
-更新日: 2026-08-08
+更新日: 2026-08-09
 
 ## 判定基準
 
@@ -20,15 +20,19 @@
 
 現行 MVP との照合結果は次のとおり。
 
+- 学習日の不変性は実装済み。作成画面では必須の今日以前の `noteDate` を入力でき、保存後の通常編集画面では現在値を `disabled` / `readOnly` の表示専用として扱う。`PATCH /api/notes/:id` は同値の `noteDate` を許可し、異なる値を 400 `invalid_body` の `noteDate` フィールドエラー（`保存後の学習日は編集できません`）で拒否する。更新 repository は `noteDate` を更新対象に含めず、`POST /api/notes` の作成時入力は保存する。
 - 新規ノートの `nextReviewDate = noteDate + 7日` は実装済み。新規フォームは `noteDate` から 7 日後の値で始まり、保存前に変更または空欄化できる。
-- 既存ノートの編集では、未設定の `nextReviewDate` を自動補完しない。`noteDate` を変更しても、明示済みの次回復習日を自動移動しない。
+- 既存ノートの編集では、未設定の `nextReviewDate` を自動補完しない。`nextReviewDate` は学習日と独立して変更または空欄化でき、保存済みの値を学習日から自動再計算しない。保存後の通常編集画面の `noteDate` は表示専用である。
 - 既存ノートの復習画面では、画面を開いた時点の `Asia/Tokyo` 基準の現在日付 + 7日を初期表示する。保存済みの `nextReviewDate` は初期値に再利用しない。復習画面内の手動変更・空欄化と、復習成功後の API response による画面反映は維持している。
 - 復習モードの本文と Summary は初期非表示になる。本文を表示した後に Summary を開ける。
+- ノート内タグは、保存時の `tags` 配列 index を `NotebookTag.order` に 0 始まりで保存し、一覧・詳細の read repository は `order` 昇順で取得する。SQLite / Postgres の `20260809090000_add_notebook_tag_order` migration は既存行を Tag 名昇順（同名は `tagId` 昇順）で決定的に backfill する。`GET /api/tags` は候補を名前昇順で返し、ノート内タグの順序とは分けている。これは実装の静的確認であり、タグ順の保存・再読込を含む Browser runtime QA は未確認である。
+- 詳細画面の Summary は `MarkdownReadView` で task-list checkbox を表示し、view / review で toggle できる。toggle は対応する task marker の checked 状態だけを Summary draft に反映し、dirty 状態を表示する。明示保存は既存 `PATCH /api/notes/:id` を使い、成功 response で表示中ノートを更新して dirty 状態を解除する。破棄、モード離脱、復習完了では未保存 draft を保存せずに破棄し、保存失敗時は draft と dirty 状態を保持して error を表示する。編集画面の Markdown Preview checkbox は read-only のままで、自動保存は行わない。これは実装と contract test の静的確認であり、Browser runtime、実 DB read-back、E2E は未確認である。
 - 削除は確認後に物理削除する。`deletedAt` は schema に残る互換フィールドであり、Undo / soft delete の実装を意味しない。
 - 専用復習タスク、ドラフト自動保存、NoteCard、D&D、PDF export などの route・model・UI は存在しない。
 - Canvas は、`CanvasDocumentV1`（既定 page 1200x800、各 320〜4000px）の共有 validation、JSON 保存・復元、Canvas text 要素由来の `searchText`、幅・高さ数値入力と適用操作、保存済み `page` 寸法による editor / viewer の実寸描画、page 寸法だけを更新して要素 geometry を保持する処理、draw.io 風 toolbar、sticky tool、消しゴム（触れた要素を object 単位で消去する whole-object eraser）、client history、style controls、図形内文字、既存要素上の重ね描き、図形ドラッグ閾値、Fabric path metadata までコード上で実装されている。2026-07-21 に API の Canvas 保存・復元境界を確認し、2026-07-25 は Worker の Browser backend `[]` / app-server `Operation not permitted` を補う Manager 側の権限付き headless Playwright Chromium で、寸法、style、保存・再読込、eraser、history、toolbar / touch の確認済み範囲を追加した。厳密な 4px 等を残す `CANVAS-INTERACTION-001` / `CANVAS-GESTURE-001` と、全体未確認の `CANVAS-SHAPE-TEXT-001` は部分実施のままである。
 - 2026-07-25 の最新 Manager fallback QA で、既存ノートの desktop edit は 1280 / 1440px、`nextReviewDate` は新規初期値・手動値保持・未設定維持の確認済み範囲を追加した。review 成功 UI、375 / 768px の mobile edit、wheel / trackpad 固有入力は未確認のままである。根拠は `summary/20260725/2230-mandatory-qa-manager-fallback-20260725.md`。
 - 2026-07-31 の追加 QA では、Canvas の wheel / trackpad / touch scroll handoff と scroll 中の drawing 干渉、および 375 / 768px の note editor・viewer・review・overflow runtime は Browser backend / localhost route / server bind / headless Chromium の制約により `BLOCKED` だった。7/25 に別経路で確認済みの desktop / Canvas subset は履歴として保持し、今回の未測定範囲を runtime `PASS` へ繰り上げない。根拠は `summary/20260731/worker-canvas-scroll-wheel-touch-qa-20260731.md`、`summary/20260731/worker-mobile-note-runtime-20260731.md`。
+- `/notes` の一覧カードは、`reviewedAt === null` を `未復習`、`reviewedAt !== null` を `復習済み` とする復習履歴バッジと、`nextReviewDate` の未来・今日以前・未設定を分ける次回復習状態バッジを独立して表示する。タグがある場合はタグ名・色・折り返し・長い名前の省略表示を維持し、タグがない場合は一覧カードに `タグなし` を表示しない。詳細画面などの既存 `タグなし` 表示はこの変更の対象外である。これは専用復習タスクや未完了タスクバッジを意味しない。
 - 過去の検討履歴として、2026-07-31 の Postgres source reader evidence を保持する。この証跡は Postgres を採用しない方針の決定前に取得したもので、isolated frozen SQLite fixture と temporary failure injection による `better-sqlite3` require / constructor failure → `sqlite3` CLI fallback、read-only snapshot、row digest、Canvas validation、source hash / size / sidecar 不変を確認した限定 `PASS` である。壊れた native binary、実 Postgres target の baseline / reconcile、production / hosted readiness は未確認のまま保持する。現行 MVP の実装、受け入れ対象、製品ロードマップには含めない。根拠は `summary/20260731/worker-postgres-native-reader-fallback-20260731.md`、`summary/20260731/1804-recheck-postgres-native-reader-fallback-evidence-20260731-d5caeaf3-summary.md`。
 
 ## 2. 画面と route
@@ -56,9 +60,9 @@ route handler の export と一致する一覧は次のとおり。これ以外�
 | Method | URL | 実装状況 | 根拠 |
 | --- | --- | --- | --- |
 | `GET` | `/api/notes` | 一覧・検索・ページング（Canvas `searchText` を含む） | `src/app/api/notes/route.ts`, `src/server/notes/infrastructure/read.repository.ts` |
-| `POST` | `/api/notes` | ノート作成、Canvas JSON、Cue・タグ関連作成 | `src/app/api/notes/route.ts`, `src/server/notes/infrastructure/notebook.command.repository.ts` |
+| `POST` | `/api/notes` | 今日以前の `noteDate` を含むノート作成、Canvas JSON、Cue・タグ関連作成 | `src/app/api/notes/route.ts`, `src/server/notes/infrastructure/notebook.command.repository.ts` |
 | `GET` | `/api/notes/:id` | ノート詳細取得 | `src/app/api/notes/[id]/route.ts` |
-| `PATCH` | `/api/notes/:id` | ノート全体の明示更新、Canvas JSON、Cue・タグ関連の全置換 | `src/app/api/notes/[id]/route.ts`, `src/server/notes/infrastructure/notebook.command.repository.ts` |
+| `PATCH` | `/api/notes/:id` | ノート全体の明示更新、Canvas JSON、Cue・タグ関連の全置換。保存済み `noteDate` と異なる値は 400 `invalid_body` の `noteDate` フィールドエラー、同値は許可するが `noteDate` 自体は更新しない | `src/app/api/notes/[id]/route.ts`, `src/server/notes/infrastructure/notebook.command.repository.ts` |
 | `DELETE` | `/api/notes/:id` | 物理削除、成功時 `204` | `src/app/api/notes/[id]/route.ts`, `src/server/notes/infrastructure/notebook.command.repository.ts` |
 | `POST` | `/api/notes/:id/review` | `reviewedAt` と任意の `nextReviewDate` を更新 | `src/app/api/notes/[id]/review/route.ts`, `src/server/notes/infrastructure/review.command.repository.ts` |
 | `GET` | `/api/tags` | タグ候補を名前昇順で取得 | `src/app/api/tags/route.ts` |
@@ -80,7 +84,7 @@ route handler の export と一致する一覧は次のとおり。これ以外�
 | `Notebook` | `id`, `title`, `noteDate`, `sourceType`, `sourceTitle`, `body`, `bodyMode`, `summary`, `nextReviewDate`, `reviewedAt`, `createdAt`, `updatedAt`, `deletedAt`。`bodyMode` が `canvas` の場合、本文の正本は `NotebookCanvas`。 |
 | `NotebookCanvas` | `notebookId`, `schemaVersion`, `documentJson`, `searchText`, `createdAt`, `updatedAt`。`CanvasDocumentV1.page` に用紙サイズを保持する。 |
 | `Tag` | `id`, unique な `name`, `color`, `createdAt`。 |
-| `NotebookTag` | `notebookId` + `tagId` の複合主キーによる多対多関連。両方の削除は cascade。 |
+| `NotebookTag` | `notebookId` + `tagId` の複合主キーによる多対多関連。`order` にノート内表示順を保持し、`notebookId` + `order` index を持つ。両方の削除は cascade。 |
 | `Cue` | `id`, `notebookId`, `text`, `order`, `createdAt`, `updatedAt`。Notebook の Cue リスト。 |
 
 `Notebook.deletedAt` は schema と一覧・詳細取得の `where deletedAt: null` に存在するが、削除処理は `prisma.notebook.delete` を呼ぶ物理削除である。`SoftDeleteBuffer`、`NotebookDraftState`、`NotebookReviewProgress`、`BackupLog`、`NoteCard`、`CueCard`、`NoteCueLink` の Prisma model はない。現行の `src/modules/notes/model/note-editor-form.ts` と `src/modules/notes/ui/components/editor/editor.tsx` は Cue リストと Canvas 本文を扱い、`CueCard` / `NoteCard` の保存処理・UI・route には接続していない。
@@ -92,12 +96,14 @@ route handler の export と一致する一覧は次のとおり。これ以外�
 | 機能 | 実装内容 | 根拠 |
 | --- | --- | --- |
 | 明示保存 | 新規は `POST /api/notes` 成功後に `/notes/[id]` へ遷移、編集は `PATCH` 成功後に閲覧へ戻る。自動保存は行わない。 | `src/modules/notes/ui/components/editor/editor.tsx`, `src/modules/notes/remote/index.ts` |
-| ノート CRUD | タイトル、学習日、学習元、Canvas または legacy Markdown 本文、Summary、復習日を保存・取得・更新・削除。 | `src/app/api/notes/route.ts`, `src/app/api/notes/[id]/route.ts`, `src/server/notes/infrastructure/notebook.command.repository.ts`, `src/server/notes/infrastructure/review.command.repository.ts` |
+| 学習日の不変性 | 作成画面では `noteDate` を入力でき、保存後の通常編集画面では現在値を表示専用にする。PATCH は同値を許可し、異なる値を 400 `invalid_body` の `noteDate` フィールドエラーで拒否する。 | `src/modules/notes/ui/components/editor/metadata.tsx`, `src/modules/notes/ui/components/editor/inputs.tsx`, `src/app/api/notes/[id]/route.ts`, `src/server/notes/infrastructure/notebook.command.repository.ts`, `test/notes/note-date-immutability-contract.test.js` |
+| ノート CRUD | 作成時の学習日、タイトル、学習元、Canvas または legacy Markdown 本文、Summary、復習日を保存・取得する。学習日以外の項目を更新・削除し、保存後の通常編集では学習日を表示専用とする。PATCH の異なる `noteDate` は拒否する。 | `src/app/api/notes/route.ts`, `src/app/api/notes/[id]/route.ts`, `src/server/notes/infrastructure/notebook.command.repository.ts`, `src/server/notes/infrastructure/review.command.repository.ts` |
 | Cue | Cue の追加・削除、`order` 保存、詳細表示、更新時の全置換。空 Cue はフォームから payload に含めない。 | `src/modules/notes/ui/components/editor/editor.tsx`, `src/modules/notes/model/note-editor-form.ts`, `src/server/notes/infrastructure/relations.repository.ts` |
-| タグ | 既存候補の取得、新規タグの保存時自動作成、1 ノート最大 12 件、同一ノート内の重複防止、一覧 OR フィルタ。 | `src/modules/notes/ui/components/editor/editor.tsx`, `src/app/api/tags/route.ts`, `src/modules/notes/contracts/note.schema.ts` |
+| タグ | 既存候補の名前昇順取得、新規タグの保存時自動作成、保存時の `tags` 配列 index による `NotebookTag.order`、一覧・詳細の順序保持、1 ノート最大 12 件、同一ノート内の重複防止、一覧 OR フィルタ。SQLite / Postgres migration で既存行を決定的に backfill する。 | `src/modules/notes/ui/components/editor/editor.tsx`, `src/server/notes/infrastructure/relations.repository.ts`, `src/server/notes/infrastructure/read.repository.ts`, `src/server/notes/infrastructure/tag.repository.ts`, `src/app/api/tags/route.ts`, `prisma/migrations/20260809090000_add_notebook_tag_order/migration.sql`, `prisma/migrations-postgres/20260809090000_add_notebook_tag_order/migration.sql` |
 | 一覧ライブ検索 / header | 実装済み（静的確認）。タイトル・legacy Markdown 本文・Summary・Cue・Canvas `searchText` の部分一致、日付範囲、タグ、`reviewDue`、ページング、空状態・loading・error 表示に加え、query の 300ms debounce、Enter の即時適用、日付・タグ・review toggle の即時適用、pending debounce を取り消す Clear を持つ。visible な検索 button はなく、review filter は「復習対象のみ」だけを visible label とし、neutral / amber の押下 style と `aria-pressed` を持つ keyboard-operable toggle button である。visible な `ON` / `OFF` badge は置かず、desktop ではタグチップ増加時もタグ操作行の位置を保つ。header は冗長な補助文を表示せず、`h1` と新規作成導線を維持する。From > To は request 前に拒否し、日付 blur は validation のみを行う。 | `src/modules/notes/ui/components/list/list.tsx`, `src/modules/notes/ui/components/list/filters.tsx`, `src/modules/notes/ui/components/list/tags.tsx`, `src/server/notes/infrastructure/read.repository.ts`, `test/notes/list-filter-layout-contract.test.js`, `test/notes/list-filter-live-search-contract.test.js`, `test/notes/list-header-contract.test.js` |
+| ノート一覧カード表示 | 実装済み（静的確認）。`reviewedAt` に基づく復習履歴バッジと `nextReviewDate` に基づく次回復習状態バッジを独立表示し、タグが 0 件のときは一覧カードに `タグなし` を表示しない。 | `src/modules/notes/model/note-display.ts`, `src/modules/notes/ui/components/list/card.tsx`, `test/notes/list-visual-contract.test.js`, `doc/implementation/MVP_CONTRACT.md` §4.4 |
 | 詳細モード | `/notes/[id]` 内で閲覧・編集・復習を切り替える。復習時は本文を隠す／表示する操作がある。 | `src/modules/notes/ui/components/detail/modes.tsx` |
-| Markdown 表示 | Cue / Summary の textarea と preview、GFM、sanitize、preview checkbox の表示専用化。legacy Markdown body mode は互換表示する。Canvas 本文は Canvas viewer/editor で表示する。 | `src/shared/markdown/markdown-field.tsx`, `package.json`, `src/modules/notes/ui/components/canvas/viewer.tsx` |
+| Markdown renderer / 編集 Preview / Summary 読み取り表示 | Cue / Summary の textarea と編集画面 Preview、GFM、sanitize、編集 Preview checkbox の表示専用化に加え、詳細画面 Summary の task-list checkbox toggle と Markdown read renderer を実装している。legacy Markdown body mode は互換表示し、Canvas 本文は Canvas viewer/editor で表示する。 | `src/shared/markdown/markdown-field.tsx`, `src/modules/notes/ui/components/detail/read-view.tsx`, `src/shared/markdown/markdown-task-list.js`, `src/modules/notes/ui/components/canvas/viewer.tsx`, `test/notes/detail-summary-checkbox-contract.test.js`, `test/notes/markdown-task-list.test.js` |
 | 確認後の削除 | 詳細画面で `window.confirm` を表示し、確定後に物理削除して `/notes` へ戻る。削除後の Undo / 個別復元は保証しない。 | `src/modules/notes/ui/components/detail/modes.tsx`, `src/app/api/notes/[id]/route.ts`, `prisma/schema.prisma` |
 | 手動バックアップ | `/backup` と `POST /api/backups`、`npm run backup:copy` で DB を `backup/` へコピーし、最新 3 世代を保持する。 | `src/app/backup/page.tsx`, `src/app/api/backups/route.ts`, `src/server/backup/infrastructure/local-sqlite-backup-provider.js`, `package.json` |
 | API validation / error | Zod による body/query validation と `{ code, message, errors? }` 形式の route response。 | `src/modules/notes/contracts/note.schema.ts`, `src/shared/http/api-error.ts`, `src/shared/http/route-response.ts` |
@@ -117,10 +123,11 @@ route handler の export と一致する一覧は次のとおり。これ以外�
 | 契約項目 | 実際の挙動 | 判定 | 根拠 |
 | --- | --- | --- | --- |
 | 復習モードの本文・Summary | 本文と Summary は復習開始時に非表示で、本文を表示した後に Summary を開ける。表示・再非表示の状態は保存しない。 | 実装済み（runtime QA は別途確認） | `src/modules/notes/ui/components/detail/modes.tsx` |
+| 詳細画面 Summary checkbox / 明示保存 | `MarkdownReadView` が view / review の Summary task-list checkbox を操作可能な読み取り領域として表示する。toggle は task marker の checked 状態だけを `summaryDraft` に反映し、dirty 状態を管理する。明示保存は既存 `PATCH /api/notes/:id` を使い、成功時は response で表示中ノートを更新して dirty 状態を解除する。破棄・モード離脱・復習完了では未保存 draft を保存せずに破棄し、保存失敗時は draft、dirty 状態、error を保持する。編集画面の Markdown Preview checkbox は read-only のままで、自動保存は行わない。 | 実装済み（静的確認。Browser runtime、実 DB read-back、E2E は未確認） | `src/modules/notes/ui/components/detail/read-view.tsx`, `src/modules/notes/ui/components/detail/modes.tsx`, `src/modules/notes/ui/components/detail/actions.tsx`, `src/shared/markdown/markdown-task-list.js`, `src/modules/notes/model/detail-summary-payload.ts`, `test/notes/detail-summary-checkbox-contract.test.js`, `test/notes/markdown-task-list.test.js`, `doc/implementation/MVP_CONTRACT.md` §6.3 |
 | 新規ノートの `nextReviewDate` 初期値 | 新規フォームは `noteDate` を基準に `addDaysToDateString(noteDate, 7)` で初期化され、空欄化して保存することもできる。2026-07-25 に初期表示と保存の UI subset を確認した。 | 実装済み（runtime 確認済み範囲） | `src/modules/notes/model/note-editor-form.initial.ts:23-62`, `src/shared/date/date-only.ts:9-17`, `summary/20260725/2230-mandatory-qa-manager-fallback-20260725.md`, `doc/implementation/MVP_CONTRACT.md:59-60` |
-| 既存ノート編集時の `nextReviewDate` | 未設定値を自動補完せず、`noteDate` 変更時も明示済みの次回復習日を自動移動しない。2026-07-25 に手動値の保持と未設定維持の UI subset を確認した。 | 実装済み（runtime 確認済み範囲） | `src/modules/notes/model/note-editor-form.initial.ts:23-62`, `summary/20260725/2230-mandatory-qa-manager-fallback-20260725.md`, `doc/implementation/MVP_CONTRACT.md:59-60` |
+| 既存ノート編集時の `nextReviewDate` | 未設定値を自動補完せず、学習日と独立して変更または空欄化できる。保存済みの値を学習日から自動再計算しない。2026-07-25 に手動値の保持と未設定維持の UI subset を確認した。 | 実装済み（runtime 確認済み範囲） | `src/modules/notes/model/note-editor-form.initial.ts:23-62`, `summary/20260725/2230-mandatory-qa-manager-fallback-20260725.md`, `doc/implementation/MVP_CONTRACT.md:61-62` |
 | 既存ノートの復習画面における `nextReviewDate` 初期値 | 画面を開いた時点の `todayDateString()`（`Asia/Tokyo`）の現在日付に 7 日を加えた値を初期表示し、保存済み `nextReviewDate` は初期値に再利用しない。復習画面内の手動変更・空欄化と、成功 response の `nextReviewDate` 反映を維持する。 | 実装済み（静的確認・focused contract test。review 成功 UI は未確認） | `src/modules/notes/ui/components/detail/modes.tsx`, `src/shared/date/date-only.ts:1-20`, `test/notes/detail-actions-layout-contract.test.js` |
-| 既存ノート desktop edit | 既存ノートの title、noteDate、source、tag、Cue、Canvas、Summary、`nextReviewDate` を 1280 / 1440px で復元し、保存後再読込、キャンセル、主要 field 到達性、viewport-wide 横 overflow 不在を確認した。375 / 768px の mobile edit は未確認。 | runtime 確認済み（desktop 1280 / 1440px の範囲） | `summary/20260725/2230-mandatory-qa-manager-fallback-20260725.md` |
+| 既存ノート desktop edit | 既存ノートの title、学習日（現在値の表示）、source、tag、Cue、Canvas、Summary、`nextReviewDate` を 1280 / 1440px で復元し、保存後再読込、キャンセル、主要 field 到達性、viewport-wide 横 overflow 不在を確認した。保存後の通常編集画面では学習日を表示専用とする。375 / 768px の mobile edit は未確認。 | runtime 確認済み（desktop 1280 / 1440px の範囲） | `summary/20260725/2230-mandatory-qa-manager-fallback-20260725.md` |
 | 復習の次回日管理 | `POST /api/notes/:id/review` は存在し、`reviewedAt` とユーザー入力の `nextReviewDate` / `null` を更新する。API / DB の保存値を自動再計算することはなく、復習画面へ入る時の初期表示だけが現在日付 + 7日になる。 | 実装済み | `src/app/api/notes/[id]/review/route.ts`, `src/server/notes/infrastructure/review.command.repository.ts:9-33`, `src/modules/notes/ui/components/detail/modes.tsx` |
 | 依存ライブラリに対する高度 UI | `@dnd-kit/*`、`@uiw/react-md-editor`、`react-day-picker` は `package.json` にあるが、現行画面は native textarea / date input と手動 Cue 操作を使う。 | MVP の実装済みとは数えない | `package.json`, `src/modules/notes/ui/components/editor/editor.tsx`, `src/modules/notes/ui/components/list/list.tsx` |
 
@@ -174,8 +181,8 @@ Worker task は Browser backend `[]` と app-server `Operation not permitted` �
 
 | 領域 | 2026-07-25 の確認済み範囲 | 判定 |
 | --- | --- | --- |
-| 既存ノート desktop edit | title、noteDate、source、tag、Cue、Canvas、Summary、`nextReviewDate` の復元、保存後再読込、キャンセル、主要 field 到達性、body / document の viewport-wide 横幅不在、console / page error 0。確認用ノートは DELETE 204、GET 404、一覧 query の残留 `totalCount=0`。 | `PASS（desktop 1280 / 1440px の確認済み範囲）` |
-| `nextReviewDate` | 新規ノートでは `2026-07-25` → `2026-08-01` の初期表示・保存を確認した。既存ノートの編集では、手動設定した `2026-08-05` の `noteDate` 変更後保持と、空欄の再読込・`noteDate` 変更後維持を確認した。 | `部分実施（確認済み範囲。review 成功 UI は未確認）` |
+| 既存ノート desktop edit | title、学習日（現在値の表示）、source、tag、Cue、Canvas、Summary、`nextReviewDate` の復元、保存後再読込、キャンセル、主要 field 到達性、body / document の viewport-wide 横幅不在、console / page error 0。保存後の通常編集画面では学習日を表示専用とする。確認用ノートは DELETE 204、GET 404、一覧 query の残留 `totalCount=0`。 | `PASS（desktop 1280 / 1440px の確認済み範囲）` |
+| `nextReviewDate` | 新規ノートでは `2026-07-25` → `2026-08-01` の初期表示・保存を確認した。既存ノートの編集では、手動設定した `2026-08-05` と空欄の再読込を確認し、次回復習日は学習日と独立して扱い、学習日から自動再計算しない。 | `部分実施（確認済み範囲。review 成功 UI は未確認）` |
 
 根拠: `summary/20260725/2230-mandatory-qa-manager-fallback-20260725.md`。
 
@@ -309,5 +316,21 @@ Worker task は Browser backend `[]` と app-server `Operation not permitted` �
 | `npm run build` | PASS | Prisma Client 生成を含む Next.js production build に成功 |
 | `git diff --check` | PASS | 文書同期後の whitespace error なし |
 | Browser visual / interaction runtime | 未確認 | live timing の実時間計測、Enter / toggle の実ブラウザ操作、loading 遷移、responsive alignment、header 視覚状態はこの docs-only task では確認していない。上記 source-contract test の PASS を Browser runtime PASS へ読み替えない |
+
+### 7.3 2026-08-09 ノート一覧カード表示契約の静的検証
+
+| 確認 | 結果 | 判定の意味 |
+| --- | --- | --- |
+| `node --test test/notes/list-visual-contract.test.js` | PASS（静的契約、5 tests） | `reviewedAt` と `nextReviewDate` の独立判定、6 通りの組み合わせ、タグ表示、空タグ時の `タグなし` 非表示を source contract として確認した |
+| Browser runtime | 未確認 / NOT RUN | Browser backend が利用できないため実施していない。静的契約テストの結果を Browser runtime の PASS へ読み替えない |
+
+### 7.4 2026-08-09 詳細 Summary checkbox 契約の判定境界
+
+| 確認 | 結果 | 判定の意味 |
+| --- | --- | --- |
+| Static contract | PASS（実装・contract test の静的確認） | 詳細 Summary の checkbox toggle、task marker だけを変更する draft 更新、dirty、既存 PATCH を使う明示保存、成功時の state 更新、破棄、保存失敗時の保持、review completion との分離を source と focused contract test で確認した。編集画面 Preview の read-only 契約も確認範囲に含む。 |
+| Browser runtime | 未確認 / NOT RUN | Browser backend が利用できないため view / review の toggle、API write timing、明示保存・再読込、破棄、保存失敗表示、実 DB read-back、E2E は実施していない。静的確認を Browser runtime の PASS に読み替えない |
+
+今回の確認では safe fixture の作成、DB write、Browser runtime の代替操作を行わない。
 
 更新対象は実装状況と検証証跡に限り、コード、設定、schema、DB、UI、API、テスト、画像、生成物は変更しない。作業前後に `git status --short` と `git diff --check` を確認する。

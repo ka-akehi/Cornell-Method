@@ -37,6 +37,47 @@ test("editor metadata keeps review date below study date and preserves save wiri
   assert.match(summary, /onClick=\{onCancel\}/);
 });
 
+test("study date is editable on create but display-only on edit", () => {
+  const editor = readSource(
+    "src/modules/notes/ui/components/editor/editor.tsx",
+  );
+  const metadata = readSource(
+    "src/modules/notes/ui/components/editor/metadata.tsx",
+  );
+  const inputs = readSource(
+    "src/modules/notes/ui/components/editor/inputs.tsx",
+  );
+  const payload = readSource(
+    "src/modules/notes/model/note-editor-form.payload.ts",
+  );
+
+  assert.match(editor, /<NoteEditorMetadataSection[\s\S]*mode=\{mode\}/);
+  assert.match(
+    editor,
+    /if \(mode === "edit" && Object\.prototype\.hasOwnProperty\.call\(next, "noteDate"\)\) \{[\s\S]*?delete editableChanges\.noteDate;[\s\S]*?if \(Object\.keys\(editableChanges\)\.length === 0\) \{[\s\S]*?return;/,
+  );
+  assert.match(metadata, /mode: "create" \| "edit";/);
+  assert.match(metadata, /const noteDateReadOnly = mode === "edit";/);
+
+  const noteDateStart = metadata.indexOf('id="note-date"');
+  const nextReviewDateStart = metadata.indexOf('id="next-review-date"');
+  assert.ok(noteDateStart >= 0 && nextReviewDateStart > noteDateStart);
+  const noteDateInput = metadata.slice(
+    metadata.lastIndexOf("<TextInput", noteDateStart),
+    nextReviewDateStart,
+  );
+  assert.match(noteDateInput, /disabled=\{noteDateReadOnly\}/);
+  assert.match(noteDateInput, /readOnly=\{noteDateReadOnly\}/);
+  assert.match(
+    noteDateInput,
+    /if \(noteDateReadOnly\) \{\s*return;\s*\}/,
+  );
+  assert.match(payload, /noteDate: form\.noteDate/);
+  assert.match(inputs, /readOnly\?: boolean/);
+  assert.match(inputs, /readOnly=\{readOnly\}/);
+  assert.match(inputs, /aria-readonly=\{readOnly\}/);
+});
+
 test("main note title stays editable and source title follows source type", () => {
   const inputs = readSource(
     "src/modules/notes/ui/components/editor/inputs.tsx",
@@ -73,13 +114,17 @@ test("date inputs keep picker fallback while labels preserve native activation",
   const inputs = readSource(
     "src/modules/notes/ui/components/editor/inputs.tsx",
   );
+  const datePicker = readSource(
+    "src/modules/notes/ui/components/date-picker.ts",
+  );
 
-  assert.match(inputs, /function openDatePicker\(event: MouseEvent<HTMLInputElement>\)/);
-  assert.match(inputs, /if \(input\.disabled\) return;/);
-  assert.match(inputs, /if \(typeof input\.showPicker === "function"\)/);
-  assert.match(inputs, /input\.showPicker\(\);\s*return;/);
-  assert.match(inputs, /catch \{\s*input\.focus\(\);\s*return;/);
-  assert.match(inputs, /\n\s*input\.focus\(\);\n\}/);
+  assert.match(inputs, /import \{ openDatePicker \} from "\.\.\/date-picker";/);
+  assert.match(datePicker, /function openDatePicker\(event: MouseEvent<HTMLInputElement>\)/);
+  assert.match(datePicker, /if \(input\.disabled \|\| input\.readOnly\) return;/);
+  assert.match(datePicker, /if \(typeof input\.showPicker === "function"\)/);
+  assert.match(datePicker, /input\.showPicker\(\);\s*return;/);
+  assert.match(datePicker, /catch \{\s*input\.focus\(\);\s*return;/);
+  assert.match(datePicker, /\n\s*input\.focus\(\);\n\}/);
   assert.doesNotMatch(inputs, /preventDatePickerFromLabel|event\.preventDefault\(\)/);
   assert.match(
     inputs,

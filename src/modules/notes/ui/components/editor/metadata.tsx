@@ -13,6 +13,7 @@ import { NoteEditorTagInput } from "./tags";
 import { TextInput, TitleInput } from "./inputs";
 
 export function NoteEditorMetadataSection({
+  mode,
   shell,
   title,
   noteDate,
@@ -26,6 +27,7 @@ export function NoteEditorMetadataSection({
   onNextReviewDateChange,
   actions,
 }: {
+  mode: "create" | "edit";
   shell: boolean;
   title: string;
   noteDate: string;
@@ -39,6 +41,7 @@ export function NoteEditorMetadataSection({
   onNextReviewDateChange: (nextReviewDate: string) => void;
   actions?: ReactNode;
 }) {
+  const noteDateReadOnly = mode === "edit";
   const sourceTypeFieldError = fieldError(fieldErrors, "sourceType");
   const sourceTitleFieldError = fieldError(fieldErrors, "sourceTitle");
 
@@ -77,7 +80,14 @@ export function NoteEditorMetadataSection({
             type="date"
             value={noteDate}
             max={today}
-            onChange={(nextNoteDate) => onChange({ noteDate: nextNoteDate })}
+            disabled={noteDateReadOnly}
+            readOnly={noteDateReadOnly}
+            onChange={(nextNoteDate) => {
+              if (noteDateReadOnly) {
+                return;
+              }
+              onChange({ noteDate: nextNoteDate });
+            }}
             error={fieldError(fieldErrors, "noteDate")}
             required
           />

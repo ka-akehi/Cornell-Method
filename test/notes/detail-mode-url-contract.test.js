@@ -38,9 +38,18 @@ test("note detail edit mode is synchronized through replaceable URL state", () =
   assert.match(modes, /nextSearchParams\.delete\("mode"\)/);
   assert.match(modes, /router\.replace\(query \? `\$\{pathname\}\?\$\{query\}` : pathname\);/);
   assert.match(modes, /function enterEditMode\(\)[\s\S]*replaceModeUrl\("edit"\)[\s\S]*setMode\("edit"\)/);
-  assert.match(modes, /function leaveEditMode\(\)[\s\S]*replaceModeUrl\("view"\)[\s\S]*setMode\("view"\)/);
+  assert.match(modes, /function leaveEditMode\([^)]*\)[\s\S]*replaceModeUrl\("view"\)[\s\S]*setMode\("view"\)/);
   assert.match(modes, /onEdit=\{enterEditMode\}/);
-  assert.match(modes, /<NoteDetailEditActions onCancel=\{leaveEditMode\}/);
-  assert.match(modes, /onCancel=\{leaveEditMode\}/);
-  assert.match(modes, /onSaved=\{\(savedNote\) => \{[\s\S]*leaveEditMode\(\);/);
+  assert.match(
+    modes,
+    /<NoteDetailEditActions onCancel=\{\(\) => leaveEditMode\(\)\} \/>/,
+    "the detail cancel click must not pass its React event into leaveEditMode",
+  );
+  assert.doesNotMatch(
+    modes,
+    /<NoteDetailEditActions onCancel=\{leaveEditMode\}/,
+    "the detail cancel action must use a no-argument callback",
+  );
+  assert.match(modes, /onCancel=\{\(\) => leaveEditMode\(\)\}/);
+  assert.match(modes, /onSaved=\{\(savedNote\) => \{[\s\S]*leaveEditMode\([^)]*\);/);
 });

@@ -1,23 +1,6 @@
 "use client";
 
-import type { MouseEvent } from "react";
-
-function openDatePicker(event: MouseEvent<HTMLInputElement>) {
-  const input = event.currentTarget;
-  if (input.disabled) return;
-
-  if (typeof input.showPicker === "function") {
-    try {
-      input.showPicker();
-      return;
-    } catch {
-      input.focus();
-      return;
-    }
-  }
-
-  input.focus();
-}
+import { openDatePicker } from "../date-picker";
 
 export function TitleInput({
   id,
@@ -80,6 +63,7 @@ export function TextInput({
   max,
   required = false,
   disabled = false,
+  readOnly = false,
 }: {
   id: string;
   label: string;
@@ -90,6 +74,7 @@ export function TextInput({
   max?: string;
   required?: boolean;
   disabled?: boolean;
+  readOnly?: boolean;
 }) {
   return (
     <div className="min-w-0 space-y-1.5">
@@ -107,9 +92,11 @@ export function TextInput({
         max={max}
         required={required}
         disabled={disabled}
+        readOnly={readOnly}
         onChange={(event) => onChange(event.target.value)}
         aria-invalid={Boolean(error)}
         aria-disabled={disabled}
+        aria-readonly={readOnly}
         aria-describedby={error ? `${id}-error` : undefined}
         onClick={type === "date" ? openDatePicker : undefined}
         className={`w-full min-w-0 rounded-lg border bg-white px-3 py-2 text-sm text-stone-900 shadow-sm outline-none transition placeholder:text-stone-400 disabled:cursor-not-allowed disabled:bg-stone-50 disabled:text-stone-400 disabled:placeholder:text-stone-300 ${

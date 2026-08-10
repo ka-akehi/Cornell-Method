@@ -201,7 +201,7 @@ MVP の Prisma schema 対象は `doc/data/MVP_DATA_DESIGN.md` の 5 model に限
 | `NotebookCanvas` | `CanvasDocumentV1` の `documentJson`、schema version、Canvas text 要素由来の `searchText` を保存する |
 | `Cue` | 左欄の Cue / キーワード / 質問。`Notebook` に従属する |
 | `Tag` | タグ候補マスタ。`name` は unique |
-| `NotebookTag` | Notebook と Tag の中間テーブル |
+| `NotebookTag` | Notebook と Tag の中間テーブル。`order` でノート内タグ表示順を保持する |
 
 新規ノートは `bodyMode=canvas` で作成し、`NotebookCanvas.documentJson` を保存します。一覧のフリーワード検索は title、Summary、Cue、legacy `Notebook.body`、`NotebookCanvas.searchText` を対象にします。`searchText` は Canvas の text 要素から生成し、用紙寸法だけを変更した場合は値を変えません。
 

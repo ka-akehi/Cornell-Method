@@ -10,7 +10,8 @@ import {
   NoteDetailMetadata,
   NoteDetailSection,
 } from "./display";
-import { MarkdownPreview } from "@/shared/markdown";
+import { MarkdownReadView } from "@/shared/markdown";
+import { NoteDetailSummaryActions } from "./actions";
 
 type ReadMode = "view" | "review";
 type ReviewSuccessFeedback = {
@@ -21,13 +22,21 @@ type NoteDetailReadViewProps = {
   note: NoteDetailResponse;
   mode: ReadMode;
   error: string | null;
+  summaryDraft: string;
+  summaryDirty: boolean;
+  summarySaving: boolean;
+  summaryError: string | null;
   reviewSuccess: ReviewSuccessFeedback | null;
   showBody: boolean;
   showSummary: boolean;
+  bodyConfirmed: boolean;
   onShowBody: () => void;
   onHideBody: () => void;
   onShowSummary: () => void;
   onHideSummary: () => void;
+  onSummaryTaskToggle: (taskIndex: number, checked: boolean) => void;
+  onSaveSummary: () => void;
+  onDiscardSummary: () => void;
   modeActions: ReactNode;
   children: ReactNode;
 };
@@ -36,13 +45,21 @@ export function NoteDetailReadView({
   note,
   mode,
   error,
+  summaryDraft,
+  summaryDirty,
+  summarySaving,
+  summaryError,
   reviewSuccess,
   showBody,
   showSummary,
+  bodyConfirmed,
   onShowBody,
   onHideBody,
   onShowSummary,
   onHideSummary,
+  onSummaryTaskToggle,
+  onSaveSummary,
+  onDiscardSummary,
   modeActions,
   children,
 }: NoteDetailReadViewProps) {
@@ -88,6 +105,7 @@ export function NoteDetailReadView({
               <div className="space-y-3">
                 <button
                   type="button"
+                  disabled={summarySaving}
                   onClick={onHideBody}
                   className="rounded-lg border border-stone-300 px-4 py-2 text-sm font-medium text-stone-700 transition hover:bg-stone-50"
                 >
@@ -102,6 +120,7 @@ export function NoteDetailReadView({
                 </p>
                 <button
                   type="button"
+                  disabled={summarySaving}
                   onClick={onShowBody}
                   className="mt-3 rounded-lg bg-stone-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-stone-700"
                 >
@@ -119,12 +138,15 @@ export function NoteDetailReadView({
         <NoteDetailSection title="Summary / 要約と次の一歩">
           {showSummary ? (
             <div className="space-y-3">
-              <MarkdownPreview
-                value={note.summary ?? ""}
+              <MarkdownReadView
+                value={summaryDraft}
                 emptyLabel="サマリーは未入力です。"
+                onTaskToggle={onSummaryTaskToggle}
+                taskToggleDisabled={summarySaving}
               />
               <button
                 type="button"
+                disabled={summarySaving}
                 onClick={onHideSummary}
                 className="rounded-lg border border-stone-300 px-4 py-2 text-sm font-medium text-stone-700 transition hover:bg-stone-50"
               >
@@ -138,20 +160,36 @@ export function NoteDetailReadView({
               </p>
               <button
                 type="button"
-                disabled={!showBody}
+                disabled={!bodyConfirmed || summarySaving}
                 onClick={onShowSummary}
                 className="mt-3 rounded-lg bg-stone-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-stone-700 disabled:cursor-not-allowed disabled:bg-stone-300"
               >
-                {showBody ? "サマリーを表示" : "本文確認後に開く"}
+                {bodyConfirmed ? "サマリーを表示" : "本文確認後に開く"}
               </button>
             </div>
           )}
+          <NoteDetailSummaryActions
+            dirty={summaryDirty}
+            saving={summarySaving}
+            error={summaryError}
+            onSave={onSaveSummary}
+            onDiscard={onDiscardSummary}
+          />
         </NoteDetailSection>
       ) : (
         <NoteDetailSection title="Summary / 要約と次の一歩">
-          <MarkdownPreview
-            value={note.summary ?? ""}
+          <MarkdownReadView
+            value={summaryDraft}
             emptyLabel="サマリーは未入力です。"
+            onTaskToggle={onSummaryTaskToggle}
+            taskToggleDisabled={summarySaving}
+          />
+          <NoteDetailSummaryActions
+            dirty={summaryDirty}
+            saving={summarySaving}
+            error={summaryError}
+            onSave={onSaveSummary}
+            onDiscard={onDiscardSummary}
           />
         </NoteDetailSection>
       )}

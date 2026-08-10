@@ -4,7 +4,7 @@
 
 このドキュメントは、Cornell Method Notebook MVP の最終検証項目を定めます。
 
-MVP の確認対象は、明示保存、物理削除、手動で管理する `nextReviewDate`、Cue / Summary の `textarea + Markdown preview`、中央のフリー入力 Canvas 本文、`/notes` の復習対象フィルタ、詳細画面内の復習モード、`/backup` の手動バックアップです。新規ノートの `nextReviewDate` は `noteDate + 7日` を初期値とします。既存ノートの復習画面では保存値を再利用せず、画面を開いた時点の `Asia/Tokyo` 基準の現在日付 + 7日を初期表示します。1 日後 / 1 週間後の自動タスクや専用復習タスク画面は MVP の確認対象ではありません。
+MVP の確認対象は、明示保存、物理削除、手動で管理する `nextReviewDate`、編集画面の Cue / Summary `textarea + Markdown Preview`、詳細画面の Summary 読み取り領域、中央のフリー入力 Canvas 本文、`/notes` の復習対象フィルタ、詳細画面内の復習モード、`/backup` の手動バックアップです。新規ノートの `nextReviewDate` は `noteDate + 7日` を初期値とします。既存ノートの復習画面では保存値を再利用せず、画面を開いた時点の `Asia/Tokyo` 基準の現在日付 + 7日を初期表示します。1 日後 / 1 週間後の自動タスクや専用復習タスク画面は MVP の確認対象ではありません。
 
 MVP の初期データに seed は使いません。検証用データは `/notes/new` または `POST /api/notes` で作成します。
 
@@ -37,6 +37,7 @@ Playwright は `127.0.0.1:4173` の専用 web server を起動し、実行開始
 
 - [ ] `/notes/new` でタイトル未入力のまま保存すると validation error が表示される
 - [ ] `/notes/new` でタイトルが 120 文字を超えると validation error が表示される
+- [ ] `/notes/new` で学習日（`noteDate`）を入力・変更でき、保存した値が作成ノートの学習日として表示される
 - [ ] `/notes/new` で未来日の学習日は保存できない
 - [ ] `/notes/new` を開くと `nextReviewDate` に `noteDate + 7日` が初期入力される
 - [ ] `/notes/new` の `nextReviewDate` 初期値が月末（例: `2026-01-31` → `2026-02-07`）・年末（例: `2026-12-31` → `2027-01-07`）を正しく跨ぐ
@@ -50,6 +51,7 @@ Playwright は `127.0.0.1:4173` の専用 web server を起動し、実行開始
 - [ ] `/notes/new` で同一ノート内の重複タグが拒否される、または重複除外される
 - [ ] `/notes/new` で既存タグ候補を選択して保存できる
 - [ ] `/notes/new` で未登録タグを入力すると保存時に自動作成される
+- [ ] `/notes/new` で逆アルファベット順（例: `zeta` → `middle` → `alpha`）にタグを追加して保存し、保存後の再読込で `/notes` 一覧、`/notes/[id]` 詳細、編集モードのタグ表示が入力配列の追加順を維持する
 - [ ] `/notes/new` で中央の Canvas 本文に文字・図形・線・ストロークを配置できる
 - [ ] `/notes/new` の Canvas 用紙サイズ入力が幅 1200px・高さ 800px を既定値として表示する
 - [ ] `/notes/new` の Canvas 用紙サイズに幅・高さの数値入力と `適用` 操作がある
@@ -163,8 +165,11 @@ Playwright は `127.0.0.1:4173` の専用 web server を起動し、実行開始
 - [ ] `/notes` で保存済みノートの学習日が表示される
 - [ ] `/notes` で保存済みノートの学習元が表示される
 - [ ] `/notes` で保存済みノートのタグが表示される
+- [ ] `/notes` の一覧カードでタグ名と色が表示され、複数タグが折り返し、長いタグ名が省略表示される
+- [ ] `/notes` の一覧カードでタグが 0 件の場合、`タグなし` が表示されない。詳細画面など他のタグ表示箇所の既存 `タグなし` 表示はこの確認の対象外とする
 - [ ] `/notes` で保存済みノートの Cue 件数が表示される
 - [ ] `/notes` で要約未作成の状態が判別できる
+- [ ] `/notes` の一覧カードで `reviewedAt` に基づく復習履歴バッジと `nextReviewDate` に基づく次回復習状態バッジが別々に表示される
 - [ ] `/notes` でフリーワード検索がタイトルに対して効く
 - [ ] `/notes` でフリーワード検索が本文に対して効く
 - [ ] `/notes` でフリーワード検索がサマリーに対して効く
@@ -177,6 +182,21 @@ Playwright は `127.0.0.1:4173` の専用 web server を起動し、実行開始
 - [ ] `/notes` でタグフィルタの重複追加が防止される
 - [ ] `/notes` でタグ候補取得中、タグ select が追加不可状態になる
 - [ ] `/notes` で復習対象フィルタを有効にすると `nextReviewDate` が今日以前のノートだけが表示される
+
+#### 一覧カードの復習表示 6 通り
+
+次の 6 通りを `/notes` 一覧カードの受け入れ対象とする。`today` は判定基準日であり、復習履歴と次回復習状態は別々に判定する。
+
+| ケース | `reviewedAt` | `nextReviewDate` | 期待する復習履歴バッジ | 期待する次回復習状態バッジ |
+| --- | --- | --- | --- | --- |
+| 1 | `null` | 未来（例: `2026-08-10`） | `未復習` | `復習予定日: 2026-08-10` |
+| 2 | `2026-08-08T12:00:00.000Z` | 未来（例: `2026-08-10`） | `復習済み` | `復習予定日: 2026-08-10` |
+| 3 | `null` | 今日以前（例: `2026-08-08`） | `未復習` | `復習期限到来: 2026-08-08` |
+| 4 | `2026-08-08T12:00:00.000Z` | 今日以前（例: `2026-08-08`） | `復習済み` | `復習期限到来: 2026-08-08` |
+| 5 | `null` | 未設定（`null`） | `未復習` | `復習予定なし` |
+| 6 | `2026-08-08T12:00:00.000Z` | 未設定（`null`） | `復習済み` | `復習予定なし` |
+
+次回復習状態バッジの画面上の表示には、上表の文言の前に `次回: ` を付ける。6 通りの判定は `test/notes/list-visual-contract.test.js` の静的契約テストで確認する。
 - [ ] `/notes` のフリーワード query は入力停止から 300ms debounce される
 - [ ] `/notes` のフリーワード入力中に Enter を押すと pending debounce を取り消し、最新条件を即時適用する
 - [ ] `/notes` の日付・タグ追加 / 削除・review toggle は、未確定の最新 query を含む全条件で即時検索する
@@ -192,6 +212,13 @@ Playwright は `127.0.0.1:4173` の専用 web server を起動し、実行開始
 - [ ] `/notes` でページ移動ができる
 - [ ] `/notes` で 1 ページ目の前へ、最終ページの次へが disabled になる
 
+#### 一覧カード表示契約の検証境界（2026-08-09）
+
+| 確認 | 判定 | 判定の意味 |
+| --- | --- | --- |
+| `node --test test/notes/list-visual-contract.test.js` | PASS、5 tests | 一覧カードの復習バッジの独立性、6 通りの組み合わせ、タグ表示と空タグの `タグなし` 非表示を source contract として確認した |
+| Browser runtime | 未確認 / NOT RUN | Browser backend が利用できないため実施していない。静的契約テストの結果を Browser runtime の PASS へ読み替えない |
+
 ### 4. ノート詳細
 
 - [ ] `/notes/[id]` の閲覧モードでタイトルが表示される
@@ -202,10 +229,25 @@ Playwright は `127.0.0.1:4173` の専用 web server を起動し、実行開始
 - [ ] `/notes/[id]` の閲覧モードで `bodyMode=canvas` の Canvas 本文が表示される
 - [ ] `/notes/[id]` の閲覧モードで `bodyMode=markdown` の既存ノートは本文 Markdown が表示される
 - [ ] `/notes/[id]` の閲覧モードでサマリー Markdown が表示される
+
+#### Summary checkbox と明示保存
+
+- [ ] `/notes/[id]` の閲覧モードで、Summary の checked / unchecked checkbox を読み取り領域上で toggle できる
+- [ ] `/notes/[id]` の復習モードで Summary を開示した後、checked / unchecked checkbox を toggle できる。Summary checkbox の操作は `復習済みにする` の review completion と独立し、review completion が Summary を暗黙保存または dirty 解除しない
+- [ ] Summary checkbox を toggle した直後に `PATCH /api/notes/:id` などの API write が発生せず、画面上で未保存（dirty）状態が分かる
+- [ ] 詳細画面の明示保存で、Summary の変更が既存 `PATCH /api/notes/:id` を通じて永続化され、再読込後も checked / unchecked 状態が反映される
+- [ ] Summary の明示保存成功時に表示中ノートが更新され、dirty 状態が解除される
+- [ ] Summary の変更を破棄、または保存せずにモードを離れると、元の Summary に戻り、DB に永続化されない
+- [ ] Summary の保存に失敗した場合、未保存の変更と dirty 状態が残り、error が表示される。保存済みとは表示しない
+- [ ] Summary checkbox の toggle 後も task の本文、Summary 内の順序、checkbox 以外の Markdown が変更されない
+- [ ] 編集画面の Markdown Preview の checkbox は引き続き read-only で、クリックしても Summary の入力値や保存データを変更しない
+- [ ] Summary の checkbox 契約について、static contract の確認結果と Browser runtime の結果を別々に記録し、Browser runtime 未実施を PASS と扱わない
+
 - [ ] `/notes/[id]` の閲覧モードから編集モードへ切り替えられる
-- [ ] `/notes/[id]` の編集モードで既存ノートの title、Cue、Summary、Canvas または既存 Markdown 本文、用紙サイズが反映される
+- [ ] `/notes/[id]` の編集モードで既存ノートの title、学習日（現在値の表示専用）、Cue、Summary、Canvas または既存 Markdown 本文、用紙サイズが反映される
+- [ ] `/notes/[id]` の保存後の通常編集画面で学習日（`noteDate`）は変更できず、現在値が維持される
 - [ ] `/notes/[id]` の編集モードで `nextReviewDate` 未設定の既存ノートを開いても、編集開始だけでは日付が自動補完されない
-- [ ] `/notes/[id]` の編集モードで `noteDate` を変更しても、手動設定済みの `nextReviewDate` が自動移動しない
+- [ ] `/notes/[id]` の編集モードで `nextReviewDate` を学習日と独立して変更またはクリアでき、保存済みの値を学習日から自動再計算しない
 - [ ] `/notes/[id]` の編集モードで保存すると `PATCH /api/notes/:id` が成功する
 - [ ] `/notes/[id]` の編集モードで保存中は保存ボタンが disabled になり `保存中...` が表示される
 - [ ] `/notes/[id]` の編集モードで保存 API が失敗した場合、フォーム上部に error alert が表示される
@@ -289,7 +331,7 @@ Playwright は `127.0.0.1:4173` の専用 web server を起動し、実行開始
 
 #### Markdown Preview の layout 回帰
 
-- [ ] 375px / 768px 前後でレイアウト変更後も Cue / Summary の Markdown Preview の checkbox が表示専用のままで、クリックしても入力値を変更しない
+- [ ] 375px / 768px 前後でレイアウト変更後も編集画面の Cue / Summary Markdown Preview の checkbox が表示専用のままで、クリックしても入力値を変更しない
 - [ ] 375px / 768px 前後でレイアウト変更後も GFM の表・取り消し線・タスクリスト等が Preview 内に表示される
 - [ ] 375px / 768px 前後でレイアウト変更後も危険な HTML が sanitize され、Preview の外へ表示されない
 
@@ -323,6 +365,7 @@ Playwright は `127.0.0.1:4173` の専用 web server を起動し、実行開始
 - [ ] `GET /api/notes` が `reviewDue=true` を受け取り復習対象を返す
 - [ ] `GET /api/notes` が `page`, `totalPages`, `totalCount`, `data` を返す
 - [ ] `POST /api/notes` が Notebook を作成する
+- [ ] `POST /api/notes` が指定した今日以前の `noteDate` を作成ノートへ保存する
 - [ ] `POST /api/notes` が `bodyMode=canvas` と `CanvasDocumentV1` を保存する
 - [ ] `POST /api/notes` が Canvas の `searchText` を text 要素から生成する
 - [ ] `POST /api/notes` が Cue を作成する
@@ -331,14 +374,18 @@ Playwright は `127.0.0.1:4173` の専用 web server を起動し、実行開始
 - [ ] `GET /api/notes/:id` がノート詳細を返す
 - [ ] `GET /api/notes/:id` が保存済み `bodyMode` と Canvas document の page 寸法・要素を返す
 - [ ] `PATCH /api/notes/:id` が Notebook を更新する
+- [ ] `PATCH /api/notes/:id` が保存済みの現在値と同じ `noteDate` を受け付け、200 を返す。`noteDate` 自体は更新しない
+- [ ] `PATCH /api/notes/:id` が現在値と異なる `noteDate` を受け付けず、他の値を更新せずに 400 `invalid_body` と `errors: [{ field: "noteDate", ... }]` を返す
 - [ ] `PATCH /api/notes/:id` が Canvas の page.width / page.height だけを変更して保存できる
 - [ ] `PATCH /api/notes/:id` が page 寸法変更時に要素の x / y / width / height / points / style を変更しない
 - [ ] `PATCH /api/notes/:id` が Cue をリクエスト内容で全置換する
 - [ ] `PATCH /api/notes/:id` が Tag 関連をリクエスト内容で全置換する
+- [ ] `POST /api/notes` と `PATCH /api/notes/:id` が `tags` 配列 index を `NotebookTag.order` に 0 始まりで保存し、`GET /api/notes` と `GET /api/notes/:id` のタグ配列をその順序で返す
 - [ ] `DELETE /api/notes/:id` がノートを物理削除する
 - [ ] `POST /api/notes/:id/review` が `reviewedAt` を現在時刻で更新する
 - [ ] `POST /api/notes/:id/review` が `nextReviewDate` を任意の日付または null で更新する
-- [ ] `GET /api/tags` がタグ候補一覧を返す
+- [ ] `GET /api/tags` がタグ候補一覧をタグ名昇順で返し、ノートに付いたタグの追加順とは別の順序契約を維持する
+- [ ] SQLite / Postgres のタグ順序 migration が、過去の順序を持たない既存 `NotebookTag` 行を Notebook ごとの Tag 名昇順、同名時の `tagId` 昇順で 0 始まりに初期化する。結果が実行ごとに変わらないことを確認する
 - [ ] `GET /api/backups` がバックアップ一覧を返す
 - [ ] `POST /api/backups` が SQLite DB ファイルを `backup/` 配下へコピーする
 - [ ] `POST /api/backups` が 4 世代目以降の古いバックアップを削除する
@@ -352,6 +399,7 @@ Playwright は `127.0.0.1:4173` の専用 web server を起動し、実行開始
 - [ ] `POST /api/notes` で `bodyMode=canvas` の `canvas` 未指定、および `bodyMode=markdown` の `canvas` 指定を拒否する
 - [ ] `POST /api/notes` で 13 件以上のタグ、重複タグ、使用不可文字を含むタグが `invalid_body` と field 別 error を返す
 - [ ] `PATCH /api/notes/:id` で不正 body は not found 確認より先に 400 `invalid_body` を返す
+- [ ] `PATCH /api/notes/:id` で保存済みの学習日と異なる `noteDate` は、`code: "invalid_body"`、`errors[0].field: "noteDate"`、`message: "保存後の学習日は編集できません"` を返す
 - [ ] `GET /api/notes/:id` / `PATCH /api/notes/:id` / `DELETE /api/notes/:id` / `POST /api/notes/:id/review` が存在しない ID に 404 `not_found` / `message: "ノートが見つかりません"` を返す
 - [ ] `POST /api/notes/:id/review` で不正な `nextReviewDate` が `invalid_body` と `field: "nextReviewDate"` を返す
 - [ ] `GET /api/tags` でタグ 0 件の場合も 200 と `[]` を返す
@@ -360,17 +408,26 @@ Playwright は `127.0.0.1:4173` の専用 web server を起動し、実行開始
 
 - [ ] Canvas 用紙サイズの変更は `NotebookCanvas.documentJson` の JSON 更新で完結し、用紙寸法のためだけに Prisma schema / migration が増えていないことを静的に確認する
 
+タグ順序の保存・再読込、候補 API、既存データの backfill は、対応する runtime または migration の確認を実行するまで未実施とする。静的な文書・source 照合だけで `PASS` にしない。
+
 ### 7. Markdown / Security
 
-- [ ] Markdown preview で見出しが表示される
-- [ ] Markdown preview で箇条書きが表示される
-- [ ] Markdown preview でリンクが表示される
-- [ ] Markdown preview でコードブロックが表示される
-- [ ] Markdown preview で GFM checkbox が表示される
-- [ ] Markdown preview の checkbox は preview 上でクリックしても保存値を変更しない
-- [ ] Markdown preview に危険な HTML を入力しても sanitize される
+- [ ] 編集画面の Markdown Preview で見出しが表示される
+- [ ] 編集画面の Markdown Preview で箇条書きが表示される
+- [ ] 編集画面の Markdown Preview でリンクが表示される
+- [ ] 編集画面の Markdown Preview でコードブロックが表示される
+- [ ] 編集画面の Markdown Preview で GFM checkbox が表示される
+- [ ] 編集画面の Markdown Preview の checkbox は Preview 上でクリックしても保存値を変更しない
+- [ ] 編集画面の Markdown Preview に危険な HTML を入力しても sanitize される
 - [ ] 閲覧モードの Markdown 表示にも sanitize が効く
 - [ ] 復習モードで本文と Summary を開いた後の Markdown 表示にも sanitize が効く
+
+#### Summary checkbox 契約の判定境界（2026-08-09）
+
+| 判定種別 | 対象 | 判定の扱い |
+| --- | --- | --- |
+| Static contract | 編集画面の Markdown Preview の read-only 境界、詳細画面 Summary の toggle / dirty / 明示保存 / 破棄 / error、review completion との分離 | source と focused contract test で実装済み範囲を確認し、Browser runtime の PASS には繰り上げない |
+| Browser runtime | `/notes/[id]` の view / review での checkbox 操作、API write timing、明示保存・再読込、破棄、保存失敗表示 | 未確認 / NOT RUN。Browser backend が利用できないため実施せず、代替操作も行わない |
 
 ### Canvas runtime QA 記録（2026-07-21）
 
@@ -527,8 +584,8 @@ Worker task は Browser backend `[]` と app-server `Operation not permitted` �
 
 | 項目 | 2026-07-25 の実測結果 | 判定境界 |
 | --- | --- | --- |
-| 既存ノート desktop edit | 1280 / 1440px の `/notes/[id]` で title、noteDate、source、tag、Cue、Canvas、Summary、`nextReviewDate` を復元。保存後の再読込、キャンセル、主要 field 到達性、body / document の viewport-wide 横幅不在を確認し、console / page error は 0。確認用ノートは削除後 GET 404、一覧 query の残留 `totalCount=0`。 | `PASS（desktop 1280 / 1440px の確認済み範囲）`。375 / 768px の mobile edit は未確認。 |
-| `nextReviewDate` UI | 新規 `noteDate=2026-07-25` で `2026-08-01` が初期表示・保存された。手動値 `2026-08-05` は `noteDate` 変更後も保持され、空欄は再読込・`noteDate` 変更後も空欄のまま維持された。 | `部分実施（確認済み範囲）`。review 成功 UI までの画面反映は未確認。 |
+| 既存ノート desktop edit | 1280 / 1440px の `/notes/[id]` で title、学習日（現在値の表示）、source、tag、Cue、Canvas、Summary、`nextReviewDate` を復元。保存後の再読込、キャンセル、主要 field 到達性、body / document の viewport-wide 横幅不在を確認し、console / page error は 0。保存後の通常編集画面で学習日は表示専用とする。確認用ノートは削除後 GET 404、一覧 query の残留 `totalCount=0`。 | `PASS（desktop 1280 / 1440px の確認済み範囲）`。375 / 768px の mobile edit は未確認。 |
+| `nextReviewDate` UI | 新規 `noteDate=2026-07-25` で `2026-08-01` が初期表示・保存された。既存編集では手動値 `2026-08-05` と空欄を再読込でき、`nextReviewDate` は学習日と独立して扱い、学習日から自動再計算しない。 | `部分実施（確認済み範囲）`。review 成功 UI までの画面反映は未確認。 |
 
 ### 2026-07-31 runtime QA 追補
 
@@ -586,7 +643,7 @@ Postgres target へ接続せず、現行 MVP schema の isolated frozen SQLite f
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | MVP-UI-001 | 主要 UI フロー（redirect、一覧、作成、タグ、編集保存、復習、検索、削除、バックアップ） | `/` → `/notes`（redirect / 一覧）、`/notes/new`（作成）、`/notes/[id]`（閲覧・編集・復習・削除）、`/backup`（一覧・作成） | Playwright Chromium runtime。viewport は summary に記録なし | 2026-07-05 | UI 検証用の一時ノート、既存タグ候補、新規タグを作成。API / SQLite cleanup 後に query `UI検証` の `totalCount=0`、一時タグ 0 件を確認 | PASS | `summary/20260705/mvp-ui-flow-reverification-report.md` |
 | MVP-API-001 | Notes CRUD、review、一覧検索、タグ、validation、not found、backup API | `/api/notes`、`/api/notes/:id`、`/api/notes/:id/review`、`/api/tags`、`/api/backups` | API / CLI runtime（`127.0.0.1:3000`）。viewport は対象外 | 2026-07-05 | `dev.db` に API 検証用ノート / タグを作成し、API 削除と SQLite cleanup。検証タグ 0 件を確認。backup 最新 3 世代は検証結果として保持 | PASS | `summary/20260705/manager-mvp-api-crud-validation-backup-reverification-report.md` |
-| MVP-MD-001 | GFM checkbox、Preview checkbox の表示専用挙動、閲覧 / 復習時の sanitize | `/notes/new`（編集 preview）、`/notes/[id]`（閲覧・復習） | Playwright Chromium runtime。viewport は summary に記録なし | 2026-07-05 | `MD検証` 接頭辞の一時ノートに危険な Markdown と checkbox を入力。確認後に API cleanup し残存 0 件を確認 | PASS | `summary/20260705/manager-markdown-sanitize-checkbox-verification-report.md` |
+| MVP-MD-001 | GFM checkbox、編集画面 Markdown Preview checkbox の表示専用挙動、閲覧 / 復習時の Markdown sanitize（詳細 Summary checkbox の操作は対象外） | `/notes/new`（編集 Preview）、`/notes/[id]`（閲覧・復習） | Playwright Chromium runtime。viewport は summary に記録なし | 2026-07-05 | `MD検証` 接頭辞の一時ノートに危険な Markdown と checkbox を入力。確認後に API cleanup し残存 0 件を確認 | PASS | `summary/20260705/manager-markdown-sanitize-checkbox-verification-report.md` |
 | MVP-BAK-001 | `npm run backup:copy` と最新 3 世代保持 | CLI / SQLite backup | CLI runtime。viewport は対象外 | 2026-07-05 | root の SQLite DB を 4 回コピー。古い世代を prune し、`backup/` に最新 3 ファイルだけが残ることを確認 | PASS | `summary/20260705/backup-copy-command-verification-report.md` |
 | MVP-TOOL-001 | lint、build | 静的 / CLI 検証 | CLI | 2026-07-04〜2026-07-05 | runtime fixture なし。コード変更後の検証コマンドを実行 | PASS | `summary/20260705/manager-fix-ui009-note-editor-tag-candidates-summary.md`、`summary/20260705/manager-fix-ui014-edit-save-state-summary.md` |
 | NTE020-NEW-375 | Policy C の新規作成レイアウト、ページ全体 overflow、Cornell 局所横スクロール、Cue / Markdown Preview 操作 | `/notes/new`（新規作成） | 375px、Puppeteer / headless Chromium runtime | 2026-07-14 | 空 DB、保存済みノート 0 件。保存・削除・API 更新なし。リポジトリ内 screenshot は新規作成画面の記録 | PASS | `summary/20260714/nte020-policy-c-layout-qa-report.md`、`doc/assets/screenshots/nte020-policy-c-new-375.png` |
@@ -597,10 +654,11 @@ Postgres target へ接続せず、現行 MVP schema の isolated frozen SQLite f
 | NTE020-OVERFLOW-375 | 長い Markdown、長いタグ、長い field error の overflow 境界 | `/notes/new` と共有 edit layout | 375px。対象入力の runtime 未確認 | 2026-07-14 | 長い Markdown / 長いタグ / 長い field error は測定に投入していない | 未実施 | `summary/20260714/nte020-policy-c-layout-qa-report.md` § Findings / Remaining Unknowns |
 | NTE030-VIEW-1440 | 閲覧の共通詳細シェル、概要 → Cornell → Summary の順序、本文表示 | `/notes/[id]`（閲覧） | 1440px、Puppeteer / headless Chromium runtime | 2026-07-15 | 一時ノート `QA-SCREENSHOT-NTE030-1784048555522` を作成し、確認後に削除。query で残存 0 件を確認 | PASS | `HANDOFF_2026-07-16.md` §4「PASS として記録された範囲」、`summary/20260715/0217-create-handoff-20260715-nte020-nte030-4ee10290-summary.md`、`doc/assets/screenshots/runtime-note-detail-view-1440.png` |
 | NTE030-REVIEW-1440 | 復習の共通詳細シェル、本文初期マスク、本文表示 / 再マスク、復習操作 | `/notes/[id]`（復習） | 1440px、Puppeteer / headless Chromium runtime | 2026-07-15 | 一時ノート `QA-SCREENSHOT-NTE030-1784048555522` を作成し、確認後に削除。query で残存 0 件を確認 | PASS | `HANDOFF_2026-07-16.md` §4「PASS として記録された範囲」、`summary/20260715/0217-create-handoff-20260715-nte020-nte030-4ee10290-summary.md`、`doc/assets/screenshots/runtime-note-detail-review-1440.png` |
+| NTE030-SUMMARY-CHECKBOX-001 | 詳細 Summary 読み取り領域の checkbox toggle、dirty、明示保存、破棄、保存失敗、review completion との分離。編集画面 Markdown Preview checkbox の read-only 境界 | `/notes/[id]`（閲覧・復習）、`/notes/[id]?mode=edit`（編集 Preview） | Static contract と Browser runtime を分離。Static contract は確認済み、Browser runtime / E2E は未実施 | 2026-08-09 | focused contract test は fixture、DB write、Browser 操作を使わず、task marker 更新、dirty、既存 PATCH による明示保存、成功・失敗時の state、破棄、review completion との分離、編集 Preview の read-only 境界を source と契約で確認した | PASS（静的 contract）。Browser runtime / 実 DB read-back / E2E は未実施（`NOT RUN`） | `doc/implementation/MVP_CONTRACT.md` §4.1・§6.3、`doc/implementation/IMPLEMENTATION_STATUS.md` §5.1・§5.2、`src/modules/notes/ui/components/detail/read-view.tsx`、`src/modules/notes/ui/components/detail/modes.tsx`、`src/shared/markdown/markdown-task-list.js`、`test/notes/detail-summary-checkbox-contract.test.js`、`test/notes/markdown-task-list.test.js` |
 | NTE030-MOBILE-375-768 | 閲覧 / 復習の共通シェルと本文マスクの mobile runtime | `/notes/[id]`（閲覧・復習） | 375 / 768px。いずれも未確認 | 2026-07-15 | mobile runtime 用の確認・fixture は未実施 | 未実施 | `HANDOFF_2026-07-16.md` §4「未実施のまま残した範囲」、`summary/20260715/0155-qa-nte030-review-shared-shell-puppeteer-network-blocked-summary.md` |
-| MVP-REVIEW-EDGE-001 | 編集モードで既存未設定 `nextReviewDate` を非補完、`noteDate` 変更時の手動設定日維持、review 成功後の画面反映 | `/notes/new`、`/notes/[id]`（編集・復習） | 1280 / 1440px の新規・編集 UI。review 成功 UI は未確認 | 2026-07-25 | 新規・既存ノートの `nextReviewDate` を初期値、手動値、空欄で確認。保存・再読込と `noteDate` 変更後の値を確認 | 部分実施（初期値・手動値保持・未設定維持を確認。review 成功 UI は未確認） | `summary/20260725/2230-mandatory-qa-manager-fallback-20260725.md`、`doc/implementation/MVP_CONTRACT.md` §4.1・§4.3 |
+| MVP-REVIEW-EDGE-001 | 編集モードで既存未設定 `nextReviewDate` を非補完、学習日を表示専用としたうえでの次回復習日の独立編集、review 成功後の画面反映 | `/notes/new`、`/notes/[id]`（編集・復習） | 1280 / 1440px の新規・編集 UI。review 成功 UI は未確認 | 2026-07-25 | 新規・既存ノートの `nextReviewDate` を初期値、手動値、空欄で確認。保存・再読込と、学習日を変更せずに次回復習日を扱う契約を確認 | 部分実施（初期値・手動値保持・未設定維持を確認。review 成功 UI は未確認） | `summary/20260725/2230-mandatory-qa-manager-fallback-20260725.md`、`doc/implementation/MVP_CONTRACT.md` §4.1・§4.3 |
 | MVP-GAP-001（2026-07-16時点の履歴） | 新規 `nextReviewDate = noteDate + 7日` 初期値 | `/notes/new`（新規作成） | 静的照合（viewport / fixture なし） | 2026-07-16 | 当時の実装コード、現行 MVP 契約、実装状況を照合した履歴 | FAIL（静的照合・当時の判定） | `doc/implementation/IMPLEMENTATION_STATUS.md` §1・§5.2、`doc/implementation/MVP_CONTRACT.md` §4.1 |
-| MVP-REVIEW-DEFAULT-001 | 新規フォームの `nextReviewDate = noteDate + 7日` 初期値、月末・年末跨ぎ、既存ノートの未設定値非補完、明示値保持 | `/notes/new`、`/notes/[id]`（編集） | 1280 / 1440px、Manager fallback headless Playwright Chromium | 2026-07-25 | `2026-07-25` → `2026-08-01` の初期値、手動 `2026-08-05` の保持、空欄の維持を保存・再読込・`noteDate` 変更で確認。月末・年末跨ぎは 2026-07-21 の静的確認を保持 | 部分実施（runtime 確認済み範囲。review 成功 UI は未確認） | `summary/20260725/2230-mandatory-qa-manager-fallback-20260725.md`、`summary/20260721/1940-implement-new-note-review-date-default-20260721-24f5f31b-summary.md`、`doc/implementation/MVP_CONTRACT.md` §4.1 |
+| MVP-REVIEW-DEFAULT-001 | 新規フォームの `nextReviewDate = noteDate + 7日` 初期値、月末・年末跨ぎ、既存ノートの未設定値非補完、明示値保持 | `/notes/new`、`/notes/[id]`（編集） | 1280 / 1440px、Manager fallback headless Playwright Chromium | 2026-07-25 | `2026-07-25` → `2026-08-01` の初期値、手動 `2026-08-05` の保持、空欄の維持を保存・再読込で確認。既存編集の学習日は表示専用とし、学習日からの自動再計算は行わない。月末・年末跨ぎは 2026-07-21 の静的確認を保持 | 部分実施（runtime 確認済み範囲。review 成功 UI は未確認） | `summary/20260725/2230-mandatory-qa-manager-fallback-20260725.md`、`summary/20260721/1940-implement-new-note-review-date-default-20260721-24f5f31b-summary.md`、`doc/implementation/MVP_CONTRACT.md` §4.1 |
 | MVP-REVIEW-SCREEN-DEFAULT-001 | 既存ノートの復習画面開始時、保存済み `nextReviewDate`（過去・当日・未来）を初期値に再利用せず、`Asia/Tokyo` 基準の現在日付 + 7日を表示。手動変更・空欄化・保存成功後の response 反映も確認 | `/notes/[id]`（復習） | Browser runtime。実行時の Asia/Tokyo 日付を基準に確認 | 2026-08-08 | focused contract test で review 遷移の初期値計算、保存値非参照、手動変更・空欄化の state 引き継ぎ、成功 response 反映のコード契約を確認。画面 runtime は未実施 | 未実施（runtime） | `src/modules/notes/ui/components/detail/modes.tsx`、`src/shared/date/date-only.ts`、`test/notes/detail-actions-layout-contract.test.js`、`doc/implementation/MVP_CONTRACT.md` §4.3 |
 | MVP-GAP-002 | 復習開始時の Summary 初期非表示と Cue → 本文 → Summary の順序 | `/notes/[id]`（復習） | 静的照合（viewport / fixture なし） | 2026-07-16 | fixture なし。実装コード、現行 MVP 契約、実装状況を照合。runtime 未実施とは別に、Summary 初期非表示の未達を記録 | FAIL（静的照合） | `doc/implementation/IMPLEMENTATION_STATUS.md` §1・§5.2、`doc/implementation/MVP_CONTRACT.md` §4.3・§6 |
 | MVP-GAP-003 | 概要の Markdown preview / sanitize | `/notes/new`、`/notes/[id]`（編集・閲覧） | 静的照合（viewport / fixture なし） | 2026-07-16 | fixture なし。概要の保存は確認できるが、本文 / Summary と同じ Markdown preview / sanitize ではない | FAIL（静的照合） | `doc/implementation/IMPLEMENTATION_STATUS.md` §1・§5.2、`doc/implementation/MVP_CONTRACT.md` §2・§6 |

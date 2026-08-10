@@ -157,6 +157,7 @@ Notebook と Tag の中間テーブルです。
 | --- | --- | --- | --- |
 | `notebookId` | string | 必須 | Notebook への外部キー |
 | `tagId` | string | 必須 | Tag への外部キー |
+| `order` | number | 必須 | ノート内の表示順。0 始まり |
 
 複合主キー:
 
@@ -165,10 +166,12 @@ Notebook と Tag の中間テーブルです。
 
 責務:
 
-- Notebook と Tag の多対多関連だけを保持し、追加の属性は持たない。
+- Notebook と Tag の多対多関連と、ノート内のタグ表示順を保持する。
 - 複合主キーで同一 Notebook 内の同一 Tag 重複を防ぐ。
+- `order` は同一 Notebook 内で一意な 0 始まりの順序とし、ノート保存時の `tags` 配列 index を保存する。
 - Notebook または Tag が物理削除された場合は cascade delete する。
 - MVP の Notebook 更新では、リクエストされたタグ一覧に合わせて NotebookTag を全置換する。
+- 既存行の migration backfill では過去の追加順を推測せず、各 Notebook 内を Tag の `name` 昇順（同名時は `tagId` 昇順）で 0 始まりに初期化する。
 
 ## 削除方針
 
@@ -302,6 +305,8 @@ MVP の migration は、`Notebook`, `NotebookCanvas`, `Cue`, `Tag`, `NotebookTag
 
 - `prisma/migrations/20260621073258_init/migration.sql`
 - `prisma/migrations/20260718011243_remove_notebook_overview/migration.sql`
+- `prisma/migrations/20260809090000_add_notebook_tag_order/migration.sql`（既存 NotebookTag の決定的 backfill を含む）
+- `prisma/migrations-postgres/20260809090000_add_notebook_tag_order/migration.sql`
 - Canvas 保存領域を導入する migration は、Canvas persistence を別 task で導入済みの場合に限り参照する。今回の用紙サイズ変更 task では新規 migration を作成しない。
 
 後者で `notebooks.overview` を削除し、現行の `Notebook` model と SQLite table の列を一致させています。既存データの overview 値はこの migration 適用時に失われます。
@@ -317,6 +322,7 @@ Canvas persistence を含む migration 適用後は、次を作成して保持�
 - `notebooks.next_review_date` index
 - `tags.name` unique index
 - `cues(notebook_id, order)` index
+- `notebook_tags(notebook_id, order)` index
 
 新しい migration を追加する条件:
 

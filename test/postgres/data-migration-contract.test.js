@@ -38,6 +38,7 @@ function createFixture() {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "cornell-postgres-migration-"));
   const databasePath = path.join(directory, "fixture.db");
   const migration = sqlString("20260621073258_init");
+  const tagOrderMigration = sqlString("20260809090000_add_notebook_tag_order");
   const document = JSON.stringify({
     schemaVersion: 1,
     page: { width: 1200, height: 800, background: "paper" },
@@ -107,11 +108,15 @@ CREATE TABLE "cues" (
 CREATE TABLE "notebook_tags" (
   "notebook_id" TEXT NOT NULL,
   "tag_id" TEXT NOT NULL,
+  "order" INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY ("notebook_id", "tag_id")
 );
 INSERT INTO "_prisma_migrations" VALUES
   ('migration-id', 'checksum', '2026-07-26T00:00:00.000Z', ${migration}, NULL, NULL,
    '2026-07-26T00:00:00.000Z', 1);
+INSERT INTO "_prisma_migrations" VALUES
+  ('tag-order-migration-id', 'tag-order-checksum', '2026-08-09T00:00:00.000Z', ${tagOrderMigration}, NULL, NULL,
+   '2026-08-09T00:00:00.000Z', 1);
 INSERT INTO "notebooks" VALUES
   ('notebook-1', 'PRIVATE_TITLE', '2026-07-25T00:00:00.000Z', NULL, 'source',
    'PRIVATE_BODY', 'canvas', 'PRIVATE_SUMMARY', NULL, NULL,
@@ -123,7 +128,7 @@ INSERT INTO "notebook_canvases" VALUES
 INSERT INTO "cues" VALUES
   ('cue-1', 'notebook-1', 'PRIVATE_CUE', 3,
    '2026-07-25T00:00:00.000Z', '2026-07-25T00:00:00.000Z');
-INSERT INTO "notebook_tags" VALUES ('notebook-1', 'tag-1');
+INSERT INTO "notebook_tags" VALUES ('notebook-1', 'tag-1', 0);
 `;
 
   execFileSync("sqlite3", [databasePath, sql], { stdio: "ignore" });

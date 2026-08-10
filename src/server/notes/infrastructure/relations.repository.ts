@@ -34,7 +34,7 @@ export async function createTagLinks(
   notebookId: string,
   tags: NotebookInput["tags"],
 ) {
-  for (const tagInput of tags) {
+  for (const [index, tagInput] of tags.entries()) {
     const tag = await tx.tag.upsert({
       where: { name: tagInput.name },
       update: {},
@@ -48,6 +48,7 @@ export async function createTagLinks(
       data: {
         notebookId,
         tagId: tag.id,
+        order: index,
       },
     });
   }

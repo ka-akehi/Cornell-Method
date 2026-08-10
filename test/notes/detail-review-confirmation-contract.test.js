@@ -1,0 +1,150 @@
+/* eslint-disable @typescript-eslint/no-require-imports -- This focused test uses Node's built-in test runner. */
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
+const { test } = require("node:test");
+
+const projectRoot = path.resolve(__dirname, "../..");
+
+function readSource(relativePath) {
+  return fs.readFileSync(path.join(projectRoot, relativePath), "utf8");
+}
+
+const modes = readSource(
+  "src/modules/notes/ui/components/detail/modes.tsx",
+);
+const readView = readSource(
+  "src/modules/notes/ui/components/detail/read-view.tsx",
+);
+const actions = readSource(
+  "src/modules/notes/ui/components/detail/actions.tsx",
+);
+
+function sliceHandler(source, startMarker, endMarker) {
+  const start = source.indexOf(startMarker);
+  const end = source.indexOf(endMarker, start);
+
+  assert.notEqual(start, -1, `${startMarker} must exist`);
+  assert.notEqual(end, -1, `${endMarker} must exist after ${startMarker}`);
+
+  return source.slice(start, end);
+}
+
+test("review completion starts disabled and requires both confirmations", () => {
+  assert.match(
+    modes,
+    /const \[bodyConfirmed, setBodyConfirmed\] = useState\(false\);/,
+  );
+  assert.match(
+    modes,
+    /const \[summaryConfirmed, setSummaryConfirmed\] = useState\(false\);/,
+  );
+  assert.match(
+    modes,
+    /reviewConfirmationComplete=\{bodyConfirmed && summaryConfirmed\}/,
+  );
+
+  const submitReview = sliceHandler(
+    modes,
+    "async function submitReview()",
+    "\n  async function deleteNote",
+  );
+  const apiCallIndex = submitReview.indexOf("completeReview(note.id");
+
+  assert.match(submitReview, /!bodyConfirmed/);
+  assert.match(submitReview, /!summaryConfirmed/);
+  assert.ok(
+    submitReview.indexOf("!bodyConfirmed") < apiCallIndex,
+    "body confirmation must guard the review API call",
+  );
+  assert.ok(
+    submitReview.indexOf("!summaryConfirmed") < apiCallIndex,
+    "Summary confirmation must guard the review API call",
+  );
+});
+
+test("body confirmation unlocks Summary and Summary display completes confirmation", () => {
+  const showBody = sliceHandler(
+    modes,
+    "onShowBody={() => {",
+    "      onHideBody={() => {",
+  );
+  assert.match(showBody, /setBodyConfirmed\(true\)/);
+  assert.match(showBody, /setShowBody\(true\)/);
+
+  const showSummary = sliceHandler(
+    modes,
+    "onShowSummary={() => {",
+    "      onHideSummary={() => {",
+  );
+  assert.match(showSummary, /!bodyConfirmed/);
+  assert.match(showSummary, /setSummaryConfirmed\(true\)/);
+  assert.match(showSummary, /setShowSummary\(true\)/);
+  assert.doesNotMatch(
+    showSummary,
+    /summaryDraft|note\.summary/,
+    "an empty Summary is still confirmed when its region is displayed",
+  );
+
+  assert.match(readView, /disabled=\{!bodyConfirmed \|\| summarySaving\}/);
+  assert.match(
+    readView,
+    /\{bodyConfirmed \? "サマリーを表示" : "本文確認後に開く"\}/,
+  );
+  assert.match(actions, /disabled=\{submitDisabled\}/);
+});
+
+test("hiding reviewed content preserves confirmation until the review session ends", () => {
+  const hideBody = sliceHandler(
+    modes,
+    "onHideBody={() => {",
+    "      onShowSummary={() => {",
+  );
+  const hideSummary = sliceHandler(
+    modes,
+    "onHideSummary={() => {",
+    "      onSummaryTaskToggle=",
+  );
+
+  assert.match(hideBody, /setShowBody\(false\)/);
+  assert.match(hideBody, /setShowSummary\(false\)/);
+  assert.doesNotMatch(hideBody, /setBodyConfirmed\(false\)/);
+  assert.doesNotMatch(hideBody, /setSummaryConfirmed\(false\)/);
+  assert.match(hideSummary, /setShowSummary\(false\)/);
+  assert.doesNotMatch(hideSummary, /setBodyConfirmed\(false\)/);
+  assert.doesNotMatch(hideSummary, /setSummaryConfirmed\(false\)/);
+});
+
+test("review confirmation resets on a new review, leaving review, and completion", () => {
+  const startReview = sliceHandler(
+    modes,
+    "onReview={() => {",
+    "          />",
+  );
+  const leaveReview = sliceHandler(
+    modes,
+    "onBackToView={() => {",
+    "          />",
+  );
+  const submitReview = sliceHandler(
+    modes,
+    "async function submitReview()",
+    "\n  async function deleteNote",
+  );
+
+  for (const handler of [startReview, leaveReview, submitReview]) {
+    assert.match(handler, /setBodyConfirmed\(false\)/);
+    assert.match(handler, /setSummaryConfirmed\(false\)/);
+  }
+});
+
+test("review submit disabled state has an accessible confirmation explanation", () => {
+  assert.match(actions, /const submitDisabled =/);
+  assert.match(actions, /!reviewConfirmationComplete/);
+  assert.match(actions, /id="review-confirmation-hint"/);
+  assert.match(actions, /aria-describedby="review-confirmation-hint"/);
+  assert.match(
+    actions,
+    /本文を表示して確認し、その後Summaryを表示して確認してください。/,
+  );
+});

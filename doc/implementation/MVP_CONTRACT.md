@@ -1,6 +1,6 @@
 # 現行 MVP 契約
 
-更新日: 2026-07-25
+更新日: 2026-08-09
 状態: Canvas 操作・スタイル・図形内文字・重ね描き・用紙寸法の契約反映済み。Manager fallback で必須 runtime QA の確認済み範囲を追加し、厳密 4px・wheel / trackpad・mobile edit 等の未確認範囲は維持
 
 ## 1. 位置づけと正本
@@ -55,9 +55,12 @@ MVP は、ローカル個人利用で、Cornell Method のノートを「Cue で
 - 保存はユーザーが「保存」を明示的に実行した時だけ行います。新規作成は保存成功後に `/notes/[id]` へ遷移します。
 - `POST /api/notes` と `PATCH /api/notes/:id` は、Notebook 本体、Cue、タグ関連を 1 リクエストで確定保存します。
 - 更新時の Cue とタグ関連は、リクエストに含まれる一覧で全置換します。MVP では Cue / Tag の差分 patch は扱いません。
+- `tags` 配列の順序はノート内の表示順として `NotebookTag.order` に 0 始まりで保存し、一覧・詳細 response でも維持します。過去の順序を持たない既存行は migration でタグ名昇順に初期化します。
 - MVP では `draft` payload、autosave、`version` / `autosaveVersion`、古い保存を拒否する `409` を扱いません。
+- 詳細画面の Summary checkbox の toggle は画面上の未保存変更として扱い、toggle ごとに API を呼びません。詳細画面で Summary を明示保存するときは、既存の `PATCH /api/notes/:id` のノート更新契約を使って Summary Markdown を保存します。
+- 学習日は学習した事実を記録する `noteDate` として扱います。作成画面では入力・変更でき、必須かつ今日以前の日付を保存します。保存後の通常編集画面では現在値を表示するだけで、変更できません。
 - 新規ノートの `nextReviewDate` は `noteDate + 7日` を初期値とします。ユーザーは保存前に変更または空欄化できます。
-- 既存ノートの編集では、未設定の `nextReviewDate` を自動補完しません。`noteDate` を変更しても、明示済みの次回復習日を自動移動しません。
+- 既存ノートの編集では、未設定の `nextReviewDate` を自動補完しません。`nextReviewDate` は学習日とは独立して変更または空欄化でき、学習日を基準に保存済みの値を自動再計算しません。
 
 ### 4.2 削除方式
 
@@ -75,6 +78,27 @@ MVP は、ローカル個人利用で、Cornell Method のノートを「Cue で
 - Summary は復習開始時に初期非表示とし、想起後にユーザーが開いて確認します。
 - 「復習済み」の確定は `POST /api/notes/:id/review` で行い、`reviewedAt` を現在日時に更新します。
 - 専用復習タスク、1 日後 / 1 週間後の自動抽出、復習ステータス遷移、未完了バッジは MVP では行いません。
+
+### 4.4 ノート一覧カードの表示
+
+`/notes` の一覧カードでは、復習履歴と次回復習状態を別のバッジで表示します。復習履歴は `reviewedAt` だけで判定し、次回復習状態は `nextReviewDate` だけで判定します。
+
+- `reviewedAt === null` は `未復習`、`reviewedAt !== null` は `復習済み` と表示します。
+- `nextReviewDate` が未来の日付なら `復習予定日: YYYY-MM-DD`、今日以前の日付なら `復習期限到来: YYYY-MM-DD`、未設定なら `復習予定なし` と表示します。カード上の次回バッジは、この表示の前に `次回: ` を付けます。
+- 受け入れ対象は、復習履歴 2 通りと次回復習状態 3 通りを組み合わせた次の 6 通りです。`today` は判定基準日です。
+
+| `reviewedAt` | `nextReviewDate` | 復習履歴バッジ | 次回復習状態バッジ |
+| --- | --- | --- | --- |
+| `null` | 未来 | `未復習` | `復習予定日: YYYY-MM-DD` |
+| ISO 8601 日時 | 未来 | `復習済み` | `復習予定日: YYYY-MM-DD` |
+| `null` | 今日以前 | `未復習` | `復習期限到来: YYYY-MM-DD` |
+| ISO 8601 日時 | 今日以前 | `復習済み` | `復習期限到来: YYYY-MM-DD` |
+| `null` | 未設定 | `未復習` | `復習予定なし` |
+| ISO 8601 日時 | 未設定 | `復習済み` | `復習予定なし` |
+
+- タグがある場合は、タグ名と色を表示します。複数のタグは折り返し、長いタグ名は省略表示します。
+- タグがない場合、一覧カードに `タグなし` のプレースホルダーを表示しません。このルールは一覧カードだけに適用し、`/notes/[id]` など他のタグ表示箇所の既存 `タグなし` 表示は変更しません。
+- この 2 つのバッジは、Phase 2 の専用復習タスク、`review status`、未完了タスクバッジを意味しません。
 
 ## 5. 現行 MVP API 契約
 
@@ -96,7 +120,7 @@ MVP は、ローカル個人利用で、Cornell Method のノートを「Cue で
 
 ### 5.2 Notes API
 
-`POST /api/notes` と `PATCH /api/notes/:id` の JSON body は次の形を共通で使います。
+`POST /api/notes` と `PATCH /api/notes/:id` の JSON body は次の基本形を共通で使います。`noteDate` の扱いは作成と更新で異なります。
 
 ```json
 {
@@ -126,6 +150,20 @@ MVP は、ローカル個人利用で、Cornell Method のノートを「Cue で
 - `tags` は 1 ノート最大 12 件、同一ノート内で重複不可です。未登録名はノート保存時に Tag として自動作成します。
 - 作成・更新の成功 response は保存後のノート詳細です。`GET /api/notes/:id` も同じ詳細形を返します。
 
+- `POST /api/notes` は、今日以前の `noteDate` を受け取り、作成したノートへ保存します。作成時の `noteDate` は省略できません。
+- `PATCH /api/notes/:id` は保存済みの現在値と同じ `noteDate` の送信を許可します。同値送信でも `noteDate` 自体は更新対象にしません。
+- `PATCH /api/notes/:id` が現在値と異なる `noteDate` を受け取った場合は、他の入力を更新せずに 400 `invalid_body` を返します。エラーは次の `noteDate` フィールドエラーです。
+
+```json
+{
+  "code": "invalid_body",
+  "message": "入力内容に誤りがあります",
+  "errors": [
+    { "field": "noteDate", "message": "保存後の学習日は編集できません" }
+  ]
+}
+```
+
 `GET /api/notes` は次の query を受け付けます。
 
 | Query | 内容 |
@@ -143,7 +181,7 @@ response は `{ page, totalPages, totalCount, data }` です。並び順は `not
 
 ### 5.3 Tags API
 
-MVP のタグ API は `GET /api/tags` のみです。request body / query はなく、`[{ id, name, color }]` を名前昇順で返します。タグが 0 件でも `200 []` です。`POST /api/tags`、タグの rename / delete API、タグ管理 UI は Phase 2 です。新規タグはノートの POST / PATCH に含めて自動作成します。
+MVP のタグ API は `GET /api/tags` のみです。request body / query はなく、`[{ id, name, color }]` を名前昇順で返します。これはノートに付いたタグの保存・表示順とは独立した候補一覧の契約です。タグが 0 件でも `200 []` です。`POST /api/tags`、タグの rename / delete API、タグ管理 UI は Phase 2 です。新規タグはノートの POST / PATCH に含めて自動作成します。
 
 ### 5.4 Review API
 
@@ -161,7 +199,7 @@ MVP のタグ API は `GET /api/tags` のみです。request body / query はな
 - `POST /api/backups` は request body / query を持たず、SQLite DB を `backup/` 配下へコピーします。成功時は `200` で `{ "ok": true, "backup": { "file", "path" } }` を返します。
 - MVP のバックアップ操作は手動作成と一覧確認です。PDF export、バックアップログ、`/api/backups/retry` はこの契約に含めません。
 
-## 6. Canvas 本文と Markdown / Summary Preview
+## 6. Canvas 本文と Markdown 編集 Preview / Summary 読み取り領域
 
 ### 6.1 CanvasDocumentV1 と用紙サイズ
 
@@ -186,17 +224,23 @@ MVP のタグ API は `GET /api/tags` のみです。request body / query はな
 - standalone text の文字サイズ・色・文字配置は `style.fontSize`・`style.fill`・`style.textAlign` に保存し、図形内文字は `textStyle.fontSize`・`textStyle.fill`・`textStyle.textAlign` に保存する。線幅と線色は `style.strokeWidth`・`style.stroke` に保存する。これは既存の `CanvasDocumentV1` JSON 境界であり、新しい DB/API 保存領域を追加しない。
 - Canvas の Undo / Redo は client-side history snapshot であり、DB/API の Undo ではない。tool 切替、入力 focus、小さな no-op gesture は Canvas document の保存値を変更しない。
 
-### 6.3 Markdown と Summary Preview
+### 6.3 Markdown 編集 Preview と Summary 読み取り領域
 
 - Cue と Summary は Markdown として編集・保存します。基本記法と GFM のチェックボックスを表示対象とします。Canvas 本文は Markdown Preview ではなく、Canvas viewer/editor で表示します。
 - `bodyMode=markdown` の既存ノートでは従来の本文 Markdown を安全にレンダリングし、`bodyMode=canvas` のノートでは保存済み Canvas document を詳細・編集・復習で復元します。
-- Summary の Markdown 表示では Preview の checkbox を表示専用とし、クリックして保存データを変更できないものとします。
-- 編集モードの Summary Preview は、折りたたみ表示または占有量を抑えた簡易表示のいずれかを採用します。常時大きなフル Preview を MVP の必須条件にはしません。
-- 復習モードの Summary は初期非表示です。Cue による想起、本文の確認、その後の Summary 確認という順序を保ちます。
+- 編集画面の `Markdown Preview` に表示する checkbox は表示専用です。クリックしても Summary の入力値や保存データを変更しません。
+- 詳細画面 `/notes/[id]` の Summary は `Markdown Preview` ではなく、保存済み Markdown を読むための操作可能な読み取り領域です。閲覧モードと復習モードのどちらでも、表示後の checked / unchecked checkbox をユーザーが toggle できます。
+- Summary checkbox の toggle は対応する GFM task-list marker の checked 状態だけを変更します。task の本文、Summary 内の順序、checkbox 以外の Markdown は変更しません。変更は画面上の dirty 状態として表示し、クリックごとに API を呼びません。
+- ユーザーが詳細画面の Summary 保存を明示的に実行したときだけ、既存の `PATCH /api/notes/:id` を使って Summary Markdown を保存します。この操作のための新 API、schema、Prisma migration は追加しません。
+- 明示保存が成功したら、表示中ノートを保存済み response で更新し、dirty 状態を解除します。保存に失敗したら未保存の Summary と dirty 状態を保持し、エラーを表示します。保存済みと誤表示してはいけません。
+- Summary の変更を破棄する、または保存せずにモードを離れる場合は、変更前の Summary に戻し、DB を変更しません。Summary について autosave、draft、Undo は MVP に追加しません。
+- 編集画面の Summary Markdown Preview は、折りたたみ表示または占有量を抑えた簡易表示のいずれかを採用します。常時大きなフル Preview を MVP の必須条件にはしません。
+- 復習モードの Summary は初期非表示です。Cue による想起、本文の確認、その後の Summary 確認という順序を保ちます。Summary を開いた後の checkbox 操作と Summary 保存は、`POST /api/notes/:id/review` による復習完了とは別の操作です。復習完了は reviewedAt / nextReviewDate を更新しますが、Summary を保存済みと扱ったり dirty 状態を解除したりしません。復習完了でモードを離れ、Summary を別途保存していない場合は、保存せずに離れるルールに従って変更を破棄します。
+- 詳細画面の Summary 読み取り領域は、閲覧・復習のどちらでも Cornell の下に置く既存の表示順を維持します。checkbox の toggle、Summary 保存、復習完了のいずれも Summary の表示位置や Cue → 本文 → Summary の順序を変更しません。
 
 ## 7. デスクトップ優先とモバイルの対応範囲
 
-- デスクトップを主対象とし、Cornell は Cue を左、Canvas 本文を右に置く約 30% / 70% を基本とします。Canvas の用紙操作は本文列で確認しやすく配置し、Cue / Summary の Markdown Preview はそれぞれの入力欄に属するものとして扱います。
+- デスクトップを主対象とし、Cornell は Cue を左、Canvas 本文を右に置く約 30% / 70% を基本とします。Canvas の用紙操作は本文列で確認しやすく配置し、編集画面の Cue / Summary Markdown Preview はそれぞれの入力欄に属するものとして扱います。詳細画面の Summary は読み取り領域として Cornell の下に置きます。
 - 768px 未満では本格的な編集最適化を MVP の必須条件にしません。モバイル専用の縦積み、操作案内、キーボード最適化は Phase 2 以降に再評価します。
 - モバイルではページ全体が壊れないこと、主要な入力・保存・閲覧操作へ到達できることを最低限確認します。Cornell 部分の局所的な横スクロールは許容しますが、ページ全体の意図しない横 overflow は許容しません。
 
@@ -209,7 +253,7 @@ MVP の Prisma model は `Notebook`、`NotebookCanvas`、`Tag`、`NotebookTag`�
 | `Notebook` | ノート本体、本文モード、既存本文、要約、手動復習情報 | `id`, `title`, `noteDate`, `sourceType`, `sourceTitle`, `bodyMode`, `body`, `summary`, `nextReviewDate`, `reviewedAt`, `createdAt`, `updatedAt` |
 | `NotebookCanvas` | Canvas 本文の JSON と一覧検索用 text index | `notebookId`, `schemaVersion`, `documentJson`, `searchText`, `createdAt`, `updatedAt` |
 | `Tag` | タグ名のマスタ | `id`, `name` (unique), `color`, `createdAt` |
-| `NotebookTag` | Notebook と Tag の多対多関連 | `notebookId` + `tagId` の複合主キー |
+| `NotebookTag` | Notebook と Tag の多対多関連とノート内表示順 | `notebookId`, `tagId`, `order`。`notebookId` + `tagId` の複合主キー、`notebookId` + `order` index |
 | `Cue` | Cornell 左欄のキーワード / 質問 | `id`, `notebookId`, `text`, `order`, `createdAt`, `updatedAt` |
 
 - `bodyMode=canvas` の MVP 本文は `NotebookCanvas.documentJson` です。`bodyMode=markdown` の既存本文は互換用に保持します。`NoteCard`、`CueCard`、`NoteCueLink` は持ちません。
@@ -253,8 +297,8 @@ MVP の route、API、データ、保存、削除、復習、Markdown、端末�
 | --- | --- | --- |
 | Canvas shape text | rect の文字 commit、fontSize `18`・右寄せ、ellipse の Escape cancel、他要素保持、POST `201`、再読込 GET `200`、削除 `204`、console / page error 0 を確認。 | 初期 `select`、`pen` 継続、描画 tool の配置後 `select` 遷移を含む全 lifecycle と全保存経路は未確認。`CANVAS-SHAPE-TEXT-001` は必須 subset の部分実施。 |
 | Canvas dimensions / style / persistence | 既存の Canvas runtime QA で、用紙寸法、style、standalone text / line の保存・再読込、eraser、history、toolbar / touch の確認済み範囲を確認。 | `CANVAS-INTERACTION-001` / `CANVAS-GESTURE-001` の厳密 4px、wheel / trackpad 固有入力は未確認。 |
-| Desktop edit | `/notes/[id]` の title、noteDate、source、tag、Cue、Canvas、Summary、`nextReviewDate` の復元、保存後再読込、キャンセル、主要 field 到達性を 1280 / 1440px で確認。 | 375 / 768px の mobile edit は未確認。 |
-| `nextReviewDate` | 新規 `2026-07-25` → `2026-08-01` の初期表示・保存、手動 `2026-08-05` の保持、空欄の再読込・`noteDate` 変更後維持を確認。 | review 成功 UI の画面反映は未確認。 |
+| Desktop edit | `/notes/[id]` の title、学習日（現在値の表示）、source、tag、Cue、Canvas、Summary、`nextReviewDate` の復元、保存後再読込、キャンセル、主要 field 到達性を 1280 / 1440px で確認。 | 375 / 768px の mobile edit は未確認。 |
+| `nextReviewDate` | 新規 `2026-07-25` → `2026-08-01` の初期表示・保存、手動 `2026-08-05` の保持、空欄の再読込を確認。既存編集では学習日と独立して変更でき、保存済み値を学習日から自動再計算しない。 | review 成功 UI の画面反映は未確認。 |
 
 autosave、soft-delete Undo、専用復習タスク、NoteCard / D&D、PDF、タグ管理 UI、mobile 専用最適化などは §2・§9 の Phase 2 境界を維持し、今回の runtime QA の PASS 集計には含めない。
 

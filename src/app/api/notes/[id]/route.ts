@@ -5,12 +5,15 @@ import {
   updateNote,
 } from "@/server/notes/application";
 import {
+  createApiError,
   createInvalidBodyError,
   createNotFoundError,
   createServerError,
   apiErrorResponse,
 } from "@/shared/http";
 import { notebookInputSchema } from "@/modules/notes/contracts";
+
+const NOTE_DATE_IMMUTABLE_MESSAGE = "保存後の学習日は編集できません";
 
 type RouteContext = {
   params: Promise<{ id: string }>;
@@ -40,6 +43,25 @@ export async function PATCH(request: Request, context: RouteContext) {
 
     if (!parsed.success) {
       return apiErrorResponse(createInvalidBodyError(parsed.error));
+    }
+
+    const currentNotebook = await getNoteDetail(id);
+
+    if (!currentNotebook) {
+      return apiErrorResponse(createNotFoundError("ノートが見つかりません"));
+    }
+
+    if (currentNotebook.noteDate !== parsed.data.noteDate) {
+      return apiErrorResponse(
+        createApiError("invalid_body", {
+          errors: [
+            {
+              field: "noteDate",
+              message: NOTE_DATE_IMMUTABLE_MESSAGE,
+            },
+          ],
+        }),
+      );
     }
 
     const notebook = await updateNote(id, parsed.data);

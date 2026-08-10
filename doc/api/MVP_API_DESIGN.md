@@ -147,7 +147,7 @@ MVP API は、ノート作成、検索、閲覧、編集、削除、復習済み
 | `cues` | 任意 | array | 未指定時 `[]` |
 | `cues[].text` | 必須 | string | trim 後 1〜120 文字 |
 | `cues[].order` | 任意 | integer | 0 以上。未指定時は配列 index |
-| `tags` | 任意 | array | 未指定時 `[]`。最大 12 件。同一ノート内で重複不可 |
+| `tags` | 任意 | array | 未指定時 `[]`。最大 12 件。同一ノート内で重複不可。配列順をノート内表示順として保存 |
 | `tags[].name` | 必須 | string | trim 後 1〜30 文字。使用可能文字は validation 表を参照 |
 | `tags[].color` | 任意 | string \| null | 空文字 / 未指定は `null` |
 
@@ -176,6 +176,8 @@ Canvas JSON は既存の `NotebookCanvas.documentJson` 保存領域を利用し�
 | `page` | 任意 | 1 始まりの整数。未指定時 1 |
 
 一覧 UI / remote は `tags` を canonical とし、選択タグごとに `tags` を append する。API route は `tags` の各 value を分割せずに exact tag name として扱う。既存の `tag=tag1,tag2` 呼び出しは legacy CSV として引き続き OR 検索でき、両方の parameter がある場合は各方式で正規化した値を OR 条件として統合する。
+
+ノート一覧・詳細 response の `tags` は、保存時の `tags` 配列順（`NotebookTag.order` 昇順）を維持する。候補一覧の `GET /api/tags` だけは名前昇順で返す。
 
 ### Success Response
 
@@ -271,6 +273,7 @@ HTTP 201。作成した `Note detail` を返す。
 - `bodyMode="canvas"` の場合は `CanvasDocumentV1` を `NotebookCanvas.documentJson` に保存し、`schemaVersion` と text 要素由来の `searchText` を更新する。`bodyMode="markdown"` の既存本文は従来どおり `Notebook.body` に保存する。
 - タグ名が存在しない場合は自動作成する。
 - 既存タグの `color` は更新しない。新規作成時のみ `tags[].color ?? null` を保存する。
+- `tags` の配列 index を `NotebookTag.order`（0 始まり）として保存する。
 - Cue は `order` 指定があればその値、未指定なら配列 index で保存する。
 - `noteDate` / `nextReviewDate` は date-only string を UTC 00:00:00 として保存し、response では `YYYY-MM-DD` に戻す。
 
@@ -388,6 +391,7 @@ HTTP 500
 - Notebook を更新する。
 - Cue はリクエスト内容で全置換する。
 - Tag 関連もリクエスト内容で全置換する。
+- `tags` の配列 index を `NotebookTag.order`（0 始まり）として再保存する。
 - `bodyMode="canvas"` の場合は Canvas JSON を同じ `NotebookCanvas` レコードへ upsert する。`page.width` / `page.height` の変更時も要素の `x`, `y`, `width`, `height`, `points`, `style` は変更しない。Canvas から Markdown への自動変換や既存 Canvas document の自動変換は行わない。
 - タグ名が存在しない場合は自動作成する。
 - MVP では楽観ロックを行わない。
@@ -558,7 +562,7 @@ query / body は受け取らない。
 
 ### Success Response
 
-HTTP 200。タグ名昇順で返す。
+HTTP 200。タグ名昇順で返す。これはノート詳細・一覧の `tags` 配列に保存された表示順とは別の候補一覧順である。
 
 ```json
 [

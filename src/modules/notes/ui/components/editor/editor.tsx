@@ -151,6 +151,15 @@ export function NoteEditor({
   }, []);
 
   function updateForm(next: Partial<NoteEditorFormState>) {
+    if (mode === "edit" && Object.prototype.hasOwnProperty.call(next, "noteDate")) {
+      const editableChanges = { ...next };
+      delete editableChanges.noteDate;
+      if (Object.keys(editableChanges).length === 0) {
+        return;
+      }
+      next = editableChanges;
+    }
+
     if (Object.prototype.hasOwnProperty.call(next, "tags")) {
       setFieldErrors((current) =>
         current.filter(
@@ -275,6 +284,7 @@ export function NoteEditor({
       )}
 
       <NoteEditorMetadataSection
+        mode={mode}
         shell={shell}
         title={form.title}
         noteDate={form.noteDate}

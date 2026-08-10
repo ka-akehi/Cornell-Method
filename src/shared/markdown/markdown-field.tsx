@@ -11,6 +11,11 @@ import rehypeRaw from "rehype-raw";
 import rehypeSanitize, { defaultSchema, type Options } from "rehype-sanitize";
 import remarkGfm from "remark-gfm";
 import { applyMarkdownListEnter } from "./markdown-list-enter";
+import {
+  getMarkdownTaskIndex,
+  markMarkdownTaskInputs,
+  promoteMarkdownTaskInputMarkers,
+} from "./markdown-task-list";
 
 type PreviewMode = "hidden" | "visible";
 type MarkdownFieldView = "input" | "preview";
@@ -88,6 +93,11 @@ export type MarkdownPreviewProps = {
   className?: string;
 };
 
+export type MarkdownReadViewProps = MarkdownPreviewProps & {
+  onTaskToggle?: (taskIndex: number, checked: boolean) => void;
+  taskToggleDisabled?: boolean;
+};
+
 export type MarkdownFieldProps = {
   id: string;
   label: string;
@@ -102,6 +112,7 @@ export type MarkdownFieldProps = {
   required?: boolean;
   textareaClassName?: string;
   previewEmptyLabel?: string;
+  showPreviewHeading?: boolean;
   layout?: "stacked" | "desktop-split";
 };
 
@@ -241,11 +252,80 @@ const markdownComponents: Components = {
   },
 };
 
-export function MarkdownPreview({
+function createMarkdownReadViewComponents(
+  onTaskToggle?: MarkdownReadViewProps["onTaskToggle"],
+  taskToggleDisabled = false,
+): Components {
+  if (!onTaskToggle) {
+    return markdownComponents;
+  }
+
+  return {
+    ...markdownComponents,
+    input: ({ type, checked, node }) => {
+      if (type !== "checkbox") {
+        return null;
+      }
+
+      const isChecked = Boolean(checked);
+      const currentTaskIndex = getMarkdownTaskIndex(node);
+
+      // GFM task inputs receive a parser-stage marker before rehype-raw. Raw
+      // HTML inputs never receive that marker, so they stay read-only and do
+      // not consume a GFM task index.
+      if (currentTaskIndex === null) {
+        return (
+          <input
+            type="checkbox"
+            checked={isChecked}
+            readOnly
+            disabled
+            tabIndex={-1}
+            aria-label={isChecked ? "完了済み" : "未完了"}
+            className="mr-2 h-4 w-4 align-[-2px] accent-amber-500"
+          />
+        );
+      }
+
+      if (taskToggleDisabled) {
+        return (
+          <input
+            type="checkbox"
+            checked={isChecked}
+            readOnly
+            disabled
+            tabIndex={-1}
+            aria-label={`タスク ${currentTaskIndex + 1}、${
+              isChecked ? "完了済み" : "未完了"
+            }`}
+            className="mr-2 h-4 w-4 align-[-2px] accent-amber-500"
+          />
+        );
+      }
+
+      return (
+        <input
+          type="checkbox"
+          checked={isChecked}
+          aria-label={`タスク ${currentTaskIndex + 1}、${
+            isChecked ? "完了済み" : "未完了"
+          }`}
+          className="mr-2 h-4 w-4 align-[-2px] accent-amber-500 outline-none focus-visible:ring-2 focus-visible:ring-amber-500 focus-visible:ring-offset-2"
+          onChange={(event) =>
+            onTaskToggle(currentTaskIndex, event.currentTarget.checked)
+          }
+        />
+      );
+    },
+  };
+}
+
+function MarkdownDocument({
   value,
-  emptyLabel = "プレビューする Markdown がありません。",
-  className = "",
-}: MarkdownPreviewProps) {
+  emptyLabel,
+  className,
+  components,
+}: MarkdownPreviewProps & { components: Components }) {
   if (!value.trim()) {
     return (
       <div
@@ -263,14 +343,51 @@ export function MarkdownPreview({
       <ReactMarkdown
         remarkPlugins={[remarkGfm, remarkSoftLineBreaks]}
         rehypePlugins={[
+          markMarkdownTaskInputs,
           rehypeRaw,
+          promoteMarkdownTaskInputMarkers,
           [rehypeSanitize, markdownSanitizeSchema],
         ]}
-        components={markdownComponents}
+        components={components}
       >
         {value}
       </ReactMarkdown>
     </div>
+  );
+}
+
+export function MarkdownPreview({
+  value,
+  emptyLabel = "プレビューする Markdown がありません。",
+  className = "",
+}: MarkdownPreviewProps) {
+  return (
+    <MarkdownDocument
+      value={value}
+      emptyLabel={emptyLabel}
+      className={className}
+      components={markdownComponents}
+    />
+  );
+}
+
+export function MarkdownReadView({
+  value,
+  emptyLabel = "読み取る Markdown がありません。",
+  className = "",
+  onTaskToggle,
+  taskToggleDisabled = false,
+}: MarkdownReadViewProps) {
+  return (
+    <MarkdownDocument
+      value={value}
+      emptyLabel={emptyLabel}
+      className={className}
+      components={createMarkdownReadViewComponents(
+        onTaskToggle,
+        taskToggleDisabled,
+      )}
+    />
   );
 }
 
@@ -288,6 +405,7 @@ export function MarkdownField({
   required = false,
   textareaClassName = "",
   previewEmptyLabel,
+  showPreviewHeading = true,
   layout = "stacked",
 }: MarkdownFieldProps) {
   const [view, setView] = useState<MarkdownFieldView>("input");
@@ -402,9 +520,11 @@ export function MarkdownField({
         hidden={isInputView}
         className="min-w-0"
       >
-        <h3 className="markdown-preview-heading border-b border-stone-300/70 pb-2 text-xs font-extrabold tracking-[0.06em] text-stone-700">
-          Markdown Preview
-        </h3>
+        {showPreviewHeading && (
+          <h3 className="markdown-preview-heading border-b border-stone-300/70 pb-2 text-xs font-extrabold tracking-[0.06em] text-stone-700">
+            Markdown Preview
+          </h3>
+        )}
         <MarkdownPreview value={value} emptyLabel={previewEmptyLabel} />
       </div>
     ) : null;

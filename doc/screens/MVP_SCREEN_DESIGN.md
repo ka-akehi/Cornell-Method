@@ -1,7 +1,7 @@
 # MVP 画面設計案（紙面中心 UI 目標）
 
 作成日: 2026-07-31
-現行照合日: 2026-08-08
+現行照合日: 2026-08-09
 状態: 目標 UI と比較資料。現行の coding task 入口ではない。
 
 ## 位置づけ
@@ -68,7 +68,7 @@ Phase 2、Mac desktop、PDF、部分消しゴムに関する coding task も、G
 上から下の順序を次のように固定します。編集・閲覧・復習で紙面の骨格を入れ替えず、モード差分は表示状態と操作だけに限定します。
 
 1. **タイトル帯**: 全モードで紙面上部にタイトルを表示する。閲覧・復習では大きな見出し、作成・編集では同じ位置のタイトル入力欄とする。タイトルを Cornell や Summary の中へ重複表示しない。MVP では sticky header を必須にせず、タイトル帯を紙面の識別子として扱う。
-2. **コンパクトなメタ情報帯**: 学習日、学習元、タグをタイトル直下に一行のメタ情報として置き、幅が足りなければ自然に折り返す。基本情報を大きな独立カードにはしない。
+2. **コンパクトなメタ情報帯**: 学習日、学習元、タグをタイトル直下に一行のメタ情報として置き、幅が足りなければ自然に折り返す。作成画面では学習日を入力でき、保存後の通常編集画面では現在値を表示するだけとする。基本情報を大きな独立カードにはしない。
 3. **Cornell 本文領域**: Cue と本文を紙面の中心に置く。Cue は左、本文は右で、本文側を主役にする。
 4. **Summary と紙面フッター**: Cornell の下に Summary を置き、次回復習日と保存・キャンセルなどの操作を紙面の末尾にまとめる。
 
@@ -81,7 +81,7 @@ Phase 2、Mac desktop、PDF、部分消しゴムに関する coding task も、G
 | 状態 | タイトル／メタ情報 | Cornell | Summary / フッター |
 | --- | --- | --- | --- |
 | 作成 | タイトル入力を主見出し位置、学習日・学習元・タグを入力可能なメタ情報帯 | Cue 入力リスト、Canvas editor、幅・高さの数値入力と適用操作 | Summary textarea と任意の簡易 Preview。次回復習日、キャンセル、保存を紙面下部に置き、保存を右下の主操作にする |
-| 編集 | 作成と同じ位置に既存値を表示・編集 | 作成と同じ。保存済み `CanvasDocumentV1` を復元し、用紙寸法だけを変更できる | `PATCH` の明示保存。保存・キャンセルを右下のフッターに集約 |
+| 編集 | 作成と同じ位置に既存値を表示する。学習日は現在値の表示専用、学習元・タグなどは編集可能 | 作成と同じ。保存済み `CanvasDocumentV1` を復元し、用紙寸法だけを変更できる | `PATCH` の明示保存。保存・キャンセルを右下のフッターに集約 |
 | 閲覧 | タイトルを大きな見出し、メタ情報を表示専用帯として表示 | Cue リストを左、保存済み Canvas 本文を右。本文列を主役にする | Summary を全幅で Markdown 表示。上部に編集・復習・削除、下部に次回復習情報 |
 | 復習 | 閲覧と同じ位置・値。状態バッジは `復習中` | Cue を先に表示。Canvas 本文を初期マスクし、列幅を縮めない。本文確認後に開示 | Summary の内容は初期非表示。本文確認後に同じ全幅領域で開き、復習済み操作をその直後に置く |
 
@@ -92,7 +92,7 @@ Phase 2、Mac desktop、PDF、部分消しゴムに関する coding task も、G
 - Cornell の目安は Cue 28〜32% / 本文 68〜72% とし、MVP 契約の約 30% / 70% を基準にします。Cue を広げて本文を圧迫しないことを優先します。
 - 本文は、Canvas 上の自由配置・読み返しに使うため最も広い列とします。本文を主役にする理由は、学習記録の情報量と読み書きの滞在時間が Cue より大きく、狭い本文では紙面中心という目的が失われるためです。
 - 本文列の中では、**Canvas editor / viewer と用紙サイズ操作を配置することを目標の基本配置**とします。幅・高さの数値入力は用紙寸法を変更し、表示倍率の操作とは別に扱います。
-- 閲覧モードでは本文列に保存済み Canvas を表示し、編集モードでは Canvas editor を置きます。既存 `bodyMode=markdown` のノートだけは従来の Markdown 表示・Preview を使い、Cue / Summary の Markdown Preview と sanitize 契約は維持します。
+- 閲覧モードでは本文列に保存済み Canvas を表示し、編集モードでは Canvas editor を置きます。既存 `bodyMode=markdown` のノートだけは従来の Markdown 表示を使います。作成・編集画面の Cue / Summary は Markdown Preview と sanitize を使い、詳細画面の Summary は Preview と呼ばず読み取り領域として扱います。
 
 ### Canvas 本文領域と用紙サイズ操作
 
@@ -113,7 +113,7 @@ Phase 2、Mac desktop、PDF、部分消しゴムに関する coding task も、G
 - `1280px` / `1440px` 前後では、アプリクロームの左右余白の内側に広い紙面を置き、紙面内の左右 padding を確保した上で Cue 約 30% / 本文約 70% とする。紙面を狭くするために本文列を別のカードや横並び Preview で二分しない。
 - `768px` では紙面、タイトル、メタ情報、Cornell、Summary、主要操作が画面内で確認できることを確認する。Cornell は原則として左 Cue / 右本文の関係を維持する。
 - `768px` 未満では本格的なモバイル編集最適化を MVP の必須条件にしない。現行 MVP 方針に従い、Cornell の作業面に限った局所横スクロールは許容するが、`body` やアプリ全体に横スクロールを発生させない。横スクロールを採用する場合は Cornell の wrapper 内に閉じ込める。
-- `375px` では紙面外周を縮めてページ全体の横幅に収め、タイトル・メタ情報・Summary は通常の縦スクロールで到達できるようにする。Cue の追加・削除、Cue 入力、Canvas 操作、用紙サイズ入力、Summary Preview、保存・キャンセルも到達可能にする。
+- `375px` では紙面外周を縮めてページ全体の横幅に収め、タイトル・メタ情報・Summary は通常の縦スクロールで到達できるようにする。Cue の追加・削除、Cue 入力、Canvas 操作、用紙サイズ入力、編集画面の Summary Preview、保存・キャンセルも到達可能にする。
 - 375 / 768px で Cornell を縦積みに変更すること、Cue と本文を別ページへ分けること、本文を隠して全体を縮めることは現行 MVP の必須要件ではない。変更する場合は別途モバイル方針を更新する。
 
 ### アクセシビリティ契約
@@ -122,7 +122,7 @@ Phase 2、Mac desktop、PDF、部分消しゴムに関する coding task も、G
 - 紙面内の見出しはタイトルを `h1` とし、Cue、本文、Summary を `h2` 以下の順序で置く。タイトルを表示と入力で二重に読み上げない。
 - すべての title、日付、学習元、タグ、Cue、本文、Summary、次回復習日は label または明確な accessible name を持つ。エラーは `aria-invalid` と `aria-describedby` で対象入力に関連付ける。
 - 保存中、復習更新中、削除失敗、入力エラーは視覚的な色だけに依存せず、文言で示す。状態変更や alert は必要に応じて `role="status"` / `role="alert"` とする。
-- ボタン、リンク、開閉操作、本文表示／非表示、Summary 開示はキーボードから到達・操作でき、focus-visible を常に確認できること。Preview の checkbox は表示専用であり、クリックで保存値を変更しない。
+- ボタン、リンク、開閉操作、本文表示／非表示、Summary 開示はキーボードから到達・操作でき、focus-visible を常に確認できること。編集画面の Markdown Preview の checkbox は表示専用であり、クリックで保存値を変更しない。詳細画面の Summary 読み取り領域の checkbox は操作対象として扱う。
 - Cornell の局所横スクロールを許容する場合は、ページ全体の overflow と区別できる wrapper、見出し、キーボード到達性を持たせる。MVP では D&D や高度なショートカットの追加を要求しない。
 
 ## As-Is と To-Be の境界（過去の設計比較）
@@ -133,7 +133,7 @@ Phase 2、Mac desktop、PDF、部分消しゴムに関する coding task も、G
 | --- | --- | --- |
 | ノートの外観 | `layout.tsx` / `globals.css` にフォレスト系背景と `note-paper-shell` があり、create と detail の成功経路は暖色紙面を共有する。ただし紙面幅は `min(1280px, ...)`、内側は角丸 Section とカードが残る | 深いフォレストグリーンのアプリクローム中央に、viewport に応じて広がる暖色の一枚紙面を置く。薄い罫線・余白・タイポグラフィで領域を示し、細かいカードを主役にしない |
 | 基本情報 / タイトル | create は `.note-paper-heading` 内の大きな `input.note-paper-title`、detail view/review は `h1.note-paper-title`。edit は外側の `h1` と embedded `NoteEditor` の title input が二重になる | 全モードで一つの主見出しを同じ帯に置く。入力時も title input をその位置に置き、状態ラベルは紙面外 chrome の右上にも同期する |
-| メタ情報 | create は 4 列の `.note-paper-meta-grid`、detail は 5 項目を 4 列から折り返す grid。ラベルと入力コントロールが縦に積まれ、画像の一行帯にはなっていない | 学習日・学習元・タグを一行の inline/flex 帯に寄せ、足りない幅だけ自然に折り返す。入力候補や tag chip などの操作は帯の中に残す |
+| メタ情報 | create は 4 列の `.note-paper-meta-grid`、detail は 5 項目を 4 列から折り返す grid。ラベルと入力コントロールが縦に積まれ、画像の一行帯にはなっていない | 学習日・学習元・タグを一行の inline/flex 帯に寄せ、足りない幅だけ自然に折り返す。作成画面の学習日入力、学習元・タグの候補操作は帯の中に残し、保存後の通常編集画面の学習日は表示専用とする |
 | Cornell | create は wrapper 内 `min-w-[640px]` と `3fr / 7fr`、detail は `lg` 以上だけ `0.32fr / 0.68fr`。Cue は rounded row、罫線は grid の上下と中央線が中心で、detail の狭幅には局所 scroll wrapper がない | 約 30% / 70% を維持しつつ本文側の幅を最優先する。Cue / 本文を一枚の ruled surface として扱い、中央縦罫線と薄い横罫線を共通化する |
 | Canvas 本文 / Markdown Preview | Canvas editor / viewer と `bodyMode`、Canvas JSON の保存・復元境界が存在する。既存 Markdown mode では従来の本文 Preview を使う | Canvas 本文は右側の自由配置面とし、用紙サイズ入力を本文領域に置く。Summary / Cue の Markdown Preview は維持し、Canvas の表示倍率と用紙寸法を分離する |
 | Summary | create/edit は Summary `MarkdownField` と `.note-paper-footer` が同じ Section にあるが、Preview は常時表示、保存は黒い通常 button。detail view は全幅 Section、review は hidden placeholder の後に別 `復習記録` Section | Cornell の下に全幅 Summary を置く紙面の締めくくり。編集時 Preview は開閉または簡易表示、閲覧時は Markdown 表示、復習時は内容を初期非表示。保存・復習操作は Summary 後の一体化した footer に集約 |
@@ -164,7 +164,7 @@ Phase 2、Mac desktop、PDF、部分消しゴムに関する coding task も、G
 | 1 | app chrome（画像上端〜約 68px） | 深いフォレストグリーン、左の `C` マークとアプリ名、一覧・新規作成の導線、右上の `編集中` badge | 紙面外の `header` / `nav` として扱う。ブランド、主要 nav、現在の画面 state を一行の chrome に置き、紙面内の内容と混ぜない |
 | 2 | 紙面外周（x 約 38〜1634、y 約 69〜913） | 暖色アイボリーの一枚紙面、丸い外周、薄い境界、控えめな影、四辺の外周余白 | `/notes/new` と `/notes/[id]` の成功経路を一つの `article` / shell として包む。紙面幅は viewport に応じて fluid にし、外周 gutter と inner padding を別に調整する |
 | 3 | タイトル帯（y 約 110〜180） | 紙面左上の大きなタイトル、タイトル下の余白。画像ではフォーム label や別の基本情報 card は見えない | 作成・編集では一つの title input、閲覧・復習では一つの `h1` を同じ主見出し位置に置く。長いタイトルは折り返しても紙面幅を壊さない |
-| 4 | メタ情報帯（y 約 185〜228） | 学習日、学習元、タグが一行に並び、細い縦 separator と下の横罫線でタイトル帯と Cornell を分ける | `noteDate`、`sourceType` / `sourceTitle`、`tags` を inline/flex の帯へ寄せる。入力時の date/select/tag candidate は操作可能なまま、狭幅では field 単位で自然に wrap する |
+| 4 | メタ情報帯（y 約 185〜228） | 学習日、学習元、タグが一行に並び、細い縦 separator と下の横罫線でタイトル帯と Cornell を分ける | `noteDate`、`sourceType` / `sourceTitle`、`tags` を inline/flex の帯へ寄せる。作成時の date 入力と select / tag candidate は操作可能なまま、保存後の通常編集画面の `noteDate` は表示専用とし、狭幅では field 単位で自然に wrap する |
 | 5 | Cornell 本体（y 約 228〜783） | Cue が左、本文が右。紙面内幅に対して Cue は約 28%、本文は約 72%。中央の縦罫線と両列の細い横罫線、Cue の番号付き行 | 一つの Cornell wrapper の中で Cue / 本文を 28〜32% / 68〜72%（MVP の約 30% / 70%）に保つ。データを card 単位へ分割せず、罫線と余白で行を示す |
 | 6 | Canvas 本文（本文列、y 約 228〜783） | Cue の右側に自由配置 Canvas。閲覧時は保存済み document、復習時は同じ領域を mask → 表示する | 編集時は Canvas editor と幅・高さ数値入力・適用操作を置く。表示倍率は用紙寸法から分離し、既存要素の座標・寸法・points・style を変更しない。既存 Markdown mode の Preview は互換表示として維持する |
 | 7 | Summary / 保存フッター（y 約 784〜912） | Cornell 全幅を横切る罫線、左に `Summary / 要約と次の一歩` と本文、右下にオレンジの保存ボタン | Summary は Cornell の下の全幅領域に置く。作成・編集の次回復習日、キャンセル、保存を同じ footer に集約し、広い幅では保存を右下主操作にする |
@@ -269,7 +269,7 @@ To-Be UI を Gate 0 通過後に採用する場合も、Worker は次の値と�
 | 契約項目 | 固定内容 |
 | --- | --- |
 | canonical route | `/notes`、`/notes/new`、`/notes/[id]`、`/backup`。詳細の閲覧・編集・復習は `/notes/[id]` 内のモード切替 |
-| notes payload | `title`、`noteDate`、`sourceType`、`sourceTitle`、`bodyMode`、条件付きの `body` / `canvas`、`summary`、`nextReviewDate`、`cues[{ text, order }]`、`tags[{ name, color }]`。Canvas 本文は `CanvasDocumentV1`、既存 `bodyMode=markdown` は 1 本の Markdown 文字列 |
+| notes payload | `title`、`noteDate`、`sourceType`、`sourceTitle`、`bodyMode`、条件付きの `body` / `canvas`、`summary`、`nextReviewDate`、`cues[{ text, order }]`、`tags[{ name, color }]`。Canvas 本文は `CanvasDocumentV1`、既存 `bodyMode=markdown` は 1 本の Markdown 文字列。`noteDate` は作成時に入力し、保存後の通常編集画面では現在値を表示するだけ |
 | API | `GET /api/notes`、`POST /api/notes`、`GET /api/notes/:id`、`PATCH /api/notes/:id`、`DELETE /api/notes/:id`、`POST /api/notes/:id/review`、`GET /api/tags`、`GET /api/backups`、`POST /api/backups` の method / payload / response / error を維持 |
 | Prisma / SQLite | MVP の `Notebook`、`NotebookCanvas`、`Tag`、`NotebookTag`、`Cue` と既存 column mapping を維持。用紙サイズは Canvas JSON 内の `page.width` / `page.height` に保存し、寸法専用 column / migration は追加しない。`NoteCard`、`CueCard`、`NoteCueLink`、draft 用 model を追加しない |
 | 保存 | 作成・更新ともユーザーの明示的な保存操作だけで確定する。新規保存後は `/notes/[id]`、編集保存後は閲覧モードへ戻る |
@@ -323,7 +323,7 @@ MVP では `/tasks/review` のような独立した復習タスク画面は作�
 復習日と完了記録のルールは次のとおりです。
 
 - `/notes/new` の `nextReviewDate` は `noteDate + 7日` を初期入力とし、保存前に変更または空欄化できる。
-- 既存ノートの `nextReviewDate` が未設定でも、編集開始時に自動補完しない。`noteDate` を変更しても、ユーザーが設定した次回復習日は自動移動しない。
+- 既存ノートの `nextReviewDate` が未設定でも、編集開始時に自動補完しない。`nextReviewDate` は学習日と独立して変更または空欄化でき、保存済みの値を学習日から自動再計算しない。保存後の通常編集画面の `noteDate` は表示専用とする。
 - 復習完了時は `POST /api/notes/:id/review` を呼び、`reviewedAt` とユーザーが入力した次回復習日を更新する。復習後の日付も自動計算しない。
 - `/tasks/review`、1 日後 / 1 週間後の自動タスク、`review status`、未完了タスクバッジは Phase 2 以降の機能である。
 
@@ -376,7 +376,7 @@ MVP では `/tasks/review` のような独立した復習タスク画面は作�
 | 日付 From / To | noteDate の範囲検索 |
 | タグフィルタ | OR 条件 |
 | 復習対象フィルタ | visible label は「復習対象のみ」だけとし、非選択時の neutral style、選択時の amber style、状態に一致する `aria-pressed` を持つ toggle button。設定済みの `nextReviewDate` が `today` 以前のノートを表示 |
-| ノート一覧 | タイトル、日付、タグ、要約状態、次回復習日、最終復習日時を表示 |
+| ノート一覧 | タイトル、日付、タグ、要約状態、復習履歴バッジ、次回復習状態バッジを表示 |
 
 ### ノート一覧カードの表示
 
@@ -384,15 +384,23 @@ MVP では `/tasks/review` のような独立した復習タスク画面は作�
 - 学習日
 - 学習元
 - タグ
+  - タグがある場合はタグ名と色を表示し、複数タグを折り返す。長いタグ名は省略表示する。
+  - タグがない場合は `タグなし` を表示しない。これは一覧カードだけのルールであり、詳細画面など他のタグ表示箇所の既存 `タグなし` 表示は変更しない。
+  - ノートに付いたタグは API response の配列順（保存時の `tags` 配列の追加順）をそのまま表示する。一覧カード、詳細画面のメタ情報、作成・編集画面のタグチップで名前順に並べ替えない。
+  - `GET /api/tags` の候補 option は名前昇順で表示する。候補の並び順は、ノートに付いたタグの保存・表示順とは別の契約とする。
 - Cue 件数
 - 要約状態
   - 要約あり
   - 要約未作成
-- 復習情報（`nextReviewDate` と `reviewedAt` から表示）
-  - 次回復習日未設定
-  - 次回復習日
-  - 復習対象（次回復習日が今日以前）
-  - 最終復習日時
+- 復習履歴バッジ（`reviewedAt` だけで判定）
+  - `reviewedAt === null`: `未復習`
+  - `reviewedAt !== null`: `復習済み`
+- 次回復習状態バッジ（`nextReviewDate` だけで判定）
+  - 未来の日付: `復習予定日: YYYY-MM-DD`
+  - 今日以前の日付: `復習期限到来: YYYY-MM-DD`
+  - 未設定: `復習予定なし`
+
+復習履歴バッジと次回復習状態バッジは、Phase 2 の専用復習タスク、`review status`、未完了タスクバッジを表しません。詳細画面 NTE-030 のタグ表示は、一覧カードの空タグ表示ルールとは別に扱います。
 
 ### 主要アクション
 
@@ -486,7 +494,7 @@ MVP の一覧画面では、日付は `<input type="date">` を前提にする�
 - 新規作成時は `nextReviewDate = noteDate + 7日` をフォームへ初期入力する。
 - ユーザーは保存前に初期値を別の日付へ変更するか、空欄にして保存できる。
 - 既存ノートの編集開始時は保存済みの `nextReviewDate` をそのまま表示し、未設定値を自動補完しない。
-- 既存ノートで `noteDate` を変更しても、手動設定済みの `nextReviewDate` は自動移動しない。
+- 既存ノートの学習日は保存後の通常編集で変更できない。手動設定済みの `nextReviewDate` は学習日と独立して扱い、学習日から自動移動・再計算しない。
 
 ### レイアウト
 
@@ -494,13 +502,13 @@ MVP の一覧画面では、日付は `<input type="date">` を前提にする�
 
 デスクトップ（768px 以上を主対象）:
 
-- 紙面シェル上部にタイトル入力を単独の主見出しとして置く。学習日はタイトル直下のコンパクトなメタ情報帯に置く。
+- 紙面シェル上部にタイトル入力を単独の主見出しとして置く。学習日はタイトル直下のコンパクトなメタ情報帯に置き、作成画面では入力、保存後の通常編集画面では現在値の表示だけとする。
 - 学習元タイプ、学習元タイトル、タグはメタ情報帯へ寄せる。既存タグ候補、新規タグ入力、タグチップは一つのメタ情報領域内で折り返し可能にし、独立した大きな基本情報カードにしない。
 - Cornell はメタ情報帯の直後に置く。Cue を左 28〜32%、本文を右 68〜72% とし、約 30% / 70% を基準に本文へ幅を優先配分する。
 - Cue 追加は Cue 見出しの横、Cue 削除は各 Cue 行の中に置く。Cue はカードを積むのではなく、薄い区切り線を持つ行／リストとして扱う。
 - 本文列は `ノート本文` の Canvas editor とし、Canvas 上に文字・図形・線・ストロークを自由配置する。Canvas の操作帯に幅・高さの数値入力、単位 `px`、`適用` を置く。
 - `Fit` / `50%` / `100%` / `200%` は表示倍率として別の操作群に置く場合のみ表示し、用紙サイズの入力候補にはしない。
-- Cornell の下に Summary を紙面の締めとして置く。Summary textarea は紙面幅を活かし、Summary Preview は開閉可能な簡易 Preview を基本とする。
+- Cornell の下に Summary を紙面の締めとして置く。作成・編集画面の Summary textarea は紙面幅を活かし、Summary Markdown Preview は開閉可能な簡易 Preview を基本とする。
 - 次回復習日、キャンセル、保存は Summary の下の紙面フッターにまとめる。保存を主操作、キャンセルを副操作とし、sticky footer は MVP の必須要件にしない。
 
 モバイル（768px 未満）:
@@ -508,7 +516,7 @@ MVP の一覧画面では、日付は `<input type="date">` を前提にする�
 - デスクトップ優先とし、本格的な縦積み編集最適化や専用操作案内は MVP の対象外とする。
 - タイトル、メタ情報帯、Summary は通常のページ縦スクロールで確認できるようにする。メタ情報は画面幅に合わせて折り返す。
 - Cornell は 2 列の関係を保つため局所的な横スクロールを許容する。横スクロールは Cornell 作業面の内側に閉じ込め、紙面全体やナビゲーションの意図しない横 overflow は発生させない。
-- 375px 前後でも Cue 追加・削除、Cue 入力、Canvas 操作、用紙サイズ入力、Summary Preview、キャンセル、保存へ到達できることを受け入れ条件とする。モバイルでの入力効率や表示密度の最適化は後続課題とする。
+- 375px 前後でも Cue 追加・削除、Cue 入力、Canvas 操作、用紙サイズ入力、作成・編集画面の Summary Preview、キャンセル、保存へ到達できることを受け入れ条件とする。モバイルでの入力効率や表示密度の最適化は後続課題とする。
 
 #### 作成画面の紙面順序
 
@@ -610,9 +618,12 @@ Summary textarea → Summary Preview（開閉）
 閲覧モードと復習モードは、目的と操作が異なっても、同じ紙面シェルを維持する。モードラベルやモードごとの操作ボタンは変更してよいが、タイトル帯、メタ情報帯、Cornell、Summary の順序・位置をモードごとに組み替えない。
 
 - 紙面上部に一覧へ戻る導線、現在のモードラベル、タイトルを置く。タイトルは全モードで紙面の識別子として表示する。
-- タイトル直下に学習日、学習元、タグ、次回復習日、最終復習日時をコンパクトなメタ情報帯として置く。メタ情報を本文より大きなカードにしない。復習モードで保存済みの次回復習日を残す場合は「保存済み」と示し、復習記録の次回復習日入力と区別する。
+- タイトル直下に学習日、学習元、タグ、次回復習日、最終復習日時をコンパクトなメタ情報帯として置く。保存後の通常編集画面でも学習日は現在値を表示するだけで、入力欄にはしない。メタ情報を本文より大きなカードにしない。復習モードで保存済みの次回復習日を残す場合は「保存済み」と示し、復習記録の次回復習日入力と区別する。
 - メタ情報帯の下に Cornell を置く。デスクトップでは Cue を左 28〜32%、本文を右 68〜72% とし、中央の縦罫線で境界を示す。約 30% / 70% の契約を保ちながら本文を主役にする。
 - Cornell の下に紙面全幅の Summary を置く。閲覧では Canvas 本文と Summary を表示し、復習では同じ Canvas 本文領域を初期マスク、同じ Summary 領域を初期非表示にする。既存 `bodyMode=markdown` のノートだけは本文を Markdown 表示する。
+- 詳細画面の Summary は編集画面の Markdown Preview ではなく、保存済み Markdown を読むための操作可能な読み取り領域とする。閲覧モードと復習モードのどちらでも、Summary を表示した後は GFM task-list checkbox を toggle できる。toggle は画面上の未保存変更として表示し、クリックごとに API を呼ばない。
+- Summary の checkbox toggle では対応する task-list marker の状態だけを変更し、task の本文、Summary 内の順序、checkbox 以外の Markdown は保持する。詳細画面の明示的な Summary 保存で既存 `PATCH /api/notes/:id` を呼び、成功時は表示中ノートを更新して dirty 状態を解除する。失敗時は未保存状態と error を残す。
+- Summary の変更を破棄する、または保存せずにモードを離れる場合は変更前の Summary に戻し、DB を変更しない。Summary の autosave、draft、Undo は MVP の画面操作に含めない。
 - 閲覧モードの編集・復習・削除は紙面上部の操作帯に置く。編集モードの保存・キャンセルは Summary 後の紙面フッターに置く。復習済み操作は Summary 後の復習記録領域に置く。
 - モバイルでも「タイトル帯・メタ情報 → Cornell → Summary」の基本順序を維持する。768px 未満では Cornell 内の局所横スクロールを許容するが、ページ全体の横 overflow は許容しない。
 
@@ -630,7 +641,7 @@ Summary textarea → Summary Preview（開閉）
 - タグ
 - Cue リスト
 - Canvas 本文（既存 `bodyMode=markdown` のノートは Markdown 表示）
-- Markdown 表示されたサマリー
+- Summary 読み取り領域
 - 次回復習日
 - 最終復習日
 
@@ -641,6 +652,9 @@ Summary textarea → Summary Preview（開閉）
 | 編集 | 編集モードへ切替 |
 | 復習 | 復習モードへ切替 |
 | 削除 | 確認後に削除し `/notes` へ戻る |
+| Summary checkbox を toggle | 表示中の task-list checkbox を切り替え、未保存状態を表示する。toggle ごとには API を呼ばない |
+| Summary を保存 | 明示操作時だけ既存 `PATCH /api/notes/:id` で Summary Markdown を保存する。成功時は表示中ノートを更新して dirty 状態を解除する |
+| Summary の変更を破棄 / 保存せずにモードを離れる | 変更前の Summary に戻し、DB を変更しない |
 
 編集・復習・削除の操作は紙面上部の操作帯に集約し、閲覧開始時に現在のモードと次の行動が分かるようにする。
 
@@ -648,9 +662,9 @@ Summary textarea → Summary Preview（開閉）
 
 表示・入力:
 
-- ノート作成画面と同じ紙面順序・入力項目
+- ノート作成画面と同じ紙面順序で既存値を表示する。学習日は現在値の表示専用とし、タイトル、学習元、タグ、Cue、本文、Summary、次回復習日を編集できる。
 - タイトルは紙面上部に常時表示し、本文は Cue 右側の広い列、Summary は紙面下部に置く
-- Canvas editor と用紙サイズ操作を本文列に置き、表示倍率は用紙寸法と分離する。Summary Preview は開閉または簡易表示にする。既存 `bodyMode=markdown` の本文だけ textarea と Preview を縦並びにする
+- Canvas editor と用紙サイズ操作を本文列に置き、表示倍率は用紙寸法と分離する。編集画面の Markdown Preview は開閉または簡易表示にし、Preview 内の checkbox は表示専用とする。既存 `bodyMode=markdown` の本文だけ textarea と Preview を縦並びにする
 
 アクション:
 
@@ -672,6 +686,7 @@ Summary textarea → Summary Preview（開閉）
 - 閲覧モードと同じヘッダー領域、タイトル・メタ情報、Cornell レイアウト、サマリーの位置を使う。
 - Cornell レイアウトでは Cue を左、本文領域を右に置く。本文領域だけを初期状態でマスクし、サマリーの内容も初期非表示にする。本文のマスクは列の幅を縮めず、想起前後で紙面の位置関係を保つ。
 - Summary の開く操作は同じ Summary 見出しまたは領域内に置き、本文を表示するまでは disabled にする。本文を表示して確認した後に操作を有効化し、Cue と Summary を別の上段領域へ移動しない。
+- Summary を開いた後は、その読み取り領域の task-list checkbox を toggle できる。toggle と Summary の明示保存は復習記録とは別に扱い、クリックごとに API を呼ばない。
 - 復習記録と `復習済みにする` は、共通シェルの Summary の後ろに追加する。復習記録の次回復習日入力は、復習モードへ入った時点の `Asia/Tokyo` の現在日付 + 7日を固定初期値とし、保存済み値を再利用しない。
 
 初期表示:
@@ -693,8 +708,11 @@ Summary textarea → Summary Preview（開閉）
 | 本文を表示 | Canvas 本文を表示する。既存 `bodyMode=markdown` のノートは Markdown 表示する |
 | 本文を隠す | 本文を再度非表示 |
 | サマリーを開く | 本文表示前は利用不可。Cue で想起し、本文を表示して確認した後にサマリーの Markdown を表示 |
+| Summary checkbox を toggle | 表示中の task-list checkbox を切り替え、dirty 状態を表示する。task の本文・順序・checkbox 以外の Markdown は変更しない |
+| Summary を保存 | 明示操作時だけ既存 `PATCH /api/notes/:id` で Summary Markdown を保存する。成功時は表示中ノートを更新し、失敗時は未保存状態と error を残す |
+| Summary の変更を破棄 / 保存せずに閲覧へ戻る | 変更前の Summary に戻し、DB を変更しない |
 | 次回復習日を変更 / クリア | 固定初期値を任意の日付または空欄へ変更する |
-| 復習済みにする | `POST /api/notes/:id/review` を呼び、`reviewedAt` を現在日時に更新。入力した `nextReviewDate` または null を保存し、成功後は API 応答値を画面へ反映 |
+| 復習済みにする | Summary 保存とは別に `POST /api/notes/:id/review` を呼び、`reviewedAt` を現在日時に更新する。入力した `nextReviewDate` または null を保存し、成功後は API 応答値を画面へ反映 |
 | 閲覧へ戻る | 閲覧モードへ戻る |
 
 ### 復習モードの注意点
@@ -702,6 +720,7 @@ Summary textarea → Summary Preview（開閉）
 - 採点や正誤判定はしない。
 - 復習履歴に基づく継続的な間隔計算や、保存後の `nextReviewDate` 追従更新はしない。ここでいう継続計算には、復習開始時の固定初期値を含めない。
 - 本文表示状態は保存しない。
+- Summary の未保存変更は復習完了操作で自動保存しない。保存する場合は Summary の明示保存を行い、保存しない場合は破棄して元の Summary に戻す。
 
 ### UI 状態詳細
 
@@ -723,6 +742,16 @@ Summary textarea → Summary Preview（開閉）
 | 次回復習日なし | `未設定` |
 | 最終復習日時なし | `未記録` |
 
+#### Summary 読み取り領域
+
+| 状態 / 操作 | 表示・挙動 |
+| --- | --- |
+| 初期表示 | 保存済み Summary の task-list checkbox を checked / unchecked で表示する。ここは Markdown Preview ではない |
+| checkbox toggle | 対応する checkbox の checked 状態だけを画面上で変更し、dirty 状態を表示する。toggle ごとの API 呼び出しは行わない |
+| 明示保存成功 | 既存 `PATCH /api/notes/:id` の成功 response を表示中ノートへ反映し、dirty 状態を解除する |
+| 明示保存失敗 | 未保存の checkbox 状態と dirty 状態を保持し、保存済みと表示せず error を表示する |
+| 破棄 / 保存せずにモードを離れる | 変更前の Summary を表示し、DB を変更しない |
+
 #### 編集モード
 
 編集モードは作成画面と同じ validation、button disabled、保存中、保存失敗表示を使う。
@@ -741,6 +770,9 @@ Summary textarea → Summary Preview（開閉）
 | 本文を表示 | 同じ本文領域で Canvas 本文を表示し、`本文を隠す` ボタンを表示する。既存 `bodyMode=markdown` のノートは Markdown 表示する |
 | 本文を隠す | 同じ本文領域を再度マスクする。表示状態は保存しない |
 | サマリーを開く | 本文表示前は disabled とし、Cue での想起と本文確認の後に有効化する。操作後、同じサマリー領域で Summary Markdown を表示する |
+| Summary checkbox | Summary を開いた後は task-list checkbox を操作できる。変更は dirty として表示し、クリックごとには保存しない |
+| Summary 保存 | 明示操作時だけ既存 `PATCH /api/notes/:id` を使う。成功時は表示中ノートと dirty 状態を更新し、失敗時は未保存状態と error を保持する |
+| Summary 破棄 / 保存せずに離脱 | 変更前の Summary に戻し、DB を変更しない |
 | 保存済み次回復習日 | メタ情報帯に残す場合は「保存済み」と示し、復習用入力の値ではないことを明確にする |
 | 復習用の次回復習日 | 復習モードへ入った時点の `Asia/Tokyo` の現在日付 + 7日を初期表示し、保存済み値は再利用しない。復習完了前に変更またはクリアできる |
 | Cue なし | `Cue は未追加です。` |
@@ -865,11 +897,11 @@ flowchart TD
 - 1280px / 1440px 前後で、Cornell の Cue が約 30%、Canvas 本文が約 70% となり、本文列が Cue より広い。Canvas の操作面が画面幅のために狭くなっていない。
 - Canvas 本文の幅・高さ入力と適用操作が本文領域にあり、Fit / 50% / 100% / 200% の表示倍率操作と用紙サイズ操作が混同されていない。
 - 基本情報が大きなカードとして本文を押し下げず、タグが長くてもメタ情報帯からはみ出さない。
-- Summary は Cornell の下にあり、編集時は Preview の開閉または簡易表示、閲覧時は Markdown 表示、復習開始時は Summary 内容が非表示である。
+- Summary は Cornell の下にあり、編集時は Markdown Preview の開閉または簡易表示、閲覧時は操作可能な読み取り領域、復習開始時は Summary 内容が非表示である。閲覧・復習で checkbox を toggle した変更は dirty として示し、明示保存・破棄を選べる。
 - 閲覧モードの編集・復習・削除は紙面上部、作成・編集の保存・キャンセルは紙面フッター、復習済みは Summary 後の復習記録領域にあり、操作が重複・分散しない。
 - 768px 前後で紙面全体、タイトル、主要操作、入力欄が壊れず、Cue と本文の関係を確認できる。
 - 375px 前後でページ全体の意図しない横 overflow がなく、基本情報と Summary は縦スクロールで確認できる。Cornell 内の局所横スクロールを許容する場合も、Cue 追加・削除、Canvas 操作、用紙サイズ入力、保存へ到達できる。
-- 375px / 768px で Cue / Summary の Markdown Preview の GFM、sanitize、checkbox の表示専用挙動が維持される。Canvas 本文は Markdown Preview として扱わない。
+- 375px / 768px で、編集画面の Cue / Summary Markdown Preview は GFM、sanitize、checkbox の表示専用挙動を維持し、詳細画面の Summary 読み取り領域は GFM checkbox を操作できる。Canvas 本文は Markdown Preview として扱わない。静的な契約確認と Browser runtime の判定を分け、runtime 未実施を PASS に読み替えない。
 - NTE-020 の作成・編集、NTE-030 の閲覧・復習について、目標 UI 実装後の screenshot と実操作を再取得する。旧 screenshot を新レイアウトの証跡として再利用しない。
 
 ## 確認済みの MVP 前提
