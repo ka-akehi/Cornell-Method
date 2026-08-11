@@ -188,7 +188,7 @@ export function NoteDetailSummaryActions({
           <button
             type="button"
             disabled={saving}
-            onClick={onDiscard}
+            onClick={() => onDiscard()}
             className="rounded-lg border border-stone-300 px-3 py-1.5 text-sm font-medium text-stone-700 transition hover:bg-white disabled:cursor-not-allowed disabled:text-stone-400"
           >
             破棄

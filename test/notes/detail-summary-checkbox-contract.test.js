@@ -85,6 +85,29 @@ test("detail Summary toggle is draft-only and explicit save uses the existing no
   assert.match(payload, /body: note\.body \?\? ""/);
 });
 
+test("Summary discard does not pass the click event into the draft in view or review", () => {
+  assert.match(
+    modes,
+    /function discardSummaryDraft\(nextSummary = note\.summary \?\? ""\)/,
+  );
+  assert.match(modes, /setSummaryDraft\(nextSummary\)/);
+  assert.match(modes, /onDiscardSummary=\{\(\) => discardSummaryDraft\(\)\}/);
+
+  assert.equal(
+    (readView.match(/<NoteDetailSummaryActions/g) ?? []).length,
+    2,
+    "view and review should share the Summary actions component",
+  );
+  assert.equal(
+    (readView.match(/onDiscard=\{onDiscardSummary\}/g) ?? []).length,
+    2,
+    "view and review should pass the same event-free discard callback",
+  );
+
+  assert.match(actions, /onClick=\{\(\) => onDiscard\(\)\}/);
+  assert.doesNotMatch(actions, /onClick=\{onDiscard\}/);
+});
+
 test("Summary payload preserves valid and null source types and rejects unknown values", () => {
   const noteDisplay = loadTranspiledModule("src/modules/notes/model/note-display.ts", {
     "@/shared/date": { todayDateString: () => "2026-08-09" },

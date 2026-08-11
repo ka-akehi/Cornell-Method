@@ -1,7 +1,7 @@
 # 現行 MVP 契約
 
-更新日: 2026-08-09
-状態: Canvas 操作・スタイル・図形内文字・重ね描き・用紙寸法の契約反映済み。Manager fallback で必須 runtime QA の確認済み範囲を追加し、厳密 4px・wheel / trackpad・mobile edit 等の未確認範囲は維持
+更新日: 2026-08-11
+状態: 現行 MVP Gate 0 の受け入れ境界を確定。Canvas 操作・スタイル・図形内文字・重ね描き・用紙寸法の契約と、Manager fallback で確認した runtime QA の範囲を反映済み。厳密 4px・wheel / trackpad・mobile edit 等の未確認範囲は履歴・任意 QA として維持
 
 ## 1. 位置づけと正本
 
@@ -10,6 +10,16 @@
 - [`PRODUCT_SPEC.md`](../requirements/PRODUCT_SPEC.md) は、MVP と将来の Phase 2 以降を含む製品全体の仕様・ロードマップです。製品全体の将来境界は本書ではなく PRODUCT_SPEC.md で管理します。
 - この文書は、現行 MVP の実装・受け入れ判断に使う正本です。PRODUCT_SPEC.md のロードマップ記述と現行 MVP の契約が異なる場合、現行 MVP の判断ではこの文書を優先します。
 - 詳細な request / response、画面状態、データ項目は API・画面・データ設計書で補足します。詳細書とこの文書が現行 MVP の範囲で矛盾した場合は、この文書を先に更新してから詳細書を追従させます。
+
+### 現行 MVP Gate 0 の受け入れ境界（2026-08-11）
+
+現行 MVP の Gate 0 は、発注者が実施し、テスト中に見つかった問題の修正と修正後の再確認を含めて完了と判断した人力結合テストを根拠に、完了（PASS）とします。
+
+対象範囲は、本書の MVP 範囲と canonical route（`/notes`、`/notes/new`、`/notes/[id]`、`/backup`）に定める明示保存、閲覧・編集・復習、検索、確認付き物理削除、手動 SQLite backup です。
+
+Browser runtime、mobile、wheel / trackpad、実 DB read-back、E2E、外部 Postgres target、build / Prisma runtime、追加の明示承認は、現行 Gate 0 の必須条件や blocker にしません。未確認の項目と既存の `BLOCKED` / `NOT RUN` は、過去記録または任意 QA として保持し、Gate 0 の完了判定を保留・取消しする根拠にはしません。
+
+Gate 0 の完了後も、Phase 2、Mac desktop、PDF、partial eraser などの実装を自動で開始しません。次の機能優先順位と実装着手は、発注者が別途判断します。
 
 ## 2. MVP の目的と対象範囲
 

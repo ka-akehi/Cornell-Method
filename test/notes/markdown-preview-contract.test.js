@@ -184,6 +184,18 @@ test("detail read renderer opts into keyboard and pointer task toggles", () => {
 
   assert.match(markdownField, /export function MarkdownReadView/);
   assert.match(readViewComponents, /input: \(\{ type, checked, node \}\)/);
+  assert.match(readViewComponents, /li: \(\{ children, className \}\)/);
+  assert.match(readViewComponents, /Children\.toArray\(children\)/);
+  assert.match(
+    readViewComponents,
+    /<label\s+className=\{`block min-h-6 max-w-full break-words/,
+  );
+  assert.match(
+    readViewComponents,
+    /child\.type === "ul" \|\|\s*child\.type === "ol"/s,
+  );
+  assert.match(readViewComponents, /child\.type === markdownComponents\.ul/);
+  assert.match(readViewComponents, /child\.type === markdownComponents\.ol/);
   assert.match(readViewComponents, /getMarkdownTaskIndex\(node\)/);
   assert.match(readViewComponents, /if \(currentTaskIndex === null\)/);
   assert.doesNotMatch(readViewComponents, /node\?\.position/);
@@ -201,6 +213,8 @@ test("detail read renderer opts into keyboard and pointer task toggles", () => {
     readViewComponents,
     /aria-label=\{`タスク \$\{currentTaskIndex \+ 1\}/,
   );
+  assert.match(readViewComponents, /className="mr-2 h-4 w-4 align-\[-2px\]/);
+  assert.match(readViewComponents, /min-h-6/);
   assert.match(readViewComponents, /focus-visible:ring-2/);
   assert.match(markdownField, /markMarkdownTaskInputs/);
   assert.match(markdownField, /promoteMarkdownTaskInputMarkers/);

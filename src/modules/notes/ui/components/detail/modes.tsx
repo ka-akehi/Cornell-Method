@@ -309,7 +309,7 @@ export function NoteDetailModes({
       }}
       onSummaryTaskToggle={handleSummaryTaskToggle}
       onSaveSummary={() => void saveSummary()}
-      onDiscardSummary={discardSummaryDraft}
+      onDiscardSummary={() => discardSummaryDraft()}
       modeActions={
         mode === "review" ? (
           <NoteDetailReviewModeActions

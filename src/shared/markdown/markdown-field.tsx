@@ -2,7 +2,9 @@
 
 import ReactMarkdown, { type Components } from "react-markdown";
 import {
+  Children,
   type KeyboardEvent,
+  isValidElement,
   useLayoutEffect,
   useRef,
   useState,
@@ -262,6 +264,43 @@ function createMarkdownReadViewComponents(
 
   return {
     ...markdownComponents,
+    li: ({ children, className }) => {
+      const isTaskListItem = className?.includes("task-list-item");
+      const listItemClassName = `break-words pl-1 ${
+        isTaskListItem ? "list-none" : ""
+      }`;
+
+      if (!isTaskListItem) {
+        return <li className={listItemClassName}>{children}</li>;
+      }
+
+      // Keep nested lists outside the label so each task owns one label and
+      // tapping a child task cannot also toggle its parent.
+      const childNodes = Children.toArray(children);
+      const isNestedList = (child: (typeof childNodes)[number]) =>
+        isValidElement(child) &&
+        (child.type === "ul" ||
+          child.type === "ol" ||
+          child.type === markdownComponents.ul ||
+          child.type === markdownComponents.ol);
+      const nestedLists = childNodes.filter(isNestedList);
+      const taskContent = childNodes.filter(
+        (child) => !isNestedList(child),
+      );
+
+      return (
+        <li className={listItemClassName}>
+          <label
+            className={`block min-h-6 max-w-full break-words ${
+              taskToggleDisabled ? "cursor-not-allowed" : "cursor-pointer"
+            }`}
+          >
+            {taskContent}
+          </label>
+          {nestedLists}
+        </li>
+      );
+    },
     input: ({ type, checked, node }) => {
       if (type !== "checkbox") {
         return null;

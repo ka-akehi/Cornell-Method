@@ -69,6 +69,10 @@ function loadRoute(relativePath, { application, contracts }) {
   });
 }
 
+function loadApplicationErrors() {
+  return loadTranspiledModule("src/server/notes/application/errors.ts");
+}
+
 const acceptingNotebookSchema = {
   safeParse(value) {
     return { success: true, data: value };
@@ -83,14 +87,53 @@ function jsonRequest(method, payload) {
   });
 }
 
-test("PATCH rejects a changed noteDate with a noteDate invalid-body error", async () => {
+test("application updateNote rejects a changed noteDate before repository update", async () => {
   let updateCalled = false;
+  const applicationErrors = loadApplicationErrors();
+  const commandService = loadTranspiledModule(
+    "src/server/notes/application/command.service.ts",
+    {
+      "@/server/notes/infrastructure": {
+        findExistingNote: async () => ({
+          id: "note-1",
+          noteDate: new Date("2026-08-08T00:00:00.000Z"),
+        }),
+        updateNoteRecord: async () => {
+          updateCalled = true;
+          return { id: "note-1" };
+        },
+      },
+      "@/server/notes/presenters": {
+        formatNoteDetail: (note) => note,
+      },
+      "@/shared/date": {
+        dateOnlyToUtcDate: (value) => new Date(`${value}T00:00:00.000Z`),
+      },
+      "./errors": applicationErrors,
+    },
+  );
+
+  await assert.rejects(
+    commandService.updateNote("note-1", {
+      title: "Updated",
+      noteDate: "2026-08-07",
+    }),
+    (error) => {
+      assert.ok(error instanceof applicationErrors.NoteDateImmutableError);
+      assert.equal(error.message, "保存後の学習日は編集できません");
+      return true;
+    },
+  );
+  assert.equal(updateCalled, false);
+});
+
+test("PATCH maps the application noteDate error to a noteDate invalid-body error", async () => {
+  const applicationErrors = loadApplicationErrors();
   const route = loadRoute("src/app/api/notes/[id]/route.ts", {
     application: {
-      getNoteDetail: async () => ({ noteDate: "2026-08-08" }),
+      NoteDateImmutableError: applicationErrors.NoteDateImmutableError,
       updateNote: async () => {
-        updateCalled = true;
-        return { id: "note-1" };
+        throw new applicationErrors.NoteDateImmutableError();
       },
     },
     contracts: { notebookInputSchema: acceptingNotebookSchema },
@@ -107,14 +150,14 @@ test("PATCH rejects a changed noteDate with a noteDate invalid-body error", asyn
     message: "入力内容に誤りがあります",
     errors: [{ field: "noteDate", message: "保存後の学習日は編集できません" }],
   });
-  assert.equal(updateCalled, false);
 });
 
 test("PATCH accepts the current noteDate and the update repository leaves it untouched", async () => {
   let updateInput;
+  const applicationErrors = loadApplicationErrors();
   const route = loadRoute("src/app/api/notes/[id]/route.ts", {
     application: {
-      getNoteDetail: async () => ({ noteDate: "2026-08-08" }),
+      NoteDateImmutableError: applicationErrors.NoteDateImmutableError,
       updateNote: async (_id, input) => {
         updateInput = input;
         return { id: "note-1", ...input };
@@ -139,6 +182,28 @@ test("PATCH accepts the current noteDate and the update repository leaves it unt
   const updateEnd = repository.indexOf("await replaceCueRelations", updateStart);
   const updateBlock = repository.slice(updateStart, updateEnd);
   assert.doesNotMatch(updateBlock, /noteDate:/);
+});
+
+test("PATCH preserves the not-found response when application update returns null", async () => {
+  const applicationErrors = loadApplicationErrors();
+  const route = loadRoute("src/app/api/notes/[id]/route.ts", {
+    application: {
+      NoteDateImmutableError: applicationErrors.NoteDateImmutableError,
+      updateNote: async () => null,
+    },
+    contracts: { notebookInputSchema: acceptingNotebookSchema },
+  });
+
+  const response = await route.PATCH(
+    jsonRequest("PATCH", { title: "Updated", noteDate: "2026-08-08" }),
+    { params: Promise.resolve({ id: "missing-note" }) },
+  );
+
+  assert.equal(response.status, 404);
+  assert.deepEqual(await response.json(), {
+    code: "not_found",
+    message: "ノートが見つかりません",
+  });
 });
 
 test("POST still forwards the supplied noteDate to the create API", async () => {

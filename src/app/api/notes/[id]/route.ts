@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import {
   deleteNote,
   getNoteDetail,
+  NoteDateImmutableError,
   updateNote,
 } from "@/server/notes/application";
 import {
@@ -12,8 +13,6 @@ import {
   apiErrorResponse,
 } from "@/shared/http";
 import { notebookInputSchema } from "@/modules/notes/contracts";
-
-const NOTE_DATE_IMMUTABLE_MESSAGE = "保存後の学習日は編集できません";
 
 type RouteContext = {
   params: Promise<{ id: string }>;
@@ -45,25 +44,6 @@ export async function PATCH(request: Request, context: RouteContext) {
       return apiErrorResponse(createInvalidBodyError(parsed.error));
     }
 
-    const currentNotebook = await getNoteDetail(id);
-
-    if (!currentNotebook) {
-      return apiErrorResponse(createNotFoundError("ノートが見つかりません"));
-    }
-
-    if (currentNotebook.noteDate !== parsed.data.noteDate) {
-      return apiErrorResponse(
-        createApiError("invalid_body", {
-          errors: [
-            {
-              field: "noteDate",
-              message: NOTE_DATE_IMMUTABLE_MESSAGE,
-            },
-          ],
-        }),
-      );
-    }
-
     const notebook = await updateNote(id, parsed.data);
 
     if (!notebook) {
@@ -72,6 +52,14 @@ export async function PATCH(request: Request, context: RouteContext) {
 
     return NextResponse.json(notebook);
   } catch (error) {
+    if (error instanceof NoteDateImmutableError) {
+      return apiErrorResponse(
+        createApiError("invalid_body", {
+          errors: [{ field: "noteDate", message: error.message }],
+        }),
+      );
+    }
+
     console.error(error);
     return apiErrorResponse(createServerError());
   }

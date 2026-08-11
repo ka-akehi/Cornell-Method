@@ -6,6 +6,6 @@ export async function findExistingNote(id: string) {
       id,
       deletedAt: null,
     },
-    select: { id: true },
+    select: { id: true, noteDate: true },
   });
 }

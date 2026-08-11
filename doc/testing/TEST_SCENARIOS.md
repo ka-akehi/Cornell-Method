@@ -10,6 +10,20 @@ MVP の初期データに seed は使いません。検証用データは `/note
 
 `doc/requirements/PRODUCT_SPEC.md` に含まれる将来仕様のうち、自動保存、Undo、PDF、専用復習タスク画面、D&D、NoteCard などは、このドキュメント末尾の「Phase 2 / 将来確認」に分離します。現行 MVP の受け入れ根拠は `doc/implementation/MVP_CONTRACT.md` です。
 
+## 現行 MVP Gate 0 の最終判定（2026-08-11）
+
+現行 MVP Gate 0 は、発注者が完了と判断した MVP 人力結合テストを根拠に、完了（PASS）とします。人力結合テストには、テスト中に見つかった問題の修正と修正後の再確認を含みます。
+
+| 項目 | 現行判定 |
+| --- | --- |
+| Gate 0 の受け入れ根拠 | 発注者が実施し、修正・再確認を含めて完了と判断した MVP 人力結合テスト |
+| 対象範囲 | `/notes`、`/notes/new`、`/notes/[id]`、`/backup` の現行 MVP。明示保存、閲覧・編集・復習、検索、確認付き物理削除、手動 SQLite backup を含む |
+| Browser / mobile / wheel、実 DB read-back、E2E、外部 Postgres、build / Prisma | Gate 0 の必須条件や blocker ではない。未確認の場合は履歴・任意 QA として扱う |
+| `BLOCKED` / `NOT RUN` の過去記録 | 削除・改変せず保持する。現行 Gate 0 の未完了根拠にはしない |
+| Gate 0 完了後 | Phase 2、Desktop、PDF などを自動実装しない。次の機能優先順位は発注者が別途判断する |
+
+下記のチェックリスト、個別シナリオ、静的検証、Browser runtime の判定は詳細な証跡・履歴です。個別行の `FAIL（静的照合）`、`部分実施`、`未実施`、`BLOCKED`、`NOT RUN` は、それぞれの記録範囲を示すものであり、現行 Gate 0 の最終判定を取り消しません。
+
 ## 再実行可能な Playwright E2E
 
 主要 MVP フローは `npm run test:e2e` で再実行します。`npm install` 済みであることを前提とし、Playwright Chromium が未導入の場合は `npx playwright install chromium` を一度実行します。`@playwright/test` は既存の `playwright` 本体と同じ `1.61.0` に揃えています。
@@ -637,10 +651,11 @@ Postgres target へ接続せず、現行 MVP schema の isolated frozen SQLite f
 
 ## 受け入れ証跡マトリクス
 
-上のチェックリストは確認項目の一覧です。確認済み範囲の正本は下表とし、判定は各記録の範囲に限定します。同じ section の未確認項目を、別項目の PASS から推測して繰り上げません。`FAIL（静的照合）` は実装コードと現行 MVP 契約の照合で未達が確認されたもの、`未実施` は runtime 証跡がまだないものです。`POSTGRES-NATIVE-READER-20260731` は現行受け入れ対象から外した過去の検討履歴であり、当時の判定値と根拠の保存だけを目的に掲載します。
+上のチェックリストは確認項目の一覧です。表の先頭に置く Gate 0 行が現行 MVP の最終判定と対象範囲を示し、その後の行は個別の証跡・履歴として各記録の範囲に限定します。同じ section の未確認項目を、別項目の PASS から推測して繰り上げません。`FAIL（静的照合）` は実装コードと現行 MVP 契約の照合で未達が確認されたもの、`未実施` は runtime 証跡がまだないものです。`POSTGRES-NATIVE-READER-20260731` は現行受け入れ対象から外した過去の検討履歴であり、当時の判定値と根拠の保存だけを目的に掲載します。Browser runtime、mobile、wheel、実 DB read-back、E2E、外部 Postgres、build / Prisma の未確認は、現行 Gate 0 の blocker ではなく、必要に応じて扱う任意 QA です。
 
 | ID | 対象シナリオ | route と画面状態 | viewport / 実行形態 | 確認日 | fixture / 検証用データの扱い | 判定 | 参照 summary / 根拠ファイル |
 | --- | --- | --- | --- | --- | --- | --- | --- |
+| MVP-GATE0-MANUAL-20260811 | 現行 MVP の人力結合テスト。テスト中の問題修正と修正後の再確認を含む | `/notes`、`/notes/new`、`/notes/[id]`、`/backup`。明示保存、閲覧・編集・復習、検索、確認付き物理削除、手動 SQLite backup | 発注者実施の人力結合テスト | 2026-08-11 | テスト中に見つかった問題を修正し、修正後に再確認したうえで完了と判断。追加の Browser / DB / E2E / Postgres / build / Prisma 証跡は Gate 0 の条件にしない | PASS（Gate 0 最終判定完了） | 発注者報告、`HANDOFF_2026-08-08.md`、本節「現行 MVP Gate 0 の最終判定」、`doc/implementation/MVP_CONTRACT.md` §1 |
 | MVP-UI-001 | 主要 UI フロー（redirect、一覧、作成、タグ、編集保存、復習、検索、削除、バックアップ） | `/` → `/notes`（redirect / 一覧）、`/notes/new`（作成）、`/notes/[id]`（閲覧・編集・復習・削除）、`/backup`（一覧・作成） | Playwright Chromium runtime。viewport は summary に記録なし | 2026-07-05 | UI 検証用の一時ノート、既存タグ候補、新規タグを作成。API / SQLite cleanup 後に query `UI検証` の `totalCount=0`、一時タグ 0 件を確認 | PASS | `summary/20260705/mvp-ui-flow-reverification-report.md` |
 | MVP-API-001 | Notes CRUD、review、一覧検索、タグ、validation、not found、backup API | `/api/notes`、`/api/notes/:id`、`/api/notes/:id/review`、`/api/tags`、`/api/backups` | API / CLI runtime（`127.0.0.1:3000`）。viewport は対象外 | 2026-07-05 | `dev.db` に API 検証用ノート / タグを作成し、API 削除と SQLite cleanup。検証タグ 0 件を確認。backup 最新 3 世代は検証結果として保持 | PASS | `summary/20260705/manager-mvp-api-crud-validation-backup-reverification-report.md` |
 | MVP-MD-001 | GFM checkbox、編集画面 Markdown Preview checkbox の表示専用挙動、閲覧 / 復習時の Markdown sanitize（詳細 Summary checkbox の操作は対象外） | `/notes/new`（編集 Preview）、`/notes/[id]`（閲覧・復習） | Playwright Chromium runtime。viewport は summary に記録なし | 2026-07-05 | `MD検証` 接頭辞の一時ノートに危険な Markdown と checkbox を入力。確認後に API cleanup し残存 0 件を確認 | PASS | `summary/20260705/manager-markdown-sanitize-checkbox-verification-report.md` |
