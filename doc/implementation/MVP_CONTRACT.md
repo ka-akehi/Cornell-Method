@@ -1,6 +1,6 @@
 # 現行 MVP 契約
 
-更新日: 2026-08-11
+更新日: 2026-08-12
 状態: 現行 MVP Gate 0 の受け入れ境界を確定。Canvas 操作・スタイル・図形内文字・重ね描き・用紙寸法の契約と、Manager fallback で確認した runtime QA の範囲を反映済み。厳密 4px・wheel / trackpad・mobile edit 等の未確認範囲は履歴・任意 QA として維持
 
 ## 1. 位置づけと正本
@@ -19,7 +19,7 @@
 
 Browser runtime、mobile、wheel / trackpad、実 DB read-back、E2E、外部 Postgres target、build / Prisma runtime、追加の明示承認は、現行 Gate 0 の必須条件や blocker にしません。未確認の項目と既存の `BLOCKED` / `NOT RUN` は、過去記録または任意 QA として保持し、Gate 0 の完了判定を保留・取消しする根拠にはしません。
 
-Gate 0 の完了後も、Phase 2、Mac desktop、PDF、partial eraser などの実装を自動で開始しません。次の機能優先順位と実装着手は、発注者が別途判断します。
+Gate 0 の完了後は Desktop PoC と Desktop Alpha を先に進めます。Desktop Alpha 後の Canvas PNG と検索・一覧の規模対応は採用済みですが、現行 MVP へ繰り上げません。PDF export、autosave、Undo、専用復習タスク、NoteCard / D&D 等は未採用であり、実装を自動で開始しません。
 
 ## 2. MVP の目的と対象範囲
 
@@ -38,13 +38,13 @@ MVP は、ローカル個人利用で、Cornell Method のノートを「Cue で
 
 ### MVP の受け入れ対象外
 
-下記は MVP の完成条件・受け入れ条件に含めません。実装する場合は Phase 2 以降の別 task とします。
+下記は MVP の完成条件・受け入れ条件に含めません。採用済み要件は Desktop Alpha 後の別 task で実装し、未採用候補は採用判断まで実装を前提にしません。
 
 - ドラフト、autosave、楽観ロック、`409` 競合処理。
-- soft delete、削除後 5 秒 Undo、Snackbar、カード単位の復元。
-- 独立した復習タスク画面、自動の 1 日後 / 1 週間後タスク、未完了タスクバッジ。
+- soft delete、削除後 Undo、Snackbar、カード単位の復元。
+- 独立した復習タスク画面、自動復習タスク、未完了タスクバッジ。
 - NoteCard 分割、複数本文カード、Cue と本文の ID リンク、D&D 並び替え、hidden flag。
-- PDF / HTML エクスポート、タグの名称変更・削除を行う管理 UI、タグ専用の更新・削除 API。
+- 外部出力、タグの名称変更・削除を行う管理 UI、タグ専用の更新・削除 API。Canvas PNG は Desktop Alpha 後の採用済み要件、PDF / HTML export は現在未採用であり、いずれも現行 MVP には含めない。
 - モバイル向けの本格的な編集最適化、MVP で定義していない高度なキーボード操作。
 
 ## 3. 対象画面と canonical route
@@ -76,7 +76,7 @@ MVP は、ローカル個人利用で、Cornell Method のノートを「Cue で
 
 - 削除は詳細画面で確認を取ってから実行します。
 - 確認後の `DELETE /api/notes/:id` は Notebook を物理削除し、Cue と NotebookTag は外部キーの cascade で削除します。
-- MVP では削除後の復元を保証しません。Undo、soft delete、`SoftDeleteBuffer`、期限付き purge は Phase 2 です。
+- MVP では削除後の復元を保証しません。Undo、soft delete、`SoftDeleteBuffer`、期限付き purge は未採用候補です。
 - `Notebook.deletedAt` が schema に残っている場合でも、MVP の削除判定・復元判定には使用しません。
 
 ### 4.3 復習方式
@@ -108,7 +108,7 @@ MVP は、ローカル個人利用で、Cornell Method のノートを「Cue で
 
 - タグがある場合は、タグ名と色を表示します。複数のタグは折り返し、長いタグ名は省略表示します。
 - タグがない場合、一覧カードに `タグなし` のプレースホルダーを表示しません。このルールは一覧カードだけに適用し、`/notes/[id]` など他のタグ表示箇所の既存 `タグなし` 表示は変更しません。
-- この 2 つのバッジは、Phase 2 の専用復習タスク、`review status`、未完了タスクバッジを意味しません。
+- この 2 つのバッジは、未採用の専用復習タスク、`review status`、未完了タスクバッジを意味しません。
 
 ## 5. 現行 MVP API 契約
 
@@ -191,7 +191,7 @@ response は `{ page, totalPages, totalCount, data }` です。並び順は `not
 
 ### 5.3 Tags API
 
-MVP のタグ API は `GET /api/tags` のみです。request body / query はなく、`[{ id, name, color }]` を名前昇順で返します。これはノートに付いたタグの保存・表示順とは独立した候補一覧の契約です。タグが 0 件でも `200 []` です。`POST /api/tags`、タグの rename / delete API、タグ管理 UI は Phase 2 です。新規タグはノートの POST / PATCH に含めて自動作成します。
+MVP のタグ API は `GET /api/tags` のみです。request body / query はなく、`[{ id, name, color }]` を名前昇順で返します。これはノートに付いたタグの保存・表示順とは独立した候補一覧の契約です。タグが 0 件でも `200 []` です。`POST /api/tags`、タグの rename / delete API、タグ管理 UI は未採用候補です。新規タグはノートの POST / PATCH に含めて自動作成します。
 
 ### 5.4 Review API
 
@@ -207,7 +207,7 @@ MVP のタグ API は `GET /api/tags` のみです。request body / query はな
 
 - `GET /api/backups` は `{ "backups": [...] }` を返します。各 entry は `file`、`createdAt`、`path` を持ち、最新 3 世代を新しい順で返します。対象がない場合も `200` です。
 - `POST /api/backups` は request body / query を持たず、SQLite DB を `backup/` 配下へコピーします。成功時は `200` で `{ "ok": true, "backup": { "file", "path" } }` を返します。
-- MVP のバックアップ操作は手動作成と一覧確認です。PDF export、バックアップログ、`/api/backups/retry` はこの契約に含めません。
+- MVP のバックアップ操作は手動作成と一覧確認です。Canvas PNG、PDF export、restore、バックアップログ、`/api/backups/retry` はこの契約に含めません。Desktop Alpha の backup / restore は、現行 `/backup` と API をこの文書同期で変更せず、別の Settings 契約として実装します。
 
 ## 6. Canvas 本文と Markdown 編集 Preview / Summary 読み取り領域
 
@@ -273,21 +273,48 @@ MVP の Prisma model は `Notebook`、`NotebookCanvas`、`Tag`、`NotebookTag`�
 - `Notebook.deletedAt` が既存 schema にあっても、MVP では soft delete 用の互換フィールドとして未使用です。
 - `NotebookDraftState`、`NotebookReviewProgress`、`SoftDeleteBuffer`、`BackupLog` は MVP のモデル範囲外です。
 
-## 9. Phase 2 へ送る機能
+## 9. 現行 MVP 外の後続境界
 
-MVP と Phase 2 の境界を実装・受け入れ時に混同しないため、次を明確に Phase 2 へ送ります。
+現行 MVP の次は Desktop Alpha を完成させます。後続段階の採用状態は次のとおりです。この節は将来要件の入口であり、現行 MVP の route、API、DB、Canvas、手動 backup、受け入れ結果を変更しません。
 
-| 分野 | Phase 2 以降の機能 |
-| --- | --- |
-| 保存 | draft、3 秒 autosave、差分保存、楽観ロック、409 UI、確定保存との競合解決 |
-| 削除 | soft delete、5 秒 Undo Snackbar、Undo API、期限切れ purge、カード単位復元 |
-| 復習 | `/tasks/review`、1 日後 / 1 週間後の自動タスク、review status、未完了バッジ、spaced repetition 拡張 |
-| コンテンツ | NoteCard、複数本文カード、Cue / Note の ID link、hidden flag、D&D 並び替え |
-| タグ | タグの名称変更・削除、右クリック管理 UI、タグ専用 mutation API、より高度な色管理 |
-| 出力・運用 | PDF / HTML export、期間 export、起動時自動バックアップ、backup log、retry UI |
-| 端末対応 | モバイルの縦積み・操作案内・本格的な編集最適化、高度なキーボード操作 |
+| 段階 | 採用状態 | 現行 MVP との境界 |
+| --- | --- | --- |
+| Desktop PoC | 実施方針を承認済み、未着手 | Electron と Tauri + Node.js sidecar を同じ baseline、10,000 note fixture、Apple Silicon Mac、関連 process 合計メモリを含む測定軸で比較する。内部 process を許容し、OS process が複数存在することだけを不合格理由にしない。PDF / Playwright / Chromium は blocker または必須条件にしない |
+| Desktop Alpha | 契約を承認済み、未実装 | single application instance / 1 primary window、二重起動時の既存 primary window 前面化、終了時の app-owned process cleanup、Settings、更新、migration、backup / restore、完全なデータ削除、診断、privacy、障害時挙動を実装する。現行 route と明示保存等を維持する |
+| Desktop Alpha 後 | Canvas PNG と検索サジェスト・大規模一覧対応を採用済み、未実装 | 後続仕様 task で未決事項を決めるまで、現行検索 API と 1 ページ 50 件の契約を変更しない |
+| 採否未決 | autosave、Undo / soft delete、専用復習タスク、NoteCard / D&D、タグ管理 mutation、定期 backup、暗号化 backup、PDF export 等 | 発注者の採用判断前に API、schema、画面、実装 task を固定しない |
 
-これらを実装する task では、先に本契約の Phase 2 境界を更新し、API・schema・画面・テストの変更を別 task として投入します。
+Desktop Alpha の primary window はユーザー向けの主画面を指します。Settings modal、確認 dialog、OS file dialog は primary window に数えず、新しい独立 primary window を作りません。shell の main / core、renderer / WebView、local runtime、Node.js sidecar、framework helper 等の内部 process を許容します。最後の primary window を閉じると application instance を終了し、local runtime と app-owned child process をすべて停止して orphan process を残しません。
+
+Desktop Alpha の詳細な実装順と受け入れ境界は [`POST_MVP_IMPLEMENTATION_PLAN.md`](POST_MVP_IMPLEMENTATION_PLAN.md)、責務境界は [`TARGET_ARCHITECTURE.md`](../technical/TARGET_ARCHITECTURE.md) を参照します。現行 MVP の `/backup` は、Desktop の Settings modal にある代替機能が完成して受け入れ確認を通るまで残します。
+
+### 9.1 Canvas PNG
+
+Canvas PNG は Desktop Alpha 後の最初の外部出力として採用済みですが、未実装です。
+
+- 保存済み `CanvasDocumentV1.page.width` × `page.height` の用紙全体を同じ寸法で PNG 化する。
+- 現在の paper 背景を含む Canvas の用紙だけを対象とし、アプリ UI、Cue、Summary を含めない。
+- 用紙外の要素部分を切り取り、legacy `bodyMode=markdown` の本文を対象にしない。
+- 初期ファイル名を `[タイトル]_[学習日].png` とし、その文字列を画像内へ描画しない。
+- 使用不可文字、同名 file、保存先、失敗時 UI、色管理は未決定のまま、後続仕様 task で決める。
+
+PDF export は採用しておらず、将来再検討するかも未決定です。PNG の契約から PDF の provider、layout、出力先を推測しません。
+
+### 9.2 検索サジェストと大規模一覧
+
+検索改善と一覧の規模対応は Desktop Alpha 後の採用済み要件ですが、未実装です。
+
+- 既存の tag 専用 filter を維持し、tag を検索対象 selector に含めない。
+- 検索対象は単一選択で既定値をタイトルとし、タイトル、学習元、本文、Cue、すべてを基本候補にする。「すべて」はタイトル、学習元、本文、Cue を検索する。
+- サジェストはノート card ではなく、選択範囲の local data に存在する語句候補とする。入力 1 文字目から最大 5 件を返し、前方一致を優先する。外部辞書 API と telemetry は使わない。
+- debounce は 10,000 件での実測により必要な場合だけ導入する。現行 MVP に存在する query debounce を、将来サジェストの方式決定とみなさない。
+- 5,000 件を長期利用の最低目標とし、deterministic な 10,000 note fixture で性能余裕を確認する。
+- 一覧は追加読み込み型の無限スクロールとし、virtualization または同等の windowing で DOM 要素数を制限する。
+- Summary の検索対象分類、tokenization、同順位、API / index、取得単位、仮想化方式は未決定とする。
+
+### 9.3 採否未決の候補
+
+draft / autosave / version・競合、soft delete / Undo / purge、専用復習タスク、NoteCard / Cue link / hidden / D&D、タグ管理 mutation、定期 backup、暗号化 backup、PDF export は未採用です。採用する場合は、本契約の現行 MVP 境界を暗黙に変更せず、製品仕様、後続契約、API、schema、画面、テストを別 task で更新します。
 
 ## 10. 契約を変更する場合の更新対象
 
@@ -310,7 +337,7 @@ MVP の route、API、データ、保存、削除、復習、Markdown、端末�
 | Desktop edit | `/notes/[id]` の title、学習日（現在値の表示）、source、tag、Cue、Canvas、Summary、`nextReviewDate` の復元、保存後再読込、キャンセル、主要 field 到達性を 1280 / 1440px で確認。 | 375 / 768px の mobile edit は未確認。 |
 | `nextReviewDate` | 新規 `2026-07-25` → `2026-08-01` の初期表示・保存、手動 `2026-08-05` の保持、空欄の再読込を確認。既存編集では学習日と独立して変更でき、保存済み値を学習日から自動再計算しない。 | review 成功 UI の画面反映は未確認。 |
 
-autosave、soft-delete Undo、専用復習タスク、NoteCard / D&D、PDF、タグ管理 UI、mobile 専用最適化などは §2・§9 の Phase 2 境界を維持し、今回の runtime QA の PASS 集計には含めない。
+Desktop Alpha、Canvas PNG、検索サジェスト、大規模一覧は未実装であり、今回の runtime QA の PASS 集計には含めない。autosave、soft-delete Undo、専用復習タスク、NoteCard / D&D、PDF、タグ管理 UI、mobile 専用最適化は §2・§9 の未採用境界を維持する。
 
 ## 12. 現行契約の保守メモ
 

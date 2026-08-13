@@ -2,676 +2,442 @@
 
 作成日: 2026-08-08
 
-状態: 計画のみ。Phase 2、Desktop、PDF、Local LLM の実装 task は未投入・未着手
+更新日: 2026-08-12
+
+状態: MVP Gate 0 完了。Desktop Alpha 契約を承認済み。Desktop shell の PoC、技術選定、実装 task は未着手
 
 ## 1. 位置づけ
 
-この文書は、人力 MVP 結合テストと、その結果必要になった MVP 修正が完了した後に着手する作業の順序、依存関係、並行可能範囲、完了条件、Worker task の分割方針を定める。現行 MVP の実装・受け入れ契約を変更する文書ではない。
+この文書は、MVP Gate 0 後に Desktop Alpha を先行し、その後に Phase 2 と Public Mac Release を進める順序、依存関係、受け入れ境界、Worker task の分割方針を定める。現行 MVP の route、API、保存、削除、復習契約は変更しない。
 
 判断の正本は次のとおりとする。
 
-- 製品全体方針、MVP / Phase 2 / 将来ロードマップ: [`PRODUCT_SPEC.md`](../requirements/PRODUCT_SPEC.md)
+- 製品全体方針、MVP / Desktop Alpha / Phase 2 / Public Mac Release の境界: [`PRODUCT_SPEC.md`](../requirements/PRODUCT_SPEC.md)
 - 現行 MVP の実装・受け入れ契約: [`MVP_CONTRACT.md`](MVP_CONTRACT.md)
 - 現在の実装状態: [`IMPLEMENTATION_STATUS.md`](IMPLEMENTATION_STATUS.md)
 - 現行 MVP のテスト観点と証跡: [`TEST_SCENARIOS.md`](../testing/TEST_SCENARIOS.md)
 - 将来の責務境界: [`TARGET_ARCHITECTURE.md`](../technical/TARGET_ARCHITECTURE.md)
 - 最新の再開地点: [`HANDOFF_2026-08-08.md`](../../HANDOFF_2026-08-08.md)
 
-本計画の「task 例」は、Gate 通過後に Manager が作成を検討する 1 task 1 file の分割例である。task file の作成・enqueue、実装着手、実装完了を示すものではない。
+本計画の task 名は、Manager が別途作成する 1 task 1 file の分割例である。task file の作成、enqueue、実装着手、実装完了を示さない。
 
-実装期間を見積もる根拠はまだないため、日数、工数、release date は定義しない。
+日数、工数、release date、性能の合格数値は、根拠となる実測と承認がないため定義しない。
 
 ## 2. 変更しない製品境界
 
 全段階で次の境界を維持する。
 
-- ノートデータの唯一の正本は、Mac 内の `user data directory` に置く SQLite とする。
-- DB backup は SQLite の保全用コピーであり、ノートの外部出力形式とは区別する。
-- アプリ外へノート内容を出す外部ファイル出力は、SQLite から一方向に生成する PDF だけとする。
-- PDF は編集用データ、復元用正本、import 元、SQLite との同期対象にしない。
-- クラウド DB、クラウド同期、オンラインサービス、外部 API、Postgres への移行は対象外とする。
-- HTML export、任意のノートファイル形式、PDF import、双方向同期を計画へ追加しない。
-- 将来の主配布経路は Mac desktop とし、開発・検証用の Next.js Web 起動経路は維持する。
-- `app bundle` は実行コードと配布資産、`user data directory` は live SQLite、backup、設定、ログを置く領域として分離する。live DB を `.app` 内や同期フォルダへ置かない。
-- モバイル本格最適化は初回 Mac desktop / Phase 2 Productivity の優先対象から外す。ただし開発用 Web、901px / 900px の境界、768px / 375px で主要操作へ到達できることと、ページ全体の意図しない overflow がないことは回帰確認を続ける。
+- ノートデータの唯一の正本は、Mac の user data directory に置く SQLite とする。
+- 現行 MVP の `/notes`、`/notes/new`、`/notes/[id]`、`/backup`、API、明示保存、確認付き物理削除、詳細画面内の復習を遡及変更しない。
+- `CanvasDocumentV1` を Canvas 本文の正本とし、legacy Markdown note を自動変換しない。
+- DB backup は SQLite の保全・復元用コピーであり、ノートの外部出力形式と区別する。
+- ノート操作は完全 offline とし、ネットワーク利用は更新 manifest の確認と更新 package の取得に限る。
+- クラウド DB、クラウド同期、外部推論 API、Postgres への移行、認証、共有、共同編集は対象外とする。
+- 主な配布経路は Mac desktop とし、開発・検証用の Next.js Web 起動経路を維持する。
+- app bundle は実行コードと配布資産、user data directory は live SQLite、app 管理 backup、設定、local log を置く領域として分離する。live DB を `.app` 内や同期フォルダへ置かない。
+- Phase 2 の機能を Desktop shell 選定へ混ぜない。
+- PDF と packaged Playwright / Chromium を Desktop PoC、Desktop Alpha、Public Mac Release の必須条件にしない。
+- モバイル向けの本格最適化は Desktop Alpha に含めない。開発用 Web の既存 responsive contract は回帰確認を続ける。
 
-## 3. 現在地と未実装機能の分類
+## 3. 現在地と release boundary
 
-### 3.1 現行 MVP の棚卸し
+### 3.1 現在地
 
-現行コードには、`/notes`、`/notes/new`、`/notes/[id]`、`/backup`、ノート CRUD、Cue、タグ候補と検索、`CanvasDocumentV1` 本文、Summary、詳細画面内の復習、確認後の物理削除、SQLite の手動 backup が存在する。保存は明示保存であり、Canvas 本文の正本は `NotebookCanvas.documentJson` に保存する `CanvasDocumentV1` である。
+MVP Gate 0 は完了済みである。発注者が実施した人力結合テストは、テスト中に見つかった問題の修正と再確認を含めて完了している。この判断を現行 MVP の受け入れ境界とし、Browser runtime、mobile、wheel / trackpad、実 DB read-back、E2E、外部 Postgres、追加の build 証跡や明示承認を Desktop 着手前の blocker に戻さない。
 
-人力結合テスト済みの安定 baseline は未確定である。2026-08-08 の最新 handoff では in-app Browser backend が利用できず、AppChrome、一覧、作成、詳細、Canvas toolbar、901px / 900px 境界等の runtime acceptance は `BLOCKED` または `NOT RUN` で、UI runtime の PASS は 0 件である。この未確認範囲を静的確認、curl、過去の部分的な Browser 証跡だけで PASS にしない。
+現行コードには、ノート CRUD、Cue、タグ候補と検索、`CanvasDocumentV1` 本文、Summary、詳細画面内の復習、確認後の物理削除、SQLite の手動 backup が存在する。Desktop Alpha はこの baseline を新しい学習機能なしで Mac アプリへ包む。
 
-### 3.2 分類表
+### 3.2 Release boundary
 
-| 分類 | 機能・作業 | 現時点の扱い |
+| Release boundary | 含める範囲 | 含めない範囲 |
 | --- | --- | --- |
-| 必須 | Gate 0 の人力 MVP 結合テスト、見つかった MVP 修正、再テスト、品質コマンド、証跡更新、安定 baseline 確定 | 最優先。完了するまで後続 coding task を投入しない |
-| 必須（Mac 主経路） | Desktop PoC と shell 選定、Desktop 基盤、データ保全、配布品質 | Mac desktop を主配布経路にするために必要。Gate 0 後に段階実施 |
-| Phase 2（未実装） | 起動時 backup と履歴・retry、PDF export、draft / autosave / version・競合処理、soft delete / 5 秒 Undo / purge、専用復習タスク、タグ管理、Mac keyboard 操作、A11y 仕上げ | Stage 1 で採用範囲と契約を確定するまで未実装・未着手 |
-| 判断待ち | Electron と Tauri + Node.js sidecar、user data path の具体値、PDF provider・レイアウト・出力先、backup timing、autosave payload・競合方式、復習タスク状態、Apple Silicon / Intel 配布方式、署名・更新方式 | 各段階の判断 Gate で発注者が承認する。推測で coding しない |
-| 判断待ち（本文モデル） | NoteCard、CueCard、Cue と本文の ID link、hidden flag、D&D | 自動採用しない。Canvas 本文と競合するため、後述の本文モデル判断 Gate で分離する |
-| 将来 PoC | 完全ローカルの LLM runtime、復習クイズ、Cue 候補 | Public Mac Release とは独立した Stage 11。PoC 採用時だけ別機能として実装する |
-| 対象外 | クラウド DB・同期・サービス、外部 API、Postgres 移行、HTML export、任意ノートファイル、PDF import、双方向同期、認証・共有・共同編集 | 調査候補や将来予定へ戻さない |
-| 優先度を下げる | モバイル専用の本格編集最適化 | Mac 主経路では後回し。ただし Web と breakpoint 回帰 QA は継続する |
+| 現行 MVP | 現行 Web MVP の route、API、明示保存、物理削除、復習、手動 backup | Desktop shell、更新、restore、Phase 2 |
+| Desktop PoC | Electron と Tauri + Node.js sidecar の同条件比較、shell 選定材料 | 製品機能の追加、PDF、Canvas PNG、Intel、古い macOS の保証 |
+| Desktop MVP / Desktop Alpha | 現行 MVP、Desktop lifecycle、Settings、更新、migration safety、手動 backup / restore、診断、privacy、障害時挙動 | autosave、Undo、定期 backup、検索改善、Canvas PNG、PDF、Public 配布要件 |
+| Desktop Alpha 後の Phase 2 | 決定済みの Canvas PNG と検索 UX・規模要件、データ保全の追加判断、autosave、Undo、復習・タグ等 | shell 選定条件への遡及追加 |
+| Public Mac Release | 対象 architecture / macOS、署名、notarization、一般公開配布、公開向け release 運用 | 未採用の Phase 2 機能、Local LLM |
+| Local Intelligence | 採用された場合の完全ローカル LLM 機能 | Public Mac Release の必須条件 |
 
-## 4. Gate 0: 人力 MVP 結合テスト完了
+後段の demo や調査結果を前段の完了扱いにしない。各 release boundary は、直前までの承認済み契約を継承する。
 
-### 4.1 現在の Gate 状態
+## 4. Gate 0 完了記録
 
-Gate 0 は未通過である。最新 handoff では Browser runtime が利用できず、必須 UI 結合テストに `BLOCKED` / `NOT RUN` が残っているためである。
+Gate 0 は発注者判断で完了している。後続 Manager / Worker は次を守る。
 
-発注者が「結合テスト由来の修正が完了し、Gate 0 を閉じる」と明示するまで、Manager は Phase 2、Desktop、PDF、Local LLM の coding task を `codex-queue` へ投入しない。進捗 100% の古い queue state、静的テスト PASS、コードの存在、Browser を使わない確認を、この明示承認の代わりにしない。
+- Gate 0 の再承認、Browser backend の復旧、追加の runtime 証跡を Desktop PoC の開始条件にしない。
+- 任意 QA で新しい実測 FAIL が見つかった場合は、Desktop PoC と分けて 1 surface / 1 failure family の MVP 修正 task にする。
+- 現行 MVP の契約変更が必要になった場合は `MVP_CONTRACT.md` と影響する詳細設計を別 task で更新し、Desktop shell の都合だけで暗黙変更しない。
 
-### 4.2 客観的な完了条件
+## 5. Desktop PoC の比較契約
 
-Gate 0 は、次のすべてを満たした場合だけ通過する。
+### 5.1 固定する入力と環境
 
-1. `TEST_SCENARIOS.md` で現行 MVP の必須対象を確定し、人力結合テストを実ブラウザで完走する。
-2. `/notes`、`/notes/new`、`/notes/[id]` の閲覧・編集・復習、`/backup`、保存・再読込、検索、review、削除、backup の一連の業務フローを確認する。
-3. AppChrome、一覧、詳細 paper、Canvas toolbar、pointer / keyboard / wheel / touch、1440 / 1280px、901 / 900px 相互 resize、768 / 375px の必須 runtime 観点を、対象シナリオの契約に従って確認する。
-4. Browser backend 未利用、route 未到達、safe fixture 不足、read-only 制約による `BLOCKED` / 必須 `NOT RUN` を PASS と扱わない。必要な環境と安全な fixture を用意して再実行する。
-5. 結合テストで見つかった全 finding を記録し、MVP 修正対象は実装修正と再テストを完了する。コード変更不要、重複、対象外と判断する finding も、理由と発注者判断を残す。
-6. 未解決の blocker / high severity を 0 件にする。その他の severity でも「MVP 修正対象」と判断したものは未解決のまま残さない。延期する場合は発注者が安定 baseline の既知制約として明示承認する。
-7. 修正の影響範囲に応じた対象 test、`npm run test:e2e`、`npm run lint`、`npx tsc --noEmit --pretty false`、`npm run build` を、最終候補の同一 baseline で成功させる。
-8. Prisma schema / migration に MVP 修正が触れた場合は、`npx prisma validate`、`npx prisma generate`、空 DB からの migration、既存 DB コピーからの migration も確認する。触れていない場合は非対象理由を証跡へ記録する。
-9. `git diff --check` を成功させ、意図しないコード、設定、依存関係、DB、生成物が差分にないことを確認する。
-10. `IMPLEMENTATION_STATUS.md` に実装状態、`TEST_SCENARIOS.md` に最終判定と証跡を反映し、最新 `HANDOFF_YYYY-MM-DD.md` と `AGENTS.md` の pointer を更新する。静的確認と Browser runtime の結果を分けて記録する。
-11. baseline の branch / commit SHA、適用済み migration、テスト証跡、既知制約を固定し、同じ入力から再検証できる状態にする。
-12. Manager が上記証跡を要約し、発注者が結合テスト由来の変更完了と安定 baseline を明示承認する。
+Electron と Tauri + Node.js sidecar は、次の条件を揃えて比較する。
 
-### 4.3 Gate 0 の成果物
+- 同じ現行 MVP baseline と同じ route / API / Canvas 契約を使う。
+- PoC task の開始時に同じ baseline identifier を固定し、両候補の証跡へ記録する。
+- 同じ deterministic な 10,000 note SQLite fixture を使う。両候補で生成条件と seed を揃え、fixture 自体を製品 DB や正式配布物として扱わない。
+- 同じ Apple Silicon 開発 Mac と、その Mac の現行 macOS 環境で測定する。
+- cold start 用の clean user data と、操作・メモリ測定用の同じ populated fixture を候補間で使い分ける。
+- build mode、測定開始条件、測定手順、記録単位を揃える。片方だけに有利な cache、常駐 process、追加機能を持ち込まない。
 
-- MVP 結合テスト結果と finding 一覧。各 finding は severity、再現手順、修正 task、再テスト結果へ追跡できること。
-- 最終品質コマンドの実行記録。
-- 更新済み `IMPLEMENTATION_STATUS.md`、`TEST_SCENARIOS.md`、最新 handoff。
-- 発注者が承認した baseline の識別子と既知制約。
+Desktop Alpha の対象 architecture は Apple Silicon である。Intel は Public Mac Release で再検討し、PoC / Alpha の blocker にしない。
 
-### 4.4 Gate 0 の No-Go 条件
+この PoC で検証済みと表明できる macOS は、使用した開発 Mac の現行環境だけである。minimum deployment target と古い macOS の保証は PoC 結果を確認してから別途決める。
 
-次のいずれかが残る場合は Gate 0 を閉じない。
+### 5.2 両候補で成立を確認する経路
 
-- Browser runtime の必須項目が `BLOCKED` / `NOT RUN` / 未確認である。
-- finding の修正後に同じ手順の再テストがない。
-- blocker / high severity が未解決である。
-- 対象 test、lint、TypeScript、build のいずれかが失敗または未実施である。
-- 実装状況、テスト証跡、handoff、baseline SHA が同期していない。
-- 発注者の明示承認がない。
+- shell が local runtime を起動し、ready 後に 1 primary window を開く。最後の primary window を閉じてアプリを終了すると、local runtime と app-owned child process をすべて停止し、orphan process を残さない。
+- shell の main / core、renderer / WebView、local runtime、Node.js sidecar、framework helper、関連子 process を許容する。OS process が複数存在することだけを PoC の不合格理由にしない。
+- loopback の待受範囲、port 衝突、二重起動、通常終了、起動失敗、app-owned process tree cleanup を観測できる。
+- PoC 専用 user data directory で Prisma Client、SQLite の新規作成、pending migration、read / write、終了、再起動後 persistence が成立する。
+- app bundle に live DB を書き込まず、開発用 Next.js Web 経路も維持できる。
+- 現行 MVP の主要 route を表示し、同じ fixture で一覧、詳細、編集、明示保存、再読込、検索、復習、物理削除、手動 backup の smoke を実行できる。破壊操作は disposable copy で行う。
+- packaged app と DMG の作成可能性、Desktop Alpha の app 内更新契約を実装できる見通しを確認する。Developer ID、notarization、一般公開サイトの確定は要求しない。
 
-### 4.5 Worker task 分割例
+### 5.3 必須比較軸
 
-Gate 0 の QA と finding 修正は別 task に分ける。実測 FAIL がない surface の coding task は推測で作らない。
+| 比較軸 | 記録する内容 |
+| --- | --- |
+| cold start | process 起動からノート一覧が操作可能になるまでの実測。測定条件、cache 状態、失敗を併記する |
+| 操作反応 | 同じ 10,000 note fixture と同じ操作で、一覧表示、検索、詳細遷移、編集・保存等の反応を比較する。数値目標は PoC 前に追加しない |
+| process 合計メモリ | shell の main / core、renderer / WebView、local runtime、Node.js sidecar、framework helper、関連子 process を含む合計を同じ状態で記録する |
+| 成果物サイズ | packaged `.app`、DMG、同梱 runtime / native resource のサイズと内訳を同じ基準で記録する |
+| SQLite / Prisma / migration | clean DB、既存 fixture、pending migration、失敗時の非破壊性、再起動後 persistence が成立するか |
+| lifecycle | ready、single application instance / 1 primary window、既存 primary window activation、shutdown、app-owned process tree cleanup、起動失敗を実装できるか |
+| DMG・アプリ内更新の見通し | DMG 作成、静的 manifest、architecture / OS compatibility の端末内判定、取得、再起動時適用、rollback / recovery を実現できる見通しと制約 |
+| 実装・保守難度 | shell 固有 code、sidecar 管理、native module、debug、test、release 作業、更新追従、障害切り分けの複雑さ |
+| 安全性 | loopback 制限、権限、resource path、package integrity、更新と DB migration の分離、失敗時に現行版を維持できるか |
+| 総コスト | framework / dependency の license、Apple 関連費用、配布 storage / bandwidth、CI の architecture / 実行時間、保守工数を含む見積りと不確実性 |
 
-| 区分 | task file 例 | 1 task の目的 | queue |
-| --- | --- | --- | --- |
-| 仕様 / 調査 | `inventory-mvp-integration-coverage.task.md` | 必須シナリオ、fixture、未確認理由だけを確定する | Common |
-| API / DB | `fix-mvp-api-observed-finding.task.md` | 実測済みの 1 API / DB failure family だけを修正する | API |
-| UI | `fix-mvp-ui-observed-finding.task.md` | 実測済みの 1 surface / 1 failure family だけを修正する | UI |
-| 共通 / 配布 | `restore-mvp-browser-qa-environment.task.md` | Browser runtime の利用可能性だけを回復・確認する | Common |
-| QA | `qa-mvp-integration-baseline.task.md` | 修正済み baseline の人力結合テストと証跡更新だけを行う | Common |
+測定できなかった項目は未測定として残す。推測値で候補間の差を埋めない。
 
-## 5. Gate 0 後の実装原則
+### 5.4 選定規則
 
-### 5.1 本文モデル判断 Gate
+- cold start、操作反応、process 合計メモリ、成果物サイズの差が再現可能な実測で明確な場合は、より軽い候補を優先する。
+- 差が小さい、測定ごとに逆転する、指標ごとに優劣が分かれる場合は、保守しやすさと安全性を優先する。
+- SQLite / Prisma / migration / lifecycle、DMG、更新の成立に blocker がある候補は、性能が軽くても採用しない。
+- 比較結果には採用理由、却下理由、未測定、残る risk、総コストの前提を記録し、発注者が最終選定する。
 
-Manager 推奨: 初回 Desktop / Phase 2 Productivity では Canvas 本文（`CanvasDocumentV1`）を維持し、NoteCard / CueCard / D&D を除外する。Canvas はすでに現行本文の正本であり、NoteCard を先行導入すると、Canvas 要素と card の所有関係、Cue link、検索 index、PDF layout、autosave payload、migration を再定義する必要があるためである。
+「明確な差」を判定する数値 threshold はこの文書で新設しない。PoC の測定方法と結果を基に比較報告で判断する。
 
-`TARGET_ARCHITECTURE.md` にある「NoteCard を autosave より先に決める」という案の適用範囲は、NoteCard を採用する場合の依存順に限る。Stage 1 で Canvas との製品整合性を再判断し、Canvas 維持を承認した場合は、その案を初回 Desktop / Phase 2 Productivity の実装順から外して詳細書を追従させる。
+### 5.5 PoC の対象外
 
-発注者が NoteCard を別途採用した場合だけ、Stage 6 の autosave payload と、それに関係する DB migration より前に、独立した仕様・migration 計画を作る。その計画では少なくとも次を決める。
+- PDF export、packaged Playwright / Chromium。
+- Canvas PNG export と、その解像度、背景、保存先等の詳細。
+- autosave、Undo、soft delete、専用復習タスク、検索改善、定期 backup、NoteCard / D&D。
+- Intel artifact、universal binary、古い macOS の互換保証。
+- bundle ID、更新 provider、具体的な user data path、minimum deployment target、署名方式の確定。
 
-- Canvas 全体を 1 card とみなすのか、card ごとに Canvas を持つのか。
-- 既存 `CanvasDocumentV1`、legacy Markdown、Cue、検索 index、PDF の移行方式。
-- NoteCard / CueCard / NoteCueLink の ID、順序、hidden、削除、Undo、version の境界。
-- 既存ノートを自動変換するか、互換表示するか、rollback 可能性をどう保つか。
-- D&D の pointer / keyboard / A11y 契約。
+### 5.6 Worker task 分割例と完了条件
 
-この判断が未確定のまま NoteCard migration と autosave migration を並行実装しない。
-
-### 5.2 Worker task と queue の共通ルール
-
-| 作業種別 | 投入先 | 分割ルール |
+| task file 例 | 1 task の目的 | queue |
 | --- | --- | --- |
-| UI | `codex-queue/tasks-ui` | React component、page、CSS、画面 UX、UI runtime QA を 1 surface / 1 failure family で分ける |
-| API / DB | `codex-queue/tasks-api` | Route Handler、contract validation、Prisma schema / migration、repository、backup / export server 処理を分ける |
-| Common / 配布 | `codex-queue/tasks` | 仕様、調査、Desktop shell、packaging、logging、横断 contract、配布 QA を分ける |
+| `poc-electron-current-mvp-desktop.task.md` | Electron で共通 PoC contract と測定結果を作る | Common |
+| `poc-tauri-sidecar-current-mvp-desktop.task.md` | Tauri + Node.js sidecar で同じ contract と測定結果を作る | Common |
+| `verify-electron-prisma-sqlite-migration.task.md` | Electron 候補の Prisma / SQLite / migration 経路だけを検証する | API |
+| `verify-tauri-sidecar-prisma-sqlite-migration.task.md` | Tauri 候補の同じ DB 経路だけを検証する | API |
+| `qa-desktop-poc-current-mvp-smoke.task.md` | 同じ fixture と操作による packaged UI smoke を記録する | UI |
+| `compare-desktop-shell-poc-evidence.task.md` | 全必須軸を比較し、選定 ADR の判断材料を作る | Common |
 
-- 1 task は 1 目的、1 task file とする。表に複数の task 名がある場合も、それぞれ別の `*.task.md` とする。
-- 仕様・調査 task と coding task を同じ task file に入れない。coding task には Gate 通過後に `CODEX_TASK_KIND: coding` を付ける。
-- 先行 task の summary と `Next Read`、変更結果、承認済み contract を確認してから依存 task を投入する。
-- Prisma migration、共有 DTO、同一 UI surface の変更を含む task は並列投入しない。
-- 各 coding task は対象 test、lint、TypeScript、build、`git diff --check` のうち影響に応じた検証を完了条件に含める。
-- 下記 task 名は分割例であり、本計画作成時にはファイル作成も enqueue も行わない。
+候補ごとの task は独立 directory、manifest、build artifact を使う。同じ root package / config を安全に分離できない場合は直列化する。
 
-## 6. 推奨実装順と依存理由
+PoC は、両候補に同じ必須項目の結果があり、未測定と blocker が明示され、発注者が shell 選定を承認した時点で完了する。PoC artifact、fixture、DB を製品データや正式実装として再利用しない。
 
-| 順序 | 段階 | 直前段階へ依存する理由 / 後戻りを避ける理由 |
+## 6. Desktop Alpha の承認済み契約
+
+### 6.1 Lifecycle
+
+- single application instance / 1 primary window とする。
+- 二重起動時は新しい application instance / primary window を増やさず、既存 primary window を前面へ出す。
+- Settings modal、確認 dialog、OS file dialog は primary window に数えず、新しい独立 primary window を作らない。
+- shell の main / core、renderer / WebView、local runtime、Node.js sidecar、framework helper 等の内部 process を許容する。
+- 最後の primary window を閉じると application instance を終了し、local runtime と app-owned child process をすべて停止して orphan process を残さない。
+- 次回起動は常にノート一覧から開始し、前回 route を復元しない。
+- window size / position を保持し、現在の画面領域外なら見える位置へ補正する。
+- 未保存状態で終了する場合は「保存して終了」「保存せず終了」「戻る」を提示する。
+- 「保存せず終了」は未保存内容を破棄する。「戻る」、Escape、dialog 外操作は終了を取り消す。
+- 「保存して終了」の save が失敗した場合は終了せず、編集内容と dirty 状態を保持する。
+- 現行の明示保存を維持し、異常終了用 draft / autosave を含めない。
+
+### 6.2 Settings
+
+- 基本区分は General、Updates、Data and Backup とする。
+- Mac では Settings menu、開発用 Web では gear から開く。
+- 正確な表示文言と項目配置は実装時の別 task で決める。
+- `/backup` は Settings の代替機能が完成して受け入れ確認を通るまで維持する。その後、Desktop UI では段階廃止する。現行 route の削除をこの計画更新では行わない。
+- app 管理 backup からの復元と外部 backup file からの復元は別の入口にする。正確なボタン文言は実装 task で決める。
+
+### 6.3 更新
+
+- 初期インストールは DMG とする。
+- 起動後に非同期で更新を確認する。自動確認は最大 1 日 1 回とし、手動確認も可能にする。
+- 更新確認の ON / OFF 設定は設けない。
+- VS Code に近いアプリ内更新を採用し、更新 package はバックグラウンドで取得できるようにする。取得後も自動適用せず、ユーザーが「再起動して更新」を選んだ場合だけ、明示的な再起動を経て適用する。
+- 更新確認・取得失敗時も現行版を利用可能にする。失敗を「更新あり」として通知せず、手動確認または次回の確認で再試行できるようにする。
+- package の署名・完全性検証に失敗した場合は取得物を破棄し、現行版を維持する。
+- 同じ保留更新を modal で繰り返し通知せず、Settings 等で状態を確認できるようにする。
+- 複数版を飛ばす場合は、端末で利用できる compatible な最新 version へ更新し、DB migration は古い順に実行する。
+- 共通の静的 manifest を取得し、version、architecture、OS compatibility を端末内で判断する。端末固有 ID、利用状況、ノート内容、検索内容を送信しない。
+- Desktop Alpha では独自ドメインを取得しない。GitHub Releases 等の低コストな配布先を候補として PoC で互換性を確認する。
+- 更新 provider は PoC と更新実装 task で比較・承認するまで未決とする。
+- App Store 配布を前提にしない。
+- Developer ID、notarization、Apple Developer Program、一般公開用配布サイトは Public Mac Release で判断し、Desktop Alpha の blocker にしない。
+
+### 6.4 更新適用時の未保存内容
+
+- 更新を適用する時点で未保存内容がある場合は「保存して更新」「保存せず更新」「戻る」を提示する。通常終了時の 3 選択肢とは別の操作契約とする。
+- 「保存して更新」は、保存成功後に再起動して更新する。保存失敗時は更新せず、編集内容と dirty 状態を保持する。
+- 「保存せず更新」は、未保存内容を破棄して再起動し、更新する。
+- 「戻る」、Escape、dialog 外操作は更新を中止し、編集へ戻る。
+
+### 6.5 DB、migration、backup、restore
+
+- app bundle と Application Support 内の user data を分離し、ユーザーの Mac 内にある live SQLite をノートデータの唯一の正本とする。
+- アプリ更新や reinstall で live DB、app 管理 backup、設定を暗黙に削除しない。
+- pending migration がある場合だけ、更新適用前に app 管理 safety backup を作る。
+- migration は staging copy 上で古い順に実行し、migration と reopen 検証に成功した場合だけ新しい app / DB へ切り替える。
+- migration 失敗時は live DB と現行アプリを変更せず、更新失敗として現行版を利用可能にする。
+- DB schema が現行アプリと compatible で pending migration がない場合は migration を実行しない。
+- app 管理 safety backup は migration 前と restore 前だけに作成し、migration 前 safety backup を含めて最新 3 世代を保持する。
+- 定期、日次、通常起動時、データ変更時の自動 backup は Desktop Alpha に含めない。
+- 手動 backup はユーザーが保存先を選ぶ平文 SQLite export とする。app 管理の 3 世代 retention を外部 export file へ適用しない。
+- restore は app 管理 backup 一覧と外部ファイル選択を別入口にする。両入口を staging validation、明示確認、atomic switch、restart の同じ pipeline へ流す。
+- restore 前に現在の live DB を app 管理 safety backup として保存する。
+- restore file は SQLite integrity、foreign key、schema / migration compatibility、必須データ、存在する全 `CanvasDocumentV1` を検証する。
+- atomic switch 後に DB を reopen できることまで検証する。validation または reopen に失敗した場合は restore を中止し、現在の live DB を変更しない。
+- 古い backup は staging copy に必要な migration を古い順に適用してから restore する。アプリより新しい形式はその場で restore せず、先に compatible なアプリへの更新を求める。
+- 外部 file を選択済みの状態でアプリ更新が必要になった場合は、選択した file の staging copy を Application Support 内の保留復元領域へ保存し、更新と再起動後に復元再開を案内する。
+- 更新後も自動 restore は行わず、ユーザーの明示確認後に再開する。
+- legacy Markdown note は互換対象として維持し、restore を理由に Canvas へ自動変換しない。
+
+### 6.6 完全なデータ削除
+
+- アプリのアンインストールと user data 削除は別操作とする。更新、reinstall、通常の uninstall を完全なデータ削除として扱わない。
+- Settings の完全なデータ削除は、live DB、app 管理 backup、設定を対象とする。
+- ユーザーが任意の場所へ保存した外部 SQLite export は削除しない。
+- 入力確認を伴う明示操作とし、誤操作で実行できないようにする。正確な確認文言は実装 task で決める。
+- 完了後は初回利用時と同じ状態へ戻す。
+
+### 6.7 診断、privacy、権限、暗号化
+
+- 外部 telemetry と crash report の自動送信を行わない。
+- Application Support に本文等を含まない local log を保持する。保持上限は最大 14 日かつ合計 20 MB とし、古いものから削除する。
+- 手動生成する診断 ZIP には error log、時刻、component、sanitized stack、app version、macOS version、CPU architecture、DB schema version を含める。
+- 診断 ZIP に title、body、Cue、Canvas、query、DB 本体、token、user path、crash dump を含めない。
+- Full Disk Access を要求せず、Application Support と、backup / restore / export でユーザーが明示選択した file だけへアクセスする。
+- note 操作は完全 offline とし、network は更新確認と更新取得だけに使う。
+- app 独自 DB encryption と app 専用 password / Touch ID lock は Desktop Alpha に含めない。macOS file permission を前提とし、FileVault を推奨する。
+- 手動 export backup は平文 SQLite であることを案内する。暗号化 backup は後続判断とする。
+
+### 6.8 DB startup と failure
+
+- 通常起動は DB open と schema 状態だけを確認し、全件 integrity check を毎回行わない。
+- 詳細 integrity check は異常終了後、migration 後、restore 後等の必要時に限定する。
+- 初回利用で DB がない場合は新規作成する。
+- 過去の利用記録があるのに live DB がない場合は空 DB を自動作成せず、restore を主操作とする復旧画面へ誘導する。
+- DB が破損・読み取り不能の場合は自動修復しない。「診断情報を書き出して終了」を主操作、「そのまま終了」「backup から復元」を補助操作とする。
+- backup が一つもない場合は、明示確認後に空 DB で始める選択肢を用意する。
+- 利用中の save 失敗は編集内容と dirty 状態を保持し、再試行または編集へ戻れるようにする。保存成功扱いや自動終了を行わない。
+- 異常終了後の次回手動起動で DB open と schema 確認が成功した場合は、通常のノート一覧を開いて非 blocking 通知を一度だけ表示する。自動再起動しない。
+- 異常終了後に DB open または schema 確認が失敗した場合は、ノート一覧を開かず DB recovery 画面を優先する。
+
+## 7. Desktop Alpha の実装順と task 分割
+
+| 順序 | 段階 | 依存理由 |
 | --- | --- | --- |
-| 0 | 人力 MVP 結合テスト完了 | 不安定な MVP に将来機能を重ねると、回帰原因と Phase 2 由来の不具合を分離できない |
-| 1 | Phase 2 契約・採用範囲の確定 | 未決の payload、画面、保存・削除方式を coding で先に固定しないため |
-| 2 | Desktop 最小 PoC と shell 選定 | shell により Node.js、Prisma native runtime、SQLite path、Playwright / Chromium、署名・更新の実現方式が変わるため |
-| 3 | Desktop 基盤 | backup、PDF、autosave が使う runtime lifecycle、user data path、migration、ログを先に一つへ固定するため |
-| 4 | データ保全 | 書き込み頻度や migration を増やす前に、正本 SQLite の backup、履歴、retry、復元可能性を確保するため |
-| 5 | PDF export | Desktop の保存 dialog と Playwright 同梱を実配布境界で確定し、SQLite からの read-only 派生出力を先に安定させるため |
-| 6 | draft / autosave / version・競合 | Desktop lifecycle、DB path、backup が安定してから書き込み経路と競合状態を増やすため |
-| 7 | soft delete / 5 秒 Undo / purge | version 付き保存と削除の同時実行規則を先に持ち、復元・purge でデータを壊さないため |
-| 8 | 専用復習タスク | soft-deleted note の除外、復元、purge と review task の参照整合性を先に確定するため |
-| 9 | タグ、Mac keyboard、A11y | 主要データフローと画面が安定した後に操作体系を全体へ適用し、同じ UI を繰り返し直さないため |
-| 10 | 配布品質 | 機能と migration が固まった候補を対象に署名、notarization、更新、data retention を検証するため |
-| 11 | Local LLM 独立 PoC | 公開経路の必須品質と optional intelligence の性能・配布リスクを分離するため |
+| 0 | MVP Gate 0 | 完了済み。再判定しない |
+| 1 | Electron / Tauri + Node.js sidecar PoC | 同じ MVP、fixture、Mac で shell 固有の成立性と費用を比較する |
+| 2 | shell 選定 ADR | 両候補の結果が揃ってから発注者が選定する |
+| 3 | Desktop shell、user data、lifecycle、Settings 基盤 | 後続の update、migration、backup / restore、診断が使う process と path の境界を固定する |
+| 4 | 更新と migration safety | background download、未保存内容の確認、更新適用前 backup、staging migration、失敗時の現行版維持を先に成立させる |
+| 5 | 手動 backup / restore | 同じ user data と safety backup を使い、staging validation、保留復元、atomic switch を実装する |
+| 6 | 完全なデータ削除、診断、privacy、startup / failure UI | 実装済み Settings、lifecycle、DB pipeline に破壊操作の確認と failure handling を接続する |
+| 7 | Packaged Desktop Alpha 結合 QA | 現行 MVP と Desktop 固有契約を同じ Apple Silicon artifact で確認する |
+| 8 | Desktop Alpha 後の Phase 2 | 決定済みの Canvas PNG と検索 UX・規模要件を保持し、未決の実装詳細と他機能の採否を個別 task で扱う |
+| 9 | Public Mac Release | architecture、macOS、署名、notarization、一般公開配布を確定する |
 
-Desktop 基盤は backup、PDF、autosave より先に実装する。3 機能はいずれも、配布版の process lifecycle、書き込み可能 path、native module、Chromium、終了処理に依存する。Web 開発環境だけで先に実装すると、`.app` 内への誤書き込み、同梱漏れ、migration timing の再設計、保存 dialog の作り直しが起きるため、最小 PoC と基盤を先行させる。
-
-## 7. Stage 1: Phase 2 契約・採用範囲の確定
-
-### 開始条件
-
-- Gate 0 が通過し、発注者が MVP 安定 baseline を承認済みである。
-- 現行 MVP 契約と baseline の既知制約を参照できる。
-
-### 成果物
-
-- 現行 MVP を遡及変更しない、独立した Phase 2 契約または承認済み仕様差分。
-- Desktop Alpha、Phase 2 Productivity、Public Mac Release の採用範囲。
-- 本文モデル判断記録。推奨案では Canvas 維持、NoteCard / D&D 除外。
-- draft、削除、復習、backup、PDF、タグの API / DB / UI / QA 影響表。
-- 各後続段階の Go / No-Go 判断項目と acceptance matrix。
-
-### Worker task 分割例
+Desktop Alpha の coding task は次の粒度を基本とする。
 
 | 区分 | task file 例 | 1 task の目的 | queue |
 | --- | --- | --- | --- |
-| 仕様 / 調査 | `define-phase2-adoption-scope.task.md` | 採用・除外・判断待ちを 1 つの contract に確定する | Common |
-| API / DB | `inventory-phase2-api-db-impact.task.md` | 未実装 endpoint、model、migration 依存だけを棚卸しする | API |
-| UI | `inventory-phase2-ui-impact.task.md` | route、surface、状態、keyboard / A11y 影響だけを棚卸しする | UI |
-| 共通 / 配布 | `define-post-mvp-release-boundaries.task.md` | release ごとの含有機能と非目標を確定する | Common |
-| QA | `define-phase2-acceptance-matrix.task.md` | 各機能の静的・API・Browser・packaged-app 判定を分ける | Common |
+| 仕様 / 調査 | `record-desktop-shell-selection-adr.task.md` | PoC 証跡から shell 選定と残 risk を記録する | Common |
+| API / DB | `implement-desktop-user-data-sqlite-bootstrap.task.md` | user data で初回 DB 作成と schema 判定を行う | API |
+| Common / 配布 | `implement-desktop-single-window-lifecycle.task.md` | single application instance / 1 primary window、window state、app-owned process tree の終了処理を実装する | Common |
+| UI | `implement-desktop-unsaved-exit-dialog.task.md` | 未保存終了の 3 選択肢と save failure 時の dirty 保持を実装する | UI |
+| UI | `implement-desktop-settings-entrypoints.task.md` | Settings menu / Web gear、3 区分、2 つの restore 入口を実装する | UI |
+| Common / 配布 | `implement-desktop-update-check-state.task.md` | toggle なしの 1 日 1 回確認、手動確認、失敗時再試行、保留通知状態を実装する | Common |
+| Common / 配布 | `implement-desktop-update-download-apply.task.md` | background package 取得、署名・完全性検証、明示再起動時の適用を実装する | Common |
+| UI | `implement-desktop-unsaved-update-dialog.task.md` | 更新時の未保存内容に対する 3 選択肢と save failure 時の dirty 保持を実装する | UI |
+| API / DB | `implement-staged-update-migration.task.md` | migration 前 backup、staging migration、atomic switch を実装する | API |
+| API / DB | `implement-desktop-manual-sqlite-export.task.md` | ユーザー選択先への平文 SQLite export を実装する | API |
+| API / DB | `implement-desktop-restore-pipeline.task.md` | 両 restore 入口の validation と atomic switch を実装する | API |
+| Common / 配布 | `implement-desktop-pending-restore-resume.task.md` | newer backup の保留 copy と更新後の明示的な復元再開を実装する | Common |
+| UI | `implement-desktop-data-backup-settings.task.md` | Data and Backup の export / restore 操作を実装する | UI |
+| UI / API | `implement-desktop-complete-data-deletion.task.md` | 入力確認、対象 data の削除、初回状態への復帰を実装する | Common |
+| Common / 配布 | `implement-desktop-private-local-logging.task.md` | retention 付き local log と診断 ZIP を実装する | Common |
+| Common / 配布 | `implement-desktop-crash-notification-state.task.md` | 異常終了の記録と次回手動起動時の一度だけの通知を実装する | Common |
+| UI | `implement-desktop-db-recovery-ui.task.md` | missing / corrupt DB と save failure の導線を実装する | UI |
+| QA | `qa-packaged-desktop-alpha-contract.task.md` | Apple Silicon の packaged app で Alpha 契約を結合確認する | Common |
 
-### 完了条件
+- 仕様・調査 task と coding task を同じ task file に入れない。
+- 1 task は 1 目的、1 task file とする。
+- Prisma migration、共有 DTO、Desktop main process / sidecar、同一 UI surface の変更は並列投入しない。
+- 先行 task の summary と `Next Read`、変更差分、承認済み contract を確認してから依存 task を投入する。
+- 各 coding task は影響に応じて対象 test、lint、TypeScript、build、packaged smoke、`git diff --check` を完了条件に含める。
 
-- 採用、除外、判断待ち、対象外が相互に矛盾せず、発注者が承認している。
-- SQLite 正本、PDF 一方向、クラウド対象外、Canvas 維持または NoteCard 分岐が明記されている。
-- 後続 coding task が仕様を推測せず作れる粒度の request / response、状態遷移、データ所有者、失敗時挙動が定義されている。
+## 8. Desktop Alpha の完了条件
 
-### 主な検証方法
+Desktop Alpha は、Apple Silicon の packaged app で次を確認し、発注者が Alpha として受け入れた時点で完了する。
 
-- `PRODUCT_SPEC.md`、`MVP_CONTRACT.md`、API / data / screen / testing 文書との整合レビュー。
-- 未実装 route / model / UI の静的棚卸し。
-- `git diff --check`。この段階は docs-only とし、コード・設定・依存関係を変更しない。
+- 現行 MVP の route、API、`CanvasDocumentV1`、legacy Markdown、明示保存、物理削除、復習契約が変わっていない。
+- clean first launch、existing DB、通常起動、終了、二重起動、window state、次回の一覧開始が lifecycle 契約どおりである。
+- 未保存終了の 3 選択肢、Escape / dialog 外操作による取消し、save failure 時の dirty 保持が成立する。
+- Settings の 3 区分、Mac / Web の入口、app 管理 backup と外部 file の別 restore 入口があり、`/backup` を代替確認前に削除していない。
+- 更新の非同期・手動確認、最大 1 日 1 回、確認 toggle なし、background download、保留状態、明示再起動による適用、失敗時の現行版維持が成立する。
+- 更新適用時の未保存内容に対する 3 選択肢と取消し操作が、通常終了時とは別の操作契約として成立する。
+- pending migration の有無、順次 migration、pre-migration backup、pending がない場合の非実行、失敗時の非切替を検証している。
+- manual SQLite export、両 restore 入口、restore 前 backup、全 validation、atomic switch、restart / reopen、newer backup の保留復元を disposable fixture で確認している。
+- 通常起動と詳細 integrity check の条件が分離され、missing / corrupt / newer schema の recovery 導線が成立する。
+- local log retention、診断 ZIP の allowlist / denylist、異常終了後の一度だけの通知、offline note 操作を確認している。
+- app bundle 更新や reinstall で live DB、backup、設定を暗黙に削除しない。
+- 完全なデータ削除は入力確認を要求し、live DB、app 管理 backup、設定だけを削除して初回状態へ戻る。外部 SQLite export と通常の uninstall は対象外である。
+- 開発用 Next.js Web 起動経路が維持されている。
 
-## 8. Stage 2: Desktop shell / local runtime / Prisma・SQLite / Playwright 同梱の最小 PoC と shell 選定
+次は Desktop Alpha の No-Go 条件とする。
 
-### 開始条件
+- shell 選定に Phase 2 機能、PDF / Playwright / Chromium、Intel、未検証の古い macOS を必須条件としている。
+- migration / restore failure で live DB または現行アプリが途中状態へ切り替わる。
+- save failure を成功扱いにする、dirty 内容を失う、または自動終了する。
+- 更新を自動適用する、未保存内容の確認なしに再起動する、または更新確認の ON / OFF 設定を追加する。
+- note 内容、query、user path、DB、token、crash dump が log / 診断 ZIP / telemetry に出る。
+- 通常起動時や日次の app 管理 backup、異常終了用 draft / autosave を Alpha 必須として実装している。
+- 完全なデータ削除が外部 SQLite export を削除する、または更新、reinstall、通常の uninstall から暗黙に実行される。
+- 未決の provider、bundle ID、path、deployment target、署名方式を承認なしで固定している。
 
-- Stage 1 の採用範囲と PoC 比較表が承認済みである。
-- Electron と Tauri + Node.js sidecar を同じ fixture、同じ受け入れ条件で比較できる。
+## 9. Desktop Alpha 後の Phase 2
 
-### 成果物
+Desktop shell と基盤が成立した後、次の順で別 task に分ける。Canvas PNG の採用と検索改善の UX・規模要件は決定済みである。その他の機能は発注者が採用を承認するまで coding task を投入しない。
 
-- Electron PoC と Tauri + Node.js sidecar PoC。製品機能追加ではなく同梱可能性の検証に限定する。
-- shell が local Next.js runtime を起動し、ready 後に window を開き、終了時に runtime を停止する最小経路。
-- PoC 専用の一時 user data path で Prisma Client、SQLite 作成・migration・read / write・再起動後 persistence を確認した証跡。
-- packaged context から Playwright / Chromium を起動し、固定 fixture を PDF 化できる証跡。製品 PDF export はまだ実装しない。
-- app bundle 内へ live DB を書かず、開発用 Web 経路を維持できる証跡。
-- サイズ、起動、process、native module、security、署名・更新見通しを含む比較結果と shell 選定 ADR。
-
-### Worker task 分割例
-
-| 区分 | task file 例 | 1 task の目的 | queue |
+| 順序 | 後続 task 群 | 現在の判断 | 後続 task で決める範囲 |
 | --- | --- | --- | --- |
-| 仕様 / 調査 | `define-desktop-poc-comparison-contract.task.md` | 両候補共通の受け入れ条件と測定項目を固定する | Common |
-| API / DB | `poc-electron-prisma-sqlite-runtime.task.md` | Electron packaged context の Prisma / SQLite 経路だけを検証する | API |
-| API / DB | `poc-tauri-sidecar-prisma-sqlite-runtime.task.md` | Tauri sidecar の Prisma / SQLite 経路だけを検証する | API |
-| UI | `poc-desktop-window-web-ui-smoke.task.md` | shell window で既存 Web UI の最小 route 表示だけを確認する | UI |
-| 共通 / 配布 | `poc-electron-local-runtime-lifecycle.task.md` | Electron の local Next.js 起動・ready・終了だけを検証する | Common |
-| 共通 / 配布 | `poc-tauri-sidecar-local-runtime-lifecycle.task.md` | Tauri sidecar の起動・ready・終了だけを検証する | Common |
-| 共通 / 配布 | `poc-electron-packaged-playwright-chromium.task.md` | Electron packaged context の Chromium と固定 PDF fixture だけを検証する | Common |
-| 共通 / 配布 | `poc-tauri-packaged-playwright-chromium.task.md` | Tauri sidecar packaged context の Chromium と固定 PDF fixture だけを検証する | Common |
-| QA | `compare-desktop-shell-poc-evidence.task.md` | 共通基準で結果を比較し ADR の判断材料を作る | Common |
+| 1 | Canvas 本文の PNG 外部出力 | Desktop Alpha 後の最初の外部出力として採用済み | file collision、使用不可文字、保存先、失敗時 UI、色管理 |
+| 2 | データ保全の追加判断 | 採否未決 | 定期・日次 backup、履歴、retry、暗号化 backup 等の必要性と運用負荷 |
+| 3 | 検索改善と一覧の規模対応 | 検索対象 select、local suggestion、5,000 / 10,000 note、無限スクロール、表示要素数の抑制を採用済み | Summary 分類、tokenization、同点順位、API / index、取得・仮想化方式 |
+| 4 | draft / autosave / version・競合 | 採否未決 | 保存の原子性、race、crash recovery、現行の明示保存との境界 |
+| 5 | soft delete / Undo / purge | 採否未決 | 復元期限、関連 row、autosave との競合、物理削除からの移行 |
+| 6 | 専用復習タスク、タグ管理、Mac keyboard、A11y、モバイル向け編集 | 個別に採否未決 | 各機能の contract と依存関係 |
+| 7 | NoteCard / Cue link / hidden / D&D | 採否未決 | `CanvasDocumentV1` との所有関係、検索、migration |
 
-### 完了条件
+前の候補を採用しない判断でも、依存がなければ次の項目を扱える。各 coding task は既存依存関係と発注者承認を確認してから作成する。Canvas PNG と検索改善については、決定済み部分の採否を再質問せず、残る実装詳細だけを仕様 task で決める。
 
-- 両候補に同じ必須シナリオの実測結果があり、未測定を有利な推測で補っていない。
-- 採用 shell、却下理由、残る配布リスクを発注者が承認している。
-- Prisma / SQLite / Playwright の native・resource path が packaged app で成立する候補を選べる。
-- PoC の一時 DB / PDF / build artifact を製品データや正式実装と扱っていない。
+### 9.1 Canvas PNG の仕様 task
 
-### 主な検証方法
+PNG 仕様 task は [`PRODUCT_SPEC.md`](../requirements/PRODUCT_SPEC.md) の決定済み契約を継承し、次を受け入れ条件から外さない。
 
-- clean な一時 user data directory で初回起動、migration、CRUD、終了、再起動を実行する。
-- local runtime の readiness、loopback 限定、異常終了時 cleanup、二重起動を観測する。
-- packaged context の Chromium 起動と固定 PDF 生成、resource path、ログを確認する。
-- `npm run lint`、TypeScript、PoC 固有 test、build、`git diff --check`。
+- 目的は編集用 backup ではなく、Canvas 本文を画像として保存することである。
+- Canvas の用紙全体だけを出力し、header、sidebar、toolbar、Cue、Summary、Settings 等の UI を含めない。
+- 保存済み `CanvasDocumentV1.page` の幅と高さを出力寸法に使い、現在の `page.background=paper` の背景を含める。
+- 用紙外の Canvas 要素を用紙境界で切り取り、画像を用紙外まで広げない。
+- legacy `bodyMode=markdown` の本文を対象にしない。
+- 初期ファイル名を `[タイトル]_[学習日].png` とし、その文字列を画像内へ描画しない。
 
-## 9. Stage 3: Desktop 基盤
+仕様 task では、ファイル名に使えない文字、同名 file、保存先、失敗時 UI、色管理を決める。PDF は採用済み機能として扱わず、将来再検討する場合は PNG と分けた仕様、PoC、採用判断を必要とする。
 
-### 開始条件
+### 9.2 検索・一覧仕様 task
 
-- Stage 2 で shell が選定され、PoC の残課題と採用条件が承認済みである。
-- `app bundle`、`user data directory`、PDF output destination の責務が分離されている。
+検索・一覧仕様 task は次の決定済み UX と規模要件を継承する。
 
-### 成果物
+- 検索対象は単一選択の select とし、既定値をタイトルにする。タイトル、学習元、本文、Cue、全てを選択肢の基礎とする。
+- タグは既存の専用フォームを使い、検索対象 select とサジェストから除外する。
+- サジェストは検索結果 card ではなく、ローカルの保存済みデータに存在する単語候補とする。外部辞書、外部 API、根拠のない一般語を使わない。
+- 「全て」では少なくともタイトルと学習元の候補を含める。入力 1 文字目から取得可能とし、最大 5 件、前方一致優先とする。
+- 製品は 5,000 note を最低限の長期利用目安とし、deterministic な 10,000 note fixture で性能を検証する。5,000 件を利用上限にしない。
+- 一覧は全件を一度に取得・描画せず、下端へ近づいた時に次のまとまりを読む無限スクロールとする。仮想化または同等の方式で、長時間スクロール後も DOM 要素とメモリを無制限に増やさない。
+- 10,000 note でリアルタイム検索が重い場合は debounce を使う。サジェスト最大 5 件だけを性能保証とみなさない。
 
-- 選定 shell の正式な最小基盤。
-- OS API で解決した user data directory、初回 directory / DB 作成、bundled migration 適用。
-- local runtime の起動、ready、異常時表示、正常終了、子 process cleanup。
-- single instance、重複起動時の既存 window activation。
-- local file log と診断情報。ノート本文など不要な機微データは記録しない。
-- app update と user data migration を分離する境界。
-- `npm run dev` 等の開発用 Web 経路の維持。
+仕様 task では、Summary 等の現行検索対象の分類と表示文言、前方一致だけで 5 件に満たない場合の部分一致、tokenization、同点順位、検索 API、index、query schema、keyboard 操作、取得単位、cursor / offset、仮想化 library、事前読み込み距離を決める。現行 MVP の API と 1 ページ 50 件の契約は、検索・一覧仕様が承認されるまで変更しない。
 
-### Worker task 分割例
+### 9.3 採否を別途決める機能
 
-| 区分 | task file 例 | 1 task の目的 | queue |
-| --- | --- | --- | --- |
-| 仕様 / 調査 | `define-desktop-runtime-lifecycle-contract.task.md` | startup / ready / shutdown / failure 状態を確定する | Common |
-| API / DB | `implement-user-data-sqlite-bootstrap.task.md` | user data path で初回 DB 作成と migration を行う | API |
-| UI | `implement-desktop-startup-failure-ui.task.md` | runtime / migration 失敗時の表示と終了導線を実装する | UI |
-| 共通 / 配布 | `implement-desktop-runtime-lifecycle.task.md` | shell と local runtime の lifecycle だけを実装する | Common |
-| 共通 / 配布 | `implement-desktop-single-instance.task.md` | single instance と既存 window activation だけを実装する | Common |
-| 共通 / 配布 | `implement-desktop-local-logging.task.md` | user data directory の privacy-aware logging を実装する | Common |
-| 共通 / 配布 | `preserve-development-web-entrypoint.task.md` | Desktop 追加後も開発 Web 起動を維持する | Common |
-| QA | `qa-desktop-bootstrap-lifecycle.task.md` | clean / existing / migration failure / repeated launch を検証する | Common |
+定期 backup、暗号化 backup、autosave、Undo、専用復習タスク、NoteCard / D&D は、この計画だけで採用済みとは扱わない。既存の保存、削除、復習、Canvas 契約への影響を確認し、発注者が各機能を承認した後に仕様 task と coding task を分けて作成する。
 
-### 完了条件
+## 10. Public Mac Release
 
-- `.app` を読み取り専用とみなしても、live DB、ログ、設定が user data directory で動作する。
-- clean install、既存 DB、migration 成功・失敗、再起動、二重起動、正常・異常終了を処理できる。
-- app bundle 更新で user data を再作成・削除しない。
-- Desktop と開発 Web が同じ HTTP / Canvas contract を使い、shell 固有 API が domain / UI 全体へ漏れていない。
+Public Mac Release は Desktop Alpha の後に別 Gate として扱う。
 
-### 主な検証方法
+- Intel 対応を再検討し、Apple Silicon 専用、architecture 別、universal の配布方式を決める。
+- shell / runtime PoC と検証環境を根拠に、対応 macOS と minimum deployment target を決める。
+- Developer ID、notarization、Apple Developer Program、署名方式、一般公開用配布サイトを決める。
+- install、update、複数版を飛ばす migration、reinstall、uninstall、user data retention の公開向け regression を行う。
+- release artifact、source commit、migration、checksum を追跡できる release checklist を作る。
 
-- path と file permission の自動 test、空 directory からの migration、既存 DB コピーからの migration。
-- process / port / child cleanup、single instance、log 出力先の runtime QA。
-- Desktop smoke と既存 Web E2E、lint、TypeScript、build、`git diff --check`。
+Desktop Alpha では上記を未決のまま残せる。Alpha で使用した低コスト配布先や内部向け DMG を、そのまま Public Mac Release の確定方式とみなさない。
 
-## 10. Stage 4: データ保全
+## 11. 並行可能範囲と直列化する範囲
 
-### 開始条件
-
-- Stage 3 の user data path、migration timing、lifecycle、logging が安定している。
-- backup の実行 timing、保持世代、失敗時に起動を継続するか止めるかが仕様で決まっている。
-
-### 成果物
-
-- 起動時 SQLite backup。migration 前後のどこで取得するかを明示した契約。
-- backup 履歴、成功・失敗 log、retry と重複実行防止。
-- `/backup` の履歴・失敗・retry UI。既存の手動 backup を壊さない。
-- WAL / sidecar を含む安全な snapshot 方針、integrity check、容量不足・permission failure の扱い。
-- 元の live DB を上書きせず、コピー上で行う復元手順と復元 rehearsal 証跡。
-
-### Worker task 分割例
-
-| 区分 | task file 例 | 1 task の目的 | queue |
-| --- | --- | --- | --- |
-| 仕様 / 調査 | `define-startup-backup-restore-contract.task.md` | timing、retention、failure、restore 手順を確定する | Common |
-| API / DB | `implement-backup-history-log.task.md` | backup 実行結果の永続履歴だけを実装する | API |
-| API / DB | `implement-backup-retry-service.task.md` | retry の冪等な server 処理だけを実装する | API |
-| UI | `implement-backup-history-retry-ui.task.md` | 履歴表示と明示 retry 操作だけを実装する | UI |
-| 共通 / 配布 | `implement-startup-backup-trigger.task.md` | Desktop lifecycle からの起動時 trigger だけを実装する | Common |
-| QA | `qa-backup-failure-restore-rehearsal.task.md` | 破損させない失敗注入とコピー上の復元を検証する | Common |
-
-### 完了条件
-
-- 起動時 backup、手動 backup、履歴、retry が同じ live DB path と retention contract を使う。
-- 成功した backup は integrity check を通り、失敗は履歴と UI に残り、無限 retry しない。
-- 復元手順が別コピーで再現でき、元 DB と backup を誤って上書きしない。
-- migration 失敗、容量不足、read-only、途中終了でも live DB の正本性を失わない。
-
-### 主な検証方法
-
-- 一時 SQLite fixture で success、permission、disk-space 相当、途中終了、retry、retention を自動検証する。
-- backup から別 path へ復元し、row、Canvas JSON、検索 text、schema version を比較する。
-- packaged Desktop の起動時 runtime QA、既存 `/backup` 回帰、lint、TypeScript、build。
-
-## 11. Stage 5: PDF export
-
-### 開始条件
-
-- Stage 2 で packaged Playwright / Chromium の成立を確認し、Stage 3 の shell / path adapter、Stage 4 のデータ保全が完了している。
-- PDF layout、対象範囲、provider、保存 dialog または選択可能な出力先、上書き、cancel、失敗時処理が承認済みである。
-
-### 成果物
-
-- SQLite から read-only に取得した DTO を PDF へ一方向変換する export service / provider。
-- Cue、Canvas、Summary、metadata、複数ページ、長文、Canvas page 寸法を扱う PDF layout。
-- OS save dialog またはユーザーが明示選択する出力先。`Downloads` への固定保存はしない。
-- 進捗、cancel、成功、失敗、再試行可能性を示す UI。
-- packaged Desktop での Chromium resource 解決と PDF 生成。
-- PDF 生成が SQLite を更新せず、HTML や編集用ファイルを副生成しないことの証跡。
-
-### Worker task 分割例
-
-| 区分 | task file 例 | 1 task の目的 | queue |
-| --- | --- | --- | --- |
-| 仕様 / 調査 | `define-pdf-export-contract.task.md` | layout、対象、destination、error、cancel を確定する | Common |
-| API / DB | `implement-pdf-export-read-model.task.md` | SQLite から export DTO を read-only 取得する | API |
-| API / DB | `implement-pdf-generation-provider.task.md` | export DTO から PDF bytes を生成する provider を実装する | API |
-| UI | `implement-pdf-export-ui.task.md` | export 操作、進捗、cancel、結果表示を実装する | UI |
-| 共通 / 配布 | `implement-desktop-pdf-save-dialog-adapter.task.md` | shell の保存 dialog と出力 path 受け渡しだけを実装する | Common |
-| 共通 / 配布 | `package-pdf-chromium-resources.task.md` | 選定 shell に Chromium resource を同梱する | Common |
-| QA | `qa-packaged-pdf-export.task.md` | packaged app の layout、failure、DB 不変を検証する | Common |
-
-### 完了条件
-
-- PDF が SQLite の選択データから生成され、生成前後で DB hash / row / Canvas JSON が変わらない。
-- cancel、書き込み不可、同名、Chromium 起動失敗、長いノート、空範囲を予測可能に処理する。
-- PDF は閲覧可能で layout acceptance を満たし、app bundle / user data directory を暗黙の外部出力先にしない。
-- packaged Desktop と開発 Web の対応範囲が仕様どおりである。Web 非対応部分は明示する。
-
-### 主な検証方法
-
-- export read model の API / repository test、DB before / after 比較。
-- PDF page render の visual regression、文字・Canvas・改ページ・日本語 font の確認。
-- packaged Desktop の save dialog、cancel、permission failure、resource path の runtime QA。
-
-## 12. Stage 6: draft / autosave / version・競合処理
-
-### 開始条件
-
-- Stage 1 の保存契約、本文モデル判断 Gate、Stage 3 の lifecycle、Stage 4 の backup / restore、Stage 5 の read-only export 境界が完了している。
-- 推奨案では autosave payload の本文は `CanvasDocumentV1` のままで、NoteCard / D&D を含めない。
-- draft と確定保存の関係、idle / throttle、version 発行者、競合判定、再読込・再試行、終了時 flush 方針が承認済みである。
-
-### 成果物
-
-- draft / autosave の共有 request / response contract と version 規則。
-- 必要な Prisma migration と、既存 note を失わない backfill / rollback 方針。
-- server-side の原子的な version check と競合 response。
-- editor の dirty / saving / saved / failed / conflicted 状態、手動 retry、再読込 UI。
-- app 終了、runtime crash、複数 tab、遅延 response、Canvas 大容量 payload の扱い。
-
-### Worker task 分割例
-
-| 区分 | task file 例 | 1 task の目的 | queue |
-| --- | --- | --- | --- |
-| 仕様 / 調査 | `define-autosave-version-conflict-contract.task.md` | draft、version、manual save、conflict 状態を確定する | Common |
-| API / DB | `migrate-notebook-draft-version-schema.task.md` | draft / version 用 schema migration だけを実装する | API |
-| API / DB | `implement-versioned-autosave-endpoint.task.md` | 原子的 version check を持つ autosave API だけを実装する | API |
-| UI | `implement-note-editor-autosave-state.task.md` | editor の autosave 状態機械だけを実装する | UI |
-| UI | `implement-note-editor-conflict-recovery-ui.task.md` | conflict の再読込・再試行 UI だけを実装する | UI |
-| 共通 / 配布 | `implement-desktop-autosave-shutdown-policy.task.md` | Desktop 終了時の pending save 方針だけを実装する | Common |
-| QA | `qa-autosave-race-crash-recovery.task.md` | 遅延・順序逆転・crash・restart・競合を検証する | Common |
-
-### 完了条件
-
-- 古い version の遅延 response が新しい内容を上書きしない。
-- 明示保存、autosave、draft restore、conflict recovery の責務が区別され、UI から状態が分かる。
-- crash / restart 後に仕様どおり draft を復元または破棄でき、確定 note と Canvas JSON を破壊しない。
-- backup、PDF export、既存 Web E2E に回帰がない。
-
-### 主な検証方法
-
-- repository / API の同時更新、順序逆転、重複 request、version mismatch test。
-- fake timer を使う idle / throttle test と Browser runtime の状態表示。
-- Desktop kill / restart、複数 tab、network delay 相当の E2E。
-- migration を clean DB と既存 DB コピーで検証する。
-
-## 13. Stage 7: soft delete / 5 秒 Undo / purge
-
-### 開始条件
-
-- Stage 6 の version / conflict contract と migration が安定している。
-- whole-note 削除の soft delete 所有者、5 秒の起点、Undo token、purge timing、関連 row の扱いが承認済みである。
-- NoteCard 非採用時は card 単位 Undo を持ち込まない。採用する場合は本文モデルの別計画を先に完了する。
-
-### 成果物
-
-- soft delete、Undo、purge の状態遷移と API contract。
-- 必要な Prisma migration、通常 query からの deleted row 除外、関連整合性。
-- 5 秒 Undo Snackbar と成功・期限切れ・失敗 UI。
-- lifecycle に接続した冪等 purge と監査可能な log。
-- backup / restore と削除済みデータの関係を示す運用ルール。
-
-### Worker task 分割例
-
-| 区分 | task file 例 | 1 task の目的 | queue |
-| --- | --- | --- | --- |
-| 仕様 / 調査 | `define-soft-delete-undo-purge-contract.task.md` | 状態、期限、対象、復元、purge を確定する | Common |
-| API / DB | `migrate-soft-delete-state.task.md` | soft delete / Undo 用 schema migration だけを実装する | API |
-| API / DB | `implement-note-undo-endpoint.task.md` | 期限内 Undo の server 処理だけを実装する | API |
-| API / DB | `implement-expired-note-purge.task.md` | 期限切れ purge の冪等処理だけを実装する | API |
-| UI | `implement-delete-undo-snackbar.task.md` | 5 秒 Snackbar と Undo 操作だけを実装する | UI |
-| 共通 / 配布 | `schedule-desktop-purge-lifecycle.task.md` | purge を Desktop lifecycle に安全に接続する | Common |
-| QA | `qa-soft-delete-undo-purge-boundaries.task.md` | 期限境界、再起動、競合、関連 row を検証する | Common |
-
-### 完了条件
-
-- 削除直後の対象が通常一覧・検索・詳細・review・PDF に現れず、期限内 Undo で同じ内容へ戻る。
-- 期限切れ Undo は予測可能に拒否され、purge は二重実行しても安全である。
-- autosave / manual save と delete / Undo が競合しても、削除済み note が意図せず復活または上書きされない。
-- purge 前に定義済み backup policy が守られ、復元手順が説明できる。
-
-### 主な検証方法
-
-- fake clock で 5 秒前後、重複 Undo、重複 purge、restart を検証する。
-- API / DB transaction test、一覧・検索・PDF・review の除外 test。
-- Browser E2E で confirm、Snackbar、Undo、期限切れ UI を確認する。
-
-## 14. Stage 8: 1 日後・1 週間後の専用復習タスク
-
-### 開始条件
-
-- Stage 7 の soft delete / restore / purge が完了している。
-- task の起算日、1 日後 / 1 週間後の生成方式、timezone、status、完了後遷移、既存 `nextReviewDate` との関係が承認済みである。
-
-### 成果物
-
-- review task / progress の data model、生成・再生成・完了の contract。
-- `/tasks/review` と必要な API、1 日後 / 1 週間後の表示、完了状態、未完了 badge。
-- 既存の詳細画面内復習と `reviewedAt` / `nextReviewDate` を壊さない移行方針。
-- soft-deleted / purged note、日付変更、重複生成、timezone 境界の規則。
-
-### Worker task 分割例
-
-| 区分 | task file 例 | 1 task の目的 | queue |
-| --- | --- | --- | --- |
-| 仕様 / 調査 | `define-review-task-scheduling-contract.task.md` | 起算日、status、timezone、既存復習との関係を確定する | Common |
-| API / DB | `migrate-review-task-progress-schema.task.md` | review task / progress schema だけを実装する | API |
-| API / DB | `implement-review-task-query-api.task.md` | task 取得 API だけを実装する | API |
-| API / DB | `implement-review-task-completion-api.task.md` | task 完了 command だけを実装する | API |
-| UI | `implement-review-task-screen.task.md` | `/tasks/review` の一覧と完了操作だけを実装する | UI |
-| UI | `implement-review-task-nav-badge.task.md` | 未完了 badge だけを実装する | UI |
-| 共通 / 配布 | `connect-review-task-desktop-date-boundary.task.md` | local timezone の日付切替処理だけを接続する | Common |
-| QA | `qa-review-task-date-idempotency.task.md` | 月末・年末・timezone・重複・削除連携を検証する | Common |
-
-### 完了条件
-
-- 同じ note / schedule から重複 task を生成せず、1 日後 / 1 週間後を date-only contract どおり判定する。
-- 完了操作、badge、詳細復習、既存 `nextReviewDate` が仕様どおり同期または分離されている。
-- soft-deleted / purged note を表示・完了対象にせず、Undo 時の扱いも一意である。
-- Web と Desktop で timezone / clock の結果が一致する。
-
-### 主な検証方法
-
-- date-only 純粋関数、month / year boundary、DST 相当、idempotency の test。
-- API / DB transaction、soft delete / restore 連携 test。
-- Browser E2E で tabs、完了後消失、badge、詳細復習遷移を確認する。
-
-## 15. Stage 9: タグ管理、Mac keyboard 操作、A11y の仕上げ
-
-### 開始条件
-
-- Stage 6〜8 の主要画面・状態遷移が安定している。
-- タグ rename / delete の参照整合性、keyboard shortcut の衝突規則、A11y acceptance が承認済みである。
-
-### 成果物
-
-- タグ rename / delete API と管理 UI。既存 note への反映、重複名、使用中削除を定義する。
-- Mac 向けの保存、作成、Undo / Redo 等の採用済み shortcut。Canvas history、text editing、browser / OS shortcut と競合しない。
-- dialog / Snackbar / menu / D&D 非採用時の全主要 UI に対する focus、keyboard、ARIA、screen-reader name の仕上げ。
-- 901px / 900px、768px / 375px の Web 回帰確認。モバイル専用 UX の大規模再設計は含めない。
-
-### Worker task 分割例
-
-| 区分 | task file 例 | 1 task の目的 | queue |
-| --- | --- | --- | --- |
-| 仕様 / 調査 | `define-tag-management-contract.task.md` | tag rename / delete の参照・重複・確認規則だけを確定する | Common |
-| 仕様 / 調査 | `define-mac-keyboard-contract.task.md` | 採用 shortcut と focus context の競合規則だけを確定する | Common |
-| 仕様 / 調査 | `define-a11y-acceptance-contract.task.md` | keyboard / focus / ARIA の受け入れ条件だけを確定する | Common |
-| API / DB | `implement-tag-rename-endpoint.task.md` | tag rename と重複処理だけを実装する | API |
-| API / DB | `implement-tag-delete-endpoint.task.md` | tag delete と参照処理だけを実装する | API |
-| UI | `implement-tag-management-ui.task.md` | tag 管理 surface だけを実装する | UI |
-| UI | `implement-mac-note-shortcuts.task.md` | 採用済み Mac shortcut だけを実装する | UI |
-| UI | `fix-dialog-focus-a11y.task.md` | dialog の focus / ARIA family だけを修正する | UI |
-| 共通 / 配布 | `document-mac-keyboard-reference.task.md` | shortcut の利用者向け一覧だけを整備する | Common |
-| QA | `qa-tag-management-runtime.task.md` | rename / delete と全利用箇所への反映だけを確認する | UI |
-| QA | `qa-mac-keyboard-runtime.task.md` | shortcut と focus context の競合だけを確認する | UI |
-| QA | `qa-a11y-responsive-regression.task.md` | screen reader、focus、901/900、768/375 回帰を確認する | UI |
-
-### 完了条件
-
-- tag rename / delete が全 note、filter、PDF、review task に一貫して反映される。
-- shortcut が input / textarea / Canvas / dialog の focus context を尊重し、データ破壊や二重実行を起こさない。
-- keyboard-only で主要フローを完了でき、focus が可視で、dialog focus が閉じた後に復元される。
-- 901 / 900px 相互 resize と 768 / 375px で主要操作へ到達でき、ページ全体の意図しない horizontal overflow がない。
-
-### 主な検証方法
-
-- tag repository / API の重複、使用中削除、transaction test。
-- Browser の keyboard-only、accessibility tree、focus order、Escape、Tab / Shift+Tab、screen reader spot check。
-- Desktop と Web の shortcut、Canvas Undo / Redo、responsive regression E2E。
-
-## 16. Stage 10: 配布品質
-
-### 開始条件
-
-- Desktop Alpha と Phase 2 Productivity の採用機能、migration、resource が release candidate として固定されている。
-- Apple Silicon / Intel の配布方式、署名 identity、notarization、更新方式、rollback、データ保持方針が承認済みである。
-- オンライン update service を当然の前提にしない。手動更新を含め、製品の「オンラインサービス対象外」と矛盾しない方式を選ぶ。
-
-### 成果物
-
-- Apple Silicon / Intel の対応 artifact。universal / arch 別の選択理由を記録する。
-- code signing、hardened runtime、notarization、stapling の再現可能な release 手順。
-- Prisma / SQLite native runtime、Node.js sidecar、Playwright / Chromium、font、migration の完全な同梱確認。
-- 更新時の pre-update backup、migration、失敗時 rollback / recovery、user data 保持。
-- install / update / reinstall / uninstall のデータ保持仕様。アンインストールと user data 削除を別操作にする。
-- release checklist、support log の収集手順、既知制約。
-
-### Worker task 分割例
-
-| 区分 | task file 例 | 1 task の目的 | queue |
-| --- | --- | --- | --- |
-| 仕様 / 調査 | `define-mac-distribution-update-policy.task.md` | arch、署名、更新、rollback、data retention を確定する | Common |
-| API / DB | `verify-packaged-migration-upgrade-path.task.md` | 旧 DB コピーからの packaged migration だけを検証する | API |
-| UI | `implement-desktop-update-recovery-ui.task.md` | 採用方式で必要な update / recovery 表示だけを実装する | UI |
-| 共通 / 配布 | `build-apple-silicon-release-artifact.task.md` | Apple Silicon artifact だけを構築・検証する | Common |
-| 共通 / 配布 | `build-intel-release-artifact.task.md` | Intel artifact だけを構築・検証する | Common |
-| 共通 / 配布 | `implement-sign-notarize-pipeline.task.md` | signing / notarization / stapling だけを自動化する | Common |
-| QA | `qa-install-update-uninstall-data-retention.task.md` | install / update / reinstall / uninstall のデータ保持を検証する | Common |
-
-### 完了条件
-
-- 対象 arch の clean Mac で install、first launch、migration、主要フロー、PDF、backup、再起動が成功する。
-- 署名・notarization の検証を通り、Gatekeeper 警告なく起動できる。
-- update / reinstall で live SQLite、backup、設定を失わず、失敗時に recovery 手順を実行できる。
-- uninstall だけでは user data を暗黙削除せず、削除方法を明示する。
-- release artifact と source / commit / migration / checksum を追跡できる。
-
-### 主な検証方法
-
-- Apple Silicon / Intel の clean-environment smoke と packaged E2E。
-- `codesign`、notarization、stapling、Gatekeeper の検証。
-- 旧版 fixture からの update、migration failure、rollback、backup restore rehearsal。
-- artifact 内容の native module / Chromium / font / migration inventory。
-
-## 17. Stage 11: Local LLM の独立 PoC と採用時の別機能実装
-
-### 開始条件
-
-- Public Mac Release の必須品質と、Local Intelligence の optional scope を分離できる。
-- 外部 API やクラウド推論を使わず、完全ローカルで比較する PoC 契約が承認済みである。
-
-### 成果物
-
-- production note を変更しない独立 PoC。
-- model / runtime の license、配布サイズ、起動時間、推論時間、メモリ、CPU / GPU、Apple Silicon / Intel 可否、offline 動作の測定。
-- notebook data を外部送信しないこと、log に本文を残さないことの確認。
-- Go / No-Go ADR。No-Go でも PoC は完了とし、製品実装を作らない。
-- Go の場合だけ、復習クイズと Cue 候補を別々の仕様・task 群として作る。
-
-採用時の機能境界は次のとおりとする。
-
-- 復習クイズはユーザーの明示操作で生成し、想起、答え合わせ、根拠、解説を支援する。自動採点や自動保存を初期前提にしない。
-- Cue 候補はユーザーが先に書いた Cue を置き換えず、追加、編集して追加、無視を選べる候補として表示する。
-- どちらも自動で SQLite の note 本文を更新しない。結果を保持する場合は、採用後の別 contract と migration を先に承認する。
-
-### Worker task 分割例
-
-| 区分 | task file 例 | 1 task の目的 | queue |
-| --- | --- | --- | --- |
-| 仕様 / 調査 | `define-local-llm-poc-contract.task.md` | offline、privacy、性能、license の評価基準を確定する | Common |
-| API / DB | `poc-local-llm-note-read-adapter.task.md` | read-only DTO を PoC へ渡す境界だけを検証する | API |
-| UI | `poc-local-llm-interaction-surface.task.md` | production 保存へ接続しない PoC UI だけを検証する | UI |
-| 共通 / 配布 | `poc-local-llm-runtime-packaging.task.md` | local model runtime の同梱・起動・resource 使用量を測る | Common |
-| QA | `evaluate-local-llm-poc-evidence.task.md` | privacy、offline、品質、性能、arch 差を判定する | Common |
-| 仕様 / 調査（採用時のみ） | `define-review-quiz-feature-contract.task.md` | 復習クイズだけの製品 contract を作る | Common |
-| 仕様 / 調査（採用時のみ） | `define-cue-suggestion-feature-contract.task.md` | Cue 候補だけの製品 contract を作る | Common |
-
-### 完了条件
-
-- PoC はネットワークなしで再現でき、本文の外部送信と暗黙保存がない。
-- 対象 arch での資源量と品質を測定し、未測定値を推測で補っていない。
-- 発注者が Go / No-Go を判断できる ADR がある。
-- Go の場合も、復習クイズと Cue 候補を同じ coding task に混ぜず、それぞれの完了条件を持つ。
-
-### 主な検証方法
-
-- network disabled の packaged PoC、process / file / log 観測、resource 計測。
-- 固定したローカル fixture に対する再現性、誤答・根拠・日本語品質の人手評価。
-- model / runtime license と artifact inventory のレビュー。
-
-## 18. 並行可能範囲と直列化する範囲
-
-### 18.1 並行可能な作業
+### 11.1 並行可能な作業
 
 | 作業 | 並行条件 |
 | --- | --- |
-| Electron PoC と Tauri sidecar PoC | 共通 PoC contract と fixture を先に固定し、root の package / config を共有編集しない独立 directory・manifest・build artifact を使う。分離できない場合は直列化する |
-| Desktop PoC の runtime 測定と shell 非依存の比較資料 | 測定項目と出力形式を固定し、比較判定は両結果が揃ってから行う |
-| backup UI wire / acceptance と backup server の設計 | API / state contract を先に固定し、同じ実装ファイルを触らない |
-| PDF layout fixture と read-only export projection | PDF contract を先に固定し、provider integration は両方の完了後に行う |
-| Stage 9 の tag API と keyboard / A11y 調査 | notes contract と対象 UI file の編集開始前。UI 統合時は直列化する |
-| Apple Silicon と Intel の artifact 検証 | 同じ release commit、同じ packaging contract、arch 別 output directory を使う |
-| Local LLM の license / performance / quality 調査 | 固定 fixture と read-only PoC 境界を共有し、production code / data に接続しない |
+| Electron PoC と Tauri sidecar PoC | 共通 contract、fixture、測定環境を先に固定し、独立 directory / manifest / artifact を使う |
+| PoC の runtime 測定と license / cost 調査 | 測定項目と費用の対象範囲を固定し、選定は両結果が揃ってから行う |
+| Settings の wire / acceptance と shell 非依存の DB validation 設計 | 状態と error contract を先に固定し、同じ実装 file を編集しない |
+| Public Release の Apple 手続き調査と、Alpha 後の Phase 2 仕様調査 | Desktop Alpha の coding file や未決事項を先に固定しない read-only 調査に限る |
 
-### 18.2 直列化が必要な作業
+### 11.2 直列化が必要な作業
 
 | 競合点 | 直列化する理由 |
 | --- | --- |
-| `prisma/schema.prisma` と migration history | Stage 3、4、6、7、8、9 の schema 変更を並べると migration 順序、backfill、rollback が競合する。1 migration ごとに clean / existing DB を検証して次へ進む |
-| notes の共有 DTO / Zod contract / save payload | Canvas、autosave、soft delete、review、tag が同じ contract を触る。承認済み contract → server → UI の順で統合する |
-| note editor / detail / list / AppChrome の同一 UI file | autosave state、Undo、review badge、keyboard、A11y を同時編集すると状態と focus の回帰原因を分離できない。surface ごとに merge と QA を終えて次へ進む |
-| Desktop main process / sidecar lifecycle / packaging config | path、port、process、resource、signing の設定が共有される。shell 基盤を固定してから backup / PDF hook、最後に release 設定を入れる |
-| PDF provider と Playwright / Chromium packaging | resource path と launch options を共有する。PoC 結果 → provider → packaged integration の順にする |
-| backup、migration、purge、update | 全て live SQLite を扱う。backup policy を先に固定し、migration、purge、update ごとに復元 rehearsal を挟む |
-| Phase 2 contract、acceptance matrix、release boundary 文書 | 同じ決定を複数文書へ並行記入せず、正本決定後に詳細書を追従させる |
+| Desktop main process / sidecar / packaging config | process、port、resource、path、update hook を共有する |
+| Prisma schema と migration history | migration 順序、backup、restore compatibility、rollback が競合する |
+| live DB を扱う update、migration、backup、restore | staging と atomic switch の不変条件を同時変更すると failure 原因を分離できない |
+| Settings / recovery の同一 UI surface | update、backup、restore、DB failure の状態と focus が競合する |
+| Phase 2 の save / delete contract | autosave と Undo が現行 MVP の共有 DTO、transaction、editor state を変更する |
+| 正本文書と詳細設計 | 正本の決定後に詳細書を追従させ、同じ決定を並行して別表現へ固定しない |
 
-Manager は、作業が異なる queue にあっても、共有 contract、Prisma schema、同一 UI file のいずれかを変更する場合、依存 task の完了 summary と差分を確認してから次を enqueue する。
+## 12. 検証と証跡
 
-## 19. 推奨リリース境界
+### Desktop PoC
 
-| Release boundary | 含める段階 | 出荷判断 |
+- 候補ごとに同じ測定手順、環境情報、fixture identifier、artifact 内訳、成功・失敗・未測定を記録する。
+- Prisma / SQLite / migration は clean DB と fixture copy で検証し、live DB を使わない。
+- build、PoC 固有 test、`git diff --check` を実行する。検証できない項目は理由を残す。
+- 比較報告は数値だけで選定せず、lifecycle、保守、安全性、license / Apple / 配布 / CI を含む総コストを併記する。
+
+### Desktop Alpha
+
+- update、migration、restore、DB corruption、permission、容量不足相当、process interruption は disposable path と fixture copy で failure injection する。
+- backup / restore では SQLite integrity、foreign key、schema、必須データ、Canvas、reopen を確認する。
+- 診断 ZIP は allowlist で構築し、禁止データが含まれないことを test する。
+- packaged Desktop smoke と既存 Web regression を分けて記録する。
+- 文書確認では Markdown link、見出し構造、`git diff --check` を確認する。
+
+## 13. 未決事項
+
+次の事項はこの計画更新で決めない。
+
+| ID | 未決事項 | 次の判断時点 |
 | --- | --- | --- |
-| MVP 安定 baseline | Gate 0 | 現行 Web MVP の人力結合テスト、修正、品質コマンド、証跡、発注者承認が完了 |
-| Desktop Alpha | Stage 1〜5 | 選定 shell、user data SQLite、migration / lifecycle、backup / restore、PDF が packaged app で動作。内部評価用で、Public 配布品質はまだ要求しない |
-| Phase 2 Productivity | Stage 6〜9 | Canvas 本文を維持した autosave、Undo、review task、tag / keyboard / A11y が統合済み。NoteCard / D&D は別途採用しない限り含めない |
-| Public Mac Release | Stage 10 | 対象 arch、署名、notarization、更新、install / uninstall data retention、packaged regression が完了 |
-| Local Intelligence | Stage 11 の Go 後 | Local LLM PoC 採用後、復習クイズと Cue 候補を別機能として受け入れ済み。Public Mac Release の必須条件にはしない |
+| U-001 | Electron と Tauri + Node.js sidecar の選定 | 両 PoC の比較後 |
+| U-002 | 更新 provider、manifest / package の具体的な配置先、package の署名・完全性検証方式 | PoC と更新実装 contract |
+| U-003 | bundle ID | shell 選定後の packaging contract |
+| U-004 | user data、backup、設定、log の具体的な path | shell 選定後の path contract |
+| U-005 | minimum deployment target と Desktop Alpha 後の対応 macOS | shell / runtime PoC 後 |
+| U-006 | Intel の artifact 方式、Developer ID、notarization、Apple Developer Program、公開用 code signing 方式、一般公開用配布サイト | Public Mac Release |
+| U-007 | Settings の正確な表示文言と項目配置、完全なデータ削除の確認文言 | Desktop Alpha の各 UI 実装 task |
+| U-008 | Canvas PNG の使用不可文字、同名 file、保存先、失敗時 UI、色管理。PDF を将来再検討するか | Desktop Alpha 後の PNG 仕様 task |
+| U-009 | 検索の Summary 分類、tokenization、同点順位、API / index、取得単位、仮想化実装 | Desktop Alpha 後の検索・一覧仕様 task |
+| U-010 | 定期 backup、暗号化 backup、autosave、Undo、専用復習タスク、NoteCard / D&D の最終採否と詳細 | Desktop Alpha 後の個別 contract |
 
-各 release boundary は前段の完了条件を継承する。後段の機能を部分的に先行 demo できても、前段 Gate を通過したことにはしない。
+## 14. 次の Manager action
 
-## 20. 発注者が次に承認する事項
+次に作成する task は Desktop PoC 用に限定する。
 
-発注者が最初に承認する事項は Gate 0 の閉じ方である。
+1. この文書の共通比較 contract を参照する Electron PoC task を作る。
+2. 同じ baseline、fixture、Apple Silicon 開発 Mac、測定軸を参照する Tauri + Node.js sidecar PoC task を作る。
+3. 両 task が共有 file を安全に分離できるか確認し、分離できない場合は直列投入する。
+4. 両 PoC の完了後に比較 task を作り、性能、成立性、保守、安全性、総コストを同じ表で評価する。
+5. 発注者が shell を選定するまで Desktop Alpha の正式基盤、更新、migration、backup / restore、Phase 2 の coding task を投入しない。
 
-1. Gate 0 の客観的完了条件と、「Browser 未利用の未確認は PASS にしない」基準を承認する。
-2. Browser runtime を利用できる環境で MVP 結合テストを再開し、finding 修正と再テストを完了する。
-3. 証跡が揃った後、MVP 安定 baseline と Gate 0 通過を明示承認する。
-4. Gate 0 後に、Stage 1 の採用範囲と、Manager 推奨である「初回 Desktop / Phase 2 Productivity は Canvas 本文を維持し、NoteCard / D&D を除外する」を承認または変更する。
-5. Stage 1 完了後に、Stage 2 の Electron / Tauri + Node.js sidecar 共通 PoC contract を承認する。
-
-この順番を飛ばして、Phase 2、Desktop、PDF、Local LLM の coding task を投入しない。
+PDF / Playwright / Chromium、Intel、古い macOS の保証、Canvas PNG、autosave、Undo は、PoC task の blocker や受け入れ条件へ追加しない。

@@ -1,16 +1,17 @@
 # 実装状況サマリ
 
-更新日: 2026-08-09
+更新日: 2026-08-12
 
 ## 判定基準
 
-現行 MVP の実装・受け入れ判断は `doc/implementation/MVP_CONTRACT.md` を正本とする。`doc/requirements/PRODUCT_SPEC.md` にあるドラフト、Undo、専用復習タスク、PDF、カード分割などの記述は製品ロードマップであり、この文書では現行 MVP と分けて扱う。
+現行 MVP の実装・受け入れ判断は `doc/implementation/MVP_CONTRACT.md` を正本とする。Desktop Alpha、Canvas PNG、検索サジェスト、大規模一覧は採用済みの将来要件だが未実装であり、この文書では現行 MVP と分けて扱う。autosave、Undo、専用復習タスク、NoteCard / D&D 等は未採用候補、PDF export は未実装かつ現在未採用である。
 
 - **実装済み（静的確認）**: 現在の route、UI、Prisma schema、サービス、または確認可能な静的検証記録でコード上の実在を確認できるもの。ブラウザ実機 QA の完了を意味しない。
 - **部分実装**: 一部のコードは存在するが、MVP 契約の挙動または画面状態を満たしていないもの。
 - **未実装**: 現行 MVP の契約に含まれるが、必要なコードまたは route がないもの。
 - **未確認（runtime QA）**: 静的な実装は確認できるが、ブラウザでの pointer、wheel、touch、保存・再読込、responsive などの実機確認記録がないもの。
-- **Phase 2 / 仕様のみ**: 現行 MVP の対象外であり、仕様・ロードマップにだけ存在するもの。依存関係や型名だけでは実装済みと判定しない。
+- **将来契約 / 未実装**: 現行 MVP の対象外で、正本に採用済み要件として存在するが、対応コードや検証証跡がないもの。依存関係、fixture tooling、型名だけでは製品機能の実装済みと判定しない。
+- **未採用候補**: 実装も採用判断も完了していないもの。既存依存や過去文書だけでは採用済みと判定しない。
 
 静的検証の `PASS` は runtime の `PASS` を意味しない。ブラウザ実機 QA の証跡がない項目は、コードが存在していても「未確認（runtime QA）」として記録する。
 
@@ -28,7 +29,7 @@
 - ノート内タグは、保存時の `tags` 配列 index を `NotebookTag.order` に 0 始まりで保存し、一覧・詳細の read repository は `order` 昇順で取得する。SQLite / Postgres の `20260809090000_add_notebook_tag_order` migration は既存行を Tag 名昇順（同名は `tagId` 昇順）で決定的に backfill する。`GET /api/tags` は候補を名前昇順で返し、ノート内タグの順序とは分けている。これは実装の静的確認であり、タグ順の保存・再読込を含む Browser runtime QA は未確認である。
 - 詳細画面の Summary は `MarkdownReadView` で task-list checkbox を表示し、view / review で toggle できる。toggle は対応する task marker の checked 状態だけを Summary draft に反映し、dirty 状態を表示する。明示保存は既存 `PATCH /api/notes/:id` を使い、成功 response で表示中ノートを更新して dirty 状態を解除する。破棄、モード離脱、復習完了では未保存 draft を保存せずに破棄し、保存失敗時は draft と dirty 状態を保持して error を表示する。編集画面の Markdown Preview checkbox は read-only のままで、自動保存は行わない。これは実装と contract test の静的確認であり、Browser runtime、実 DB read-back、E2E は未確認である。
 - 削除は確認後に物理削除する。`deletedAt` は schema に残る互換フィールドであり、Undo / soft delete の実装を意味しない。
-- 専用復習タスク、ドラフト自動保存、NoteCard、D&D、PDF export などの route・model・UI は存在しない。
+- Desktop shell、Settings、アプリ内更新、staging migration / restore、完全なデータ削除、診断 bundle、Canvas PNG、検索対象 selector、語句サジェスト、無限スクロール、list windowing に対応する製品コードは存在しない。専用復習タスク、draft / autosave、NoteCard、D&D、PDF export の route・model・UI も存在しない。
 - Canvas は、`CanvasDocumentV1`（既定 page 1200x800、各 320〜4000px）の共有 validation、JSON 保存・復元、Canvas text 要素由来の `searchText`、幅・高さ数値入力と適用操作、保存済み `page` 寸法による editor / viewer の実寸描画、page 寸法だけを更新して要素 geometry を保持する処理、draw.io 風 toolbar、sticky tool、消しゴム（触れた要素を object 単位で消去する whole-object eraser）、client history、style controls、図形内文字、既存要素上の重ね描き、図形ドラッグ閾値、Fabric path metadata までコード上で実装されている。2026-07-21 に API の Canvas 保存・復元境界を確認し、2026-07-25 は Worker の Browser backend `[]` / app-server `Operation not permitted` を補う Manager 側の権限付き headless Playwright Chromium で、寸法、style、保存・再読込、eraser、history、toolbar / touch の確認済み範囲を追加した。厳密な 4px 等を残す `CANVAS-INTERACTION-001` / `CANVAS-GESTURE-001` と、全体未確認の `CANVAS-SHAPE-TEXT-001` は部分実施のままである。
 - 2026-07-25 の最新 Manager fallback QA で、既存ノートの desktop edit は 1280 / 1440px、`nextReviewDate` は新規初期値・手動値保持・未設定維持の確認済み範囲を追加した。review 成功 UI、375 / 768px の mobile edit、wheel / trackpad 固有入力は未確認のままである。根拠は `summary/20260725/2230-mandatory-qa-manager-fallback-20260725.md`。
 - 2026-07-31 の追加 QA では、Canvas の wheel / trackpad / touch scroll handoff と scroll 中の drawing 干渉、および 375 / 768px の note editor・viewer・review・overflow runtime は Browser backend / localhost route / server bind / headless Chromium の制約により `BLOCKED` だった。7/25 に別経路で確認済みの desktop / Canvas subset は履歴として保持し、今回の未測定範囲を runtime `PASS` へ繰り上げない。根拠は `summary/20260731/worker-canvas-scroll-wheel-touch-qa-20260731.md`、`summary/20260731/worker-mobile-note-runtime-20260731.md`。
@@ -217,20 +218,27 @@ Worker task は Browser backend `[]` と app-server `Operation not permitted` �
 
 根拠: `summary/20260731/worker-postgres-native-reader-fallback-20260731.md`、`summary/20260731/1804-recheck-postgres-native-reader-fallback-evidence-20260731-d5caeaf3-summary.md`。
 
-### 5.4 Phase 2 / 仕様のみ
+### 5.4 将来契約と未採用候補
 
-次表の機能は将来仕様であり、現行コードに対応する route・Prisma model・保存処理・UI はない。
+Desktop Alpha とその後の採用済み要件は未実装である。次表は正本上の採用状態と、現在のコードで確認できる事実を分けて示す。
 
-| 領域 | 未実装の機能 | 確認結果・根拠 |
+| 領域 | 採用状態 / 実装状態 | 確認結果・根拠 |
 | --- | --- | --- |
-| Draft / autosave | `NotebookDraftState`、3 秒 autosave、差分保存、version、楽観ロック、409 UI、再試行バナー | `src/app/api/**`、`prisma/schema.prisma`、`src/modules/notes/ui/components/editor/editor.tsx` に対応実装なし。`draft` prop は未使用の props に留まる。仕様は `doc/implementation/MVP_CONTRACT.md` §2・§9。 |
-| Undo / soft delete | `SoftDeleteBuffer`、5 秒 Snackbar、`POST /api/undo`、期限切れ purge、削除後復元 | `src/app/api` に Undo route なし。削除は `src/server/notes/infrastructure/notebook.command.repository.ts` の `prisma.notebook.delete`。仕様は `doc/implementation/MVP_CONTRACT.md` §4.2・§9。 |
-| 専用復習タスク | `/tasks/review`、`/api/review-tasks`、1 日後 / 1 週間後タスク、review status、未完了バッジ、自動予定 | `src/app` と `prisma/schema.prisma` に対応 page / route / model なし。現行 MVP は `GET /api/notes?reviewDue=true` と詳細画面内復習のみ。 |
-| Card / D&D | NoteCard、CueCard の永続化、複数本文カード、`NoteCueLink`、hidden flag、D&D 並び替え | `prisma/schema.prisma` に model なし。現行の `src/modules/notes/model/note-editor-form.ts` と `src/modules/notes/ui/components/editor/editor.tsx` は Cue リストと Canvas 本文を扱い、D&D import / 実装はない。 |
-| PDF / HTML export | 期間 export、`GET /api/notes/export`、Playwright PDF、1 ノート 1 ページ | export route と PDF 生成コードなし。`playwright` は `scripts/render-mermaid-diagrams.js` で図の SVG 生成に使われるだけで、PDF export の証拠ではない。根拠は `src/app/api/**`、`scripts/render-mermaid-diagrams.js`、`package.json`。 |
-| タグ管理 | `POST /api/tags`、名称変更、削除、右クリック管理 UI | `src/app/api/tags/route.ts` は `GET` のみ。Tag の作成はノート保存時の upsert に限る。 |
-| バックアップ高度機能 | 起動時自動コピー、`BackupLog`、`POST /api/backups/retry`、ログ UI、自動復元 | `prisma/schema.prisma` にログ model なし、`src/app/api/backups/route.ts` は GET/POST のみ。現行は手動作成・一覧のみ。 |
-| 高度なキーボード操作 / A11y | Cmd/Ctrl+N、Undo/Redo、D&D のキーボード操作、モーダル focus trap、詳細な ARIA 制御 | `src/modules/notes/ui` に該当 keydown / D&D / focus trap 実装なし。Cue 追加等の通常ボタン操作と一部の入力 ARIA は実装済み。 |
+| Desktop PoC | 比較方針は承認済み、PoC 未着手 | Electron と Tauri + Node.js sidecar を、同じ現行 MVP、deterministic な 10,000 note fixture、Apple Silicon Mac、shell の main / core、renderer / WebView、local runtime、Node.js sidecar、framework helper、関連子 process の合計メモリを含む測定軸で比較する。内部 process を許容し、OS process が複数存在することだけを blocker や不合格理由にしない。`src` に desktop shell、Electron main、Tauri、sidecar の製品実装はない。PDF / Playwright / Chromium は PoC の blocker や必須条件ではない。 |
+| Desktop lifecycle / Settings | 採用済みの将来契約、未実装 | single application instance / 1 primary window、二重起動時の既存 primary window 前面化、内部 process の許容、最後の primary window close で application instance を終了し、local runtime と app-owned child process をすべて停止して orphan process を残さない契約、Settings modal、確認 dialog、OS file dialog と独立 primary window の区別、dirty close / update の 3 結果、General / Updates / Data and Backup、`/backup` の段階廃止に対応する Desktop code / UI はない。現行 `/backup` は実装済みのまま維持されている。 |
+| 更新 / migration | 採用済みの将来契約、未実装 | DMG、最大 1 日 1 回の更新確認、手動確認、toggle なし、background download、明示的な再起動適用、失敗時の現行版維持、最小 manifest、pending migration 時だけの safety backup、staging migration、atomic switch に対応する code / packaging 設定はない。 |
+| Backup / restore / 完全なデータ削除 | 採用済みの将来契約、未実装 | 手動 SQLite export、app 管理 backup と外部 file の別 restore、restore 前 backup、schema / integrity / semantic validation、pending restore、live DB・app 管理 backup・設定だけを対象とする完全削除は未実装。現行コードは `/backup` と `GET/POST /api/backups` の手動作成・一覧だけである。 |
+| Startup / diagnostics / privacy | 採用済みの将来契約、未実装 | DB recovery UI、14 日・20 MB の local log retention、local 診断 bundle、禁止データの allowlist / denylist test、異常終了後の一度だけの通知は未実装。外部 telemetry や app 独自 DB encryption を Desktop Alpha の要件にはしない。 |
+| Canvas PNG | Desktop Alpha 後の最初の外部出力として採用済み、未実装 | Canvas の保存済み page 全体を同寸法で出力し、paper 背景を含め、UI / Cue / Summary / legacy Markdown を除外し、page 外を切り取り、`[タイトル]_[学習日].png` を初期名にする契約である。PNG export UI、route、provider、保存処理はない。使用不可文字、同名 file、保存先、失敗時 UI、色管理は未決定。 |
+| 検索サジェスト | Desktop Alpha 後の採用済み要件、未実装 | 単一の検索対象 selector、既定タイトル、タイトル / 学習元 / 本文 / Cue / すべて、local data の語句候補、1 文字目から最大 5 件、前方一致優先に対応する UI / contract / query はない。現行の tag 専用 filter は実装済みで、将来 selector に含めない。 |
+| 大規模一覧 | Desktop Alpha 後の採用済み要件、未実装 | 5,000 件の長期利用目標、10,000 件の性能確認、追加読み込み型の無限スクロール、virtualization / windowing は製品 UI に未実装。現行一覧は 1 ページ 50 件のページングである。現行 query の 300ms debounce は、将来サジェストの debounce 採用を意味しない。 |
+| 10,000 note fixture tooling | 比較・性能検証の補助 tooling は存在。製品機能の実装証拠ではない | `package.json` に `fixture:generate` と `dev:fixture` があり、`scripts/generate-sqlite-fixture.js` と `scripts/dev-sqlite-fixture.js` は既定 10,000 件、固定 seed `cornell-method-fixture-v1` を使う。generator は既存 migration を適用し、Canvas と relation を read-back 検証する。この文書同期では生成・性能測定を実行していない。 |
+| PDF export | 未実装かつ現在未採用。再検討するかも未決定 | export route と PDF 生成コードはない。Playwright は `npm run test:e2e`、過去の MVP QA、`scripts/render-mermaid-diagrams.js` の図生成に使われているが、PDF export または Desktop PoC 必須条件の証拠ではない。 |
+| Draft / autosave / version・競合 | 未採用、未実装 | `NotebookDraftState` model、autosave route / persistence、version、409 UI はない。`draft` prop や依存の存在を採用・実装済みと数えない。 |
+| Undo / soft delete | 未採用、未実装 | `SoftDeleteBuffer` と Undo route はない。削除は `prisma.notebook.delete` による物理削除である。 |
+| 専用復習タスク | 未採用、未実装 | `/tasks/review`、`/api/review-tasks`、進捗 model はない。現行 MVP は `reviewDue` と詳細画面内復習を使う。 |
+| NoteCard / D&D | 未採用、未実装 | `NoteCard`、`CueCard`、`NoteCueLink` model と永続化 UI はない。`@dnd-kit/*` の依存だけでは実装済みと判定しない。 |
+| タグ管理 mutation / 定期 backup 等 | 未採用、未実装 | `POST /api/tags`、rename / delete UI、定期 backup、`BackupLog`、`POST /api/backups/retry` はない。Tag 作成は現行ノート保存時の upsert、backup は手動作成・一覧に限る。 |
 
 ### 5.5 Canvas 実装・検証境界（後続確認入口）
 
@@ -251,7 +259,7 @@ Worker task は Browser backend `[]` と app-server `Operation not permitted` �
 
 ## 6. セットアップ・運用コマンド
 
-`package.json` と `README.md` で確認できるコマンドだけを掲載する。seed script はなく、`README.md` も seed 不要としている。
+`package.json` と実在する script で確認できるコマンドだけを掲載する。製品 DB を初期化する seed は使わない。性能比較用の isolated fixture generator は製品 seed と分けて扱う。
 
 | コマンド | 用途 |
 | --- | --- |
@@ -262,9 +270,11 @@ Worker task は Browser backend `[]` と app-server `Operation not permitted` �
 | `npm run build` | webpack を使った本番 build |
 | `npm run lint` | ESLint |
 | `npm run backup:copy` | SQLite DB の手動バックアップ |
+| `npm run fixture:generate -- [options]` | 既存 file と live DB を上書きせず、既定 10,000 件の deterministic な SQLite fixture を生成して read-back 検証する |
+| `npm run dev:fixture -- [options]` | OS の一時 directory に既定 10,000 件の fixture を作り、その DB 専用の Next.js 開発 server を起動する。終了時は生成した一時 file だけを削除する |
 | `npm run diagrams:build` | Mermaid 図の抽出・SVG 生成 |
 
-`npm run seed`、PDF 生成用の npm script、`npm run backups:retry` は存在しない。根拠は `package.json`、`README.md`。
+`npm run seed`、PDF / Canvas PNG 生成用の npm script、`npm run backups:retry` は存在しない。fixture command の存在は Desktop PoC、Canvas PNG、検索サジェスト、無限スクロールの実装・性能検証済みを意味しない。根拠は `package.json`、`scripts/generate-sqlite-fixture.js`、`scripts/dev-sqlite-fixture.js`。
 
 ## 7. 検証証跡
 

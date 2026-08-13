@@ -1,5 +1,10 @@
 import type { NextConfig } from "next";
 
+// The fixture runner sets this only in its child process. Normal commands keep
+// Next.js's default `.next` directory.
+const fixtureDistDir = process.env.CORNELL_FIXTURE_DIST_DIR?.trim();
+const fixtureTsconfigPath = process.env.CORNELL_FIXTURE_TSCONFIG_PATH?.trim();
+
 const securityHeaders = [
   { key: "X-Content-Type-Options", value: "nosniff" },
   { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
@@ -16,6 +21,10 @@ const securityHeaders = [
 ];
 
 const nextConfig: NextConfig = {
+  ...(fixtureDistDir ? { distDir: fixtureDistDir } : {}),
+  ...(fixtureTsconfigPath
+    ? { typescript: { tsconfigPath: fixtureTsconfigPath } }
+    : {}),
   async headers() {
     return [
       {

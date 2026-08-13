@@ -21,6 +21,8 @@
     "postgres:retention:prune": "node scripts/postgres-retention.js --apply --confirm-prune",
     "prisma:studio": "prisma studio",
     "backup:copy": "node scripts/backup-copy.js",
+    "fixture:generate": "node scripts/generate-sqlite-fixture.js",
+    "dev:fixture": "node scripts/dev-sqlite-fixture.js",
     "diagrams:extract": "node scripts/extract-mermaid-diagrams.js",
     "diagrams:svg": "node scripts/render-mermaid-diagrams.js",
     "diagrams:build": "npm run diagrams:extract && npm run diagrams:svg"

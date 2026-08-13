@@ -1,0 +1,24 @@
+appId: com.cornellmethod.notebook.electron.poc
+productName: Cornell Method Notebook Electron PoC
+asar: true
+compression: normal
+files:
+  - src/main.cjs
+  - src/preload.cjs
+  - scripts/process-tree.cjs
+  - package.json
+extraMetadata:
+  version: 0.1.0
+mac:
+  category: public.app-category.productivity
+  hardenedRuntime: false
+  gatekeeperAssess: false
+  identity: null
+  target:
+    - target: dir
+      arch:
+        - arm64
+    - target: dmg
+      arch:
+        - arm64
+artifactName: Cornell-Method-Electron-PoC-${version}-${arch}.${ext}

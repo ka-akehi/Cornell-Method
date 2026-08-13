@@ -1,0 +1,9 @@
+node_modules/
+*.log
+dist/
+out/
+build/
+*.app/
+*.dmg
+.DS_Store
+

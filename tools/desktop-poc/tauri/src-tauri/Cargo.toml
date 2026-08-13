@@ -1,0 +1,15 @@
+[package]
+name = "cornell-method-tauri-poc"
+version = "0.1.0"
+description = "Isolated Tauri shell for the Cornell Method Notebook Desktop PoC"
+authors = ["Cornell Method Notebook"]
+edition = "2021"
+build = "build.rs"
+
+[build-dependencies]
+tauri-build = "=2.5.1"
+
+[dependencies]
+serde = { version = "=1.0.219", features = ["derive"] }
+serde_json = "=1.0.140"
+tauri = "=2.5.1"

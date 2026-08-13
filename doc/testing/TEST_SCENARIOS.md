@@ -8,7 +8,7 @@ MVP の確認対象は、明示保存、物理削除、手動で管理する `ne
 
 MVP の初期データに seed は使いません。検証用データは `/notes/new` または `POST /api/notes` で作成します。
 
-`doc/requirements/PRODUCT_SPEC.md` に含まれる将来仕様のうち、自動保存、Undo、PDF、専用復習タスク画面、D&D、NoteCard などは、このドキュメント末尾の「Phase 2 / 将来確認」に分離します。現行 MVP の受け入れ根拠は `doc/implementation/MVP_CONTRACT.md` です。
+`doc/requirements/PRODUCT_SPEC.md` に含まれる Desktop Alpha、Canvas PNG、検索サジェスト、大規模一覧は、このドキュメント末尾の「Desktop Alpha / Phase 2 / 将来確認」に分離します。autosave、Undo、専用復習タスク画面、D&D、NoteCard 等は未採用候補、PDF export は現在未採用として同じ節で区別します。現行 MVP の受け入れ根拠は `doc/implementation/MVP_CONTRACT.md` です。
 
 ## 現行 MVP Gate 0 の最終判定（2026-08-11）
 
@@ -20,7 +20,7 @@ MVP の初期データに seed は使いません。検証用データは `/note
 | 対象範囲 | `/notes`、`/notes/new`、`/notes/[id]`、`/backup` の現行 MVP。明示保存、閲覧・編集・復習、検索、確認付き物理削除、手動 SQLite backup を含む |
 | Browser / mobile / wheel、実 DB read-back、E2E、外部 Postgres、build / Prisma | Gate 0 の必須条件や blocker ではない。未確認の場合は履歴・任意 QA として扱う |
 | `BLOCKED` / `NOT RUN` の過去記録 | 削除・改変せず保持する。現行 Gate 0 の未完了根拠にはしない |
-| Gate 0 完了後 | Phase 2、Desktop、PDF などを自動実装しない。次の機能優先順位は発注者が別途判断する |
+| Gate 0 完了後 | Desktop PoC と Desktop Alpha を先行する。Canvas PNG と検索・一覧は Desktop Alpha 後の採用済み要件だが、現行 MVP へ繰り上げない。PDF export 等の未採用候補を自動実装しない |
 
 下記のチェックリスト、個別シナリオ、静的検証、Browser runtime の判定は詳細な証跡・履歴です。個別行の `FAIL（静的照合）`、`部分実施`、`未実施`、`BLOCKED`、`NOT RUN` は、それぞれの記録範囲を示すものであり、現行 Gate 0 の最終判定を取り消しません。
 
@@ -32,7 +32,7 @@ Playwright は `127.0.0.1:4173` の専用 web server を起動し、実行開始
 
 自動 E2E は、`/` → `/notes` redirect、現在日以前の日付を使ったタイトル・Cue・Summary の作成、保存後の `/notes/[id]` と Canvas viewer、編集保存、一覧 query 検索をカバーします。詳細の復習モードでは本文表示 / 再非表示と `POST /api/notes/:id/review`、削除では確認ダイアログ受け入れ後の物理削除と一覧 / API からの消失を確認します。保存後に `GET /api/notes/:id` を呼び出し、Cue の `text` と `order` が保存前の内容・順序どおりに復元されることも確認します。失敗時は `test-results/` に trace・screenshot・video、`playwright-report/` に HTML report を生成します。これらは Git 管理対象外です。
 
-2026-07-05 の `summary/20260705/mvp-ui-flow-reverification-report.md` は、既存 DB と単発 QA 用データを使った別の検証記録です。この自動 E2E の実行証拠には使用しません。PDF export、Phase 2 の autosave、soft-delete / Undo、専用 review-tasks、NoteCard / D&D、起動時バックアップはこの E2E の coverage boundary 外です。
+2026-07-05 の `summary/20260705/mvp-ui-flow-reverification-report.md` は、既存 DB と単発 QA 用データを使った別の検証記録です。この自動 E2E の実行証拠には使用しません。Desktop Alpha、Canvas PNG、検索サジェスト、大規模一覧と、未採用の PDF export、autosave、soft-delete / Undo、専用 review-tasks、NoteCard / D&D はこの E2E の coverage boundary 外です。Playwright / Chromium の既存利用は Desktop PoC の必須条件を意味しません。
 
 ## MVP 受け入れ確認
 
@@ -687,7 +687,7 @@ Postgres target へ接続せず、現行 MVP schema の isolated frozen SQLite f
 | CANVAS-SCROLL-WHEEL-20260731 | Canvas の wheel / trackpad / touch scroll handoff、scroll 中の drawing 誤作成・既存要素不変 | `/notes/new`、必要に応じて `/notes/[id]`（編集・閲覧） | Browser runtime、375 / 768 / 1280px、wheel / touch / pointer | 2026-07-31 | Browser backend `[]`、localhost route 到達不可、新規 server bind `EPERM`。viewport metrics、input event、Canvas JSON、保存 request / GET、console / page error は未取得。2026-07-25 の別経路 subset は履歴として保持 | BLOCKED | `summary/20260731/worker-canvas-scroll-wheel-touch-qa-20260731.md` |
 | NTE020-MOBILE-RUNTIME-20260731 | mobile の新規 editor、既存 note edit、viewer、review、long input / validation overflow | `/notes/new`、`/notes/[id]`（編集・閲覧・復習） | 375 / 768px、Browser / headless Chromium runtime | 2026-07-31 | Browser backend `[]`、dedicated server bind `EPERM`、headless Chromium 起動失敗。curl の route 200 は visual / interaction PASS ではない。fixture / screenshot / browser listener は未作成 | BLOCKED | `summary/20260731/worker-mobile-note-runtime-20260731.md` |
 | POSTGRES-NATIVE-READER-20260731 | 不採用方針決定前の source reader 検証履歴: native failure fallback、CLI snapshot、read-only invariant、Canvas / row validation、targetless reconcile | `scripts/postgres-migration-common.js`、`scripts/postgres-reconcile.js` | isolated frozen SQLite fixture、temporary harness。実 Postgres target は対象外 | 2026-07-31 | require / constructor の `ERR_DLOPEN_FAILED` 注入から `/usr/bin/sqlite3` CLI fallback に到達。row digest、Canvas validation、source hash / size / sidecar 不変、temporary cleanup、targetless reconcile の未接続を確認 | PASS（isolated evidence の範囲のみ） | `summary/20260731/worker-postgres-native-reader-fallback-20260731.md`、`summary/20260731/1804-recheck-postgres-native-reader-fallback-evidence-20260731-d5caeaf3-summary.md` |
-| PHASE2-BOUNDARY | 自動保存、Undo / soft delete、専用復習タスク、NoteCard / D&D、PDF、タグ管理 UI 等 | `/tasks/review`、`/notes/backup`、export 等（MVP 外） | 静的な契約照合。runtime 対象外 | 2026-07-16 | fixture なし。Phase 2 の未実施項目として扱い、MVP の PASS 集計には含めない | 未実施 | `doc/implementation/MVP_CONTRACT.md` §2・§9、本文書「Phase 2 / 将来確認」 |
+| PHASE2-BOUNDARY | 2026-07-16 時点の将来候補境界。現在は Desktop Alpha、採用済みの Canvas PNG・検索／一覧、未採用候補を分離する | Desktop shell / Settings / export / search 等（MVP 外） | 静的な契約照合。runtime 対象外 | 2026-07-16 | fixture なし。当時から未実施で、現行 MVP の PASS 集計には含めない。PDF export は現在未採用 | 未実施 | `doc/implementation/MVP_CONTRACT.md` §2・§9、本文書「Desktop Alpha / Phase 2 / 将来確認」 |
 
 注記: 2026-07-18 の概要項目削除より前に実施した `NTE030-VIEW-1440`、`MVP-GAP-002`、`MVP-GAP-003` は、当時の画面・契約に対する履歴記録です。現在の受け入れ対象には含めず、過去の確認結果・未達理由を改変せずに保持します。
 
@@ -697,91 +697,135 @@ NTE-020 の `summary/20260714/2205-document-nte020-policy-c-responsive-acceptanc
 
 NTE-030 の `summary/20260715/0107-implement-nte030-review-shared-detail-shell-e125e816-summary.md` は実装 task、`summary/20260715/0112-qa-nte030-review-shared-shell-runtime-screenshots-f2358087-summary.md` と `summary/20260715/0206-document-nte030-runtime-screenshot-evidence-fcffd017-summary.md` は task / documentation 記録です。`summary/20260715/0155-qa-nte030-review-shared-shell-puppeteer-network-blocked-summary.md` は接続制約による失敗記録であり、これらの `done` 状態だけを runtime PASS の根拠にはしません。1440px の PASS は、直接確認内容を記した `HANDOFF_2026-07-16.md` と実在する screenshot を根拠にしています。
 
-## Phase 2 / 将来確認
+## Desktop Alpha / Phase 2 / 将来確認
 
-次の項目は MVP 外です。MVP の必須受け入れ条件には含めず、Phase 2 以降の実装時に確認します。
+次の項目は現行 MVP 外です。すべて未実装・未実施であり、現行 MVP の PASS 集計に含めません。Desktop PoC と Desktop Alpha を先に完了し、その後に Canvas PNG、検索サジェスト、大規模一覧を確認します。未採用候補は、発注者が採用するまで実装シナリオとして確定しません。
 
-専用の復習タスク画面、1 日後 / 1 週間後の自動タスク、`review status`、未完了タスクバッジは、この節だけで扱います。現行 MVP の確認項目（`nextReviewDate` の手動管理、`reviewedAt` の更新、詳細画面内復習）とは混同しません。
+### 1. Desktop PoC 比較
 
-### 1. 自動保存 / 下書き / 競合制御
+- [ ] Electron と Tauri + Node.js sidecar が、同じ現行 MVP baseline identifier を使っている
+- [ ] 両候補が同じ deterministic な 10,000 note SQLite fixture、同じ seed、同じ Apple Silicon Mac と macOS を使っている
+- [ ] cold start を process 起動からノート一覧が操作可能になるまで同じ手順で測定している
+- [ ] 一覧表示、検索、詳細遷移、編集・保存の操作反応を同じ fixture と操作で測定している
+- [ ] shell の main / core、renderer / WebView、local runtime、Node.js sidecar、framework helper、関連子 process の合計メモリを同じ状態で記録している
+- [ ] packaged app / DMG と同梱 runtime のサイズ・内訳を同じ基準で記録している
+- [ ] SQLite / Prisma / migration、single application instance / 1 primary window、既存 primary window の前面化、shutdown、app-owned process tree cleanup の成立性を確認している
+- [ ] shell が必要とする main / core、renderer / WebView、local runtime、Node.js sidecar、framework helper、関連子 process の存在を許容している
+- [ ] OS process が複数存在することだけを候補の blocker または不合格理由にしていない
+- [ ] DMG、静的 manifest、architecture / OS compatibility の端末内判定、background download、明示再起動による更新の成立見通しを比較している
+- [ ] 保守性、安全性、license、Apple 関連費用、配布 storage / bandwidth、CI、保守工数を含む総コストを比較している
+- [ ] 成功、失敗、未測定、blocker を候補ごとに同じ形式で記録し、発注者が shell を選定している
+- [ ] PDF export、packaged Playwright / Chromium、Canvas PNG、Intel、未検証の古い macOS を blocker または必須受け入れ条件にしていない
 
-- [ ] 3 秒アイドルでドラフト自動保存が走る
-- [ ] 連続ドラフト保存が最短 6 秒間隔に抑制される
-- [ ] 確定保存後にドラフトステータスがリセットされる
-- [ ] 409 競合時にバナーで再読み込みを促す
-- [ ] 409 競合時に自動保存が停止する
-- [ ] 自動保存失敗時にバナーが表示される
-- [ ] 自動保存失敗時に手動「再試行」ボタンだけが表示される
-- [ ] オフライン時に自動保存失敗バナーが表示される
-- [ ] 作成時にドラフトレコードが初期化される
-- [ ] 起動時バッチで 30 日超のドラフトがクリーンアップされる
+### 2. Desktop lifecycle / Settings
 
-### 2. Undo / Soft Delete
+- [ ] packaged app が single application instance / 1 primary window で起動する
+- [ ] アプリを 2 回起動しても application instance と primary window が増えず、既存 primary window が前面へ出る
+- [ ] Settings modal、確認 dialog、OS file dialog が新しい独立 primary window を作らない
+- [ ] 最後の primary window を閉じると application instance が終了し、local runtime と app-owned child process をすべて停止した後に app-owned process tree（orphan process）が残らない
+- [ ] 次回起動はノート一覧から始まり、前回 route を復元しない
+- [ ] 保存した window size / position が現在の画面領域外にある場合、見える位置へ補正する
+- [ ] dirty close で保存して終了、保存せず終了、終了取消しの 3 結果を選べる
+- [ ] dirty update で保存して更新、保存せず更新、更新取消しの 3 結果を選べる
+- [ ] close / update dialog の Escape と dialog 外操作が取消しになり、保存失敗時は終了・更新せず draft と dirty 状態を保持する
+- [ ] Settings modal に General、Updates、Data and Backup があり、Mac は Settings menu、開発用 Web は gear から開ける
+- [ ] 現行 `/backup` は Data and Backup が代替して受け入れ確認を通るまで維持され、確認後の Desktop UI だけで段階的に廃止される
 
-- [ ] 削除後の Undo Snackbar が 5 秒表示される
-- [ ] Undo Snackbar から削除済みノートを復元できる
-- [ ] `POST /api/undo` で Undo 期限内の対象を復元できる
-- [ ] `SoftDeleteBuffer` に削除対象が記録される
-- [ ] Undo 期限切れ後にソフトデリート済みデータが物理削除される
+### 3. Desktop update / migration
 
-### 3. PDF Export
+- [ ] 初期インストール用 DMG を作成できる
+- [ ] 起動完了後の更新確認は非同期で、最大 1 日 1 回に制限され、手動確認もできる
+- [ ] 更新確認の ON / OFF 設定が存在しない
+- [ ] 更新 package を background download し、自動適用せず、明示的な「再起動して更新」でだけ適用する
+- [ ] 更新確認または download に失敗しても現行版を利用でき、次回の定期確認または手動確認で manifest 確認から更新処理全体を再試行する
+- [ ] 同じ保留更新を modal で繰り返し通知せず、Settings から状態を確認できる
+- [ ] 複数版を飛ばす更新で、端末が利用できる最新の compatible version を選ぶ
+- [ ] package の署名・完全性検証に失敗した場合、取得物を破棄して現行版を維持する
+- [ ] manifest は version、architecture、OS compatibility 等の更新判定に必要な最小情報だけを扱う
+- [ ] manifest / package の送受信に端末固有 ID、利用状況、ノート本文、Cue、Summary、タイトル、タグ、学習元、検索内容、SQLite、backup、診断 log が含まれない
+- [ ] pending migration がある更新だけ、適用直前に app 管理 safety backup を作る
+- [ ] pending migration がない更新で、migration 用 safety backup と migration を実行しない
+- [ ] migration を staging copy 上で古い順に適用し、schema、必須データ、Canvas、reopen を検証する
+- [ ] 検証成功後だけ新しい app と DB へ atomic switch し、失敗時は現行 app と live DB を維持する
+- [ ] migration 前 safety backup を含む app 管理 safety backup が最新 3 世代に保たれる
+- [ ] 定期・日次・通常起動時・データ変更時の自動 backup を Desktop Alpha の必須挙動として実装していない
 
-- [ ] `/notes` で日付範囲指定し PDF 出力を実行できる
-- [ ] PDF 出力が `GET /api/notes/export?from&to` を使う
-- [ ] PDF が 1 ノート 1 ページでダウンロードされる
-- [ ] 期間未指定または不正範囲のとき PDF 出力ボタンが無効化される
-- [ ] PDF 出力完了時にトーストが表示される
+### 4. Backup / restore / 完全なデータ削除
 
-### 4. 専用復習タスク画面 / バッジ
+- [ ] Data and Backup で、手動 SQLite export、app 管理 backup からの復元、外部 backup file からの復元を別操作として表示する
+- [ ] 手動 export はユーザーが保存先を選ぶ平文 SQLite で、app 管理 backup の 3 世代 retention を適用しない
+- [ ] 2 つの restore 入口が staging validation、明示確認、atomic switch、restart の同じ pipeline を使う
+- [ ] restore の開始前に現在の live DB を app 管理 safety backup として保存する
+- [ ] restore file の SQLite integrity、foreign key、schema / migration compatibility、必須データ、全 `CanvasDocumentV1`、切替後 reopen を検証する
+- [ ] schema、integrity、semantic validation、reopen のいずれかに失敗した file を適用せず、live DB を変更しない
+- [ ] 古い schema の backup は staging copy に migration を古い順に適用してから復元する
+- [ ] 現行 app より新しい schema の backup はその場で復元せず、compatible な更新後にユーザーの明示確認で再開する pending restore になる
+- [ ] 完全なデータ削除が入力確認を要求し、live DB、app 管理 backup、設定だけを削除して初回状態へ戻る
+- [ ] 完全なデータ削除が外部 SQLite export を削除せず、更新、reinstall、通常の uninstall から暗黙に実行されない
 
-- [ ] `/tasks/review` の 1 日後タブでタスクが表示される
-- [ ] `/tasks/review` の 1 週間後タブでタスクが表示される
-- [ ] `/tasks/review` で完了チェックすると次ステータスに遷移する
-- [ ] `/tasks/review` で完了チェック後にタスクが即時消える
-- [ ] グローバルナビゲーションに未完タスクバッジが表示される
-- [ ] 作成時にレビュー進捗レコードが初期化される
-- [ ] 作成時に 1 日後 / 7 日後のレビュー予定が保存される
+### 5. Startup failure / diagnostics / privacy
 
-### 5. D&D / Card Model
+- [ ] 通常起動は DB open と schema 状態だけを確認し、全件 integrity check を毎回実行しない
+- [ ] 詳細 integrity check は異常終了後、migration 後、restore 後等の必要時だけ実行する
+- [ ] 初回利用で DB がない場合は新規作成し、過去の利用記録があるのに DB がない場合は空 DB を自動作成しない
+- [ ] DB が破損・読み取り不能の場合は通常のノート UI を開かず、自動修復しない
+- [ ] 起動不能時は診断情報を書き出して終了する操作を主とし、終了と backup 復元への案内を提供する
+- [ ] backup がない場合だけ、明示確認後に空 DB で始める選択肢を提供する
+- [ ] save 失敗時は編集内容と dirty 状態を保持し、保存成功扱い、自動終了、自動再起動を行わない
+- [ ] 異常終了後の次回手動起動で DB open と schema 確認が成功した場合、ノート一覧と一度だけの非 blocking 通知を表示する
+- [ ] 診断 bundle はユーザーの明示操作で local にだけ作成し、自動送信しない
+- [ ] Application Support の local log が最大 14 日かつ合計 20 MB に制限され、いずれかを超えると古いものから削除される
+- [ ] local log と診断 bundle にノート本文、Cue、Summary、タイトル、タグ、学習元、SQLite、backup、Canvas JSON、検索文字列、token、user path、crash dump が含まれない
+- [ ] 診断 bundle が error log、時刻、component、sanitized stack、app version、macOS version、CPU architecture、DB schema version の allowlist で構成される
+- [ ] ノート操作は offline で、network は更新 manifest と package の取得だけに使う
+- [ ] Full Disk Access を要求せず、Application Support とユーザーが明示選択した file だけへアクセスする
+- [ ] local SQLite は macOS の file permission と FileVault を前提とし、app 独自 DB encryption や専用 password / Touch ID lock を Desktop Alpha の必須条件にしていない
 
-- [ ] キーワードカードを D&D で並び替えできる
-- [ ] ノートカードを追加できる
-- [ ] ノートカードを D&D で並び替えできる
-- [ ] ノートカードの hidden flag を閲覧モードで反映できる
-- [ ] ノート欄全体の一時非表示を閲覧モードで切り替えられる
-- [ ] Cue と Note の関連を `NoteCueLink` に保存できる
-- [ ] D&D のキーボード代替操作が用意されている
-- [ ] D&D リストに必要な ARIA 属性が付与されている
+### 6. Canvas PNG
 
-### 6. タグ管理 UI
+- [ ] 保存済み `CanvasDocumentV1.page.width` × `page.height` の用紙全体を同じ寸法で PNG 化する
+- [ ] 現在の paper 背景を含める
+- [ ] Canvas の用紙だけを出力し、header、sidebar、toolbar、Cue、Summary、Settings 等のアプリ UI を含めない
+- [ ] 用紙外の要素部分を用紙境界で切り取り、画像を用紙外まで広げない
+- [ ] legacy `bodyMode=markdown` の本文を出力対象にしない
+- [ ] 初期ファイル名が `[タイトル]_[学習日].png` になる
+- [ ] ファイル名の文字列を画像内へ描画しない
+- [ ] 使用不可文字、同名 file、保存先、失敗時 UI、色管理は仕様 task で決定するまで固定しない
+- [ ] PNG を編集用 backup、復元用正本、SQLite との双方向同期に使わない
 
-- [ ] タグ一覧で右クリックメニューから名称変更できる
-- [ ] タグ一覧で右クリックメニューから削除できる
-- [ ] タグ削除時に確認 UI が表示される
-- [ ] タグ名称変更が既存ノートへ即時反映される
+### 7. 検索サジェスト
 
-### 7. バックアップログ / Retry API
+- [ ] 既存の tag 専用 filter を維持し、tag を検索対象 selector とサジェストに含めない
+- [ ] 検索対象は単一選択で、既定値がタイトルになる
+- [ ] 検索対象の基本候補がタイトル、学習元、本文、Cue、すべてになる
+- [ ] 「すべて」がタイトル、学習元、本文、Cue を検索する
+- [ ] サジェストはノート card ではなく、選択範囲の local data に存在する語句候補を返す
+- [ ] 入力 1 文字目から最大 5 件を返し、前方一致を優先する
+- [ ] 外部辞書 API、外部推論、telemetry を使わない
+- [ ] debounce は 10,000 件の実測で必要な場合だけ導入する
+- [ ] Summary の検索対象分類、tokenization、同順位、API / index を仕様 task で決定するまで固定しない
 
-- [ ] `backup_logs` にバックアップ結果が保存される
-- [ ] バックアップログを UI で確認できる
-- [ ] `POST /api/backups/retry` で失敗分を再試行できる
-- [ ] `/backup` でログ詳細を確認できる
+### 8. 10,000 件一覧
 
-### 8. 高機能 Markdown エディタ / ショートカット
+- [ ] 5,000 件を長期利用の最低目標とし、利用上限として扱わない
+- [ ] deterministic な 10,000 note fixture と固定 seed を使い、生成条件と fixture identifier を証跡に残す
+- [ ] 10,000 件で一覧表示、検索、詳細遷移、編集・保存、メモリを測定する
+- [ ] 一覧が全件を一度に取得・描画せず、下端付近で次のまとまりを読む追加読み込み型の無限スクロールになる
+- [ ] virtualization または同等の windowing で、長時間スクロール後の DOM 要素数とメモリ増加を制限する
+- [ ] 取得単位、cursor / offset、仮想化方式、事前読み込み距離を実測後に決める
+- [ ] 後続仕様 task の承認前に、現行 MVP の検索 API と 1 ページ 50 件の契約を変更しない
 
-- [ ] `@uiw/react-md-editor` などの高機能 Markdown エディタで入力できる
-- [ ] Markdown ツールバーから装飾を挿入できる
-- [ ] Cmd/Ctrl+S で確定保存できる
-- [ ] Cmd/Ctrl+N でフォーカス位置に応じてカード追加できる
-- [ ] Cmd/Ctrl+N でフォーカスなしの場合は無効になる
-- [ ] Cmd/Ctrl+Z で取り消しが効く
-- [ ] Cmd/Ctrl+Shift+Z でやり直しが効く
+### 9. 未採用候補
 
-### 9. アクセシビリティ強化
+次の機能は現在未採用です。下記は実装チェックリストではなく、採用前の境界確認です。
 
-- [ ] モーダルに必要な ARIA 属性が付与されている
-- [ ] モーダルのフォーカス制御が実装されている
-- [ ] 削除確認以外の確認モーダルにもフォーカストラップが効く
+- [ ] autosave、draft、version・競合処理を実装する前に、発注者が採用を承認し、明示保存との境界を更新している
+- [ ] Undo / soft delete / purge を実装する前に、発注者が採用を承認し、確認付き物理削除との境界を更新している
+- [ ] 専用復習タスクを実装する前に、発注者が採用を承認し、`reviewDue` と詳細画面内復習との境界を更新している
+- [ ] NoteCard / Cue link / hidden / D&D を実装する前に、発注者が採用を承認し、`CanvasDocumentV1` との所有関係を決めている
+- [ ] 定期 backup、暗号化 backup、タグ管理 mutation を実装する前に、発注者が採用を承認している
+- [ ] PDF export は未採用のまま実装 checklist や Desktop PoC の必須条件へ追加されていない
+- [ ] PDF を再検討する場合は Canvas PNG と分けた仕様、PoC、採用判断を行っている
 
 ## MVP 静的検証記録（2026-07-21）
 

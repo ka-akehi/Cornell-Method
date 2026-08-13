@@ -1,6 +1,6 @@
 # MVP システム仕様書
 
-確認日: 2026-08-09
+確認日: 2026-08-12
 
 ## 文書の位置づけ
 
@@ -63,9 +63,9 @@ Cornell Method Notebook は、ローカル個人利用向けの学習ノート�
 | --- | --- |
 | `app bundle` | 実行コード、Next.js 資産、Prisma Client / migration、必要な runtime / driver を含む。インストールされた `.app` 内に SQLite の live file やユーザーデータを置かない |
 | `user data directory` | SQLite DB、DB backup、アプリ設定、ログ等の書き込み可能データを置く。OS のユーザーデータ領域を基本とし、初回起動時に作成・初期化する。`Downloads` を既定にしない |
-| `PDF output destination` | SQLite から生成する PDF の外部出力領域。具体的な保存先は未決定で、既存仕様の確定前に固定しない |
+| `Canvas PNG output destination` | Desktop Alpha 後に実装する Canvas PNG の外部出力領域。具体的な保存先は未決定で、この文書では固定しない |
 
-アプリ更新では app bundle の更新と user data の migration を分離し、ユーザーデータを保持します。アンインストールとデータ削除も別の操作とします。Electron を最短経路候補、Tauri + Node.js sidecar を代替候補として比較し、shell の採用と実装着手は Desktop PoC 後に判断します。
+アプリ更新では app bundle の更新と user data の migration を分離し、ユーザーデータを保持します。アンインストールとデータ削除も別の操作とします。Desktop shell は Electron と Tauri + Node.js sidecar を、同じ現行 MVP、同じ deterministic な 10,000 note fixture、同じ Apple Silicon Mac、同じ測定軸で比較してから選定します。
 
 ユーザーは、コーネルメソッドの形式に沿って、学習内容を以下の単位で記録します。
 
@@ -76,7 +76,7 @@ Cornell Method Notebook は、ローカル個人利用向けの学習ノート�
 - タグ
 - 次回復習日と復習済み日時
 
-MVP では、ノート作成、検索、閲覧、編集、復習、バックアップまでの学習サイクルを最小構成で成立させます。高度な自動保存、カード分割、Undo、PDF 出力、専用復習タスク画面は Phase 2 に送ります。MVP の内部データは SQLite のみを正本とし、PDF 生成は未実装です。
+MVP では、ノート作成、検索、閲覧、編集、復習、バックアップまでの学習サイクルを最小構成で成立させます。MVP Gate 0 と人力結合テストは完了済みです。次の実装段階は Desktop Alpha であり、Desktop Alpha の完成後に Canvas PNG と検索・一覧の規模対応を実装します。autosave、Undo、専用復習タスク、NoteCard / D&D 等は未採用候補です。PDF export は未実装で、現在は採用していません。
 
 ## 利用者 / 利用シーン
 
@@ -164,7 +164,7 @@ MVP で扱う業務範囲は以下です。
 - タグ管理専用画面
 - オンライン同期、外部 API 連携
 - クラウド DB、クラウド同期、オンラインサービスへの接続や本番デプロイ。過去の Vercel / Supabase 等の検討は採用しない履歴であり、将来実装予定にはしない
-- ノートファイルを正本にした file-only / hybrid 運用。アプリ外のノート出力は SQLite から生成する PDF を基本とする
+- ノートファイルを正本にした file-only / hybrid 運用。現行 MVP は外部出力を持たず、Desktop Alpha 後の最初の外部出力には Canvas PNG を採用する。PDF export は現在未採用とする
 
 ## MVP スコープ
 
@@ -184,28 +184,45 @@ MVP スコープは、既存 MVP 設計書で発注者承認済みの判断に�
 | DB | Prisma + SQLite を採用する | ローカル個人利用に適しているため |
 | バックアップ | DB ファイルコピーと最新 3 世代保持 | 個人利用で最低限のデータ保全を行うため |
 
-## Phase 2 送り
+## Desktop Alpha と後続機能の境界
 
-以下は Phase 2 以降で検討します。MVP 実装中に必要性が生じても、現行 MVP の仕様には追加せず、別タスクで扱います。
+現行 MVP の route、API、DB、Canvas、明示保存、物理削除、復習、手動 backup は変更しません。MVP Gate 0 の次は Desktop Alpha を実装し、追加機能は Desktop Alpha の完成後に扱います。実装順と依存関係の正本は `doc/implementation/POST_MVP_IMPLEMENTATION_PLAN.md` です。
 
-Phase 2 の追加機能も SQLite を唯一の正本として実装し、PDF は SQLite から生成する派生出力に限定します。
-
-| 領域 | Phase 2 候補 | MVP で送る理由 |
+| 段階 | 現在の判断 | 現行 MVP との境界 |
 | --- | --- | --- |
-| 自動保存 / 下書き | `NotebookDraftState`、楽観ロック、競合 UI | MVP では手動保存で十分に主要フローを確認できる |
-| Undo | `SoftDeleteBuffer` と削除復元 | MVP は確認ダイアログ + 物理削除で代替する |
-| カード分割本文 | `NoteCard`、`NoteCueLink`、D&D | 現行 Canvas 本文との関係が未決定のため。Gate 0 後に Canvas 維持、カード併用、不採用を比較する |
-| 高度な復習 | 1 日後 / 7 日後タスク、進捗テーブル、専用復習タスクの未完了バッジ | MVP は手動の `nextReviewDate` で復習対象を扱う |
-| 専用復習画面 | `/tasks/review` | MVP は `/notes` の復習対象フィルタと詳細復習モードで扱う |
-| PDF 出力 | `/api/notes/export`、Playwright PDF | 学習記録の中核ではないため |
-| タグ管理 UI | タグ名変更、削除、右クリックメニュー | ノート保存時の自動作成と候補一覧で足りる |
-| 高機能 Markdown エディタ | Cue / Summary と legacy Markdown 本文向けの `@uiw/react-md-editor` など | 現行の軽量な Markdown 入力で MVP を検証する。Canvas 本文は対象にしない |
-| 外部デプロイ | 対象外。Vercel、Supabase、Basic 認証相当は採用しない | 個人ローカル利用を製品境界とする |
-| Desktop shell / 配布 PoC | Electron / Tauri + Node.js sidecar、署名・更新 | 現行 MVP の Web 起動を維持し、shell 選定と配布検証を別 task で行う |
-| 外部出力 | SQLite から生成する PDF | Phase 2。PDF は派生出力であり、編集・復元・SQLite との双方向同期には使わない。生成は未実装 |
-| Rust API | 別 API サーバー、補助プロセス | MVP の処理量では TypeScript API で十分 |
+| Desktop PoC | Electron と Tauri + Node.js sidecar を同条件で比較して shell を選定する | 製品機能を追加せず、PDF / Playwright / Chromium を blocker や必須受け入れ条件にしない |
+| Desktop Alpha | lifecycle、Settings、更新、migration、backup / restore、完全なデータ削除、診断、障害時挙動、privacy の契約を採用済み | 現行 MVP を Mac アプリとして包み、route、API、明示保存等を維持する |
+| Desktop Alpha 後 | Canvas PNG と検索サジェスト・大規模一覧対応を採用済み | 実装・検証は未着手。現行 MVP の検索 API と 1 ページ 50 件の契約はこの文書同期で変更しない |
+| 採否未決 | autosave、Undo / soft delete、専用復習タスク、NoteCard / D&D、定期 backup、PDF export 等 | 発注者が採用するまで仕様・実装 task を開始しない |
 
-`NoteCard`、`CueCard`、`NoteCueLink` は現行 MVP に存在しません。Phase 2 でカードを採用する場合も、legacy `Notebook.body` を order 0 の `NoteCard` へ移すことや、`CanvasDocumentV1` をカードへ自動変換することは決定していません。Gate 0 通過後の本文モデル判断で、Canvas 維持、カード併用、カード不採用を比較します。
+### Desktop PoC と Desktop Alpha
+
+- Desktop PoC は、同じ現行 MVP baseline、同じ deterministic な 10,000 note fixture、同じ Apple Silicon Mac で行います。起動速度、操作反応、shell の main / core、renderer / WebView、local runtime、Node.js sidecar、framework helper、関連子 process の合計メモリ、成立性、保守性、安全性、配布・更新、総コストを同じ測定条件で比較します。framework が必要とする内部 process を許容し、OS process が複数存在することだけを不合格理由にしません。
+- Desktop Alpha は single application instance / 1 primary window とします。Settings modal、確認 dialog、OS file dialog は primary window に数えず、新しい独立 primary window を作りません。
+- 二重起動時は新しい application instance / primary window を増やさず、既存 primary window を前面へ出します。最後の primary window を閉じると application instance を終了し、local runtime と app-owned child process をすべて停止して orphan process を残しません。
+- dirty な状態で終了する場合は、保存して終了、保存せず終了、終了取消しの 3 結果を提供します。現行正本の取消し操作は「戻る」で、Escape と dialog 外操作も取消しとして扱います。更新適用時は、保存して更新、保存せず更新、更新取消しを別の操作契約として扱います。
+- Desktop Alpha の Settings modal は General、Updates、Data and Backup で構成します。現行 MVP の `/backup` は、Settings modal の代替機能が完成して受け入れ確認を通るまで維持します。
+- 初期配布は DMG とし、更新は起動後に最大 1 日 1 回だけ非同期確認します。手動確認も提供し、確認の ON / OFF 設定は設けません。package は background download し、ユーザーが明示した「再起動して更新」で適用します。
+- 更新確認または download に失敗しても現行版を利用可能にし、次の定期確認または手動確認で更新処理全体を再試行します。更新 manifest の送受信は更新判定に必要な最小情報に限り、ノート本文、Cue、Summary、タイトル、タグ、学習元、SQLite、backup、診断 log を送りません。
+- pending migration がある更新だけ、適用直前に app 管理 safety backup を作ります。migration は staging copy へ古い順に適用し、検証と reopen に成功した場合だけ live DB と新しい app へ切り替えます。失敗時は現行 app と live DB を維持します。
+- migration 前と restore 前に作成する app 管理 safety backup は最新 3 世代を保持します。定期・日次・通常起動時の自動 backup は Desktop Alpha の必須要件にしません。
+- Data and Backup では、手動 SQLite export、app 管理 backup からの復元、外部 backup file からの復元を別の操作として提供します。restore 前に live DB の safety backup を作り、SQLite integrity、foreign key、schema / migration compatibility、必須データ、Canvas、reopen の検証に失敗した file は適用しません。
+- 現行 app より新しい schema の backup はその場で復元せず、compatible な更新後にユーザーが再開する pending restore とします。
+- 完全なデータ削除は live DB、app 管理 backup、設定を対象とし、外部 SQLite export は削除しません。
+- 起動時に DB を開けない場合は通常のノート UI を開かず、復旧導線を優先します。診断 bundle はユーザーの明示操作で local にだけ作成し、自動送信しません。ノート本文、Cue、Summary、タイトル、タグ、学習元、SQLite、backup、Canvas JSON、検索文字列を含めません。
+- local SQLite は macOS の file permission と FileVault を前提とし、Desktop Alpha で独自 DB 暗号化を必須にしません。
+
+### Desktop Alpha 後に採用済みの機能
+
+Canvas PNG は、保存済み `CanvasDocumentV1.page.width` × `page.height` の用紙全体を同じ寸法で画像化します。対象は現在の paper 背景を含む Canvas の用紙だけで、アプリ UI、Cue、Summary を含めません。用紙外の要素部分は切り取り、legacy Markdown 本文は対象にしません。初期ファイル名は `[タイトル]_[学習日].png` とし、その文字列を画像内へ描画しません。使用不可文字、同名 file、保存先、失敗時 UI、色管理は未決定です。PDF export は現在未採用で、再検討するかも未決定です。
+
+検索改善では、既存の tag 専用 filter を維持し、tag を検索対象 selector に含めません。検索対象は単一選択で、既定値をタイトルとし、タイトル、学習元、本文、Cue、すべてを基本候補にします。「すべて」はタイトル、学習元、本文、Cue を検索します。サジェストはノート card ではなく、選択範囲の local data に存在する語句候補です。1 文字目から最大 5 件を返し、前方一致を優先します。外部辞書 API と telemetry は使わず、debounce は 10,000 件での実測により必要な場合だけ導入します。
+
+長期利用の最低目標は 5,000 件とし、deterministic な 10,000 note fixture で性能余裕を確認します。一覧は追加読み込み型の無限スクロールとし、virtualization または同等の windowing で DOM 要素数を制限します。Summary の検索対象分類、tokenization、同順位、API / index、取得単位、仮想化方式は未決定です。
+
+### 採否未決の候補
+
+autosave、draft、version・競合処理、Undo / soft delete、専用復習タスク、タグ管理 mutation、NoteCard、Cue と本文の ID link、hidden flag、D&D、定期 backup、暗号化 backup は未採用です。`NoteCard`、`CueCard`、`NoteCueLink` は現行 MVP に存在せず、legacy `Notebook.body` や `CanvasDocumentV1` をカードへ自動変換する判断もしていません。
 
 ## 主要業務フロー概要
 
@@ -259,7 +276,7 @@ Phase 2 の追加機能も SQLite を唯一の正本として実装し、PDF は
 4. システムは最新 3 世代を残し、4 世代目以降を古い順に削除する。
 5. 画面はバックアップ一覧を更新する。
 
-この `backup/` は現行の開発用 Web 起動形態における MVP 契約です。Desktop 配布では、同じ手動 SQLite DB コピーの保存先を user data directory 内へ切り替える adapter を検討します。DB backup は SQLite の保全用コピーであり、SQLite から生成する PDF output とは別の単位です。PDF から SQLite へ戻す import と、PDF と SQLite の双方向同期は、現行 MVP と将来構想の対象にしません。
+この `backup/` は現行の開発用 Web 起動形態における MVP 契約です。Desktop Alpha では現行 `/backup` を、Settings の Data and Backup が代替して受け入れ確認を通るまで維持します。DB backup は SQLite の保全・復元用コピーであり、Desktop Alpha 後の Canvas PNG は Canvas 本文を画像として持ち出す外部出力です。両者を同じ復元単位として扱いません。
 
 ## 画面一覧概要
 
@@ -304,7 +321,7 @@ MVP では `/tasks/review` は作成しません。復習対象は `/notes` の�
 - 次回復習状態は `nextReviewDate` だけで判定し、未来を `復習予定日`、今日以前を `復習期限到来`、未設定を `復習予定なし` と表示する。復習履歴と次回復習状態は独立して表示する。
 - 復習履歴 2 通りと次回復習状態 3 通りの 6 組み合わせを受け入れ、一方の値から他方の表示を推定しない。
 - 一覧カードでは、タグがある場合にタグ名と色を表示し、複数タグを折り返し、長いタグ名を省略表示する。タグがない場合は `タグなし` を表示しない。詳細画面など他のタグ表示箇所の既存 `タグなし` 表示はこの要件の対象外とする。
-- 一覧の復習履歴・次回復習状態の表示は、Phase 2 の専用復習タスク、`review status`、未完了タスクバッジとは別の表示契約とする。
+- 一覧の復習履歴・次回復習状態の表示は、未採用の専用復習タスク、`review status`、未完了タスクバッジとは別の表示契約とする。
 - フリーワード検索は `title`、`summary`、`cue.text`、legacy `bodyMode=markdown` の `Notebook.body`、Canvas text 要素から生成した `NotebookCanvas.searchText` を対象とする。
 - Canvas の用紙寸法だけを変更した場合は、text 要素が変わらないため `NotebookCanvas.searchText` も変更しない。
 - タグ検索は OR 条件とする。
@@ -388,12 +405,12 @@ MVP のデータモデルは `doc/data/MVP_DATA_DESIGN.md` を正とします。
 
 | エンティティ | 理由 |
 | --- | --- |
-| `CueCard` | 現行の左欄は `Cue` リストで扱い、カードモデルと D&D は Phase 2 の未決事項であるため |
+| `CueCard` | 現行の左欄は `Cue` リストで扱い、カードモデルと D&D は未採用候補であるため |
 | `NoteCard` | 現行本文は `CanvasDocumentV1` であり、カードとの併用または移行を決定していないため |
-| `NoteCueLink` | Cue と本文の厳密リンクは Phase 2 で扱うため |
-| `NotebookDraftState` | 自動保存とドラフト管理は Phase 2 のため |
+| `NoteCueLink` | Cue と本文の厳密リンクは未採用候補であるため |
+| `NotebookDraftState` | 自動保存とドラフト管理は未採用候補であるため |
 | `NotebookReviewProgress` | MVP は `nextReviewDate` と `reviewedAt` で足りるため |
-| `SoftDeleteBuffer` | Undo は Phase 2 のため |
+| `SoftDeleteBuffer` | Undo は未採用候補であるため |
 | `BackupLog` | MVP はバックアップファイル作成と保持だけで足りるため |
 
 ### 主なバリデーション
@@ -446,10 +463,10 @@ MVP の API 詳細は `doc/api/MVP_API_DESIGN.md` を正とします。
 
 | API | 理由 |
 | --- | --- |
-| `/api/undo` | Undo は Phase 2 |
+| `/api/undo` | Undo は未採用候補 |
 | `/api/review-tasks` | 復習専用画面は MVP では作らない |
-| `/api/notes/export` | PDF 出力は Phase 2 |
-| `/api/tags/:id` | タグ管理 UI は Phase 2 |
+| `/api/notes/export` | 外部出力は現行 MVP 外。Canvas PNG の API 境界は未決定で、PDF export は現在未採用 |
+| `/api/tags/:id` | タグ管理 mutation は未採用候補 |
 | `/api/backups/retry` | MVP は `POST /api/backups` に統一 |
 | Cue / Tag 差分更新 API | MVP では全置換で扱う |
 
@@ -460,7 +477,8 @@ MVP の API 詳細は `doc/api/MVP_API_DESIGN.md` を正とします。
 - ローカル個人利用で、操作を妨げない応答性を優先する。
 - ノート作成、編集、削除、検索、復習済み更新は、通常利用の件数で操作を中断させる待ち時間を生じさせないことを目標にする。
 - 一覧 API はページングを行い、1 ページ 50 件固定とする。
-- データ量増加で検索が遅くなった場合、インデックスや全文検索は Phase 2 で検討する。
+- 現行 MVP の 1 ページ 50 件と検索 API は、この文書同期では変更しない。
+- Desktop Alpha 後は 5,000 件を長期利用の最低目標とし、10,000 note fixture で検索と一覧の性能余裕を確認する。追加読み込み型の無限スクロールと DOM windowing を採用するが、API、index、取得単位、仮想化方式は後続仕様 task で決める。
 
 ### 可用性 / データ保全
 
@@ -469,8 +487,8 @@ MVP の API 詳細は `doc/api/MVP_API_DESIGN.md` を正とします。
 - 最新 3 世代を保持する。
 - バックアップからの自動復元は MVP 範囲外とし、必要な場合は手動復元手順を README 等へ記載する。
 - デスクトップ配布時は `.app` の app bundle と user data directory を分離し、live DB は user data directory に置く。
-- 初回起動時の user data directory 作成・migration、アプリ更新と DB 更新の分離、アンインストールとデータ削除の分離を要件とする。具体的な実装は Desktop PoC 後に決める。
-- `Downloads` を既定の DB / backup 保存先にしない。PDF の具体的な出力先も未決定のため、この文書で固定しない。
+- Desktop Alpha では user data directory の初期化、app bundle と DB migration の分離、migration / restore 前 safety backup、staging validation、失敗時の現行版・live DB 維持、アンインストールと完全なデータ削除の分離を要件とする。具体的な path と provider は shell 選定後に決める。
+- `Downloads` を既定の DB / backup 保存先にしない。Canvas PNG の保存先も未決定のため、この文書で固定しない。
 - SQLite の live DB を iCloud / Dropbox 等の同期フォルダへ置かない。クラウド同期やオンラインサービスは製品スコープ外とする。
 
 ### セキュリティ
@@ -515,7 +533,7 @@ npm run prisma:migrate
 - Prisma schema と migration で DB 構造を管理する。
 - 実装タスクでは作業前後に `git status --short` を確認する。
 
-将来の Mac デスクトップ版では、shell が local Next.js runtime を起動する構成を候補とします。Desktop PoC では、Electron と Tauri + Node.js sidecar を比較し、Apple Silicon / Intel の配布差、SQLite / Prisma native runtime、Playwright / Chromium、署名・更新、local runtime の lifecycle を検証します。いずれの候補も、現時点では採用・実装済みではありません。
+Desktop PoC では、Electron と Tauri + Node.js sidecar を、同じ現行 MVP baseline、同じ deterministic な 10,000 note fixture、同じ Apple Silicon Mac で比較します。起動速度、操作反応、shell の main / core、renderer / WebView、local runtime、Node.js sidecar、framework helper、関連子 process の合計メモリ、成果物サイズ、SQLite / Prisma / migration / lifecycle の成立性、保守性、安全性、DMG・更新の成立見通し、総コストを同じ条件で記録します。framework が必要とする内部 process を許容し、OS process が複数存在することだけを blocker や不合格理由にしません。PDF / Playwright / Chromium、Intel、未検証の古い macOS も blocker や必須受け入れ条件にしません。shell は未選定で、Desktop Alpha も未実装です。
 
 ### バックアップ運用
 
@@ -525,14 +543,14 @@ npm run prisma:migrate
 - 最新 3 世代を保持し、4 世代目以降は古いものから削除する。
 - MVP ではバックアップログを DB 管理しない。
 
-上記は現行の開発用 Web 起動形態における手動 SQLite DB backup の契約です。Desktop 配布では、`backup/` に相当する保存先を user data directory 内に設ける案を検討します。DB backup はデータ保全用のコピーであり、PDF output は外部出力です。復元、破損検出、起動時 migration / 初期化は追加候補であり、実装済みとは扱いません。
+上記は現行の開発用 Web 起動形態における手動 SQLite DB backup の契約です。Desktop Alpha では Data and Backup に、手動 SQLite export、app 管理 backup からの復元、外部 backup file からの復元を分けて配置します。restore 前に現行 DB の safety backup を作り、schema、integrity、semantic validation、reopen に成功した file だけを適用します。現行 app より新しい schema の backup は更新後に復元を再開する pending restore とします。これらは承認済みの将来契約ですが、まだ実装していません。
 
 ### 障害時運用
 
 - API エラーは画面でユーザーに分かる形で表示する。
 - バックアップ作成に失敗した場合、失敗メッセージを表示する。
 - DB 破損やバックアップ復元は MVP では自動化せず、手動対応とする。
-- 想定外エラーの詳細ログ管理は Phase 2 で検討する。
+- Desktop Alpha で起動時に DB を開けない場合は通常のノート UI を開かず、診断情報の local 書き出しと backup 復元への導線を優先する。診断 bundle は自動送信せず、ノート本文、Cue、Summary、タイトル、タグ、学習元、SQLite、backup、Canvas JSON、検索文字列を含めない。
 
 ## 例外 / エラー方針
 
@@ -559,7 +577,7 @@ npm run prisma:migrate
 
 - MVP では楽観ロックを行わない。
 - 同一ノートを複数タブで編集した場合、後から保存した内容が最終状態になる可能性がある。
-- 競合検知や 409 応答は Phase 2 の自動保存 / ドラフト管理で扱う。
+- 競合検知や `409` 応答は、未採用候補である自動保存 / ドラフト管理を採用する場合に改めて契約を決める。
 
 ### Markdown 表示エラー
 
@@ -579,11 +597,11 @@ npm run prisma:migrate
 - Cue と本文の厳密リンクは持たない。
 - ノート削除は物理削除とし、Undo は実装しない。
 - 学習日と `nextReviewDate` は独立して扱う。`nextReviewDate` は独立して変更でき、保存済みの値を学習日から自動再計算しない。保存後の通常編集では学習日は表示専用とする。復習履歴に基づく間隔も継続計算せず、新規作成画面と復習画面の固定初期値は表示する。
-- PDF 出力は実装しない。
-- `.app` の app bundle 内に SQLite の live DB を置かない。user data directory 初期化・migration・更新・復元の詳細は Desktop PoC / 別 task で決める。
+- PDF export は実装せず、現在は採用しない。再検討するかも未決定とする。
+- `.app` の app bundle 内に SQLite の live DB を置かない。Desktop Alpha の migration、更新、restore の安全境界は承認済みで、具体的な path、provider、artifact 方式は別 task で決める。
 - SQLite はノートデータの唯一の正本とする。クラウド DB、クラウド同期、オンラインサービスは製品スコープ外であり、Vercel / Supabase / Postgres を将来実装予定として扱わない。
-- `Downloads` を既定の DB / backup 保存先にしない。外部出力は SQLite から生成する PDF を基本とし、具体的な PDF 出力先は未決定のまま残す。
-- PDF は SQLite から生成する派生出力に限る。編集用データ形式や復元用正本には使わず、PDF から SQLite へ戻す import や双方向同期も行わない。PDF 生成は MVP 未実装である。
+- `Downloads` を既定の DB / backup 保存先にしない。Desktop Alpha 後の Canvas PNG の保存先も未決定のまま残す。
+- Canvas PNG は保存済み Canvas の用紙を画像として持ち出す派生出力であり、編集用データ形式や復元用正本には使わない。PNG 生成は未実装である。
 - 実装ファイルや既存仕様を変更する場合は、対象タスクで明示する。
 
 ## 未決事項
@@ -592,15 +610,11 @@ MVP 関連設計書上、主要なスコープ判断は発注者承認済みで�
 
 | ID | 未決事項 | 判断が必要になるタイミング |
 | --- | --- | --- |
-| U-001 | バックアップ復元の手動手順を README にどこまで書くか | `mvp-readme-update` タスク実施時 |
-| U-002 | Playwright による MVP 主要フロー確認を必須にするか | `mvp-final-verification` タスク実施時 |
-| U-003 | 作成・編集キャンセル時に未保存変更の確認ダイアログを出すか | `mvp-note-form` タスク実施時 |
-| U-004 | Cue の空行を UI で自動除外するか、validation エラーにするか | `mvp-note-form` タスク実施時 |
-| U-005 | Desktop shell を Electron と Tauri + Node.js sidecar のどちらにするか | Desktop PoC 実施時 |
-| U-006 | user data directory と PDF output destination の path をどう分けるか | Desktop shell の path resolver / PDF export 設計時 |
-| U-007 | PDF export の生成 provider、レイアウト、エラー処理をどう定義するか | Phase 2 の PDF export 設計時 |
-| U-008 | Apple Silicon / Intel の配布・署名・更新をどう検証するか | Desktop 配布・署名・更新 PoC 実施時 |
-| U-009 | Canvas 本文を維持するか、NoteCard を併用するか、カードを採用しないか | Gate 0 通過後の本文モデル判断時 |
+| U-001 | Desktop shell を Electron と Tauri + Node.js sidecar のどちらにするか | 同条件の Desktop PoC 比較後 |
+| U-002 | bundle ID、user data、backup、設定、log の具体的な path、更新 provider、manifest / package の配置と署名・完全性検証方式 | shell 選定後の Desktop Alpha 実装 task |
+| U-003 | Canvas PNG の使用不可文字、同名 file、保存先、失敗時 UI、色管理。PDF を将来再検討するか | Desktop Alpha 後の PNG 仕様 task |
+| U-004 | 検索の Summary 分類、tokenization、同順位、API / index、取得単位、仮想化方式 | Desktop Alpha 後の検索・一覧仕様 task |
+| U-005 | 定期 backup、暗号化 backup、autosave、Undo、専用復習タスク、NoteCard / D&D の採否と詳細 | Desktop Alpha 後の個別仕様 task |
 
 ## 参照ドキュメント
 
@@ -615,6 +629,7 @@ MVP 関連設計書上、主要なスコープ判断は発注者承認済みで�
 - `doc/technical/TARGET_ARCHITECTURE.md`
 - `doc/implementation/MVP_IMPLEMENTATION_TASKS.md`
 - `doc/implementation/MVP_CONTRACT.md`
+- `doc/implementation/POST_MVP_IMPLEMENTATION_PLAN.md`
 - `doc/workflows/MVP_WORKFLOW_DESIGN.md`
 - `doc/screens/MVP_SCREEN_INVENTORY.md`
 - `doc/diagrams/MVP_UML_DESIGN.md`

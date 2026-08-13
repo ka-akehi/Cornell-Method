@@ -1,0 +1,23 @@
+{
+  "name": "cornell-method-tauri-node-sidecar-desktop-poc",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Isolated Tauri + Node.js sidecar desktop PoC for Cornell Method Notebook",
+  "scripts": {
+    "poc:validate": "node scripts/poc.cjs validate",
+    "poc:prepare": "node scripts/poc.cjs prepare",
+    "poc:build": "node scripts/poc.cjs build",
+    "poc:smoke": "node scripts/poc.cjs smoke",
+    "poc:runtime-http": "node scripts/poc.cjs runtime-http",
+    "poc:lifecycle": "node scripts/poc.cjs lifecycle",
+    "poc:package": "node scripts/poc.cjs package",
+    "poc:evidence": "node scripts/poc.cjs evidence",
+    "poc:all": "node scripts/poc.cjs all",
+    "test": "node --test test/*.test.cjs",
+    "syntax": "node --check scripts/common.cjs && node --check scripts/process-tree.cjs && node --check scripts/tauri-runner.cjs && node --check scripts/poc.cjs && node --check scripts/validate.cjs && node --check scripts/prepare.cjs && node --check scripts/build.cjs && node --check scripts/runtime-http.cjs && node --check scripts/smoke.cjs && node --check scripts/lifecycle.cjs && node --check scripts/package.cjs && node --check scripts/evidence.cjs"
+  },
+  "engines": {
+    "node": "22.12.0",
+    "npm": "10.9.0"
+  }
+}
