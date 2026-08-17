@@ -58,18 +58,39 @@ function runtimeHttpPassReport() {
 
 test("candidate package pins Tauri Rust dependencies and does not declare a plugin", () => {
   const cargo = fs.readFileSync(path.join(candidateRoot, "src-tauri", "Cargo.toml"), "utf8");
+  const cargoLockPath = path.join(candidateRoot, "src-tauri", "Cargo.lock");
+  const cargoLock = fs.readFileSync(cargoLockPath, "utf8");
   assert.match(cargo, /tauri\s*=\s*"=2\.5\.1"/);
-  assert.match(cargo, /tauri-build\s*=\s*"=2\.5\.1"/);
+  assert.match(cargo, /tauri-build\s*=\s*"=2\.2\.0"/);
+  assert.match(cargoLock, /name = "tauri"\nversion = "2\.5\.1"/);
+  assert.match(cargoLock, /name = "tauri-build"\nversion = "2\.2\.0"/);
+  assert.match(cargoLock, /name = "tauri-utils"\nversion = "2\.4\.0"/);
+  assert.equal(fs.existsSync(path.join(candidateRoot, "src-tauri", "icons", "icon.png")), true);
   assert.doesNotMatch(cargo, /tauri-plugin-/);
 });
 
 test("candidate scripts preserve fixed host/port and isolation contracts", () => {
   const common = fs.readFileSync(path.join(candidateRoot, "scripts", "common.cjs"), "utf8");
+  const build = fs.readFileSync(path.join(candidateRoot, "scripts", "build.cjs"), "utf8");
   const prepare = fs.readFileSync(path.join(candidateRoot, "scripts", "prepare.cjs"), "utf8");
+  const runtimeHttp = fs.readFileSync(path.join(candidateRoot, "scripts", "runtime-http.cjs"), "utf8");
   const rust = fs.readFileSync(path.join(candidateRoot, "src-tauri", "src", "main.rs"), "utf8");
   assert.match(common, /FIXED_RUNTIME_HOST = "127\.0\.0\.1"/);
   assert.match(common, /FIXED_RUNTIME_PORT = 37821/);
+  assert.match(build, /spawnSync\("cargo", \["build", "--locked", "--release", "--manifest-path", cargoManifest\]/);
+  assert.doesNotMatch(build, /spawnSync\("cargo", \["check", "--locked", "--release"/);
   assert.match(prepare, /rootNodeModulesUsedByRuntime: false/);
+  assert.match(prepare, /npm ci --include=dev --no-audit --no-fund/);
+  assert.match(prepare, /\["ci", "--include=dev", "--no-audit", "--no-fund"\]/);
+  assert.match(prepare, /PUPPETEER_SKIP_DOWNLOAD: "true"/);
+  assert.match(prepare, /generateStagingPrismaClients/);
+  assert.match(prepare, /\["sqlite", "postgresql"\]/);
+  assert.match(prepare, /PRISMA_PROVIDER: provider/);
+  assert.match(runtimeHttp, /canonicalRuntimeOrigin/);
+  assert.match(runtimeHttp, /withCanonicalSameOriginHeaders/);
+  assert.match(runtimeHttp, /headers\.set\("Origin", canonicalOrigin\)/);
+  assert.match(runtimeHttp, /headers\.set\("Referer", `\$\{canonicalOrigin\}\/`\)/);
+  assert.match(runtimeHttp, /const \{ portIsListening, stopOwnedProcess \} = require\("\.\/tauri-runner\.cjs"\)/);
   assert.doesNotMatch(rust, /pkill|killall/);
   assert.match(rust, /explicit-pid-from-validated-descendant-closure/);
   assert.match(rust, /process_group/);
@@ -140,6 +161,9 @@ test("GUI-independent runtime HTTP operations fill an unmeasured smoke operation
 
   const manifest = buildManifest(context);
 
+  assert.equal(manifest.revisionProvenance.baselineGitHead, EXPECTED_BASELINE.git_head);
+  assert.equal("candidateGitHead" in manifest.revisionProvenance, true);
+  assert.equal("candidateDirtyWorktree" in manifest.revisionProvenance, true);
   assert.equal(manifest.measurements.operationResponse.status, "PASS");
   assert.equal(manifest.measurements.operationResponse.source, "runtime-http");
   assert.equal(manifest.measurements.operationResponse.provenance.source, "runtime-http");

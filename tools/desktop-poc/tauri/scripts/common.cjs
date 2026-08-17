@@ -23,9 +23,9 @@ const EXPECTED_BASELINE = Object.freeze({
   fixture_sha256: "bdb9d9996bf03c5c9885b9e1d13fdcce3cbf2925f559171bd9890fc4da6bc46e",
   fixture_content_hash: "f01c404495412554a404154c7888577f681e536f72a75fb97b35643c2f3a7de6",
   architecture: "Apple Silicon Mac (arm64)",
-  macos_version: "26.0.1",
-  node_version: "v22.12.0",
-  npm_version: "10.9.0",
+  macos_version: "26.6.1",
+  node_version: "v26.7.0",
+  npm_version: "11.19.0",
 });
 
 function readJson(filePath) {
@@ -115,17 +115,69 @@ function actualToolchain() {
   const macosVersion = process.platform === "darwin"
     ? commandVersion("sw_vers", ["-productVersion"])
     : null;
+  const gitHead = commandVersion("git", ["-C", REPOSITORY_ROOT, "rev-parse", "HEAD"]);
+  const gitStatus = commandVersion(
+    "git",
+    ["-C", REPOSITORY_ROOT, "status", "--porcelain=v1", "--untracked-files=all"],
+  );
   return {
     architecture: os.arch(),
     platform: process.platform,
     macosVersion,
     nodeVersion: process.version,
     npmVersion: commandVersion("npm", ["--version"]),
-    gitHead: commandVersion("git", ["rev-parse", "HEAD"]),
+    gitHead,
+    gitWorktreeDirty: gitStatus === null ? null : gitStatus.length > 0,
     rustcVersion: commandVersion("rustc", ["--version"]),
     cargoVersion: commandVersion("cargo", ["--version"]),
     cargoTauriVersion: commandVersion("cargo", ["tauri", "--version"]),
   };
+}
+
+function revisionProvenance(baseline, actual) {
+  return {
+    baselineGitHead: baseline?.git_head ?? null,
+    candidateGitHead: actual?.gitHead ?? null,
+    candidateDirtyWorktree: actual?.gitWorktreeDirty ?? null,
+  };
+}
+
+function baselineMismatches(baseline, actual) {
+  const mismatches = [];
+  for (const [key, value] of Object.entries(EXPECTED_BASELINE)) {
+    if (baseline[key] !== value) {
+      mismatches.push(`manifest.${key}: expected=${value}, actual=${baseline[key]}`);
+    }
+  }
+  const actualValues = {
+    architecture: actual.architecture === "arm64" ? "Apple Silicon Mac (arm64)" : actual.architecture,
+    macos_version: actual.macosVersion,
+    node_version: actual.nodeVersion,
+    npm_version: actual.npmVersion,
+  };
+  for (const [key, value] of Object.entries(actualValues)) {
+    if (value !== EXPECTED_BASELINE[key]) {
+      mismatches.push(`environment.${key}: expected=${EXPECTED_BASELINE[key]}, actual=${value}`);
+    }
+  }
+  return mismatches;
+}
+
+function fixtureMismatches(expected, fixtureHash, readBack) {
+  const mismatches = [];
+  if (fixtureHash !== expected.fixture_sha256) {
+    mismatches.push(`fixture_sha256: expected=${expected.fixture_sha256}, actual=${fixtureHash}`);
+  }
+  if (readBack.notebooks !== expected.fixture_count) {
+    mismatches.push(`fixture_count: expected=${expected.fixture_count}, actual=${readBack.notebooks}`);
+  }
+  if (readBack.contentHash !== expected.fixture_content_hash) {
+    mismatches.push(`fixture_content_hash: expected=${expected.fixture_content_hash}, actual=${readBack.contentHash}`);
+  }
+  if (readBack.foreignKeyCheck !== "pass" || readBack.sqliteIntegrityCheck !== "ok") {
+    mismatches.push(`fixture_integrity: fk=${readBack.foreignKeyCheck}, sqlite=${readBack.sqliteIntegrityCheck}`);
+  }
+  return mismatches;
 }
 
 function inspectorModulePath(context = null) {
@@ -229,43 +281,15 @@ function fixtureReadBack(databasePath, context = null) {
 
 function validateBaseline(context) {
   const actual = actualToolchain();
-  const mismatches = [];
-  for (const [key, value] of Object.entries(EXPECTED_BASELINE)) {
-    if (context.baseline[key] !== value) {
-      mismatches.push(`manifest.${key}: expected=${value}, actual=${context.baseline[key]}`);
-    }
-  }
-  const actualValues = {
-    git_head: actual.gitHead,
-    architecture: actual.architecture === "arm64" ? "Apple Silicon Mac (arm64)" : actual.architecture,
-    macos_version: actual.macosVersion,
-    node_version: actual.nodeVersion,
-    npm_version: actual.npmVersion,
-  };
-  for (const [key, value] of Object.entries(actualValues)) {
-    if (value !== EXPECTED_BASELINE[key]) {
-      mismatches.push(`environment.${key}: expected=${EXPECTED_BASELINE[key]}, actual=${value}`);
-    }
-  }
+  const mismatches = baselineMismatches(context.baseline, actual);
   let fixtureReadBackValue = null;
   if (!fs.existsSync(context.fixturePath)) {
     mismatches.push(`fixture がありません: ${context.fixturePath}`);
   } else {
     const fixtureHash = sha256FileSync(context.fixturePath);
-    if (fixtureHash !== EXPECTED_BASELINE.fixture_sha256) {
-      mismatches.push(`fixture_sha256: expected=${EXPECTED_BASELINE.fixture_sha256}, actual=${fixtureHash}`);
-    }
     try {
       fixtureReadBackValue = fixtureReadBack(context.fixturePath);
-      if (fixtureReadBackValue.notebooks !== EXPECTED_BASELINE.fixture_count) {
-        mismatches.push(`fixture_count: expected=${EXPECTED_BASELINE.fixture_count}, actual=${fixtureReadBackValue.notebooks}`);
-      }
-      if (fixtureReadBackValue.contentHash !== EXPECTED_BASELINE.fixture_content_hash) {
-        mismatches.push(`fixture_content_hash: expected=${EXPECTED_BASELINE.fixture_content_hash}, actual=${fixtureReadBackValue.contentHash}`);
-      }
-      if (fixtureReadBackValue.foreignKeyCheck !== "pass" || fixtureReadBackValue.sqliteIntegrityCheck !== "ok") {
-        mismatches.push(`fixture_integrity: fk=${fixtureReadBackValue.foreignKeyCheck}, sqlite=${fixtureReadBackValue.sqliteIntegrityCheck}`);
-      }
+      mismatches.push(...fixtureMismatches(EXPECTED_BASELINE, fixtureHash, fixtureReadBackValue));
     } catch (error) {
       mismatches.push(`fixture_read_back: ${error instanceof Error ? error.message : String(error)}`);
     }
@@ -276,6 +300,11 @@ function validateBaseline(context) {
       ? "BASELINE_MISMATCH"
       : "BASELINE_VALIDATION_FAILED";
     error.mismatches = mismatches;
+    error.validation = {
+      expected: EXPECTED_BASELINE,
+      actual,
+      revisionProvenance: revisionProvenance(context.baseline, actual),
+    };
     throw error;
   }
   return {
@@ -283,6 +312,7 @@ function validateBaseline(context) {
     actual,
     fixtureSha256: EXPECTED_BASELINE.fixture_sha256,
     fixtureReadBack: fixtureReadBackValue,
+    revisionProvenance: revisionProvenance(context.baseline, actual),
   };
 }
 
@@ -338,6 +368,7 @@ function writeFailureSummary(context, name, error) {
     status: error?.code?.includes("BASELINE") || error?.code === "DEPENDENCY_BLOCKED" ? "BLOCKED" : "FAIL",
     reason: error instanceof Error ? error.message : String(error),
     code: error?.code ?? null,
+    diagnostics: error?.diagnostics ?? null,
     at: new Date().toISOString(),
   };
   try {
@@ -362,16 +393,19 @@ module.exports = {
   OBSERVATION_WAIT_MS,
   REPOSITORY_ROOT,
   actualToolchain,
+  baselineMismatches,
   calculateContentHash,
   canonicalJson,
   commandVersion,
   ensureDirectory,
   ensureOutputDirectories,
+  fixtureMismatches,
   fixtureReadBack,
   getContext,
   inspectorModulePath,
   readJson,
   relativeOutputPath,
+  revisionProvenance,
   runCommand,
   sha256File,
   sha256FileSync,

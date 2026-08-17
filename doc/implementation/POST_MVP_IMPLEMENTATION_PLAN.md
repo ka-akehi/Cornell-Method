@@ -2,9 +2,9 @@
 
 作成日: 2026-08-08
 
-更新日: 2026-08-12
+更新日: 2026-08-17
 
-状態: MVP Gate 0 完了。Desktop Alpha 契約を承認済み。Desktop shell の PoC、技術選定、実装 task は未着手
+状態: MVP Gate 0 完了。Tauri + Node.js サイドカーを Desktop Alpha 基盤として承認済み。製品識別子 `com.cornellmethod.notebook`、製品実装ディレクトリ `src-tauri/`、Application Support の保存構成は承認済みで、実装は未着手
 
 ## 1. 位置づけ
 
@@ -127,7 +127,7 @@ Desktop Alpha の対象 architecture は Apple Silicon である。Intel は Pub
 - Canvas PNG export と、その解像度、背景、保存先等の詳細。
 - autosave、Undo、soft delete、専用復習タスク、検索改善、定期 backup、NoteCard / D&D。
 - Intel artifact、universal binary、古い macOS の互換保証。
-- bundle ID、更新 provider、具体的な user data path、minimum deployment target、署名方式の確定。
+- 更新 provider、具体的な user data path、minimum deployment target、署名方式の確定。製品 bundle ID は承認済み。
 
 ### 5.6 Worker task 分割例と完了条件
 
@@ -248,7 +248,7 @@ PoC は、両候補に同じ必須項目の結果があり、未測定と blocke
 | --- | --- | --- |
 | 0 | MVP Gate 0 | 完了済み。再判定しない |
 | 1 | Electron / Tauri + Node.js sidecar PoC | 同じ MVP、fixture、Mac で shell 固有の成立性と費用を比較する |
-| 2 | shell 選定 ADR | 両候補の結果が揃ってから発注者が選定する |
+| 2 | shell 選定 ADR | 完了。2026-08-17 に Tauri + Node.js sidecar を Desktop Alpha 基盤として承認済み。renderer UI automation の BLOCKED は既知の PoC 測定境界として残す |
 | 3 | Desktop shell、user data、lifecycle、Settings 基盤 | 後続の update、migration、backup / restore、診断が使う process と path の境界を固定する |
 | 4 | 更新と migration safety | background download、未保存内容の確認、更新適用前 backup、staging migration、失敗時の現行版維持を先に成立させる |
 | 5 | 手動 backup / restore | 同じ user data と safety backup を使い、staging validation、保留復元、atomic switch を実装する |
@@ -313,7 +313,7 @@ Desktop Alpha は、Apple Silicon の packaged app で次を確認し、発注�
 - note 内容、query、user path、DB、token、crash dump が log / 診断 ZIP / telemetry に出る。
 - 通常起動時や日次の app 管理 backup、異常終了用 draft / autosave を Alpha 必須として実装している。
 - 完全なデータ削除が外部 SQLite export を削除する、または更新、reinstall、通常の uninstall から暗黙に実行される。
-- 未決の provider、bundle ID、path、deployment target、署名方式を承認なしで固定している。
+- 未決の provider、path、deployment target、署名方式を承認なしで固定している。
 
 ## 9. Desktop Alpha 後の Phase 2
 
@@ -415,29 +415,27 @@ Desktop Alpha では上記を未決のまま残せる。Alpha で使用した低
 
 ## 13. 未決事項
 
-次の事項はこの計画更新で決めない。
+U-001 の shell 選定は 2026-08-17 に解決済みである。次の事項はこの計画更新で決めない。
 
 | ID | 未決事項 | 次の判断時点 |
 | --- | --- | --- |
-| U-001 | Electron と Tauri + Node.js sidecar の選定 | 両 PoC の比較後 |
+| U-001 | 開発用識別子と開発用 user data の保存先 | Desktop Alpha 実装後 |
 | U-002 | 更新 provider、manifest / package の具体的な配置先、package の署名・完全性検証方式 | PoC と更新実装 contract |
-| U-003 | bundle ID | shell 選定後の packaging contract |
-| U-004 | user data、backup、設定、log の具体的な path | shell 選定後の path contract |
-| U-005 | minimum deployment target と Desktop Alpha 後の対応 macOS | shell / runtime PoC 後 |
-| U-006 | Intel の artifact 方式、Developer ID、notarization、Apple Developer Program、公開用 code signing 方式、一般公開用配布サイト | Public Mac Release |
-| U-007 | Settings の正確な表示文言と項目配置、完全なデータ削除の確認文言 | Desktop Alpha の各 UI 実装 task |
-| U-008 | Canvas PNG の使用不可文字、同名 file、保存先、失敗時 UI、色管理。PDF を将来再検討するか | Desktop Alpha 後の PNG 仕様 task |
-| U-009 | 検索の Summary 分類、tokenization、同点順位、API / index、取得単位、仮想化実装 | Desktop Alpha 後の検索・一覧仕様 task |
-| U-010 | 定期 backup、暗号化 backup、autosave、Undo、専用復習タスク、NoteCard / D&D の最終採否と詳細 | Desktop Alpha 後の個別 contract |
+| U-003 | minimum deployment target と Desktop Alpha 後の対応 macOS | shell / runtime PoC 後 |
+| U-004 | Intel の artifact 方式、Developer ID、notarization、Apple Developer Program、公開用 code signing 方式、一般公開用配布サイト | Public Mac Release |
+| U-005 | Settings の正確な表示文言と項目配置、完全なデータ削除の確認文言 | Desktop Alpha の各 UI 実装 task |
+| U-006 | Canvas PNG の使用不可文字、同名 file、保存先、失敗時 UI、色管理。PDF を将来再検討するか | Desktop Alpha 後の PNG 仕様 task |
+| U-007 | 検索の Summary 分類、tokenization、同点順位、API / index、取得単位、仮想化実装 | Desktop Alpha 後の検索・一覧仕様 task |
+| U-008 | 定期 backup、暗号化 backup、autosave、Undo、専用復習タスク、NoteCard / D&D の最終採否と詳細 | Desktop Alpha 後の個別 contract |
 
 ## 14. 次の Manager action
 
-次に作成する task は Desktop PoC 用に限定する。
+次に作成する task は、選定済みの Tauri + Node.js sidecar を Desktop Alpha へ接続するためのユーザーデータ基盤実装から開始する。
 
-1. この文書の共通比較 contract を参照する Electron PoC task を作る。
-2. 同じ baseline、fixture、Apple Silicon 開発 Mac、測定軸を参照する Tauri + Node.js sidecar PoC task を作る。
-3. 両 task が共有 file を安全に分離できるか確認し、分離できない場合は直列投入する。
-4. 両 PoC の完了後に比較 task を作り、性能、成立性、保守、安全性、総コストを同じ表で評価する。
-5. 発注者が shell を選定するまで Desktop Alpha の正式基盤、更新、migration、backup / restore、Phase 2 の coding task を投入しない。
+1. [Tauri Desktop Alpha 基盤境界](../technical/DESKTOP_ALPHA_TAURI_FOUNDATION.md) を正本として、PoC の検証用 directory と製品用 Desktop Alpha directory を分離した責務境界を維持する。
+2. 製品 bundle ID は `com.cornellmethod.notebook`、製品 directory は `src-tauri/`、Application Support の保存構成は確定した。
+3. user data / SQLite bootstrap、lifecycle、Settings の coding task を依存順に投入する。
+4. その後に update、migration、backup / restore、完全削除、diagnostic privacy、packaged Alpha QA を順に実装する。
+5. Electron の追加対称比較、renderer UI automation、署名・notarization、Phase 2 は Desktop Alpha の基盤実装と混ぜない。
 
 PDF / Playwright / Chromium、Intel、古い macOS の保証、Canvas PNG、autosave、Undo は、PoC task の blocker や受け入れ条件へ追加しない。

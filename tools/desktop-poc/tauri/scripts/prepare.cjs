@@ -4,10 +4,12 @@ const { spawnSync } = require("node:child_process");
 const {
   CANDIDATE_ROOT,
   REPOSITORY_ROOT,
+  actualToolchain,
   ensureDirectory,
   ensureOutputDirectories,
   fixtureReadBack,
   getContext,
+  revisionProvenance,
   sha256FileSync,
   validateBaseline,
   writeFailureSummary,
@@ -93,7 +95,9 @@ function prepareStaging(context) {
       mode: "candidate-private-npm-ci",
       changed: true,
       rootNodeModulesUsedByRuntime: false,
-      installCommand: "npm ci --no-audit --no-fund",
+      installCommand: "npm ci --include=dev --no-audit --no-fund",
+      puppeteerBrowserDownload: "skipped for candidate staging; browser is not a runtime dependency",
+      prismaClientGeneration: "sqlite @prisma/client and postgresql src/generated/prisma-postgres are generated in candidate staging",
     },
     buildOutput: "next-dist",
     databaseUrlMode: "absolute file URL supplied by candidate user-data",
@@ -112,9 +116,13 @@ function installStagingDependencies(context) {
     return { status: "PASS", mode: "existing-verified", rootNodeModulesUsedByRuntime: false };
   }
   const startedAt = process.hrtime.bigint();
-  const result = spawnSync("npm", ["ci", "--no-audit", "--no-fund"], {
+  const result = spawnSync("npm", ["ci", "--include=dev", "--no-audit", "--no-fund"], {
     cwd: context.stagingRoot,
-    env: { ...process.env, NODE_ENV: "production" },
+    env: {
+      ...process.env,
+      NODE_ENV: "production",
+      PUPPETEER_SKIP_DOWNLOAD: "true",
+    },
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
   });
@@ -135,8 +143,58 @@ function installStagingDependencies(context) {
     mode: "npm-ci",
     durationMs,
     rootNodeModulesUsedByRuntime: false,
+    puppeteerBrowserDownload: "skipped",
     stdoutTail: String(result.stdout).split(/\r?\n/).filter(Boolean).slice(-8),
     stderrTail: String(result.stderr).split(/\r?\n/).filter(Boolean).slice(-8),
+  };
+}
+
+function runPrismaGenerate(context, provider) {
+  const prismaBin = path.join(context.stagingRoot, "node_modules", ".bin", process.platform === "win32" ? "prisma.cmd" : "prisma");
+  if (!fs.existsSync(prismaBin)) {
+    const error = new Error(`candidate staging Prisma binary がありません: ${prismaBin}`);
+    error.code = "DEPENDENCY_BLOCKED";
+    throw error;
+  }
+  const args = ["generate", "--config", "prisma.config.ts"];
+  const startedAt = process.hrtime.bigint();
+  const generationEnv = {
+    ...process.env,
+    DATABASE_URL: `file:${context.cleanDatabasePath}`,
+    NODE_ENV: "production",
+    PRISMA_PROVIDER: provider,
+  };
+  delete generationEnv.DIRECT_URL;
+  const result = spawnSync(prismaBin, args, {
+    cwd: context.stagingRoot,
+    env: generationEnv,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  const durationMs = Math.round(Number(process.hrtime.bigint() - startedAt) / 1_000_000);
+  if (result.error || result.status !== 0) {
+    const detail = result.error?.message ?? (result.stderr || result.stdout || "unknown Prisma generate failure");
+    const error = new Error(`candidate staging の Prisma ${provider} client generate に失敗しました: ${detail.trim().slice(-1600)}`);
+    error.code = "DEPENDENCY_BLOCKED";
+    throw error;
+  }
+  return {
+    status: "PASS",
+    provider,
+    command: [prismaBin, ...args],
+    durationMs,
+    stdoutTail: String(result.stdout).split(/\r?\n/).filter(Boolean).slice(-8),
+    stderrTail: String(result.stderr).split(/\r?\n/).filter(Boolean).slice(-8),
+  };
+}
+
+function generateStagingPrismaClients(context) {
+  const clients = ["sqlite", "postgresql"].map((provider) => runPrismaGenerate(context, provider));
+  return {
+    status: "PASS",
+    mode: "candidate-staging-prisma-generate",
+    rootNodeModulesUsedByRuntime: false,
+    clients,
   };
 }
 
@@ -200,6 +258,7 @@ function run() {
     const baseline = validateBaseline(context);
     const staging = prepareStaging(context);
     const install = installStagingDependencies(context);
+    const prismaGenerate = generateStagingPrismaClients(context);
     const clean = migrateCleanDatabase(context);
     const populated = copyPopulatedDatabase(context);
     const report = {
@@ -215,10 +274,12 @@ function run() {
         fixtureContentHash: context.baseline.fixture_content_hash,
         validation: baseline.fixtureReadBack,
       },
+      revisionProvenance: baseline.revisionProvenance,
       candidateDependencies: {
         nodeRuntime: "host Node is used by unpackaged sidecar PoC",
         rootNodeModulesUsedByRuntime: false,
         stagingInstall: install,
+        prismaGenerate,
       },
       staging: {
         path: context.stagingRoot,
@@ -247,11 +308,16 @@ function run() {
     return report;
   } catch (error) {
     const failurePath = writeFailureSummary(context, "prepare", error);
+    const actual = error.validation?.actual ?? actualToolchain();
     const report = {
       schemaVersion: 1,
       status: error?.code?.includes("BASELINE") || error?.code === "DEPENDENCY_BLOCKED" ? "BLOCKED" : "FAIL",
       reason: error instanceof Error ? error.message : String(error),
       code: error?.code ?? null,
+      baselineId: context.baseline.baseline_id,
+      baselineScopeSha256: context.baseline.baseline_scope_sha256,
+      revisionProvenance: error.validation?.revisionProvenance
+        ?? revisionProvenance(context.baseline, actual),
       stagingPath: context.stagingRoot,
       rootNodeModulesUsedByRuntime: false,
       measuredAt: new Date().toISOString(),
@@ -276,8 +342,10 @@ if (require.main === module) {
 
 module.exports = {
   copyPopulatedDatabase,
+  generateStagingPrismaClients,
   installStagingDependencies,
   migrateCleanDatabase,
   prepareStaging,
+  runPrismaGenerate,
   run,
 };

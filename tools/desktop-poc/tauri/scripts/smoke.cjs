@@ -26,6 +26,7 @@ const {
   waitForExit,
   waitForJson,
 } = require("./tauri-runner.cjs");
+const { recoverStaleRuntime } = require("./runtime-http.cjs");
 
 function roleForProcess(record, rootPid, runtimePid, rendererPid) {
   if (record.pid === rootPid) return "tauri-main-shell";
@@ -91,6 +92,7 @@ async function run() {
   let runDirectory = null;
   let launcher = null;
   let readyState = null;
+  let staleRecovery = null;
   try {
     validateBaseline(context);
     const preparation = readJson(path.join(context.evidenceRoot, "preparation.json"));
@@ -105,6 +107,7 @@ async function run() {
       console.log(JSON.stringify({ status: report.status, reason: report.reason }));
       return report;
     }
+    staleRecovery = await recoverStaleRuntime(context);
     const paths = {
       state: path.join(runDirectory, "tauri-state.json"),
       command: path.join(runDirectory, "tauri-command.json"),
@@ -117,7 +120,7 @@ async function run() {
       value.runtime?.readyStatus === "PASS" &&
       value.primaryWindow?.count === 1 &&
       value.primaryWindow?.usableObservationComplete === true
-    ));
+    ), 30_000, launcher.child);
     const readyMs = Math.round(Number(process.hrtime.bigint() - launchStartedAt) / 1_000_000);
     const shellBefore = observeDescendantClosure(launcher.child.pid, { expectedProcessGroupId: launcher.child.pid });
     const memory = memorySnapshot(launcher.child.pid, readyState.runtime?.rootPid, readyState.renderer?.pid);
@@ -177,6 +180,7 @@ async function run() {
         shellProcessTreeAfterShutdown: shellWait.after ?? null,
         appProcessExit: exit,
         shellCleanup: shellWait,
+        staleRecovery,
       },
       persistence: {
         status: "UNVERIFIED",
@@ -188,11 +192,37 @@ async function run() {
     console.log(JSON.stringify({ status: report.status, evidence: path.join(context.evidenceRoot, "smoke.json") }));
     return report;
   } catch (error) {
-    if (launcher && launcher.child.exitCode === null && readyState) {
-      try { await stopOwnedProcess(launcher.child, readyState); } catch { /* preserve original blocker */ }
+    let cleanup = null;
+    if (launcher && launcher.child.exitCode === null && launcher.child.signalCode === null) {
+      try {
+        cleanup = await stopOwnedProcess(launcher.child, readyState);
+      } catch (cleanupError) {
+        cleanup = {
+          status: "UNVERIFIED",
+          reason: cleanupError instanceof Error ? cleanupError.message : String(cleanupError),
+        };
+      }
     }
-    const failurePath = writeFailureSummary(context, "smoke", error);
-    const report = blockedReport(context, error instanceof Error ? error.message : String(error), runDirectory);
+    try {
+      const recovered = await recoverStaleRuntime(context);
+      if (recovered) cleanup = { ...(cleanup ?? {}), staleRecovery: recovered };
+    } catch (cleanupError) {
+      cleanup = { ...(cleanup ?? {}), staleRecovery: { status: "UNVERIFIED", reason: cleanupError instanceof Error ? cleanupError.message : String(cleanupError) } };
+    }
+    const failure = error instanceof Error ? error : new Error(String(error));
+    failure.diagnostics = {
+      binary: launcher?.binary ?? null,
+      pid: launcher?.child?.pid ?? null,
+      childExit: launcher?.child ? {
+        code: launcher.child.exitCode,
+        signal: launcher.child.signalCode,
+      } : null,
+      stdoutTail: launcher ? tailOutput(launcher.stdout(), 200) : [],
+      stderrTail: launcher ? tailOutput(launcher.stderr(), 200) : [],
+      cleanup,
+    };
+    const failurePath = writeFailureSummary(context, "smoke", failure);
+    const report = blockedReport(context, failure.message, runDirectory);
     try { writeJsonOwned(path.join(context.evidenceRoot, "smoke.json"), report); } catch { /* preserve immutable evidence */ }
     console.error(`${report.reason}\nsummary: ${failurePath}`);
     return report;

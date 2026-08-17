@@ -62,7 +62,7 @@ function runNextBuild(context) {
   };
 }
 
-function runTauriCheck(context) {
+function runTauriBuild(context) {
   const cargoManifest = path.join(__dirname, "..", "src-tauri", "Cargo.toml");
   const cargoLock = path.join(__dirname, "..", "src-tauri", "Cargo.lock");
   if (!fs.existsSync(cargoLock)) {
@@ -71,20 +71,39 @@ function runTauriCheck(context) {
       reason: "src-tauri/Cargo.lock がありません。Cargo dependency resolution 未確認のため lockfile を捏造せず停止しました",
       cargoManifest,
       cargoLock: null,
-      command: "cargo check --locked --release",
+      command: "cargo build --locked --release",
     };
   }
-  const result = spawnSync("cargo", ["check", "--locked", "--release", "--manifest-path", cargoManifest], {
+  const result = spawnSync("cargo", ["build", "--locked", "--release", "--manifest-path", cargoManifest], {
     cwd: path.dirname(cargoManifest),
     env: { ...process.env, CARGO_TARGET_DIR: context.tauriTargetRoot },
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
   });
   if (result.error || result.status !== 0) {
-    const detail = result.error?.message ?? (result.stderr || result.stdout || "unknown Cargo check failure");
-    return { status: "BLOCKED", reason: `Tauri Rust cargo check に失敗しました: ${detail.trim().slice(-2200)}`, cargoManifest, cargoLock, stdoutTail: tail(result.stdout), stderrTail: tail(result.stderr) };
+    const detail = result.error?.message ?? (result.stderr || result.stdout || "unknown Cargo build failure");
+    return { status: "BLOCKED", reason: `Tauri Rust cargo build に失敗しました: ${detail.trim().slice(-2200)}`, cargoManifest, cargoLock, stdoutTail: tail(result.stdout), stderrTail: tail(result.stderr) };
   }
-  return { status: "PASS", command: "cargo check --locked --release", cargoManifest, cargoLock, targetDirectory: context.tauriTargetRoot };
+  const binaryName = process.platform === "win32" ? "cornell-method-tauri-poc.exe" : "cornell-method-tauri-poc";
+  const binaryCandidates = [
+    path.join(context.tauriTargetRoot, "aarch64-apple-darwin", "release", binaryName),
+    path.join(context.tauriTargetRoot, "release", binaryName),
+  ];
+  const binary = binaryCandidates.find((candidate) => fs.existsSync(candidate)) ?? null;
+  if (!binary) {
+    return {
+      status: "BLOCKED",
+      reason: `cargo build は成功しましたが Tauri native binary がありません: ${binaryCandidates.join(", ")}`,
+      command: "cargo build --locked --release",
+      cargoManifest,
+      cargoLock,
+      targetDirectory: context.tauriTargetRoot,
+      binary: null,
+      stdoutTail: tail(result.stdout),
+      stderrTail: tail(result.stderr),
+    };
+  }
+  return { status: "PASS", command: "cargo build --locked --release", cargoManifest, cargoLock, targetDirectory: context.tauriTargetRoot, binary };
 }
 
 function run() {
@@ -102,12 +121,12 @@ function run() {
       return report;
     }
     const nextBuild = runNextBuild(context);
-    const tauriCompilation = nextBuild.status === "PASS" ? runTauriCheck(context) : { status: "UNVERIFIED", reason: "Next production build が PASS ではないため Tauri compilation を実行しません" };
+    const tauriCompilation = nextBuild.status === "PASS" ? runTauriBuild(context) : { status: "UNVERIFIED", reason: "Next production build が PASS ではないため Tauri compilation を実行しません" };
     const status = nextBuild.status === "PASS" && tauriCompilation.status === "PASS" ? "PASS" : [nextBuild.status, tauriCompilation.status].includes("FAIL") ? "FAIL" : "BLOCKED";
     const report = {
       schemaVersion: 1,
       status,
-      mode: "production-next-webpack plus Tauri Rust cargo check",
+      mode: "production-next-webpack plus Tauri Rust cargo build",
       nextBuild,
       tauriCompilation,
       nodeRuntime: "host Node used only for unpackaged sidecar; distributable embedding not claimed",
@@ -130,4 +149,4 @@ if (require.main === module) {
   try { run(); } catch { process.exitCode = 1; }
 }
 
-module.exports = { run, runNextBuild, runTauriCheck };
+module.exports = { run, runNextBuild, runTauriBuild };

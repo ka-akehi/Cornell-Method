@@ -17,11 +17,13 @@ const {
 const {
   portIsListening,
   startTauri,
+  tailOutput,
   tauriBinary,
   uniqueRunDirectory,
   waitForExit,
   waitForJson,
 } = require("./tauri-runner.cjs");
+const { recoverStaleRuntime } = require("./runtime-http.cjs");
 
 function blockedReport(context, reason, runDirectory = null) {
   return {
@@ -41,6 +43,7 @@ async function run() {
   ensureOutputDirectories(context);
   let runDirectory = null;
   let first = null;
+  let staleRecovery = null;
   try {
     validateBaseline(context);
     const preparation = readJson(path.join(context.evidenceRoot, "preparation.json"));
@@ -55,6 +58,7 @@ async function run() {
       console.log(JSON.stringify({ status: report.status, reason: report.reason }));
       return report;
     }
+    staleRecovery = await recoverStaleRuntime(context);
     const paths = {
       state: path.join(runDirectory, "lifecycle-state.json"),
       command: path.join(runDirectory, "lifecycle-command.json"),
@@ -66,7 +70,7 @@ async function run() {
       value.runtime?.readyStatus === "PASS" &&
       value.primaryWindow?.count === 1 &&
       value.primaryWindow?.usableObservationComplete === true
-    ));
+    ), 30_000, first.child);
     const shellBefore = observeDescendantClosure(first.child.pid, { expectedProcessGroupId: first.child.pid });
     const duplicate = startTauri(context, "lifecycle", paths, "0");
     const duplicateExit = await waitForExit(duplicate.child, 20_000);
@@ -125,6 +129,7 @@ async function run() {
         shellProcessTreeAfterShutdown: shellWait.after ?? null,
         shellCleanup: shellWait,
         firstProcessExit: firstExit,
+        staleRecovery,
       },
       measuredAt: new Date().toISOString(),
     };
@@ -132,6 +137,15 @@ async function run() {
     console.log(JSON.stringify({ status: report.status, evidence: path.join(context.evidenceRoot, "lifecycle.json") }));
     return report;
   } catch (error) {
+    try {
+      const recovered = await recoverStaleRuntime(context);
+      if (recovered) error.diagnostics = { ...(error.diagnostics ?? {}), staleRecovery: recovered };
+    } catch (cleanupError) {
+      error.diagnostics = {
+        ...(error.diagnostics ?? {}),
+        staleRecovery: { status: "UNVERIFIED", reason: cleanupError instanceof Error ? cleanupError.message : String(cleanupError) },
+      };
+    }
     const failurePath = writeFailureSummary(context, "lifecycle", error);
     const report = blockedReport(context, error instanceof Error ? error.message : String(error), runDirectory);
     try { writeJsonOwned(path.join(context.evidenceRoot, "lifecycle.json"), report); } catch { /* preserve immutable evidence */ }

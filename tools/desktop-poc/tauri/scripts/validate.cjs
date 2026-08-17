@@ -1,8 +1,10 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const {
+  actualToolchain,
   ensureOutputDirectories,
   getContext,
+  revisionProvenance,
   validateBaseline,
   writeFailureSummary,
   writeJsonOwned,
@@ -23,6 +25,7 @@ function run() {
       expected: validation.expected,
       observed: validation.actual,
       fixtureReadBack: validation.fixtureReadBack,
+      revisionProvenance: validation.revisionProvenance,
       measuredAt: new Date().toISOString(),
     };
     const canonicalPath = path.join(context.evidenceRoot, "baseline-validation.json");
@@ -39,11 +42,18 @@ function run() {
     return report;
   } catch (error) {
     const failurePath = writeFailureSummary(context, "baseline", error);
+    const actual = error.validation?.actual ?? actualToolchain();
     const report = {
       schemaVersion: 1,
       status: "BLOCKED",
       reason: error instanceof Error ? error.message : String(error),
       code: error?.code ?? null,
+      baselinePath: context.baselinePath,
+      baselineId: context.baseline.baseline_id,
+      baselineScopeSha256: context.baseline.baseline_scope_sha256,
+      fixturePath: context.fixturePath,
+      revisionProvenance: error.validation?.revisionProvenance
+        ?? revisionProvenance(context.baseline, actual),
       measuredAt: new Date().toISOString(),
     };
     try {

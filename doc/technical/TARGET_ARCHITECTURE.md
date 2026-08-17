@@ -16,7 +16,7 @@ Cornell Method Notebook の保守と拡張に向けたターゲットアーキ�
 
 デスクトップ版でも現行 MVP の local-first 方針を維持し、ノートデータの唯一の正本を各ユーザーの Mac 内 SQLite とする。クラウド DB、クラウド同期、オンラインサービスは製品スコープ外であり、アーキテクチャの将来移行先として扱わない。
 
-Electron と Tauri + Node.js sidecar は、同じ現行 MVP、同じ deterministic な 10,000 note fixture、同じ Apple Silicon Mac、同じ測定軸で比較する。両候補とも未着手であり、PoC の比較前に優先候補を固定しない。
+Desktop Alpha の shell は Tauri + Node.js sidecar とする。retry24 の native lifecycle / runtime HTTP / package 証跡を根拠に、2026-08-17 に発注者が選定を承認した。Electron PoC は比較履歴として保持し、renderer UI automation の PoC BLOCKED は製品 UI の Alpha 受け入れを別途確認する境界として扱う。
 
 ## 採用する考え方
 
@@ -135,14 +135,13 @@ src/
       canvas-png-output.ts # post-Alpha target; not implemented yet
 
   desktop/                 # target / PoC boundary; not implemented yet
-    shell/
-      electron-main/       # PoC candidate
-      tauri/               # PoC candidate with Node.js sidecar
     local-runtime/
       next-server.ts        # local Next.js runtime lifecycle
     storage/
       user-data-path.ts     # OS user data directory resolution
       canvas-png-output-destination.ts # post-Alpha destination remains undecided
+
+src-tauri/                 # Desktop Alpha product Tauri shell and packaging; PoC remains tools/desktop-poc/tauri/
 
   shared/
     ui/
@@ -187,7 +186,9 @@ SQLite の live DB はデスクトップ版でもノートデータの唯一の�
 
 ### Desktop PoC の比較境界
 
-Desktop Alpha の shell は、Electron と Tauri + Node.js sidecar の PoC 結果が揃った後に選定する。PoC は次の条件を固定する。
+Desktop Alpha の shell 選定は完了している。PoC は Tauri + Node.js sidecar の成立性を確認した証跡として保持し、次の条件を Desktop Alpha の packaged QA にも引き継ぐ。
+
+Desktop Alpha の Tauri / Node.js sidecar の基盤境界は [DESKTOP_ALPHA_TAURI_FOUNDATION.md](DESKTOP_ALPHA_TAURI_FOUNDATION.md) に定める。
 
 - 同じ現行 MVP baseline、同じ deterministic な 10,000 note SQLite fixture、同じ Apple Silicon Mac と macOS を使う。
 - cold start、一覧・検索・詳細・編集・保存の操作反応、shell の main / core、renderer / WebView、local runtime、Node.js sidecar、framework helper、関連子 process の合計メモリ、成果物サイズを同じ手順で測定する。
@@ -566,8 +567,8 @@ Desktop PoC と後続仕様 task では、次の未決事項だけを確定す�
 
 | 論点 | 現在の契約 | 未決事項 |
 | --- | --- | --- |
-| Desktop shell の選定 | Electron と Tauri + Node.js sidecar を同じ baseline、10,000 note fixture、Mac、測定軸で比較する | PoC 結果に基づく shell 選定 |
-| user data path | live DB、app 管理 backup、設定、local log は Application Support 側、app bundle は配布物として分離する | bundle ID と具体的な path |
+| Desktop shell の選定 | Tauri + Node.js sidecar を Desktop Alpha の shell とする。Electron は比較履歴として保持する | 承認済み |
+| user data path | live DB、app 管理 backup、設定、local log は Application Support 側、app bundle は配布物として分離する | 保存構成は承認済み。実装の詳細は user data / SQLite bootstrap task で決める |
 | 更新 | DMG、最大 1 日 1 回の非同期確認、手動確認、toggle なし、background download、明示再起動、失敗時の現行版維持 | provider、manifest / package の配置、署名・完全性検証方式 |
 | Canvas PNG | 保存済み Canvas の用紙全体を同寸法で出力する。PDF は未採用 | 使用不可文字、同名 file、保存先、失敗時 UI、色管理、PDF を再検討するか |
 | 検索・一覧 | 単一対象、local suggestion、5,000 件目標、10,000 件 fixture、無限スクロール、windowing を採用済み | Summary 分類、tokenization、同順位、API / index、取得単位、仮想化方式 |

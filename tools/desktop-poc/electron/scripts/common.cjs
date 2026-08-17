@@ -12,6 +12,20 @@ const DEFAULT_OUTPUT_ROOT =
   "/private/tmp/cornell-method-desktop-poc/mvp-gate0-20260812-dcc057d8/electron";
 const OBSERVATION_WAIT_MS = 5000;
 
+const EXPECTED_BASELINE = Object.freeze({
+  baseline_id: "mvp-gate0-20260812-dcc057d8",
+  git_head: "366c0ebbb324db37d5bc66e6650d5b7b216616dd",
+  baseline_scope_sha256: "dcc057d81b612573a5360b6f0b5bd9faea96f6e7586f59c833fc98bed978b72c",
+  fixture_count: 10000,
+  fixture_seed: "cornell-method-fixture-v1",
+  fixture_sha256: "bdb9d9996bf03c5c9885b9e1d13fdcce3cbf2925f559171bd9890fc4da6bc46e",
+  fixture_content_hash: "f01c404495412554a404154c7888577f681e536f72a75fb97b35643c2f3a7de6",
+  architecture: "Apple Silicon Mac (arm64)",
+  macos_version: "26.6.1",
+  node_version: "v26.7.0",
+  npm_version: "11.19.0",
+});
+
 function readJson(filePath) {
   return JSON.parse(fs.readFileSync(filePath, "utf8"));
 }
@@ -102,14 +116,66 @@ function actualToolchain() {
   const macosVersion = process.platform === "darwin"
     ? commandVersion("sw_vers", ["-productVersion"])
     : null;
+  const gitHead = commandVersion("git", ["-C", REPOSITORY_ROOT, "rev-parse", "HEAD"]);
+  const gitStatus = commandVersion(
+    "git",
+    ["-C", REPOSITORY_ROOT, "status", "--porcelain=v1", "--untracked-files=all"],
+  );
   return {
     architecture: os.arch(),
     platform: process.platform,
     macosVersion,
     nodeVersion: process.version,
     npmVersion: commandVersion("npm", ["--version"]),
-    gitHead: commandVersion("git", ["rev-parse", "HEAD"]),
+    gitHead,
+    gitWorktreeDirty: gitStatus === null ? null : gitStatus.length > 0,
   };
+}
+
+function revisionProvenance(baseline, actual) {
+  return {
+    baselineGitHead: baseline?.git_head ?? null,
+    candidateGitHead: actual?.gitHead ?? null,
+    candidateDirtyWorktree: actual?.gitWorktreeDirty ?? null,
+  };
+}
+
+function baselineMismatches(baseline, actual) {
+  const mismatches = [];
+  for (const [key, value] of Object.entries(EXPECTED_BASELINE)) {
+    if (baseline[key] !== value) {
+      mismatches.push(`manifest.${key}: expected=${value}, actual=${baseline[key]}`);
+    }
+  }
+  const actualValues = {
+    architecture: actual.architecture === "arm64" ? "Apple Silicon Mac (arm64)" : actual.architecture,
+    macos_version: actual.macosVersion,
+    node_version: actual.nodeVersion,
+    npm_version: actual.npmVersion,
+  };
+  for (const [key, value] of Object.entries(actualValues)) {
+    if (value !== EXPECTED_BASELINE[key]) {
+      mismatches.push(`environment.${key}: expected=${EXPECTED_BASELINE[key]}, actual=${value}`);
+    }
+  }
+  return mismatches;
+}
+
+function fixtureMismatches(expected, fixtureHash, readBack) {
+  const mismatches = [];
+  if (fixtureHash !== expected.fixture_sha256) {
+    mismatches.push(`fixture_sha256: expected=${expected.fixture_sha256}, actual=${fixtureHash}`);
+  }
+  if (readBack.notebooks !== expected.fixture_count) {
+    mismatches.push(`fixture_count: expected=${expected.fixture_count}, actual=${readBack.notebooks}`);
+  }
+  if (readBack.contentHash !== expected.fixture_content_hash) {
+    mismatches.push(`fixture_content_hash: expected=${expected.fixture_content_hash}, actual=${readBack.contentHash}`);
+  }
+  if (readBack.foreignKeyCheck !== "pass" || readBack.sqliteIntegrityCheck !== "ok") {
+    mismatches.push(`fixture_integrity: fk=${readBack.foreignKeyCheck}, sqlite=${readBack.sqliteIntegrityCheck}`);
+  }
+  return mismatches;
 }
 
 function calculateContentHash(databasePath) {
@@ -201,61 +267,35 @@ function fixtureReadBack(databasePath) {
 function validateBaseline(context) {
   const { baseline } = context;
   const actual = actualToolchain();
-  const expected = {
-    baseline_id: "mvp-gate0-20260812-dcc057d8",
-    git_head: "366c0ebbb324db37d5bc66e6650d5b7b216616dd",
-    fixture_count: 10000,
-    fixture_seed: "cornell-method-fixture-v1",
-    fixture_sha256: "bdb9d9996bf03c5c9885b9e1d13fdcce3cbf2925f559171bd9890fc4da6bc46e",
-    fixture_content_hash: "f01c404495412554a404154c7888577f681e536f72a75fb97b35643c2f3a7de6",
-    architecture: "Apple Silicon Mac (arm64)",
-    macos_version: "26.0.1",
-    node_version: "v22.12.0",
-    npm_version: "10.9.0",
-  };
-  const mismatches = [];
-  for (const [key, value] of Object.entries(expected)) {
-    if (baseline[key] !== value) {
-      mismatches.push(`manifest.${key}: expected=${value}, actual=${baseline[key]}`);
-    }
-  }
-  const actualValues = {
-    git_head: actual.gitHead,
-    architecture: actual.architecture === "arm64" ? "Apple Silicon Mac (arm64)" : actual.architecture,
-    macos_version: actual.macosVersion,
-    node_version: actual.nodeVersion,
-    npm_version: actual.npmVersion,
-  };
-  for (const [key, value] of Object.entries(actualValues)) {
-    if (value !== expected[key]) {
-      mismatches.push(`environment.${key}: expected=${expected[key]}, actual=${value}`);
-    }
-  }
+  const expected = EXPECTED_BASELINE;
+  const mismatches = baselineMismatches(baseline, actual);
+  let fixtureReadBackValue = null;
   if (!fs.existsSync(context.fixturePath)) {
     mismatches.push(`fixture がありません: ${context.fixturePath}`);
   } else {
     const fixtureHash = sha256FileSync(context.fixturePath);
-    if (fixtureHash !== expected.fixture_sha256) {
-      mismatches.push(`fixture_sha256: expected=${expected.fixture_sha256}, actual=${fixtureHash}`);
-    }
-    const readBack = fixtureReadBack(context.fixturePath);
-    if (readBack.notebooks !== expected.fixture_count) {
-      mismatches.push(`fixture_count: expected=${expected.fixture_count}, actual=${readBack.notebooks}`);
-    }
-    if (readBack.contentHash !== expected.fixture_content_hash) {
-      mismatches.push(`fixture_content_hash: expected=${expected.fixture_content_hash}, actual=${readBack.contentHash}`);
-    }
-    if (readBack.foreignKeyCheck !== "pass" || readBack.sqliteIntegrityCheck !== "ok") {
-      mismatches.push(`fixture_integrity: fk=${readBack.foreignKeyCheck}, sqlite=${readBack.sqliteIntegrityCheck}`);
-    }
+    fixtureReadBackValue = fixtureReadBack(context.fixturePath);
+    mismatches.push(...fixtureMismatches(expected, fixtureHash, fixtureReadBackValue));
   }
   if (mismatches.length > 0) {
     const error = new Error(`BLOCKED: shared baseline の固定値が一致しません\n${mismatches.join("\n")}`);
     error.code = "BASELINE_MISMATCH";
     error.mismatches = mismatches;
+    error.validation = {
+      expected,
+      actual,
+      fixtureReadBack: fixtureReadBackValue,
+      revisionProvenance: revisionProvenance(baseline, actual),
+    };
     throw error;
   }
-  return { expected, actual, fixtureSha256: expected.fixture_sha256 };
+  return {
+    expected,
+    actual,
+    fixtureSha256: expected.fixture_sha256,
+    fixtureReadBack: fixtureReadBackValue,
+    revisionProvenance: revisionProvenance(baseline, actual),
+  };
 }
 
 function assertOwnedPath(targetPath, allowedRoot) {
@@ -327,17 +367,21 @@ module.exports = {
   REPOSITORY_ROOT,
   DEFAULT_BASELINE_PATH,
   DEFAULT_OUTPUT_ROOT,
+  EXPECTED_BASELINE,
   OBSERVATION_WAIT_MS,
   actualToolchain,
+  baselineMismatches,
   calculateContentHash,
   canonicalJson,
   commandVersion,
   ensureDirectory,
   ensureOutputDirectories,
+  fixtureMismatches,
   getContext,
   fixtureReadBack,
   readJson,
   relativeOutputPath,
+  revisionProvenance,
   runCommand,
   sha256File,
   sha256FileSync,

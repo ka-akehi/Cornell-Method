@@ -12,12 +12,13 @@
     "poc:lifecycle": "node scripts/poc.cjs lifecycle",
     "poc:package": "node scripts/poc.cjs package",
     "poc:evidence": "node scripts/poc.cjs evidence",
+    "poc:vm-gate": "node scripts/vm-gate.cjs",
     "poc:all": "node scripts/poc.cjs all",
     "test": "node --test test/*.test.cjs",
-    "syntax": "node --check scripts/common.cjs && node --check scripts/process-tree.cjs && node --check scripts/tauri-runner.cjs && node --check scripts/poc.cjs && node --check scripts/validate.cjs && node --check scripts/prepare.cjs && node --check scripts/build.cjs && node --check scripts/runtime-http.cjs && node --check scripts/smoke.cjs && node --check scripts/lifecycle.cjs && node --check scripts/package.cjs && node --check scripts/evidence.cjs"
+    "syntax": "node --check scripts/common.cjs && node --check scripts/process-tree.cjs && node --check scripts/tauri-runner.cjs && node --check scripts/poc.cjs && node --check scripts/vm-gate.cjs && node --check scripts/validate.cjs && node --check scripts/prepare.cjs && node --check scripts/build.cjs && node --check scripts/runtime-http.cjs && node --check scripts/smoke.cjs && node --check scripts/lifecycle.cjs && node --check scripts/package.cjs && node --check scripts/evidence.cjs"
   },
   "engines": {
-    "node": "22.12.0",
-    "npm": "10.9.0"
+    "node": "26.7.0",
+    "npm": "11.19.0"
   }
 }

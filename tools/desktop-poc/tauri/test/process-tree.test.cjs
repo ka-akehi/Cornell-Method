@@ -1,4 +1,7 @@
 const assert = require("node:assert/strict");
+const { spawn } = require("node:child_process");
+const os = require("node:os");
+const path = require("node:path");
 const test = require("node:test");
 const {
   assessRuntimeCleanup,
@@ -10,6 +13,7 @@ const {
   validateDedicatedProcessGroup,
   waitForProcessTreeExit,
 } = require("../scripts/process-tree.cjs");
+const { tauriInstanceSocketPath, waitForExit, waitForJson } = require("../scripts/tauri-runner.cjs");
 
 const records = [
   { pid: 100, ppid: 1, pgid: 100, rssKb: 10, state: "S", commandName: "node", commandLine: "node next start" },
@@ -90,4 +94,32 @@ test("cleanup assessment never passes without an empty observed after-tree", () 
   const base = { status: "PASS", runtimeRootPid: 100, processTreeBeforeShutdown: { observationStatus: "PASS", pids: [100, 101] }, processTreeAfterShutdown: { observationStatus: "PASS", remainingPids: [101] } };
   assert.equal(assessRuntimeCleanup(base).status, "FAIL");
   assert.equal(assessRuntimeCleanup({ ...base, processTreeAfterShutdown: { observationStatus: "PASS", remainingPids: [] } }).status, "PASS");
+});
+
+test("waitForExit reports an already exited child without a timeout", async () => {
+  const child = spawn(process.execPath, ["-e", "process.exit(143)"], { stdio: "ignore" });
+  await new Promise((resolve, reject) => {
+    child.once("error", reject);
+    child.once("exit", resolve);
+  });
+  const result = await waitForExit(child, 50);
+  assert.equal(result.code, 143);
+  assert.equal(result.signal, null);
+  assert.equal(result.timedOut, false);
+});
+
+test("waitForJson reports a child exit before readiness state", async () => {
+  const child = spawn(process.execPath, ["-e", "process.exit(7)"], { stdio: "ignore" });
+  await assert.rejects(
+    waitForJson(path.join(os.tmpdir(), `missing-tauri-state-${process.pid}.json`), () => true, 500, child),
+    /Tauri process exited before state/,
+  );
+});
+
+test("Tauri instance socket stays below macOS SUN_LEN and remains run-specific", () => {
+  const context = { outputRoot: `/private/tmp/${"long-output-root-".repeat(20)}` };
+  const smoke = tauriInstanceSocketPath(context, "smoke");
+  assert.ok(smoke.length < 104);
+  assert.equal(smoke, tauriInstanceSocketPath(context, "smoke"));
+  assert.notEqual(smoke, tauriInstanceSocketPath(context, "lifecycle"));
 });

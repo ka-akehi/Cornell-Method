@@ -52,6 +52,110 @@ const appUserDataPath = process.env.POC_ELECTRON_USER_DATA
   ? path.resolve(process.env.POC_ELECTRON_USER_DATA)
   : undefined;
 
+function createLoopbackApiRequestHeaderHook({ runtimeHost, runtimePort, getPrimaryWebContentsId }) {
+  const runtimeOrigin = `http://${runtimeHost}:${runtimePort}`;
+  const canonicalOrigin = runtimeHost === "127.0.0.1"
+    ? `http://localhost:${runtimePort}`
+    : runtimeOrigin;
+  const stateChangingMethods = new Set(["POST", "PATCH", "DELETE"]);
+  const diagnostics = {
+    hookInstalled: false,
+    matchedRequestCount: 0,
+    lastMatchedRequest: null,
+  };
+
+  function readRequestHeader(requestHeaders, name) {
+    const key = Object.keys(requestHeaders).find((candidate) => candidate.toLowerCase() === name.toLowerCase());
+    return key ? requestHeaders[key] : null;
+  }
+
+  function summarizeOrigin(value) {
+    return value === canonicalOrigin ? canonicalOrigin : null;
+  }
+
+  function summarizeReferer(value) {
+    if (typeof value !== "string") return null;
+    if (value !== value.trim()) return null;
+    try {
+      const parsed = new URL(value);
+      if (
+        (parsed.protocol !== "http:" && parsed.protocol !== "https:") ||
+        parsed.username ||
+        parsed.password
+      ) {
+        return null;
+      }
+      return parsed.origin === canonicalOrigin ? canonicalOrigin : null;
+    } catch {
+      return null;
+    }
+  }
+
+  function removeRequestHeader(requestHeaders, name) {
+    for (const key of Object.keys(requestHeaders)) {
+      if (key.toLowerCase() === name.toLowerCase()) delete requestHeaders[key];
+    }
+  }
+
+  function setRequestHeader(requestHeaders, name, value) {
+    removeRequestHeader(requestHeaders, name);
+    requestHeaders[name] = value;
+  }
+
+  const listener = (details, callback) => {
+    const requestHeaders = { ...details.requestHeaders };
+    let requestUrl;
+    try {
+      requestUrl = new URL(details.url);
+    } catch {
+      callback({ requestHeaders });
+      return;
+    }
+    const isLoopbackApiRequest = requestUrl.origin === runtimeOrigin && requestUrl.pathname.startsWith("/api/");
+    const hasWebContentsId = details.webContentsId !== undefined && details.webContentsId !== null;
+    const isPrimaryRenderer = !hasWebContentsId || details.webContentsId === getPrimaryWebContentsId();
+    const isStateChangingRequest = stateChangingMethods.has(String(details.method).toUpperCase());
+    if (isLoopbackApiRequest && isPrimaryRenderer && isStateChangingRequest) {
+      const incomingOrigin = summarizeOrigin(readRequestHeader(requestHeaders, "Origin"));
+      const incomingReferer = summarizeReferer(readRequestHeader(requestHeaders, "Referer"));
+      setRequestHeader(requestHeaders, "Origin", canonicalOrigin);
+      setRequestHeader(requestHeaders, "Referer", `${canonicalOrigin}/`);
+      const matchedRequest = {
+        method: String(details.method).toUpperCase(),
+        path: requestUrl.pathname,
+        hasWebContentsId,
+        incomingHeaders: {
+          origin: incomingOrigin,
+          referer: incomingReferer,
+        },
+        outgoingHeaders: {
+          origin: summarizeOrigin(readRequestHeader(requestHeaders, "Origin")),
+          referer: summarizeReferer(readRequestHeader(requestHeaders, "Referer")),
+        },
+        callbackCalled: false,
+      };
+      diagnostics.matchedRequestCount += 1;
+      diagnostics.lastMatchedRequest = matchedRequest;
+      try {
+        callback({ requestHeaders });
+      } finally {
+        matchedRequest.callbackCalled = true;
+      }
+      return;
+    }
+    callback({ requestHeaders });
+  };
+
+  return {
+    filter: { urls: [`${runtimeOrigin}/api/*`] },
+    listener,
+    diagnostics,
+    markInstalled() {
+      diagnostics.hookInstalled = true;
+    },
+  };
+}
+
 if (appUserDataPath) {
   fs.mkdirSync(appUserDataPath, { recursive: true });
   app.setPath("userData", appUserDataPath);
@@ -120,6 +224,11 @@ if (!hasSingleInstanceLock) {
     renderer: { pid: null },
     memory: { status: "UNVERIFIED", scope: [], processes: [], totalRssKb: null },
     uiSmoke: { status: "UNVERIFIED", editedNoteId: null, editedTitle: null },
+    requestHookDiagnostics: {
+      hookInstalled: false,
+      matchedRequestCount: 0,
+      lastMatchedRequest: null,
+    },
     duplicateLaunches: 0,
     lifecycleEvents,
     shutdown: { status: "UNVERIFIED", observationWaitMs: 5000 },
@@ -295,10 +404,14 @@ if (!hasSingleInstanceLock) {
 
   function waitForRendererFunction(predicate, label, timeoutMs = 20_000) {
     const deadline = Date.now() + timeoutMs;
+    let lastRendererError = null;
     return new Promise((resolve, reject) => {
       const tick = async () => {
         if (Date.now() >= deadline) {
-          reject(new Error(`renderer readiness timeout: ${label}`));
+          const diagnostic = lastRendererError
+            ? `; last renderer error: ${lastRendererError.message}`
+            : "";
+          reject(new Error(`renderer readiness timeout: ${label}${diagnostic}`));
           return;
         }
         try {
@@ -307,7 +420,8 @@ if (!hasSingleInstanceLock) {
             resolve(value);
             return;
           }
-        } catch {
+        } catch (error) {
+          lastRendererError = error instanceof Error ? error : new Error(String(error));
           // The document may still be navigating; keep polling until the deadline.
         }
         setTimeout(tick, 100);
@@ -363,6 +477,20 @@ if (!hasSingleInstanceLock) {
     }`;
   }
 
+  function installPrimaryRendererRequestHook() {
+    const hook = createLoopbackApiRequestHeaderHook({
+      runtimeHost,
+      runtimePort,
+      getPrimaryWebContentsId: () => {
+        if (!primaryWindow || primaryWindow.isDestroyed()) return null;
+        return primaryWindow.webContents.id;
+      },
+    });
+    session.defaultSession.webRequest.onBeforeSendHeaders(hook.filter, hook.listener);
+    result.requestHookDiagnostics = hook.diagnostics;
+    hook.markInstalled();
+  }
+
   async function runUiSmoke() {
     const primaryUrl = `http://${runtimeHost}:${runtimePort}/notes`;
     const windowLoadStarted = nowMs();
@@ -396,8 +524,14 @@ if (!hasSingleInstanceLock) {
       }`,
     );
     await waitForRendererFunction(
-      function searchIsVisible() {
-        return document.body.textContent?.includes("検索結果");
+      function searchIsReady() {
+        return Boolean(
+          document.body.textContent?.includes("検索結果") &&
+          [...document.querySelectorAll("a[href^='/notes/']")].some((element) => {
+            const href = element.getAttribute("href") || "";
+            return /^\/notes\/[^/]+$/.test(href) && href !== "/notes/new";
+          }),
+        );
       },
       "notes search",
     );
@@ -416,7 +550,7 @@ if (!hasSingleInstanceLock) {
       `function () {
         const link = [...document.querySelectorAll("a[href^='/notes/']")].find((element) => {
           const href = element.getAttribute("href") || "";
-          return /^\\/notes\\/[^/]+$/.test(href);
+          return /^\\/notes\\/[^/]+$/.test(href) && href !== "/notes/new";
         });
         if (!link) return null;
         link.click();
@@ -450,7 +584,7 @@ if (!hasSingleInstanceLock) {
     );
     if (!originalTitle) throw new Error("編集画面のタイトルが空です");
     const editedTitle = `${originalTitle} [Electron PoC]`;
-    await executeRenderer(
+    const titleChanged = await executeRenderer(
       `function () {
         const input = document.getElementById("note-title");
         const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
@@ -459,6 +593,19 @@ if (!hasSingleInstanceLock) {
         input?.dispatchEvent(new Event("change", { bubbles: true }));
         return input?.value === ${JSON.stringify(editedTitle)};
       }`,
+    );
+    if (!titleChanged) throw new Error("タイトル入力の変更を renderer に適用できません");
+    await waitForRendererFunction(
+      `function titleStateIsReady() {
+        const input = document.getElementById("note-title");
+        return Boolean(
+          input &&
+          input.isConnected &&
+          input.value === ${JSON.stringify(editedTitle)} &&
+          input.defaultValue === ${JSON.stringify(editedTitle)},
+        );
+      }`,
+      "note title state",
     );
     result.operations.edit = { status: "PASS", durationMs: Math.round(nowMs() - editStarted), noteId: detailId };
 
@@ -473,15 +620,37 @@ if (!hasSingleInstanceLock) {
       }`,
     );
     if (!saveClicked) throw new Error("明示保存ボタンが見つかりません");
-    await waitForRendererFunction(
+    const saveState = await waitForRendererFunction(
       function saveIsComplete() {
-        return Boolean(
-          document.querySelector("h1.note-paper-title")?.textContent?.includes("[Electron PoC]") &&
-          [...document.querySelectorAll("button")].some((element) => element.textContent?.trim() === "編集"),
+        const editorError = document.querySelector("#note-editor-error-alert[role='alert']");
+        if (editorError) {
+          return {
+            status: "error",
+            message: editorError.textContent?.trim() || "保存エラーの内容が空です",
+          };
+        }
+        const editor = document.querySelector("form.note-paper-editor");
+        const detail = document.querySelector(".note-paper-detail");
+        const title = detail?.querySelector("h1.note-paper-title");
+        const editButton = [...(detail?.querySelectorAll("button") ?? [])].find(
+          (element) => element.textContent?.trim() === "編集",
         );
+        if (
+          !editor &&
+          detail &&
+          title?.textContent?.includes("[Electron PoC]") &&
+          editButton &&
+          !editButton.disabled
+        ) {
+          return { status: "success" };
+        }
+        return false;
       },
       "explicit note save",
     );
+    if (saveState?.status === "error") {
+      throw new Error(`explicit note save failed in renderer: ${saveState.message}`);
+    }
     result.operations.explicitSave = { status: "PASS", durationMs: Math.round(nowMs() - saveStarted), noteId: detailId };
     result.uiSmoke = { status: "PASS", editedNoteId: detailId, editedTitle };
 
@@ -914,6 +1083,7 @@ if (!hasSingleInstanceLock) {
 
   app.whenReady().then(async () => {
     session.defaultSession.setPermissionRequestHandler((_webContents, _permission, callback) => callback(false));
+    installPrimaryRendererRequestHook();
     if (IS_LIFECYCLE) {
       await runLifecycleMode();
     } else {

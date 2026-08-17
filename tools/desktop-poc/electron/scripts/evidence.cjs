@@ -7,6 +7,7 @@ const {
   getContext,
   readJson,
   relativeOutputPath,
+  revisionProvenance,
   validateBaseline,
   writeFailureSummary,
   writeJsonOwned,
@@ -38,7 +39,7 @@ function packageVersions() {
   const installedBuilder = readIf(path.join(CANDIDATE_ROOT, "node_modules", "electron-builder", "package.json"));
   return {
     declared: {
-      electron: packageJson.dependencies.electron,
+      electron: packageJson.devDependencies.electron,
       electronBuilder: packageJson.devDependencies["electron-builder"],
     },
     lockfile: {
@@ -71,10 +72,24 @@ function buildManifest(context) {
   const versions = packageVersions();
   const baselineValidation = (() => {
     try {
-      validateBaseline(context);
-      return { status: "PASS", reason: null };
+      const validation = validateBaseline(context);
+      return {
+        status: "PASS",
+        reason: null,
+        observed: validation.actual,
+        fixtureReadBack: validation.fixtureReadBack,
+        revisionProvenance: validation.revisionProvenance,
+      };
     } catch (error) {
-      return { status: error?.code === "BASELINE_MISMATCH" ? "BLOCKED" : "FAIL", reason: error instanceof Error ? error.message : String(error) };
+      const observed = error.validation?.actual ?? actualToolchain();
+      return {
+        status: error?.code === "BASELINE_MISMATCH" ? "BLOCKED" : "FAIL",
+        reason: error instanceof Error ? error.message : String(error),
+        observed,
+        fixtureReadBack: error.validation?.fixtureReadBack ?? null,
+        revisionProvenance: error.validation?.revisionProvenance
+          ?? revisionProvenance(context.baseline, observed),
+      };
     }
   })();
   const findings = { successes: [], failures: [], unverified: [], blocked: [] };
@@ -109,12 +124,13 @@ function buildManifest(context) {
 
   const statuses = [baselineValidation.status, installStatus, statusOf(preparation), statusOf(build), statusOf(smoke), statusOf(runtimeHttp), statusOf(lifecycle), statusOf(packaging)];
   const status = overallStatus(statuses);
-  const toolchain = actualToolchain();
+  const toolchain = baselineValidation.observed ?? actualToolchain();
   return {
     schemaVersion: 1,
     candidate: "electron",
     candidateDecision: "not-selected; compare with Tauri PoC before Desktop Alpha",
     status,
+    revisionProvenance: baselineValidation.revisionProvenance,
     baseline: {
       baseline_id: context.baseline.baseline_id,
       git_head: context.baseline.git_head,

@@ -1,4 +1,5 @@
 const fs = require("node:fs");
+const crypto = require("node:crypto");
 const net = require("node:net");
 const path = require("node:path");
 const { spawn } = require("node:child_process");
@@ -48,12 +49,25 @@ function uniqueRunDirectory(context, prefix) {
   return target;
 }
 
-function tailOutput(value) {
-  return String(value).split(/\r?\n/).filter(Boolean).slice(-12);
+function tauriInstanceSocketPath(context, mode) {
+  const token = crypto
+    .createHash("sha256")
+    .update(`${context.outputRoot}\0${mode}`)
+    .digest("hex")
+    .slice(0, 24);
+  return path.join("/tmp", `cornell-tauri-${token}.sock`);
+}
+
+function tailOutput(value, limit = 12) {
+  return String(value).split(/\r?\n/).filter(Boolean).slice(-limit);
 }
 
 function waitForExit(child, timeoutMs) {
   return new Promise((resolve) => {
+    if (child.exitCode !== null || child.signalCode !== null) {
+      resolve({ code: child.exitCode, signal: child.signalCode, timedOut: false });
+      return;
+    }
     let settled = false;
     let timer;
     const finish = (value) => {
@@ -72,10 +86,14 @@ function waitForExit(child, timeoutMs) {
   });
 }
 
-function waitForJson(filePath, predicate, timeoutMs = 30_000) {
+function waitForJson(filePath, predicate, timeoutMs = 30_000, child = null) {
   const deadline = Date.now() + timeoutMs;
   return new Promise((resolve, reject) => {
     const tick = () => {
+      if (child && (child.exitCode !== null || child.signalCode !== null)) {
+        reject(new Error(`Tauri process exited before state: ${filePath} (code=${child.exitCode}, signal=${child.signalCode})`));
+        return;
+      }
       if (Date.now() >= deadline) {
         reject(new Error(`Tauri state timeout: ${filePath}`));
         return;
@@ -131,13 +149,14 @@ function startTauri(context, mode, paths, showWindow = "0") {
       POC_NODE_BINARY: process.execPath,
       POC_TAURI_USER_DATA: paths.tauriUserData,
       POC_TAURI_INSTANCE_LOCK: path.join(paths.tauriUserData, "instance.lock"),
-      POC_TAURI_INSTANCE_SOCKET: path.join(context.outputRoot, "instance.sock"),
+      POC_TAURI_INSTANCE_SOCKET: tauriInstanceSocketPath(context, mode),
       POC_RESULT_FILE: paths.result,
       POC_LIFECYCLE_STATE_FILE: paths.state,
       POC_LIFECYCLE_COMMAND_FILE: paths.command,
       POC_LAUNCH_START_NS: launchStartNs.toString(),
       POC_TAURI_MODE: mode,
       POC_SHOW_WINDOW: showWindow,
+      RUST_BACKTRACE: process.env.RUST_BACKTRACE ?? "full",
       CARGO_TARGET_DIR: context.tauriTargetRoot,
     },
     stdio: ["ignore", "pipe", "pipe"],
@@ -249,6 +268,7 @@ module.exports = {
   startTauri,
   stopOwnedProcess,
   tailOutput,
+  tauriInstanceSocketPath,
   tauriBinary,
   uniqueRunDirectory,
   waitForExit,

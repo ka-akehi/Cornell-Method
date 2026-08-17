@@ -43,9 +43,28 @@ function reservePort(context) {
   });
 }
 
+const STATE_CHANGING_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
+
+function canonicalRuntimeOrigin(baseUrl) {
+  const url = new URL(baseUrl);
+  if (url.hostname === "127.0.0.1") url.hostname = "localhost";
+  return url.origin;
+}
+
+function withCanonicalSameOriginHeaders(baseUrl, options = {}) {
+  const method = String(options.method ?? "GET").toUpperCase();
+  if (!STATE_CHANGING_METHODS.has(method)) return options;
+
+  const canonicalOrigin = canonicalRuntimeOrigin(baseUrl);
+  const headers = new Headers(options.headers);
+  headers.set("Origin", canonicalOrigin);
+  headers.set("Referer", `${canonicalOrigin}/`);
+  return { ...options, headers };
+}
+
 async function fetchJson(baseUrl, pathname, options = {}) {
   const startedAt = process.hrtime.bigint();
-  const response = await fetch(`${baseUrl}${pathname}`, options);
+  const response = await fetch(`${baseUrl}${pathname}`, withCanonicalSameOriginHeaders(baseUrl, options));
   const text = await response.text();
   let body;
   try {
@@ -223,5 +242,9 @@ if (require.main === module) {
   run().catch(() => { process.exitCode = 1; });
 }
 
-module.exports = { run };
-
+module.exports = {
+  canonicalRuntimeOrigin,
+  fetchJson,
+  run,
+  withCanonicalSameOriginHeaders,
+};

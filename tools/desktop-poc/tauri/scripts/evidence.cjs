@@ -8,6 +8,7 @@ const {
   getContext,
   readJson,
   relativeOutputPath,
+  revisionProvenance,
   validateBaseline,
   writeFailureSummary,
   writeJsonOwned,
@@ -294,7 +295,21 @@ function cargoMetadata() {
 }
 
 function buildManifest(context) {
-  const baselineValidation = readIf(path.join(context.evidenceRoot, "baseline-validation.json"));
+  const baselineValidationFile = readIf(path.join(context.evidenceRoot, "baseline-validation.json"));
+  const toolchain = actualToolchain();
+  const currentRevisionProvenance = revisionProvenance(context.baseline, toolchain);
+  const baselineValidation = baselineValidationFile
+    ? {
+      ...baselineValidationFile,
+      observed: toolchain,
+      revisionProvenance: currentRevisionProvenance,
+    }
+    : {
+      status: "UNVERIFIED",
+      reason: "baseline-validation.json unavailable",
+      observed: toolchain,
+      revisionProvenance: currentRevisionProvenance,
+    };
   const preparation = readIf(path.join(context.evidenceRoot, "preparation.json"));
   const build = readIf(path.join(context.evidenceRoot, "build.json"));
   const runtimeHttp = readIf(path.join(context.evidenceRoot, "runtime-http-smoke.json"));
@@ -344,7 +359,7 @@ function buildManifest(context) {
       fixtureSeed: context.baseline.fixture_seed ?? EXPECTED_BASELINE.fixture_seed,
       fixtureSha256: context.baseline.fixture_sha256 ?? EXPECTED_BASELINE.fixture_sha256,
       fixtureContentHash: context.baseline.fixture_content_hash ?? EXPECTED_BASELINE.fixture_content_hash,
-      observedToolchain: actualToolchain(),
+      observedToolchain: toolchain,
       validationStatus: statusOf(baselineValidation),
     };
   const findings = [
@@ -373,12 +388,13 @@ function buildManifest(context) {
     schemaVersion: 1,
     candidate: "tauri-node-sidecar",
     status: overallStatus(statuses),
+    revisionProvenance: currentRevisionProvenance,
     baseline,
     candidateDependencies: {
       packageJson: path.join(CANDIDATE_ROOT, "package.json"),
       packageLock: path.join(CANDIDATE_ROOT, "package-lock.json"),
       packageLockStatus: fs.existsSync(path.join(CANDIDATE_ROOT, "package-lock.json")) ? "present" : "missing",
-      nodeRuntime: "host Node v22.12.0 for unpackaged sidecar",
+      nodeRuntime: "host Node v26.7.0 for unpackaged sidecar",
       rootNodeModulesUsedByRuntime: false,
       rust: cargoMetadata(),
     },

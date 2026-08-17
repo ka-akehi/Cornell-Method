@@ -5,11 +5,14 @@ This directory is an isolated Electron candidate for the Cornell Method Notebook
 The comparison input is fixed by the shared manifest:
 
 - baseline: `mvp-gate0-20260812-dcc057d8`
-- git head: `366c0ebbb324db37d5bc66e6650d5b7b216616dd`
+- baseline manifest git head (fixture provenance): `366c0ebbb324db37d5bc66e6650d5b7b216616dd`
+- baseline scope SHA-256: `dcc057d81b612573a5360b6f0b5bd9faea96f6e7586f59c833fc98bed978b72c`
 - fixture: 10,000 notes, seed `cornell-method-fixture-v1`
 - fixture SHA-256: `bdb9d9996bf03c5c9885b9e1d13fdcce3cbf2925f559171bd9890fc4da6bc46e`
 - fixture contentHash: `f01c404495412554a404154c7888577f681e536f72a75fb97b35643c2f3a7de6`
-- target: Apple Silicon arm64, macOS 26.0.1, Node v22.12.0, npm 10.9.0
+- target: Apple Silicon arm64, macOS 26.6.1, Node v26.7.0, npm 11.19.0
+
+The manifest `git_head` is fixed fixture provenance. The validation and evidence reports record the executing candidate's git head separately as `revisionProvenance.candidateGitHead`, together with `candidateDirtyWorktree` (tracked and untracked changes, or `null` when unavailable). A candidate revision difference by itself does not invalidate the fixed baseline; fixture bytes/contentHash, baseline fields, and target environment are still validated.
 
 The next Tauri + Node.js sidecar PoC must use the same manifest, fixture bytes, arm64/macOS target, production webpack build mode, cache state, fixed loopback measurement procedure, operation sequence, process-tree memory aggregation, and evidence fields. The later comparison task chooses the shell; this candidate makes no choice.
 

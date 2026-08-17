@@ -4,11 +4,13 @@ const { spawnSync } = require("node:child_process");
 const {
   CANDIDATE_ROOT,
   REPOSITORY_ROOT,
+  actualToolchain,
   ensureDirectory,
   ensureOutputDirectories,
   fixtureReadBack,
   getContext,
   relativeOutputPath,
+  revisionProvenance,
   sha256FileSync,
   validateBaseline,
   writeFailureSummary,
@@ -217,14 +219,17 @@ function run() {
       status: "PASS",
       baseline: {
         baselineId: context.baseline.baseline_id,
+        baselineScopeSha256: context.baseline.baseline_scope_sha256,
         gitHead: context.baseline.git_head,
         fixtureCount: context.baseline.fixture_count,
         fixtureSeed: context.baseline.fixture_seed,
         fixtureSha256: context.baseline.fixture_sha256,
         fixtureContentHash: context.baseline.fixture_content_hash,
+        validation: baseline.fixtureReadBack,
       },
+      revisionProvenance: baseline.revisionProvenance,
       candidateDependencies: {
-        electron: candidatePackage.dependencies.electron,
+        electron: candidatePackage.devDependencies.electron,
         electronBuilder: candidatePackage.devDependencies["electron-builder"],
       },
       staging: {
@@ -254,9 +259,27 @@ function run() {
     return report;
   } catch (error) {
     const failurePath = writeFailureSummary(context, "prepare", error);
+    const actual = error.validation?.actual ?? actualToolchain();
+    const report = {
+      schemaVersion: 1,
+      status: error?.code === "BASELINE_MISMATCH" ? "BLOCKED" : "FAIL",
+      reason: error instanceof Error ? error.message : String(error),
+      code: error?.code ?? null,
+      baselineId: context.baseline.baseline_id,
+      baselineScopeSha256: context.baseline.baseline_scope_sha256,
+      revisionProvenance: error.validation?.revisionProvenance
+        ?? revisionProvenance(context.baseline, actual),
+      stagingPath: context.stagingRoot,
+      measuredAt: new Date().toISOString(),
+    };
+    try {
+      writeJsonOwned(path.join(context.evidenceRoot, "preparation.json"), report);
+    } catch {
+      // Preserve the original preparation failure.
+    }
     console.error(`${error instanceof Error ? error.message : String(error)}\nsummary: ${failurePath}`);
     if (error?.code === "BASELINE_MISMATCH") {
-      return { status: "BLOCKED", failurePath };
+      return { ...report, failurePath };
     }
     throw error;
   }
@@ -271,4 +294,3 @@ if (require.main === module) {
 }
 
 module.exports = { run, prepareStaging, migrateCleanDatabase, copyPopulatedDatabase };
-

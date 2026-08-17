@@ -1,7 +1,7 @@
 const fs = require("node:fs");
 const net = require("node:net");
 const path = require("node:path");
-const { spawn } = require("node:child_process");
+const { execFileSync, spawn } = require("node:child_process");
 const {
   ensureOutputDirectories,
   fixtureReadBack,
@@ -11,8 +11,13 @@ const {
   writeFailureSummary,
   writeJsonOwned,
 } = require("./common.cjs");
-const { validateDedicatedProcessGroup, observeDescendantClosure } = require("./process-tree.cjs");
-const { stopOwnedProcess } = require("./tauri-runner.cjs");
+const {
+  observeDescendantClosure,
+  readProcessTable,
+  toProcessEvidence,
+  validateDedicatedProcessGroup,
+} = require("./process-tree.cjs");
+const { portIsListening, stopOwnedProcess } = require("./tauri-runner.cjs");
 
 function reservePort(context) {
   return new Promise((resolve, reject) => {
@@ -22,9 +27,117 @@ function reservePort(context) {
   });
 }
 
+function parseListeningPids(output) {
+  return [...new Set(String(output).split(/\r?\n/).map((line) => Number(line.trim())).filter((pid) => Number.isInteger(pid) && pid > 0))];
+}
+
+function parseLsofCwd(output) {
+  return String(output).split(/\r?\n/).find((line) => line.startsWith("n"))?.slice(1) ?? null;
+}
+
+function listeningPids(context, execFileSyncImpl = execFileSync) {
+  try {
+    return parseListeningPids(execFileSyncImpl("lsof", [
+      "-nP",
+      "-t",
+      `-iTCP:${context.runtimePort}`,
+      "-sTCP:LISTEN",
+    ], { encoding: "utf8", timeout: 1000 }));
+  } catch (error) {
+    if (error?.status === 1) return [];
+    throw new Error(`固定 loopback port の listener を確認できません: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
+function processCwd(pid, execFileSyncImpl = execFileSync) {
+  try {
+    return parseLsofCwd(execFileSyncImpl("lsof", ["-a", "-p", String(pid), "-d", "cwd", "-Fn"], {
+      encoding: "utf8",
+      timeout: 1000,
+    }));
+  } catch {
+    return null;
+  }
+}
+
+function isPoCStagingCwd(context, cwd) {
+  if (!cwd) return false;
+  const relative = path.relative(path.dirname(context.outputRoot), path.resolve(cwd));
+  const parts = relative.split(path.sep);
+  return parts.length === 2 && parts[0].startsWith("tauri-current-vm-") && parts[1] === "staging";
+}
+
+function isOwnedRuntimeProcess(context, record, cwd) {
+  if (!record || !isPoCStagingCwd(context, cwd)) return false;
+  const processGroupId = record.processGroupId ?? record.pgid;
+  if (processGroupId !== record.pid) return false;
+  const identity = `${record.commandName} ${record.commandLine}`;
+  return identity.includes("next-server") || identity.includes("next/dist/bin/next");
+}
+
+async function recoverStaleRuntime(context, {
+  execFileSyncImpl = execFileSync,
+  readProcessTableImpl = readProcessTable,
+} = {}) {
+  const pids = listeningPids(context, execFileSyncImpl);
+  if (pids.length === 0) return null;
+  const records = readProcessTableImpl();
+  const owned = pids.map((pid) => {
+    const record = records.find((candidate) => candidate.pid === pid);
+    const cwd = processCwd(pid, execFileSyncImpl);
+    return { pid, record, cwd };
+  });
+  const foreign = owned.filter(({ record, cwd }) => !isOwnedRuntimeProcess(context, record, cwd));
+  if (foreign.length > 0) {
+    throw new Error(`固定 loopback port ${context.runtimePort} は別プロセスが使用中です。安全のため停止しません: ${foreign.map(({ pid }) => pid).join(", ")}`);
+  }
+  const cleanups = [];
+  for (const { pid, record } of owned) {
+    const processTreeAtReady = observeDescendantClosure(pid, { expectedProcessGroupId: pid });
+    const root = processTreeAtReady.processTree?.find((candidate) => candidate.pid === pid);
+    if (!root || processTreeAtReady.observationStatus !== "PASS") {
+      throw new Error(`既存 sidecar の process tree を検証できないため停止しません: ${pid}`);
+    }
+    const readyState = {
+      runtime: {
+        rootPid: pid,
+        processGroup: { id: pid, validated: true },
+        processTreeAtReady: {
+          processTree: [toProcessEvidence(record, { depth: 0, relation: "sidecar-root" })],
+        },
+      },
+    };
+    const cleanup = await stopOwnedProcess({ pid }, readyState);
+    if (cleanup.status !== "PASS") {
+      throw new Error(`既存 sidecar の停止に失敗しました: ${pid}`);
+    }
+    cleanups.push({ pid, cleanup });
+  }
+  return { status: "PASS", pids, cleanups };
+}
+
+const STATE_CHANGING_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
+
+function canonicalRuntimeOrigin(baseUrl) {
+  const url = new URL(baseUrl);
+  if (url.hostname === "127.0.0.1") url.hostname = "localhost";
+  return url.origin;
+}
+
+function withCanonicalSameOriginHeaders(baseUrl, options = {}) {
+  const method = String(options.method ?? "GET").toUpperCase();
+  if (!STATE_CHANGING_METHODS.has(method)) return options;
+
+  const canonicalOrigin = canonicalRuntimeOrigin(baseUrl);
+  const headers = new Headers(options.headers);
+  headers.set("Origin", canonicalOrigin);
+  headers.set("Referer", `${canonicalOrigin}/`);
+  return { ...options, headers };
+}
+
 async function fetchJson(baseUrl, pathname, options = {}) {
   const startedAt = process.hrtime.bigint();
-  const response = await fetch(`${baseUrl}${pathname}`, options);
+  const response = await fetch(`${baseUrl}${pathname}`, withCanonicalSameOriginHeaders(baseUrl, options));
   const text = await response.text();
   let body;
   try { body = JSON.parse(text); } catch { body = text; }
@@ -92,6 +205,7 @@ async function run() {
   ensureOutputDirectories(context);
   let runtimeProcess = null;
   let runtimeState = null;
+  let staleRecovery = null;
   try {
     validateBaseline(context);
     const preparationPath = path.join(context.evidenceRoot, "preparation.json");
@@ -102,6 +216,7 @@ async function run() {
     const build = readJson(buildPath);
     if (preparation.status !== "PASS") throw new Error("preparation が PASS ではないため production runtime を起動しません");
     if (build.nextBuild?.status !== "PASS") throw new Error("production Next build が PASS ではないため runtime HTTP smoke を起動しません");
+    staleRecovery = await recoverStaleRuntime(context);
     await reservePort(context);
     const baseUrl = `http://${context.runtimeHost}:${context.runtimePort}`;
     const runtimeStartedAt = process.hrtime.bigint();
@@ -141,7 +256,9 @@ async function run() {
     };
     const save = await fetchJson(baseUrl, `/api/notes/${encodeURIComponent(noteId)}`, {
       method: "PATCH",
-      headers: { "content-type": "application/json" },
+      headers: {
+        "content-type": "application/json",
+      },
       body: JSON.stringify(payload),
     });
     if (!save.ok || save.body?.title !== editTitle) throw new Error(`production runtime explicit save API failed: HTTP ${save.status}`);
@@ -167,6 +284,7 @@ async function run() {
         databasePath: context.populatedDatabasePath,
         databaseUrl: `file:${context.populatedDatabasePath}`,
         sidecarRootPid: runtimeProcess?.pid ?? runtimeState.runtime.rootPid,
+        staleRecovery,
       },
       operations: {
         list: { status: "PASS", durationMs: list.durationMs, totalCount: list.body.totalCount },
@@ -221,4 +339,15 @@ async function run() {
 
 if (require.main === module) run().catch(() => { process.exitCode = 1; });
 
-module.exports = { fetchJson, run, waitForRuntime };
+module.exports = {
+  canonicalRuntimeOrigin,
+  fetchJson,
+  isOwnedRuntimeProcess,
+  isPoCStagingCwd,
+  parseListeningPids,
+  parseLsofCwd,
+  recoverStaleRuntime,
+  run,
+  waitForRuntime,
+  withCanonicalSameOriginHeaders,
+};

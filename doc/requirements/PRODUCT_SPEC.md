@@ -45,7 +45,7 @@ Cornell Method Notebook は、学習者が Cornell Method の形式で学習記�
 - 開発、検証用の Next.js Web 起動形態は維持します。
 - Desktop Alpha は最初の Desktop MVP です。対象 architecture は Apple Silicon とし、Intel 対応は Public Mac Release の検討時に再評価します。
 - Desktop Alpha で検証済みと表明できる macOS は、PoC と Alpha を実行した開発 Mac の現行環境だけです。古い macOS の最低対応版を推測で保証せず、minimum deployment target は shell / runtime PoC 後に決めます。
-- Desktop shell は未確定です。Electron と Tauri + Node.js sidecar を、同じ現行 MVP、同じ deterministic な 10,000 note fixture、同じ Apple Silicon 開発 Mac で比較し、PoC 後に選定します。
+- Desktop shell は Tauri + Node.js sidecar に決定しました。retry24 の native lifecycle / runtime HTTP / package 証跡を根拠に、2026-08-17 に発注者が Desktop Alpha の基盤として承認しています。renderer UI automation の BLOCKED は既知の PoC 測定境界として残し、Desktop Alpha の実装で製品 UI の受け入れを別途確認します。
 - PoC では cold start、操作反応、shell の main / core、renderer / WebView、local runtime、Node.js sidecar、framework helper、関連子 process の合計メモリ、成果物サイズ、SQLite / Prisma / migration / lifecycle、DMG とアプリ内更新の成立見通し、安全性、保守難度、総コストを同じ条件で比較します。framework が必要とする内部 process を許容し、OS process が複数存在することだけを不合格理由にしません。総コストには framework / dependency license、Apple 関連費用、配布 storage / bandwidth、CI、保守工数を含めます。再現可能な性能差が明確なら軽い候補を、差が小さい場合は保守しやすさと安全性を優先します。
 
 ### 学習体験と保存
@@ -240,7 +240,7 @@ Desktop 配布では、実行環境と書き込み可能なユーザーデータ
 | 境界 | 保存するもの | 方針 |
 | --- | --- | --- |
 | `app bundle` | 実行コード、Next.js 資産、Prisma Client / migration、必要な runtime / driver、配布資産 | `.app` 内は配布物として扱い、live SQLite DB やユーザー編集データを書き込まない |
-| `user data directory` | SQLite の live DB、app 管理 safety backup、設定、local log | macOS Application Support 配下を使い、app bundle や同期フォルダから分離する。具体的な path は shell 選定後に決める |
+| `user data directory` | SQLite の live DB、app 管理 safety backup、設定、local log | `~/Library/Application Support/com.cornellmethod.notebook/` 配下を使い、app bundle や同期フォルダから分離する。`live`、`backups`、`settings`、`logs`、`pending-restore` に分ける |
 | ユーザー選択 file | 手動 SQLite export、外部 restore file、Desktop Alpha 後の Canvas PNG | OS の file dialog 等でユーザーが明示選択した file だけへアクセスする |
 | 更新配布先 | 静的 manifest と更新 package | Desktop Alpha では独自ドメインを前提にせず、候補 provider との互換性を PoC で確認する |
 
@@ -264,15 +264,14 @@ SQLite の live DB は user data directory 内の唯一の正本です。app bun
 
 | ID | 未決事項 | 判断のタイミング |
 | --- | --- | --- |
-| U-001 | Desktop shell を Electron と Tauri + Node.js sidecar のどちらにするか | Desktop PoC |
-| U-002 | bundle ID と `user data directory`、設定、log、backup の具体的な path | shell 選定後の Desktop 基盤設計 |
-| U-003 | 更新 provider、manifest / package の具体的な配置先、取得方式、package の署名・完全性検証方式 | Desktop PoC と更新設計 |
-| U-004 | minimum deployment target と Desktop Alpha 後の対応 macOS 範囲 | shell / runtime PoC 後 |
-| U-005 | Intel 対応と artifact 方式、Developer ID、notarization、Apple Developer Program、一般公開用配布サイト、公開用 code signing 方式 | Public Mac Release |
-| U-006 | Settings の正確な表示文言と項目配置、完全なデータ削除の確認文言 | Desktop Alpha の各 UI 実装 task |
-| U-007 | Canvas PNG の使用不可文字、同名 file、保存先、失敗時 UI、色管理。PDF を将来再検討するか | Desktop Alpha 後の PNG 仕様 task |
-| U-008 | 検索の Summary 分類、tokenization、同点順位、API / index、取得単位、仮想化実装 | Desktop Alpha 後の検索・一覧仕様 task |
-| U-009 | 定期 backup、暗号化 backup、autosave、Undo、専用復習タスク、NoteCard / D&D の最終採否と詳細 | Desktop Alpha 後の個別仕様 |
+| U-001 | 開発用識別子と開発用 `user data directory` の具体的な path | Desktop Alpha 実装後 |
+| U-002 | 更新 provider、manifest / package の具体的な配置先、取得方式、package の署名・完全性検証方式 | Desktop PoC と更新設計 |
+| U-003 | minimum deployment target と Desktop Alpha 後の対応 macOS 範囲 | shell / runtime PoC 後 |
+| U-004 | Intel 対応と artifact 方式、Developer ID、notarization、Apple Developer Program、一般公開用配布サイト、公開用 code signing 方式 | Public Mac Release |
+| U-005 | Settings の正確な表示文言と項目配置、完全なデータ削除の確認文言 | Desktop Alpha の各 UI 実装 task |
+| U-006 | Canvas PNG の使用不可文字、同名 file、保存先、失敗時 UI、色管理。PDF を将来再検討するか | Desktop Alpha 後の PNG 仕様 task |
+| U-007 | 検索の Summary 分類、tokenization、同点順位、API / index、取得単位、仮想化実装 | Desktop Alpha 後の検索・一覧仕様 task |
+| U-008 | 定期 backup、暗号化 backup、autosave、Undo、専用復習タスク、NoteCard / D&D の最終採否と詳細 | Desktop Alpha 後の個別仕様 |
 
 将来の学習支援機能は、Local LLM による復習クイズを復習時の想起支援、Cue 候補提案をノート整理時の補助として分けて検討します。どちらもユーザーの判断を必須とし、現行 MVP と Desktop Alpha の実装 task には含めません。
 

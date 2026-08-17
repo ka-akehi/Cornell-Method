@@ -5,7 +5,8 @@ use std::collections::{HashMap, HashSet};
 use std::env;
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Write};
-use std::net::{TcpStream, UnixListener, UnixStream};
+use std::net::TcpStream;
+use std::os::unix::net::{UnixListener, UnixStream};
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
@@ -536,6 +537,12 @@ fn same_identity(before: &ProcessEvidence, after: &ProcessRecord) -> bool {
         && before.command_name == after.command_name
 }
 
+fn is_zombie(record: &ProcessRecord) -> bool {
+    record.state.starts_with('Z')
+        || record.command_name == "<defunct>"
+        || record.command_line == "<defunct>"
+}
+
 fn observe_remaining(before: &ProcessObservation) -> ProcessObservation {
     if !before.root_observed || before.process_tree.is_empty() {
         let mut result = before.clone();
@@ -569,6 +576,9 @@ fn observe_remaining(before: &ProcessObservation) -> ProcessObservation {
                     previous.depth,
                     &previous.relation,
                 ));
+            } else if is_zombie(current_record) && current_record.pgid == previous.process_group_id
+            {
+                // The verified child has exited and is waiting for its parent to reap it.
             } else {
                 identity_mismatches.push(IdentityMismatch {
                     pid: previous.pid,
@@ -770,6 +780,13 @@ fn wait_for_tree(before: &ProcessObservation, timeout_ms: u64) -> (ProcessObserv
     }
 }
 
+fn reap_sidecar_child(handle: &mut SidecarHandle) {
+    let _ = handle
+        .child
+        .as_mut()
+        .and_then(|child| child.try_wait().ok());
+}
+
 fn stop_sidecar(mut handle: SidecarHandle) -> ShutdownEvidence {
     let before = observe_descendant(handle.root_pid, handle.process_group.id);
     let ready_root = handle
@@ -838,12 +855,29 @@ fn stop_sidecar(mut handle: SidecarHandle) -> ShutdownEvidence {
             group_id: None,
         }
     };
-    let (mut after, timed_out) =
+    let (mut after, mut timed_out) =
         if before.observation_status == "PASS" && !before.process_tree.is_empty() {
             wait_for_tree(&before, 3000)
         } else {
             (before.clone(), true)
         };
+    reap_sidecar_child(&mut handle);
+    if after
+        .remaining_pids
+        .as_ref()
+        .is_some_and(|pids| !pids.is_empty())
+    {
+        let reaped_after = observe_remaining(&before);
+        if reaped_after.observation_status == "PASS"
+            && reaped_after
+                .remaining_pids
+                .as_ref()
+                .is_some_and(Vec::is_empty)
+        {
+            after = reaped_after;
+            timed_out = false;
+        }
+    }
     let mut sigkill = SignalEvidence {
         status: "PASS".to_string(),
         requested: false,
@@ -884,15 +918,21 @@ fn stop_sidecar(mut handle: SidecarHandle) -> ShutdownEvidence {
             };
             let (forced_after, _) = wait_for_tree(&latest, 2000);
             after = forced_after;
+            reap_sidecar_child(&mut handle);
+            let reaped_after = observe_remaining(&before);
+            if reaped_after.observation_status == "PASS"
+                && reaped_after
+                    .remaining_pids
+                    .as_ref()
+                    .is_some_and(Vec::is_empty)
+            {
+                after = reaped_after;
+            }
         } else {
             sigkill.status = "UNVERIFIED".to_string();
             sigkill.errors.push("SIGKILL 用の残存 descendant closure を観測できません。PID 再利用を避けて signal を送信しません".to_string());
         }
     }
-    let _ = handle
-        .child
-        .as_mut()
-        .and_then(|child| child.try_wait().ok());
     let status = if before.observation_status == "PASS"
         && after.observation_status == "PASS"
         && after.remaining_pids.as_ref().is_some_and(Vec::is_empty)
@@ -1763,14 +1803,14 @@ fn run_app(
             if let Err(error) = window.eval(&format!("window.location.replace({});", script)) {
                 let reason = format!("Tauri WebView navigation request failed: {}", error);
                 record_primary_window_not_usable(&shared, "BLOCKED", reason);
-                return Err(error.to_string());
+                return Err(error.to_string().into());
             }
             spawn_primary_window_readiness_timeout(shared.clone());
             if env::var("POC_SHOW_WINDOW").unwrap_or_default() == "1" {
                 let _ = window.show();
             }
             spawn_focus_listener(socket_path, app.handle().clone(), shared.clone(), owner)?;
-            write_state(shared);
+            write_state(&shared);
             if let Some(command_path) = &paths.command {
                 spawn_command_listener(command_path.clone(), app.handle().clone());
             }
@@ -1836,6 +1876,20 @@ mod tests {
         }
     }
 
+    #[test]
+    fn zombie_process_record_is_recognized_as_exited() {
+        let record = ProcessRecord {
+            pid: 100,
+            ppid: 1,
+            pgid: 100,
+            rss_kb: 0,
+            state: "Z".to_string(),
+            command_name: "<defunct>".to_string(),
+            command_line: "<defunct>".to_string(),
+        };
+        assert!(is_zombie(&record));
+    }
+
     fn record(owner: &InstanceOwner, state: &str) -> ProcessRecord {
         ProcessRecord {
             pid: owner.pid,
@@ -1853,8 +1907,8 @@ mod tests {
             .duration_since(UNIX_EPOCH)
             .expect("system time should be after the Unix epoch")
             .as_nanos();
-        let directory = env::temp_dir().join(format!(
-            "cornell-method-tauri-instance-{}-{}-{}",
+        let directory = PathBuf::from(format!(
+            "/private/tmp/ct-{}-{}-{}",
             label,
             std::process::id(),
             suffix
@@ -1977,8 +2031,9 @@ mod tests {
 
     #[test]
     fn focus_handshake_requires_the_verified_owner_marker() {
-        let directory = test_directory("focus");
-        let socket_path = directory.join("instance.sock");
+        let socket_path =
+            PathBuf::from(format!(".cornell-tauri-focus-{}.sock", std::process::id()));
+        let _ = fs::remove_file(&socket_path);
         let expected = owner(100, 200);
         let listener = UnixListener::bind(&socket_path).unwrap();
         let expected_message = format!("focus {}\n", serde_json::to_string(&expected).unwrap());
@@ -1992,7 +2047,7 @@ mod tests {
 
         request_focus_with_retry(&socket_path, &expected).unwrap();
         thread.join().unwrap();
-        fs::remove_dir_all(directory).unwrap();
+        fs::remove_file(socket_path).unwrap();
     }
 
     #[test]
