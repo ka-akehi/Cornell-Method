@@ -551,7 +551,12 @@ impl UpdateStateStore {
                 Ok(_) => match fs::read(&state_path) {
                     Ok(contents) => match parse_state(&contents, now) {
                         Ok(parsed) => (parsed.state, None, false, parsed.needs_migration),
-                        Err(issue) => (UpdateState::initial(), Some(issue), false, false),
+                        Err(issue) => (
+                            UpdateState::initial(),
+                            Some(issue),
+                            issue == UpdateStateLoadIssue::UnsupportedSchema,
+                            false,
+                        ),
                     },
                     Err(_) => (
                         UpdateState::initial(),
@@ -2016,6 +2021,42 @@ mod tests {
 
             cleanup(&directory);
         }
+    }
+
+    #[test]
+    fn unknown_schema_preserves_the_original_file_and_blocks_state_writes() {
+        let directory = test_directory("unknown-schema-write-block");
+        let path = directory.join(UPDATE_STATE_FILE_NAME);
+        let original = br#"{
+          "schemaVersion":99,
+          "status":"not-checked",
+          "futureState":{"verifiedPackage":"preserved"}
+        }
+"#;
+        fs::write(&path, original).unwrap();
+
+        let store = UpdateStateStore::load_or_default_at(&directory, 100);
+        assert_eq!(
+            store.load_issue(),
+            Some(UpdateStateLoadIssue::UnsupportedSchema)
+        );
+        assert_eq!(fs::read(&path).unwrap(), original);
+
+        for trigger in [CheckTrigger::Automatic, CheckTrigger::Manual] {
+            assert!(matches!(
+                store.begin_check(trigger, 101),
+                Err(UpdateStateError::Storage(message))
+                    if message == "update state writes are unavailable"
+            ));
+        }
+        assert!(matches!(
+            store.record_no_update(),
+            Err(UpdateStateError::Storage(message))
+                if message == "update state writes are unavailable"
+        ));
+        assert_eq!(fs::read(&path).unwrap(), original);
+
+        cleanup(&directory);
     }
 
     #[test]

@@ -23,6 +23,10 @@ test("update state keeps a provider-neutral, atomic settings boundary", () => {
   assert.match(productionSource, /sync_directory\(parent\)/);
   assert.match(productionSource, /deny_unknown_fields/);
   assert.match(productionSource, /UpdateStateLoadIssue::UnsupportedSchema/);
+  assert.match(
+    productionSource,
+    /Err\(issue\)\s*=>\s*\([\s\S]*?Some\(issue\),\s*issue == UpdateStateLoadIssue::UnsupportedSchema,\s*false,/
+  );
   assert.match(productionSource, /LegacyPendingUpdateV1/);
   assert.match(productionSource, /migrate_legacy_state/);
   assert.match(productionSource, /UpdatePhase/);
