@@ -1,11 +1,24 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   DESKTOP_CLOSE_REQUEST_EVENT,
   getDesktopDirtyController,
   sendDesktopCloseDecision,
 } from "@/shared/desktop/desktop-close-bridge";
+
+const focusableSelector =
+  "a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [contenteditable=\"true\"], [tabindex]:not([tabindex='-1'])";
+
+function getFocusableElements(container: HTMLElement) {
+  return Array.from(
+    container.querySelectorAll<HTMLElement>(focusableSelector),
+  ).filter(
+    (element) =>
+      !element.hasAttribute("aria-hidden") &&
+      !element.closest("[hidden], [inert]"),
+  );
+}
 
 export function DesktopCloseCoordinator() {
   const [desktopCloseOpen, setDesktopCloseOpen] = useState(false);
@@ -13,6 +26,10 @@ export function DesktopCloseCoordinator() {
   const [desktopCloseError, setDesktopCloseError] = useState<string | null>(
     null,
   );
+  const desktopCloseDialogRef = useRef<HTMLElement>(null);
+  const saveButtonRef = useRef<HTMLButtonElement>(null);
+  const returnFocusRef = useRef<HTMLElement | null>(null);
+  const desktopCloseOpenRef = useRef(false);
 
   useEffect(() => {
     const handleDesktopCloseRequest = () => {
@@ -29,6 +46,16 @@ export function DesktopCloseCoordinator() {
         return;
       }
 
+      if (!desktopCloseOpenRef.current) {
+        const activeElement = document.activeElement;
+        returnFocusRef.current =
+          activeElement instanceof HTMLElement &&
+          activeElement.isConnected &&
+          activeElement !== document.body
+            ? activeElement
+            : null;
+        desktopCloseOpenRef.current = true;
+      }
       setDesktopCloseError(null);
       setDesktopCloseOpen(true);
     };
@@ -45,25 +72,127 @@ export function DesktopCloseCoordinator() {
     };
   }, []);
 
+  const completeDesktopClose = useCallback(() => {
+    desktopCloseOpenRef.current = false;
+    returnFocusRef.current = null;
+    setDesktopCloseOpen(false);
+  }, []);
+
+  const restoreDesktopCloseFocus = useCallback(() => {
+    const elementToFocus = returnFocusRef.current;
+    returnFocusRef.current = null;
+    desktopCloseOpenRef.current = false;
+    setDesktopCloseOpen(false);
+
+    const restoreFocus = () => {
+      if (desktopCloseOpenRef.current) {
+        return;
+      }
+
+      if (elementToFocus?.isConnected) {
+        elementToFocus.focus({ preventScroll: true });
+        return;
+      }
+
+      const fallback = getFocusableElements(document.body)[0];
+      if (fallback?.isConnected) {
+        fallback.focus({ preventScroll: true });
+        return;
+      }
+
+      document.body.focus({ preventScroll: true });
+    };
+
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    if (typeof window.requestAnimationFrame === "function") {
+      window.requestAnimationFrame(restoreFocus);
+    } else {
+      window.setTimeout(restoreFocus, 0);
+    }
+  }, []);
+
   const cancelDesktopClose = useCallback(async () => {
     if (await sendDesktopCloseDecision("cancel")) {
-      setDesktopCloseOpen(false);
+      restoreDesktopCloseFocus();
     } else {
       setDesktopCloseError("終了処理へ応答できませんでした。");
     }
-  }, []);
+  }, [restoreDesktopCloseFocus]);
 
   useEffect(() => {
     if (!desktopCloseOpen) {
       return;
     }
 
+    const dialog = desktopCloseDialogRef.current;
+    if (!dialog) {
+      return;
+    }
+
+    const focusableElements = getFocusableElements(dialog);
+    (saveButtonRef.current && !saveButtonRef.current.disabled
+      ? saveButtonRef.current
+      : focusableElements[0] ?? dialog
+    ).focus({ preventScroll: true });
+  }, [desktopCloseOpen]);
+
+  useEffect(() => {
+    if (!desktopCloseOpen) {
+      return;
+    }
+
+    const dialog = desktopCloseDialogRef.current;
+    if (!dialog) {
+      return;
+    }
+
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape" || desktopCloseBusy) {
+      if (event.key !== "Escape" && event.key !== "Tab") {
         return;
       }
-      event.preventDefault();
-      void cancelDesktopClose();
+
+      if (event.key === "Escape") {
+        if (desktopCloseBusy) {
+          return;
+        }
+        event.preventDefault();
+        void cancelDesktopClose();
+        return;
+      }
+
+      const currentFocusableElements = getFocusableElements(dialog);
+      if (currentFocusableElements.length === 0) {
+        event.preventDefault();
+        dialog.focus({ preventScroll: true });
+        return;
+      }
+
+      const firstFocusableElement = currentFocusableElements[0];
+      const lastFocusableElement =
+        currentFocusableElements[currentFocusableElements.length - 1];
+      const activeElement = document.activeElement;
+
+      if (!currentFocusableElements.includes(activeElement as HTMLElement)) {
+        event.preventDefault();
+        (event.shiftKey ? lastFocusableElement : firstFocusableElement).focus({
+          preventScroll: true,
+        });
+      } else if (
+        event.shiftKey &&
+        activeElement === firstFocusableElement
+      ) {
+        event.preventDefault();
+        lastFocusableElement.focus({ preventScroll: true });
+      } else if (
+        !event.shiftKey &&
+        activeElement === lastFocusableElement
+      ) {
+        event.preventDefault();
+        firstFocusableElement.focus({ preventScroll: true });
+      }
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
@@ -93,7 +222,7 @@ export function DesktopCloseCoordinator() {
         return;
       }
       if (await sendDesktopCloseDecision("save")) {
-        setDesktopCloseOpen(false);
+        completeDesktopClose();
       } else {
         setDesktopCloseError("終了処理へ応答できませんでした。編集内容を保持しています。");
       }
@@ -120,7 +249,7 @@ export function DesktopCloseCoordinator() {
         return;
       }
       if (await sendDesktopCloseDecision("discard")) {
-        setDesktopCloseOpen(false);
+        completeDesktopClose();
       } else {
         setDesktopCloseError("終了処理へ応答できませんでした。");
       }
@@ -141,10 +270,12 @@ export function DesktopCloseCoordinator() {
         }}
       >
         <section
+          ref={desktopCloseDialogRef}
           className="desktop-close-dialog"
           role="dialog"
           aria-modal="true"
           aria-labelledby="desktop-close-dialog-title"
+          tabIndex={-1}
           onMouseDown={(event) => event.stopPropagation()}
         >
           <h2 id="desktop-close-dialog-title">未保存の変更があります</h2>
@@ -156,6 +287,7 @@ export function DesktopCloseCoordinator() {
           )}
           <div className="desktop-close-dialog-actions">
             <button
+              ref={saveButtonRef}
               type="button"
               disabled={desktopCloseBusy}
               onClick={() => void saveAndCloseDesktop()}

@@ -192,6 +192,100 @@ test("desktop close coordinator は AppChrome の composition から独立して
   );
 });
 
+test("desktop close dialog は open、Tab、cancel の focus 契約を維持する", () => {
+  const closeCoordinator = readSource(
+    "src/app/_components/desktop-close-coordinator.tsx",
+  );
+
+  assert.match(closeCoordinator, /const focusableSelector/);
+  assert.match(closeCoordinator, /function getFocusableElements/);
+  assert.match(
+    closeCoordinator,
+    /const returnFocusRef = useRef<HTMLElement \| null>\(null\);/,
+  );
+  assert.match(
+    closeCoordinator,
+    /activeElement instanceof HTMLElement[\s\S]*activeElement\.isConnected/,
+  );
+  assert.match(
+    closeCoordinator,
+    /ref=\{desktopCloseDialogRef\}[\s\S]*role="dialog"[\s\S]*tabIndex=\{-1\}/,
+  );
+  assert.match(
+    closeCoordinator,
+    /saveButtonRef\.current && !saveButtonRef\.current\.disabled[\s\S]*focusableElements\[0\] \?\? dialog[\s\S]*focus\(\{ preventScroll: true \}\)/,
+  );
+
+  const keydownStart = closeCoordinator.indexOf(
+    'if (event.key !== "Escape" && event.key !== "Tab")',
+  );
+  const keydownEnd = closeCoordinator.indexOf(
+    'window.addEventListener("keydown", handleKeyDown)',
+    keydownStart,
+  );
+  assert.ok(keydownStart >= 0 && keydownEnd > keydownStart);
+  const keydown = closeCoordinator.slice(keydownStart, keydownEnd);
+  assert.match(keydown, /event\.key !== "Escape" && event\.key !== "Tab"/);
+  assert.match(
+    keydown,
+    /currentFocusableElements\.length === 0[\s\S]*dialog\.focus\(\{ preventScroll: true \}\)/,
+  );
+  assert.match(
+    keydown,
+    /event\.shiftKey[\s\S]*lastFocusableElement\.focus\(\{ preventScroll: true \}\)/,
+  );
+  assert.match(
+    keydown,
+    /!event\.shiftKey[\s\S]*firstFocusableElement\.focus\(\{ preventScroll: true \}\)/,
+  );
+
+  assert.match(
+    closeCoordinator,
+    /elementToFocus\?\.isConnected[\s\S]*elementToFocus\.focus\(\{ preventScroll: true \}\)/,
+  );
+  assert.match(
+    closeCoordinator,
+    /getFocusableElements\(document\.body\)\[0\][\s\S]*document\.body\.focus\(\{ preventScroll: true \}\)/,
+  );
+
+  const cancelStart = closeCoordinator.indexOf(
+    "const cancelDesktopClose =",
+  );
+  const saveStart = closeCoordinator.indexOf(
+    "async function saveAndCloseDesktop()",
+  );
+  const discardStart = closeCoordinator.indexOf(
+    "async function discardAndCloseDesktop()",
+  );
+  const renderStart = closeCoordinator.indexOf("\n  return (", discardStart);
+  assert.ok(
+    cancelStart >= 0 &&
+      saveStart > cancelStart &&
+      discardStart > saveStart &&
+      renderStart > discardStart,
+  );
+  assert.match(
+    closeCoordinator.slice(cancelStart, saveStart),
+    /restoreDesktopCloseFocus\(\)/,
+  );
+  assert.match(
+    closeCoordinator.slice(saveStart, discardStart),
+    /completeDesktopClose\(\)/,
+  );
+  assert.doesNotMatch(
+    closeCoordinator.slice(saveStart, discardStart),
+    /restoreDesktopCloseFocus\(\)/,
+  );
+  assert.match(
+    closeCoordinator.slice(discardStart, renderStart),
+    /completeDesktopClose\(\)/,
+  );
+  assert.doesNotMatch(
+    closeCoordinator.slice(discardStart, renderStart),
+    /restoreDesktopCloseFocus\(\)/,
+  );
+});
+
 test("desktop controls は state、accessible name、portal tooltip 契約を共有する", () => {
   const appChrome = readSource("src/app/_components/app-chrome.tsx");
   const appChromeParts = readSource(
