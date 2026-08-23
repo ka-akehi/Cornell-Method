@@ -13,13 +13,26 @@ use ring::digest::{Context, SHA256};
 use crate::update_manifest::{UpdateManifest, UpdateRelease, TARGET_ARTIFACT_FORMAT};
 use crate::update_signature::{EmbeddedTrustedKeyStore, SignatureVerificationError};
 
-pub(crate) const PACKAGE_DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(15);
+pub(crate) const PACKAGE_CONNECTION_TIMEOUT: Duration = Duration::from_secs(15);
+pub(crate) const PACKAGE_READ_IDLE_TIMEOUT: Duration = Duration::from_secs(30);
 pub(crate) const MAX_ARTIFACT_REDIRECT_HOPS: usize = 5;
 pub(crate) const MAX_PACKAGE_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 pub(crate) const ALLOWED_ARTIFACT_CONTENT_TYPES: &[&str] =
     &["application/gzip", "application/octet-stream"];
 
 const STREAM_BUFFER_BYTES: usize = 64 * 1024;
+const PACKAGE_BODY_MIN_TIMEOUT: Duration = Duration::from_secs(5 * 60);
+const PACKAGE_BODY_BYTES_PER_SECOND: u64 = 1024 * 1024;
+const PACKAGE_BODY_MAX_TIMEOUT: Duration = Duration::from_secs(6 * 60 * 60);
+
+fn package_body_timeout(size_bytes: u64) -> Duration {
+    let transfer_seconds = size_bytes.saturating_add(PACKAGE_BODY_BYTES_PER_SECOND - 1)
+        / PACKAGE_BODY_BYTES_PER_SECOND;
+    let timeout_seconds = PACKAGE_BODY_MIN_TIMEOUT
+        .as_secs()
+        .saturating_add(transfer_seconds);
+    Duration::from_secs(timeout_seconds).min(PACKAGE_BODY_MAX_TIMEOUT)
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum PackageDownloadError {
@@ -80,7 +93,9 @@ pub(crate) enum ArtifactHttpError {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct ArtifactHttpRequest {
     pub(crate) url: String,
-    pub(crate) timeout: Duration,
+    pub(crate) body_timeout: Duration,
+    pub(crate) connect_timeout: Duration,
+    pub(crate) read_timeout: Duration,
     pub(crate) max_redirects: usize,
     pub(crate) max_body_bytes: u64,
     pub(crate) expected_size_bytes: u64,
@@ -91,7 +106,9 @@ impl ArtifactHttpRequest {
     fn fixed(selected_release: &UpdateRelease) -> Self {
         Self {
             url: selected_release.artifact.url.as_str().to_string(),
-            timeout: PACKAGE_DOWNLOAD_TIMEOUT,
+            body_timeout: package_body_timeout(selected_release.artifact.size_bytes),
+            connect_timeout: PACKAGE_CONNECTION_TIMEOUT,
+            read_timeout: PACKAGE_READ_IDLE_TIMEOUT,
             max_redirects: MAX_ARTIFACT_REDIRECT_HOPS,
             max_body_bytes: MAX_PACKAGE_BYTES,
             expected_size_bytes: selected_release.artifact.size_bytes,
@@ -148,7 +165,11 @@ impl ReqwestArtifactHttpTransport {
     pub(crate) fn new() -> Result<Self, ArtifactHttpError> {
         let client = Client::builder()
             .redirect(reqwest::redirect::Policy::none())
-            .timeout(PACKAGE_DOWNLOAD_TIMEOUT)
+            // The blocking client applies this timeout to the response wait and
+            // each Response::read operation. It is intentionally not a total
+            // request timeout, so progress on a large package is allowed.
+            .timeout(PACKAGE_READ_IDLE_TIMEOUT)
+            .connect_timeout(PACKAGE_CONNECTION_TIMEOUT)
             .build()
             .map_err(|_| ArtifactHttpError::Internal)?;
         Ok(Self { client })
@@ -159,7 +180,6 @@ impl ArtifactHttpTransport for ReqwestArtifactHttpTransport {
     fn get(&self, request: ArtifactHttpRequest) -> Result<ArtifactHttpResponse, ArtifactHttpError> {
         if request.max_body_bytes != MAX_PACKAGE_BYTES
             || request.max_redirects != MAX_ARTIFACT_REDIRECT_HOPS
-            || request.timeout != PACKAGE_DOWNLOAD_TIMEOUT
             || request.accepted_content_types != ALLOWED_ARTIFACT_CONTENT_TYPES
         {
             return Err(ArtifactHttpError::Internal);
@@ -167,31 +187,28 @@ impl ArtifactHttpTransport for ReqwestArtifactHttpTransport {
         if request.expected_size_bytes == 0 || request.expected_size_bytes > MAX_PACKAGE_BYTES {
             return Err(ArtifactHttpError::Size);
         }
+        if request.body_timeout != package_body_timeout(request.expected_size_bytes)
+            || request.connect_timeout != PACKAGE_CONNECTION_TIMEOUT
+            || request.read_timeout != PACKAGE_READ_IDLE_TIMEOUT
+        {
+            return Err(ArtifactHttpError::Internal);
+        }
 
         let mut current_url = Url::parse(&request.url).map_err(|_| ArtifactHttpError::Internal)?;
         if !is_safe_artifact_url(&current_url) {
             return Err(ArtifactHttpError::Internal);
         }
 
-        let deadline = Instant::now()
-            .checked_add(request.timeout)
-            .ok_or(ArtifactHttpError::Internal)?;
         let mut visited = HashSet::new();
         visited.insert(current_url.to_string());
         let mut redirects = Vec::new();
 
         loop {
-            let remaining = deadline.saturating_duration_since(Instant::now());
-            if remaining.is_zero() {
-                return Err(ArtifactHttpError::Timeout);
-            }
-
             let response = self
                 .client
                 .get(current_url.clone())
-                .timeout(remaining)
                 .send()
-                .map_err(|error| map_reqwest_error(error, deadline))?;
+                .map_err(map_reqwest_error)?;
             let status = response.status().as_u16();
 
             if is_redirect_status(status) {
@@ -345,6 +362,7 @@ pub(crate) fn download_and_verify_artifact(
         &mut response.body,
         &mut package_file,
         selected_release.artifact.size_bytes,
+        request.body_timeout,
     );
     let (actual_size_bytes, digest_context) = match result {
         Ok(result) => result,
@@ -643,13 +661,32 @@ fn stream_package_bytes(
     body: &mut dyn Read,
     package_file: &mut File,
     expected_size_bytes: u64,
+    body_timeout: Duration,
 ) -> Result<(u64, Context), PackageDownloadError> {
+    let deadline = Instant::now()
+        .checked_add(body_timeout)
+        .ok_or(PackageDownloadError::Timeout)?;
     let mut digest_context = Context::new(&SHA256);
     let mut buffer = [0_u8; STREAM_BUFFER_BYTES];
     let mut actual_size_bytes = 0_u64;
 
     loop {
-        let bytes_read = body.read(&mut buffer).map_err(map_body_read_error)?;
+        if Instant::now() >= deadline {
+            return Err(PackageDownloadError::Timeout);
+        }
+        let bytes_read = match body.read(&mut buffer) {
+            Ok(bytes_read) => bytes_read,
+            Err(error) => {
+                return Err(if Instant::now() >= deadline {
+                    PackageDownloadError::Timeout
+                } else {
+                    map_body_read_error(error)
+                })
+            }
+        };
+        if Instant::now() >= deadline {
+            return Err(PackageDownloadError::Timeout);
+        }
         if bytes_read == 0 {
             break;
         }
@@ -841,8 +878,8 @@ fn map_artifact_http_error(error: ArtifactHttpError) -> PackageDownloadError {
     }
 }
 
-fn map_reqwest_error(error: reqwest::Error, deadline: Instant) -> ArtifactHttpError {
-    if error.is_timeout() || Instant::now() >= deadline {
+fn map_reqwest_error(error: reqwest::Error) -> ArtifactHttpError {
+    if error.is_timeout() {
         ArtifactHttpError::Timeout
     } else {
         ArtifactHttpError::Network
@@ -861,8 +898,9 @@ fn map_body_read_error(error: io::Error) -> PackageDownloadError {
 mod tests {
     use super::*;
     use crate::update_manifest::{parse_manifest, UpdateManifest};
-    use std::cell::RefCell;
+    use std::cell::{Cell, RefCell};
     use std::io::Cursor;
+    use std::rc::Rc;
     use std::sync::atomic::{AtomicU64, Ordering};
     use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -930,6 +968,35 @@ mod tests {
                 .borrow_mut()
                 .take()
                 .expect("fake transport called once")
+        }
+    }
+
+    struct VirtualSlowReader {
+        bytes: Vec<u8>,
+        offset: usize,
+        elapsed: Rc<Cell<Duration>>,
+    }
+
+    impl Read for VirtualSlowReader {
+        fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+            self.elapsed
+                .set(self.elapsed.get().saturating_add(Duration::from_secs(1)));
+            if self.offset == self.bytes.len() {
+                return Ok(0);
+            }
+            buffer[0] = self.bytes[self.offset];
+            self.offset += 1;
+            Ok(1)
+        }
+    }
+
+    struct FailingReader {
+        kind: io::ErrorKind,
+    }
+
+    impl Read for FailingReader {
+        fn read(&mut self, _buffer: &mut [u8]) -> io::Result<usize> {
+            Err(io::Error::new(self.kind, "synthetic package body failure"))
         }
     }
 
@@ -1080,6 +1147,38 @@ mod tests {
         assert_eq!(calls[0].2, decode_sha256(&digest).unwrap());
         assert_eq!(transport.requests.borrow().len(), 1);
         assert_eq!(transport.requests.borrow()[0].url, TEST_URL);
+    }
+
+    #[test]
+    fn valid_package_can_stream_beyond_connection_timeout_without_package_timeout() {
+        let bytes = b"0123456789abcdef".to_vec();
+        let (_manifest, release) = manifest_and_release(&bytes);
+        let elapsed = Rc::new(Cell::new(Duration::ZERO));
+        let response = ArtifactHttpResponse::from_reader(
+            200,
+            Some("application/gzip"),
+            None,
+            VirtualSlowReader {
+                bytes: bytes.clone(),
+                offset: 0,
+                elapsed: Rc::clone(&elapsed),
+            },
+            Vec::new(),
+            TEST_URL,
+        );
+        let root = TestRoot::new();
+        let transport = FakeTransport::response(response);
+        let verifier = FakeVerifier::success();
+
+        let archive = download_and_verify_artifact(&release, &root.path, &transport, &verifier)
+            .expect("a progressing package body should not hit the connection timeout");
+
+        assert!(elapsed.get() > PACKAGE_CONNECTION_TIMEOUT);
+        assert!(transport.requests.borrow()[0].body_timeout > elapsed.get());
+        assert_eq!(
+            fs::read(root.path.join(archive.relative_package_path)).unwrap(),
+            bytes
+        );
     }
 
     #[test]
@@ -1261,6 +1360,35 @@ mod tests {
         );
         assert_no_part_or_final(&root.path, &release.artifact.sha256);
         assert_eq!(verifier.calls.borrow().len(), 1);
+    }
+
+    #[test]
+    fn streamed_timeout_and_read_errors_clean_up_part() {
+        let expected_bytes = b"expected raw bytes".to_vec();
+        let (_manifest, release) = manifest_and_release(&expected_bytes);
+
+        for (kind, expected_code) in [
+            (io::ErrorKind::TimedOut, "package-timeout"),
+            (io::ErrorKind::ConnectionReset, "package-network"),
+        ] {
+            let root = TestRoot::new();
+            let response = ArtifactHttpResponse::from_reader(
+                200,
+                Some("application/gzip"),
+                None,
+                FailingReader { kind },
+                Vec::new(),
+                TEST_URL,
+            );
+            let transport = FakeTransport::response(response);
+            let verifier = FakeVerifier::success();
+
+            assert_error(
+                download_and_verify_artifact(&release, &root.path, &transport, &verifier),
+                expected_code,
+            );
+            assert_no_part_or_final(&root.path, &release.artifact.sha256);
+        }
     }
 
     #[test]
