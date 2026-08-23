@@ -87,6 +87,7 @@ export function inspectDesktopDatabase(options?: {
   homeDirectory?: string;
   migrationsDirectory?: string;
   sqliteBinary?: string;
+  integrityCheck?: boolean;
 }): DesktopDatabaseInspection;
 
 export function bootstrapDesktopStorage(options?: {

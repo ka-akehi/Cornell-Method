@@ -570,6 +570,7 @@ function inspectDesktopDatabase({
   homeDirectory,
   migrationsDirectory = DEFAULT_MIGRATIONS_DIRECTORY,
   sqliteBinary,
+  integrityCheck = true,
 } = {}) {
   const paths = validateStoragePaths(
     storagePaths ?? resolveDesktopStoragePaths({ homeDirectory }),
@@ -620,18 +621,20 @@ function inspectDesktopDatabase({
   }
 
   try {
-    let integrityRows;
-    try {
-      integrityRows = reader.all("PRAGMA integrity_check");
-    } catch (error) {
-      return unusableResult(paths, "integrity-check-failed", error);
-    }
+    if (integrityCheck) {
+      let integrityRows;
+      try {
+        integrityRows = reader.all("PRAGMA integrity_check");
+      } catch (error) {
+        return unusableResult(paths, "integrity-check-failed", error);
+      }
 
-    if (
-      integrityRows.length !== 1 ||
-      integrityRows[0].integrity_check !== "ok"
-    ) {
-      return unusableResult(paths, "integrity-check-failed");
+      if (
+        integrityRows.length !== 1 ||
+        integrityRows[0].integrity_check !== "ok"
+      ) {
+        return unusableResult(paths, "integrity-check-failed");
+      }
     }
 
     let tableRows;
@@ -748,15 +751,17 @@ function inspectDesktopDatabase({
       return unusableResult(paths, "required-table-missing");
     }
 
-    let foreignKeyRows;
-    try {
-      foreignKeyRows = reader.all("PRAGMA foreign_key_check");
-    } catch (error) {
-      return unusableResult(paths, "foreign-key-check-failed", error);
-    }
+    if (integrityCheck) {
+      let foreignKeyRows;
+      try {
+        foreignKeyRows = reader.all("PRAGMA foreign_key_check");
+      } catch (error) {
+        return unusableResult(paths, "foreign-key-check-failed", error);
+      }
 
-    if (foreignKeyRows.length > 0) {
-      return unusableResult(paths, "foreign-key-check-failed");
+      if (foreignKeyRows.length > 0) {
+        return unusableResult(paths, "foreign-key-check-failed");
+      }
     }
 
     return {
@@ -958,6 +963,7 @@ function bootstrapDesktopStorage({
     storagePaths: paths,
     migrationsDirectory,
     sqliteBinary,
+    integrityCheck: false,
   });
 
   if (current.status !== DESKTOP_DATABASE_STATUS.INITIALIZATION_REQUIRED) {
@@ -975,6 +981,7 @@ function bootstrapDesktopStorage({
       storagePaths: paths,
       migrationsDirectory,
       sqliteBinary,
+      integrityCheck: false,
     });
 
     if (raced.status === DESKTOP_DATABASE_STATUS.READY) {
@@ -1004,6 +1011,7 @@ function bootstrapDesktopStorage({
     storagePaths: paths,
     migrationsDirectory,
     sqliteBinary,
+    integrityCheck: true,
   });
 
   if (initialized.status === DESKTOP_DATABASE_STATUS.READY) {

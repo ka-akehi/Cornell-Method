@@ -36,6 +36,99 @@ function hasSqliteCli() {
   }
 }
 
+function getUsableBetterSqlite3() {
+  let Database;
+  try {
+    Database = require("better-sqlite3");
+  } catch {
+    return null;
+  }
+
+  try {
+    const database = new Database(":memory:");
+    database.close();
+  } catch {
+    return null;
+  }
+
+  return Database;
+}
+
+function createLoggingSqliteBinary(homeDirectory, logPath) {
+  const binaryPath = path.join(homeDirectory, "logging-sqlite.js");
+  fs.writeFileSync(
+    binaryPath,
+    `#!/usr/bin/env node
+const fs = require("node:fs");
+const { spawnSync } = require("node:child_process");
+
+const args = process.argv.slice(2);
+fs.appendFileSync(${JSON.stringify(logPath)}, JSON.stringify(args) + "\\n");
+const result = spawnSync(
+  ${JSON.stringify(sqliteBinary)},
+  args,
+  { encoding: "utf8" },
+);
+if (result.stdout) {
+  process.stdout.write(result.stdout);
+}
+if (result.stderr) {
+  process.stderr.write(result.stderr);
+}
+process.exit(result.error ? 1 : result.status ?? 1);
+`,
+    { mode: 0o755 },
+  );
+  fs.chmodSync(binaryPath, 0o755);
+  return binaryPath;
+}
+
+function readLoggedSql(logPath) {
+  if (!fs.existsSync(logPath)) {
+    return [];
+  }
+
+  return fs
+    .readFileSync(logPath, "utf8")
+    .trim()
+    .split("\n")
+    .filter(Boolean)
+    .map((line) => JSON.parse(line).at(-1))
+    .filter((sql) => typeof sql === "string" && sql !== "-version");
+}
+
+function captureSqliteQueries(homeDirectory, callback) {
+  const Database = getUsableBetterSqlite3();
+  if (Database === null) {
+    const logPath = path.join(homeDirectory, "sqlite-query.log");
+    const loggingSqliteBinary = createLoggingSqliteBinary(
+      homeDirectory,
+      logPath,
+    );
+    return {
+      result: callback(loggingSqliteBinary),
+      queries: readLoggedSql(logPath),
+    };
+  }
+
+  const originalPrepare = Database.prototype.prepare;
+  const queries = [];
+  Database.prototype.prepare = function prepareWithTrace(sql) {
+    queries.push(sql);
+    return originalPrepare.call(this, sql);
+  };
+
+  try {
+    return { result: callback(sqliteBinary), queries };
+  } finally {
+    Database.prototype.prepare = originalPrepare;
+  }
+}
+
+function isFullIntegrityCheck(sql) {
+  return /^\s*PRAGMA\s+(?:integrity_check|foreign_key_check)\b/i.test(sql);
+}
+
 function createTempHome() {
   return fs.mkdtempSync(path.join(os.tmpdir(), "cornell-desktop-storage-"));
 }
@@ -321,6 +414,69 @@ test("does not change an existing ready database on bootstrap rerun", {
         ).trim(),
       ),
       1,
+    );
+  });
+});
+
+test("skips detailed integrity checks during lightweight bootstrap inspection", {
+  skip: !sqliteCliAvailable,
+}, () => {
+  withTempHome((homeDirectory) => {
+    const ready = bootstrapReadyDatabase(homeDirectory);
+    sqlite(
+      ready.databasePath,
+      `PRAGMA foreign_keys = OFF;
+       INSERT INTO notebook_tags (notebook_id, tag_id, "order")
+       VALUES ('missing-notebook', 'missing-tag', 0);`,
+    );
+
+    const lightweightBootstrapRun = captureSqliteQueries(
+      homeDirectory,
+      (inspectionSqliteBinary) =>
+        bootstrapDesktopStorage({
+          homeDirectory,
+          sqliteBinary: inspectionSqliteBinary,
+        }),
+    );
+    const lightweightBootstrap = lightweightBootstrapRun.result;
+    const lightweightInspection = inspectDesktopDatabase({
+      homeDirectory,
+      sqliteBinary,
+      integrityCheck: false,
+    });
+    const detailedInspectionRun = captureSqliteQueries(
+      homeDirectory,
+      (inspectionSqliteBinary) =>
+        inspectDesktopDatabase({
+          homeDirectory,
+          sqliteBinary: inspectionSqliteBinary,
+          integrityCheck: true,
+        }),
+    );
+    const detailedInspection = detailedInspectionRun.result;
+    const defaultInspection = inspectDesktopDatabase({
+      homeDirectory,
+      sqliteBinary,
+    });
+
+    assert.equal(lightweightBootstrap.status, DESKTOP_DATABASE_STATUS.READY);
+    assert.equal(lightweightBootstrap.created, false);
+    assert.equal(lightweightInspection.status, DESKTOP_DATABASE_STATUS.READY);
+    assert.equal(
+      detailedInspection.status,
+      DESKTOP_DATABASE_STATUS.UNUSABLE,
+    );
+    assert.equal(detailedInspection.reason, "foreign-key-check-failed");
+    assert.equal(defaultInspection.status, DESKTOP_DATABASE_STATUS.UNUSABLE);
+    assert.equal(defaultInspection.reason, "foreign-key-check-failed");
+
+    assert.deepEqual(
+      lightweightBootstrapRun.queries.filter(isFullIntegrityCheck),
+      [],
+    );
+    assert.deepEqual(
+      detailedInspectionRun.queries.filter(isFullIntegrityCheck),
+      ["PRAGMA integrity_check", "PRAGMA foreign_key_check"],
     );
   });
 });
