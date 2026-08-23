@@ -1,4 +1,5 @@
 const fs = require("node:fs");
+const crypto = require("node:crypto");
 const http = require("node:http");
 const net = require("node:net");
 const os = require("node:os");
@@ -7,6 +8,10 @@ const { spawn } = require("node:child_process");
 
 const READY_TIMEOUT_MS = 30_000;
 const SHUTDOWN_TIMEOUT_MS = 5_000;
+const READY_HEALTH_PATH = "/api/desktop/health";
+const READY_HEALTH_KIND = "cornell-desktop-health";
+const READY_NONCE_BYTES = 32;
+const MAX_HEALTH_RESPONSE_BYTES = 8 * 1024;
 const LOOPBACK_HOST = "127.0.0.1";
 
 let runtimeChild = null;
@@ -100,32 +105,181 @@ function pickEphemeralPort() {
   });
 }
 
-function waitForHttpReady(port) {
-  const deadline = Date.now() + READY_TIMEOUT_MS;
+function createReadyNonce() {
+  return crypto.randomBytes(READY_NONCE_BYTES).toString("hex");
+}
+
+function readyHealthResponseMatches(statusCode, body, expectedNonce) {
+  if (statusCode !== 200) return false;
+
+  let parsed;
+  try {
+    parsed = JSON.parse(body);
+  } catch {
+    return false;
+  }
+
+  return parsed !== null
+    && typeof parsed === "object"
+    && parsed.kind === READY_HEALTH_KIND
+    && parsed.status === "ready"
+    && parsed.nonce === expectedNonce;
+}
+
+function waitForHttpReady(port, readyNonce, options = {}) {
+  if (!Number.isInteger(port) || port <= 0) {
+    throw new Error("local runtime readiness port is invalid");
+  }
+  if (typeof readyNonce !== "string" || readyNonce.length === 0) {
+    throw new Error("local runtime readiness nonce is missing");
+  }
+
+  const timeoutMs = Number.isFinite(options.timeoutMs) && options.timeoutMs >= 0
+    ? options.timeoutMs
+    : READY_TIMEOUT_MS;
+  const retryDelayMs = Number.isFinite(options.retryDelayMs) && options.retryDelayMs >= 0
+    ? options.retryDelayMs
+    : 100;
+  const requestTimeoutMs = Number.isFinite(options.requestTimeoutMs) && options.requestTimeoutMs > 0
+    ? options.requestTimeoutMs
+    : 1_000;
+  const child = options.child ?? null;
+  const deadline = Date.now() + timeoutMs;
   let lastError = "not attempted";
 
   return new Promise((resolve, reject) => {
-    const attempt = () => {
+    let settled = false;
+    let retryTimer = null;
+    let activeRequest = null;
+
+    const childHasExited = () => child !== null
+      && (typeof child.exitCode === "number" || typeof child.signalCode === "string");
+
+    const cleanup = () => {
+      if (retryTimer !== null) {
+        clearTimeout(retryTimer);
+        retryTimer = null;
+      }
+      if (activeRequest !== null) {
+        activeRequest.destroy();
+        activeRequest = null;
+      }
+      if (child !== null) {
+        child.removeListener("exit", onChildExit);
+        child.removeListener("error", onChildError);
+      }
+    };
+
+    const finish = (error) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      if (error) {
+        reject(error);
+      } else {
+        resolve();
+      }
+    };
+
+    const failForChildExit = () => {
+      finish(new Error("local runtime child exited before readiness"));
+    };
+
+    const onChildExit = () => {
+      failForChildExit();
+    };
+
+    const onChildError = () => {
+      finish(new Error("local runtime child failed before readiness"));
+    };
+
+    const scheduleRetry = (reason) => {
+      if (settled) return;
+      lastError = reason;
+      const remainingMs = deadline - Date.now();
+      if (remainingMs <= 0) {
+        finish(new Error(`local runtime readiness timeout: ${lastError}`));
+        return;
+      }
+      retryTimer = setTimeout(attempt, Math.min(retryDelayMs, remainingMs));
+    };
+
+    function attempt() {
+      retryTimer = null;
+      if (settled) return;
+      if (childHasExited()) {
+        failForChildExit();
+        return;
+      }
       if (Date.now() >= deadline) {
-        reject(new Error(`local runtime readiness timeout: ${lastError}`));
+        finish(new Error(`local runtime readiness timeout: ${lastError}`));
         return;
       }
 
-      const request = http.get({ host: LOOPBACK_HOST, port, path: "/notes" }, (response) => {
-        response.resume();
-        if (response.statusCode >= 200 && response.statusCode < 400) {
-          resolve();
-          return;
-        }
-        lastError = `HTTP ${response.statusCode}`;
-        setTimeout(attempt, 100);
+      let requestHandled = false;
+      const request = http.get({
+        host: LOOPBACK_HOST,
+        port,
+        path: READY_HEALTH_PATH,
+        headers: { accept: "application/json" },
+      }, (response) => {
+        let responseHandled = false;
+        let body = "";
+        response.setEncoding("utf8");
+
+        const retryFromResponse = (reason) => {
+          if (responseHandled) return;
+          responseHandled = true;
+          requestHandled = true;
+          activeRequest = null;
+          scheduleRetry(reason);
+        };
+
+        response.on("data", (chunk) => {
+          if (responseHandled) return;
+          if (Buffer.byteLength(body) + Buffer.byteLength(chunk) > MAX_HEALTH_RESPONSE_BYTES) {
+            response.destroy();
+            retryFromResponse("health response was too large");
+            return;
+          }
+          body += chunk;
+        });
+        response.once("end", () => {
+          if (responseHandled) return;
+          responseHandled = true;
+          requestHandled = true;
+          activeRequest = null;
+          if (readyHealthResponseMatches(response.statusCode, body, readyNonce)) {
+            finish();
+            return;
+          }
+          const status = Number.isInteger(response.statusCode)
+            ? `HTTP ${response.statusCode}`
+            : "invalid health response";
+          scheduleRetry(response.statusCode === 200
+            ? "health response nonce mismatch"
+            : status);
+        });
+        response.once("error", (error) => {
+          retryFromResponse(error instanceof Error ? error.message : String(error));
+        });
       });
-      request.setTimeout(1_000, () => request.destroy(new Error("readiness request timeout")));
+      activeRequest = request;
+      request.setTimeout(requestTimeoutMs, () => {
+        request.destroy(new Error("readiness request timeout"));
+      });
       request.once("error", (error) => {
-        lastError = error instanceof Error ? error.message : String(error);
-        setTimeout(attempt, 100);
+        if (requestHandled) return;
+        requestHandled = true;
+        activeRequest = null;
+        scheduleRetry(error instanceof Error ? error.message : String(error));
       });
-    };
+    }
+
+    if (child !== null) {
+      child.once("exit", onChildExit);
+      child.once("error", onChildError);
+    }
     attempt();
   });
 }
@@ -136,7 +290,7 @@ function runtimeEntry(root) {
   return path.join(root, "node_modules", ".bin", process.platform === "win32" ? "next.cmd" : "next");
 }
 
-function spawnRuntime(root, port) {
+function spawnRuntime(root, port, readyNonce) {
   const entry = runtimeEntry(root);
   if (!fs.existsSync(entry)) {
     throw new Error(`Next.js runtime entry is missing: ${entry}`);
@@ -157,6 +311,7 @@ function spawnRuntime(root, port) {
       NODE_ENV: "production",
       HOSTNAME: LOOPBACK_HOST,
       PORT: String(port),
+      CORNELL_DESKTOP_READY_NONCE: readyNonce,
     },
     stdio: ["ignore", "ignore", "ignore"],
   });
@@ -204,12 +359,16 @@ async function stopRuntime(signal = "SIGTERM") {
 async function serve() {
   absoluteDatabaseUrl(process.env.DATABASE_URL);
   const root = projectRoot();
+  const readyNonce = createReadyNonce();
   const port = await pickEphemeralPort();
-  const child = spawnRuntime(root, port);
+  const child = spawnRuntime(root, port, readyNonce);
   runtimeChild = child;
 
   try {
-    await waitForHttpReady(port);
+    await waitForHttpReady(port, readyNonce, { child });
+    if (childHasExited(child)) {
+      throw new Error("local runtime child exited before readiness");
+    }
   } catch (error) {
     await stopRuntime("SIGTERM");
     throw error;
@@ -221,6 +380,7 @@ async function serve() {
     host: LOOPBACK_HOST,
     port,
     url: `http://${LOOPBACK_HOST}:${port}/notes`,
+    readyNonce,
     runtimePid: child.pid,
   })}\n`);
 
@@ -228,6 +388,10 @@ async function serve() {
     child.once("exit", resolve);
   });
   runtimeChild = null;
+}
+
+function childHasExited(child) {
+  return typeof child.exitCode === "number" || typeof child.signalCode === "string";
 }
 
 async function shutdown(code = 0) {
@@ -264,7 +428,11 @@ if (require.main === module) {
 module.exports = {
   absoluteDatabaseUrl,
   bootstrap,
+  createReadyNonce,
   pickEphemeralPort,
+  readyHealthResponseMatches,
+  READY_HEALTH_KIND,
+  READY_HEALTH_PATH,
   serve,
   stopRuntime,
   waitForHttpReady,

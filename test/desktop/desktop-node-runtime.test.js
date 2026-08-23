@@ -116,6 +116,30 @@ test("release runtime resolves node only from the packaged resource root", () =>
   assert.doesNotMatch(runtime, /unwrap_or_else\(\|_\| "node"/);
 });
 
+test("desktop readiness is nonce-bound and does not probe /notes", () => {
+  const launcher = fs.readFileSync(
+    path.join(projectRoot, "src-tauri", "sidecar", "launcher.cjs"),
+    "utf8",
+  );
+  const runtime = fs.readFileSync(
+    path.join(projectRoot, "src-tauri", "src", "runtime.rs"),
+    "utf8",
+  );
+  const healthRoute = fs.readFileSync(
+    path.join(projectRoot, "src", "app", "api", "desktop", "health", "route.ts"),
+    "utf8",
+  );
+
+  assert.match(launcher, /randomBytes\(READY_NONCE_BYTES\)/);
+  assert.match(launcher, /CORNELL_DESKTOP_READY_NONCE: readyNonce/);
+  assert.match(launcher, /path: READY_HEALTH_PATH/);
+  assert.doesNotMatch(launcher, /path:\s*["']\/notes["']/);
+  assert.match(runtime, /SIDECAR_HEALTH_PATH/);
+  assert.match(runtime, /ready_nonce: String/);
+  assert.match(healthRoute, /process\.env\.CORNELL_DESKTOP_READY_NONCE/);
+  assert.match(healthRoute, /nonce/);
+});
+
 test("helper itself fails with the fixed message on the current unsupported target", () => {
   if (process.platform === "darwin" && process.arch === "arm64") {
     return;

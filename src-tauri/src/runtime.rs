@@ -18,6 +18,9 @@ use tauri::{AppHandle, Manager};
 const READY_TIMEOUT: Duration = Duration::from_secs(35);
 const SIDECAR_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(5);
 const PACKAGED_NODE_BINARY_NAME: &str = "node";
+const SIDECAR_HEALTH_PATH: &str = "/api/desktop/health";
+const SIDECAR_HEALTH_KIND: &str = "cornell-desktop-health";
+const MAX_HEALTH_RESPONSE_BYTES: usize = 8 * 1024;
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -65,7 +68,16 @@ struct ReadyMessage {
     url: String,
     host: String,
     port: u16,
+    ready_nonce: String,
     runtime_pid: u32,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RuntimeHealthMessage {
+    kind: String,
+    status: String,
+    nonce: String,
 }
 
 #[derive(Debug)]
@@ -262,6 +274,14 @@ fn validate_ready_message(message: &ReadyMessage) -> AppResult<tauri::Url> {
     if message.host != "127.0.0.1" || message.port == 0 || message.runtime_pid == 0 {
         return Err("sidecar ready handshake is not loopback-scoped".to_string());
     }
+    if message.ready_nonce.len() != 64
+        || !message
+            .ready_nonce
+            .bytes()
+            .all(|byte| byte.is_ascii_hexdigit())
+    {
+        return Err("sidecar ready handshake has an invalid readiness nonce".to_string());
+    }
     let url = tauri::Url::parse(&message.url)
         .map_err(|error| format!("sidecar ready URL is invalid: {error}"))?;
     if url.scheme() != "http"
@@ -297,7 +317,71 @@ fn read_ready_line(child: &mut Child) -> AppResult<ReadyMessage> {
     }
 }
 
-fn wait_for_runtime(url: &tauri::Url) -> AppResult<()> {
+fn decode_chunked_body(mut input: &[u8]) -> Option<Vec<u8>> {
+    let mut decoded = Vec::new();
+    loop {
+        let line_end = input.windows(2).position(|window| window == b"\r\n")?;
+        let size_line = std::str::from_utf8(&input[..line_end]).ok()?;
+        let size = usize::from_str_radix(size_line.split(';').next()?.trim(), 16).ok()?;
+        input = &input[line_end + 2..];
+        if size == 0 {
+            return Some(decoded);
+        }
+        let chunk_end = size.checked_add(2)?;
+        if input.len() < chunk_end || &input[size..chunk_end] != b"\r\n" {
+            return None;
+        }
+        decoded.extend_from_slice(&input[..size]);
+        input = &input[chunk_end..];
+    }
+}
+
+fn health_response_matches(response: &[u8], expected_nonce: &str) -> bool {
+    let response = match std::str::from_utf8(response) {
+        Ok(response) => response,
+        Err(_) => return false,
+    };
+    let header_end = match response.find("\r\n\r\n") {
+        Some(index) => index,
+        None => return false,
+    };
+    let headers = &response[..header_end];
+    let raw_body = &response.as_bytes()[header_end + 4..];
+    let status_code = headers
+        .lines()
+        .next()
+        .and_then(|line| line.split_whitespace().nth(1))
+        .and_then(|value| value.parse::<u16>().ok());
+    if status_code != Some(200) {
+        return false;
+    }
+    let is_chunked = headers.lines().skip(1).any(|line| {
+        line.split_once(':').is_some_and(|(name, value)| {
+            name.eq_ignore_ascii_case("transfer-encoding")
+                && value
+                    .split(',')
+                    .any(|encoding| encoding.trim().eq_ignore_ascii_case("chunked"))
+        })
+    });
+    let decoded_body = if is_chunked {
+        match decode_chunked_body(raw_body) {
+            Some(body) => Some(body),
+            None => return false,
+        }
+    } else {
+        None
+    };
+    let body = decoded_body.as_deref().unwrap_or(raw_body);
+    let message = match serde_json::from_slice::<RuntimeHealthMessage>(body) {
+        Ok(message) => message,
+        Err(_) => return false,
+    };
+    message.kind == SIDECAR_HEALTH_KIND
+        && message.status == "ready"
+        && message.nonce == expected_nonce
+}
+
+fn wait_for_runtime(url: &tauri::Url, expected_nonce: &str) -> AppResult<()> {
     let host = url
         .host_str()
         .ok_or_else(|| "sidecar URL has no host".to_string())?;
@@ -309,21 +393,32 @@ fn wait_for_runtime(url: &tauri::Url) -> AppResult<()> {
         if let Ok(mut stream) = TcpStream::connect((host, port)) {
             let _ = stream.set_read_timeout(Some(Duration::from_secs(2)));
             let request = format!(
-                "GET {} HTTP/1.1\r\nHost: {}\r\nConnection: close\r\n\r\n",
-                url.path(),
+                "GET {} HTTP/1.1\r\nHost: {}\r\nAccept: application/json\r\nConnection: close\r\n\r\n",
+                SIDECAR_HEALTH_PATH,
                 host
             );
             if stream.write_all(request.as_bytes()).is_ok() {
-                let mut buffer = [0u8; 512];
-                if let Ok(read) = stream.read(&mut buffer) {
-                    let response = String::from_utf8_lossy(&buffer[..read]);
-                    if response
-                        .lines()
-                        .next()
-                        .is_some_and(|line| line.contains(" 2") || line.contains(" 3"))
-                    {
-                        return Ok(());
+                let mut response = Vec::with_capacity(512);
+                let mut read_ok = true;
+                loop {
+                    let mut buffer = [0u8; 1024];
+                    match stream.read(&mut buffer) {
+                        Ok(0) => break,
+                        Ok(read) => {
+                            if response.len() + read > MAX_HEALTH_RESPONSE_BYTES {
+                                read_ok = false;
+                                break;
+                            }
+                            response.extend_from_slice(&buffer[..read]);
+                        }
+                        Err(_) => {
+                            read_ok = false;
+                            break;
+                        }
                     }
+                }
+                if read_ok && health_response_matches(&response, expected_nonce) {
+                    return Ok(());
                 }
             }
         }
@@ -407,7 +502,7 @@ pub(crate) fn start_sidecar(root: &Path, storage: &StorageLayout) -> AppResult<S
         process_group_id,
         runtime_url,
     };
-    if let Err(error) = wait_for_runtime(&handle.runtime_url) {
+    if let Err(error) = wait_for_runtime(&handle.runtime_url, &ready.ready_nonce) {
         let _ = handle.stop();
         return Err(error);
     }
@@ -555,6 +650,36 @@ mod tests {
         };
         assert_ne!(message.status, "ready");
         assert_eq!(message.reason.as_deref(), Some("migration-missing"));
+    }
+
+    #[test]
+    fn health_response_requires_the_expected_nonce_and_ready_contract() {
+        let nonce = "a".repeat(64);
+        let body = format!(
+            r#"{{"kind":"cornell-desktop-health","status":"ready","nonce":"{}"}}"#,
+            nonce
+        );
+        let response = format!(
+            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n{}",
+            body.len(),
+            body
+        );
+        assert!(health_response_matches(response.as_bytes(), &nonce));
+        assert!(!health_response_matches(
+            response.as_bytes(),
+            &"b".repeat(64)
+        ));
+
+        let chunked = format!(
+            "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n{:x}\r\n{}\r\n0\r\n\r\n",
+            body.len(),
+            body
+        );
+        assert!(health_response_matches(chunked.as_bytes(), &nonce));
+        assert!(!health_response_matches(
+            response.replacen("200 OK", "302 Found", 1).as_bytes(),
+            &nonce
+        ));
     }
 
     #[test]
