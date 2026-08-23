@@ -15,6 +15,29 @@ type UseNoteDetailSummaryDraftOptions = {
   onSavedNote: (savedNote: NoteDetailResponse) => void;
 };
 
+type InFlightSummarySaveRef = {
+  current: Promise<boolean> | null;
+};
+
+export function shareInFlightSummarySave(
+  inFlightSaveRef: InFlightSummarySaveRef,
+  save: () => Promise<boolean>,
+): Promise<boolean> {
+  if (inFlightSaveRef.current) {
+    return inFlightSaveRef.current;
+  }
+
+  const nextSave = save();
+  inFlightSaveRef.current = nextSave;
+  const clearInFlightSave = () => {
+    if (inFlightSaveRef.current === nextSave) {
+      inFlightSaveRef.current = null;
+    }
+  };
+  void nextSave.then(clearInFlightSave, clearInFlightSave);
+  return nextSave;
+}
+
 export function useNoteDetailSummaryDraft({
   mode,
   note,
@@ -26,8 +49,10 @@ export function useNoteDetailSummaryDraft({
   const noteRef = useRef(note);
   const summaryDraftRef = useRef(note.summary ?? "");
   const summarySavingRef = useRef(false);
+  const summarySaveInFlightRef = useRef<Promise<boolean> | null>(null);
   const summaryRevisionRef = useRef(0);
   const summaryDirtyRef = useRef(false);
+  const mountedRef = useRef(true);
   const summarySaveRef = useRef<() => Promise<boolean>>(() =>
     Promise.resolve(false),
   );
@@ -67,18 +92,17 @@ export function useNoteDetailSummaryDraft({
     setSummaryError(null);
   }
 
-  async function saveSummary(): Promise<boolean> {
+  async function performSummarySave(): Promise<boolean> {
     if (!summaryDirtyRef.current) {
       return true;
-    }
-    if (summarySavingRef.current) {
-      return false;
     }
 
     const saveRevision = summaryRevisionRef.current;
     summarySavingRef.current = true;
-    setSummarySaving(true);
-    setSummaryError(null);
+    if (mountedRef.current) {
+      setSummarySaving(true);
+      setSummaryError(null);
+    }
 
     try {
       const savedNote = await updateNote(
@@ -90,32 +114,44 @@ export function useNoteDetailSummaryDraft({
       );
 
       if (summaryRevisionRef.current !== saveRevision) {
+        summaryDirtyRef.current = true;
         return false;
       }
 
       noteRef.current = savedNote;
       summaryDraftRef.current = savedNote.summary ?? "";
-      setSummaryDraft(savedNote.summary ?? "");
       summaryRevisionRef.current += 1;
-      setSummaryError(null);
       summaryDirtyRef.current = false;
-      onSavedNote(savedNote);
+      if (mountedRef.current) {
+        setSummaryDraft(savedNote.summary ?? "");
+        setSummaryError(null);
+        onSavedNote(savedNote);
+      }
       return true;
     } catch (caught) {
-      if (caught instanceof NotesRemoteError) {
-        setSummaryError(caught.message);
-      } else if (caught instanceof Error) {
-        setSummaryError(caught.message);
-      } else {
-        setSummaryError(
-          "サマリーの保存に失敗しました。通信状態またはAPIを確認してください。",
-        );
+      summaryDirtyRef.current = true;
+      if (mountedRef.current) {
+        if (caught instanceof NotesRemoteError) {
+          setSummaryError(caught.message);
+        } else if (caught instanceof Error) {
+          setSummaryError(caught.message);
+        } else {
+          setSummaryError(
+            "サマリーの保存に失敗しました。通信状態またはAPIを確認してください。",
+          );
+        }
       }
       return false;
     } finally {
       summarySavingRef.current = false;
-      setSummarySaving(false);
+      if (mountedRef.current) {
+        setSummarySaving(false);
+      }
     }
+  }
+
+  function saveSummary(): Promise<boolean> {
+    return shareInFlightSummarySave(summarySaveInFlightRef, performSummarySave);
   }
 
   function acceptSavedNote(savedNote: NoteDetailResponse) {
@@ -138,13 +174,21 @@ export function useNoteDetailSummaryDraft({
   summaryDiscardRef.current = discardSummaryDraft;
 
   useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
+  useEffect(() => {
     if (mode === "edit") {
       return;
     }
 
     return registerDesktopDirtyController({
       isDirty: () => summaryDirtyRef.current,
-      save: () => summarySaveRef.current(),
+      save: () =>
+        summarySaveInFlightRef.current ?? summarySaveRef.current(),
       discard: () => summaryDiscardRef.current(),
     });
   }, [mode]);

@@ -43,6 +43,92 @@ function sourceSection(source, startMarker, endMarker) {
   return source.slice(start, end);
 }
 
+function loadSummarySaveHarness() {
+  const bridge = loadTranspiledModule("src/shared/desktop/desktop-close-bridge.ts");
+  const requests = [];
+  const stateUpdates = [];
+  const effectCleanups = [];
+  const savedNotes = [];
+  let resolveRequest;
+  let rejectRequest;
+
+  const react = {
+    useState(initial) {
+      let value = typeof initial === "function" ? initial() : initial;
+      return [
+        value,
+        (next) => {
+          stateUpdates.push(next);
+          value = typeof next === "function" ? next(value) : next;
+        },
+      ];
+    },
+    useRef(initial) {
+      return { current: initial };
+    },
+    useEffect(effect) {
+      const cleanup = effect();
+      if (typeof cleanup === "function") {
+        effectCleanups.push(cleanup);
+      }
+    },
+  };
+  const note = {
+    id: "note-1",
+    summary: "- [ ] Remember the main idea",
+  };
+  const summaryDraft = loadTranspiledModule(
+    "src/modules/notes/ui/hooks/use-note-detail-summary-draft.ts",
+    {
+      react,
+      "@/modules/notes/model": {
+        noteDetailToSummaryUpdatePayload: (_note, summary) => ({ summary }),
+      },
+      "@/modules/notes/remote": {
+        NotesRemoteError: class NotesRemoteError extends Error {},
+        updateNote: (id, payload) => {
+          requests.push({ id, payload });
+          return new Promise((resolve, reject) => {
+            resolveRequest = resolve;
+            rejectRequest = reject;
+          });
+        },
+      },
+      "@/shared/markdown": {
+        updateMarkdownTaskMarker: () => "- [x] Remember the main idea",
+      },
+      "@/shared/desktop/desktop-close-bridge": bridge,
+    },
+  );
+  const controller = summaryDraft.useNoteDetailSummaryDraft({
+    mode: "view",
+    note,
+    onSavedNote: (savedNote) => savedNotes.push(savedNote),
+  });
+
+  return {
+    bridge,
+    controller,
+    requests,
+    savedNotes,
+    stateUpdates,
+    resolveRequest(value) {
+      assert.ok(resolveRequest);
+      resolveRequest(value);
+    },
+    rejectRequest(error) {
+      assert.ok(rejectRequest);
+      rejectRequest(error);
+    },
+    closeOwner: bridge.getDesktopDirtyController(),
+    cleanup() {
+      for (const cleanup of effectCleanups) {
+        cleanup();
+      }
+    },
+  };
+}
+
 const readView = readSource(
   "src/modules/notes/ui/components/detail/read-view.tsx",
 );
@@ -74,11 +160,16 @@ test("detail Summary toggle is draft-only and explicit save uses the existing no
   const toggleBody = sourceSection(
     summaryDraft,
     "function handleSummaryTaskToggle",
-    "  async function saveSummary",
+    "  async function performSummarySave",
   );
   const saveBody = sourceSection(
     summaryDraft,
-    "async function saveSummary(): Promise<boolean>",
+    "async function performSummarySave(): Promise<boolean>",
+    "  function saveSummary(): Promise<boolean>",
+  );
+  const saveWrapperBody = sourceSection(
+    summaryDraft,
+    "function saveSummary(): Promise<boolean>",
     "  function acceptSavedNote",
   );
   const dirtyOwnerBody = sourceSection(
@@ -100,6 +191,11 @@ test("detail Summary toggle is draft-only and explicit save uses the existing no
   assert.match(summaryDraft, /const noteRef = useRef\(note\);/);
   assert.match(summaryDraft, /const summaryDraftRef = useRef\(note\.summary \?\? ""\);/);
   assert.match(summaryDraft, /const summaryDirtyRef = useRef\(false\);/);
+  assert.match(
+    summaryDraft,
+    /const summarySaveInFlightRef = useRef<Promise<boolean> \| null>\(null\);/,
+  );
+  assert.match(summaryDraft, /const mountedRef = useRef\(true\);/);
   assert.match(summaryDraft, /noteRef\.current = note;/);
   assert.match(summaryDraft, /summaryDraftRef\.current = summaryDraft;/);
   assert.match(
@@ -115,15 +211,13 @@ test("detail Summary toggle is draft-only and explicit save uses the existing no
   const cleanSaveGuard = sourceSection(
     saveBody,
     "if (!summaryDirtyRef.current)",
-    "    if (summarySavingRef.current)",
-  );
-  assert.match(cleanSaveGuard, /return true;/);
-  const savingSaveGuard = sourceSection(
-    saveBody,
-    "if (summarySavingRef.current)",
     "    const saveRevision",
   );
-  assert.match(savingSaveGuard, /return false;/);
+  assert.match(cleanSaveGuard, /return true;/);
+  assert.doesNotMatch(
+    saveBody,
+    /if \(summarySavingRef\.current\)[\s\S]*return false;/,
+  );
   assert.match(saveBody, /const saveRevision = summaryRevisionRef\.current;/);
   const updateCall = sourceSection(
     saveBody,
@@ -156,12 +250,21 @@ test("detail Summary toggle is draft-only and explicit save uses the existing no
   );
   assert.match(failedSave, /caught instanceof NotesRemoteError/);
   assert.match(failedSave, /setSummaryError\(caught\.message\)/);
+  assert.match(failedSave, /summaryDirtyRef\.current = true;/);
   assert.match(failedSave, /return false;/);
+  assert.match(
+    saveWrapperBody,
+    /return shareInFlightSummarySave\(summarySaveInFlightRef, performSummarySave\);/,
+  );
   assert.match(dirtyOwnerBody, /return registerDesktopDirtyController\(\{/);
   assert.match(dirtyOwnerBody, /isDirty: \(\) => summaryDirtyRef\.current/);
-  assert.match(dirtyOwnerBody, /save: \(\) => summarySaveRef\.current\(\)/);
+  assert.match(
+    dirtyOwnerBody,
+    /summarySaveInFlightRef\.current \?\? summarySaveRef\.current\(\)/,
+  );
   assert.match(dirtyOwnerBody, /discard: \(\) => summaryDiscardRef\.current\(\)/);
   assert.match(dirtyOwnerBody, /\}, \[mode\]\);/);
+  assert.match(summaryDraft, /mountedRef\.current = false;/);
   assert.match(readView, /taskToggleDisabled=\{summarySaving\}/);
   assert.match(actions, /disabled=\{saving\}/);
   assert.match(actions, /disabled=\{disabled\}/);
@@ -180,6 +283,77 @@ test("detail Summary toggle is draft-only and explicit save uses the existing no
   assert.match(payload, /canvas: cloneCanvasDocument\(note\.canvas\)/);
   assert.match(payload, /bodyMode: "markdown"/);
   assert.match(payload, /body: note\.body \?\? ""/);
+});
+
+test("Summary explicit save and desktop close share one PATCH and await completion", async () => {
+  const harness = loadSummarySaveHarness();
+  assert.ok(harness.closeOwner);
+  harness.controller.handleSummaryTaskToggle(0, true);
+
+  const explicitSave = harness.controller.saveSummary();
+  const closeSave = harness.closeOwner.save();
+  let closeSettled = false;
+  void closeSave.then(() => {
+    closeSettled = true;
+  });
+
+  assert.equal(harness.requests.length, 1);
+  await Promise.resolve();
+  assert.equal(closeSettled, false);
+
+  harness.resolveRequest({
+    id: "note-1",
+    summary: "- [x] Remember the main idea",
+  });
+  assert.equal(await explicitSave, true);
+  assert.equal(await closeSave, true);
+  assert.equal(harness.closeOwner.isDirty(), false);
+  assert.equal(harness.savedNotes.length, 1);
+
+  harness.cleanup();
+});
+
+test("Summary close save keeps dirty state after failure and can retry", async () => {
+  const harness = loadSummarySaveHarness();
+  assert.ok(harness.closeOwner);
+  harness.controller.handleSummaryTaskToggle(0, true);
+
+  const explicitSave = harness.controller.saveSummary();
+  const closeSave = harness.closeOwner.save();
+  harness.rejectRequest(new Error("network down"));
+
+  assert.equal(await explicitSave, false);
+  assert.equal(await closeSave, false);
+  assert.equal(harness.closeOwner.isDirty(), true);
+
+  const retrySave = harness.closeOwner.save();
+  assert.equal(harness.requests.length, 2);
+  harness.resolveRequest({
+    id: "note-1",
+    summary: "- [x] Remember the main idea",
+  });
+  assert.equal(await retrySave, true);
+  assert.equal(harness.closeOwner.isDirty(), false);
+
+  harness.cleanup();
+});
+
+test("Summary save does not update state or parent after unmount", async () => {
+  const harness = loadSummarySaveHarness();
+  assert.ok(harness.closeOwner);
+  harness.controller.handleSummaryTaskToggle(0, true);
+  const save = harness.controller.saveSummary();
+  const stateUpdatesBeforeUnmount = harness.stateUpdates.length;
+
+  harness.cleanup();
+  harness.resolveRequest({
+    id: "note-1",
+    summary: "- [x] Remember the main idea",
+  });
+
+  assert.equal(await save, true);
+  assert.equal(harness.stateUpdates.length, stateUpdatesBeforeUnmount);
+  assert.equal(harness.savedNotes.length, 0);
 });
 
 test("Summary discard does not pass the click event into the draft in view or review", () => {

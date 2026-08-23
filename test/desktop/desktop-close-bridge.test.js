@@ -104,6 +104,44 @@ test("a toggled Summary draft remains visible to the desktop close coordinator",
   assert.equal(bridge.getDesktopDirtyController(), null);
 });
 
+test("desktop close shares one pending owner save across concurrent close attempts", async () => {
+  const bridge = loadBridge();
+  let dirty = true;
+  let saveCalls = 0;
+  let resolveSave;
+  const pendingSave = new Promise((resolve) => {
+    resolveSave = resolve;
+  });
+  const unregister = bridge.registerDesktopDirtyController({
+    isDirty: () => dirty,
+    save: () => {
+      saveCalls += 1;
+      return pendingSave;
+    },
+  });
+  const coordinator = bridge.getDesktopDirtyController();
+
+  assert.ok(coordinator);
+  const firstCloseSave = coordinator.save();
+  const secondCloseSave = coordinator.save();
+  let firstSettled = false;
+  void firstCloseSave.then(() => {
+    firstSettled = true;
+  });
+
+  assert.equal(saveCalls, 1);
+  await Promise.resolve();
+  assert.equal(firstSettled, false);
+
+  dirty = false;
+  resolveSave(true);
+  assert.equal(await firstCloseSave, true);
+  assert.equal(await secondCloseSave, true);
+  assert.equal(saveCalls, 1);
+
+  unregister();
+});
+
 test("desktop dirty bridge keeps a failed owner dirty and preserves later owners", async () => {
   const bridge = loadBridge();
   let failedDirty = true;
@@ -207,7 +245,14 @@ test("summary and editor close owners use the shared bridge without changing the
   assert.match(summaryDraftController, /registerDesktopDirtyController/);
   assert.match(summaryDraftController, /if \(mode === "edit"\)/);
   assert.match(summaryDraftController, /isDirty: \(\) => summaryDirtyRef\.current/);
-  assert.match(summaryDraftController, /save: \(\) => summarySaveRef\.current\(\)/);
+  assert.match(
+    summaryDraftController,
+    /summarySaveInFlightRef\.current \?\? summarySaveRef\.current\(\)/,
+  );
+  assert.match(
+    summaryDraftController,
+    /shareInFlightSummarySave\(summarySaveInFlightRef, performSummarySave\)/,
+  );
   assert.match(summaryDraftController, /summaryDirtyRef\.current = false/);
   assert.match(summaryDraftController, /return false;/);
   assert.match(editorDirtyController, /registerDesktopDirtyController/);

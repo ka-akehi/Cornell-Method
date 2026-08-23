@@ -9,6 +9,7 @@ export type DesktopDirtyController = {
 export const DESKTOP_CLOSE_REQUEST_EVENT = "cornell:desktop-close-request";
 
 const dirtyControllers = new Map<symbol, DesktopDirtyController>();
+let dirtyControllersSaveInFlight: Promise<boolean> | null = null;
 
 export function registerDesktopDirtyController(
   nextController: DesktopDirtyController,
@@ -44,37 +45,51 @@ export function getDesktopDirtyController() {
       }
       return false;
     },
-    save: async () => {
-      const savedOwners = new Set<symbol>();
-
-      while (true) {
-        let nextOwner: [symbol, DesktopDirtyController] | null = null;
-
-        for (const [owner, controller] of dirtyControllers.entries()) {
-          if (
-            savedOwners.has(owner) ||
-            dirtyControllers.get(owner) !== controller
-          ) {
-            continue;
-          }
-
-          if (controller.isDirty()) {
-            nextOwner = [owner, controller];
-            break;
-          }
-          savedOwners.add(owner);
-        }
-
-        if (!nextOwner) {
-          return true;
-        }
-
-        const [owner, controller] = nextOwner;
-        savedOwners.add(owner);
-        if (!(await controller.save())) {
-          return false;
-        }
+    save: () => {
+      if (dirtyControllersSaveInFlight) {
+        return dirtyControllersSaveInFlight;
       }
+
+      const nextSave = (async () => {
+        const savedOwners = new Set<symbol>();
+
+        while (true) {
+          let nextOwner: [symbol, DesktopDirtyController] | null = null;
+
+          for (const [owner, controller] of dirtyControllers.entries()) {
+            if (
+              savedOwners.has(owner) ||
+              dirtyControllers.get(owner) !== controller
+            ) {
+              continue;
+            }
+
+            if (controller.isDirty()) {
+              nextOwner = [owner, controller];
+              break;
+            }
+            savedOwners.add(owner);
+          }
+
+          if (!nextOwner) {
+            return true;
+          }
+
+          const [owner, controller] = nextOwner;
+          savedOwners.add(owner);
+          if (!(await controller.save())) {
+            return false;
+          }
+        }
+      })();
+      dirtyControllersSaveInFlight = nextSave;
+      const clearInFlightSave = () => {
+        if (dirtyControllersSaveInFlight === nextSave) {
+          dirtyControllersSaveInFlight = null;
+        }
+      };
+      void nextSave.then(clearInFlightSave, clearInFlightSave);
+      return nextSave;
     },
     discard: () => {
       let discarded = true;
