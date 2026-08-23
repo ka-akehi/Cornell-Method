@@ -1,6 +1,6 @@
 use std::fs;
 use std::io;
-use std::path::{Component, Path, PathBuf};
+use std::path::{Component, Path};
 
 use serde::Serialize;
 
@@ -296,11 +296,10 @@ impl<'a> UpdateVerificationCoordinator<'a> {
         self.state_store
             .record_package_checkpoint(&verified_archive)?;
 
-        let extracted_archive =
-            match extract_or_revalidate(selected_release, &verified_archive, self.staging_root) {
-                Ok(extracted_archive) => extracted_archive,
-                Err(code) => return self.fail(code, now),
-            };
+        let extracted_archive = match extract_or_revalidate(&verified_archive, self.staging_root) {
+            Ok(extracted_archive) => extracted_archive,
+            Err(code) => return self.fail(code, now),
+        };
         self.state_store
             .record_extraction_checkpoint(&extracted_archive)?;
 
@@ -418,7 +417,6 @@ fn bundle_matches_candidate(
 }
 
 fn extract_or_revalidate(
-    selected_release: &UpdateRelease,
     verified_archive: &VerifiedArchive,
     staging_root: &Path,
 ) -> Result<ExtractedArchive, &'static str> {
@@ -429,36 +427,13 @@ fn extract_or_revalidate(
             if metadata.file_type().is_symlink() || !metadata.is_dir() {
                 return Err("staging-path");
             }
-            let expected = extracted_archive_for_release(selected_release);
-            match validate_extracted_app_bundle(&expected, staging_root) {
-                Ok(verified_bundle)
-                    if bundle_matches_candidate(&verified_bundle, &expected, selected_release) =>
-                {
-                    Ok(expected)
-                }
-                Ok(_) | Err(_) => {
-                    cleanup_ready_directory(staging_root, digest)?;
-                    extract_verified_archive(verified_archive, staging_root)
-                        .map_err(map_archive_error)
-                }
-            }
+            cleanup_ready_directory(staging_root, digest)?;
+            extract_verified_archive(verified_archive, staging_root).map_err(map_archive_error)
         }
         Err(error) if error.kind() == io::ErrorKind::NotFound => {
             extract_verified_archive(verified_archive, staging_root).map_err(map_archive_error)
         }
         Err(_) => Err("staging-read"),
-    }
-}
-
-fn extracted_archive_for_release(selected_release: &UpdateRelease) -> ExtractedArchive {
-    ExtractedArchive {
-        relative_app_path: PathBuf::from("extract")
-            .join(&selected_release.artifact.sha256)
-            .join("Cornell Method Notebook.app"),
-        artifact_id: selected_release.artifact.artifact_id.clone(),
-        raw_sha256: selected_release.artifact.sha256.clone(),
-        version: selected_release.version.to_string(),
-        architecture: selected_release.architecture.clone(),
     }
 }
 
@@ -820,6 +795,7 @@ mod tests {
             append_archive_directory(&mut builder, &format!("{ROOT}/"));
             append_archive_directory(&mut builder, &format!("{ROOT}/Contents/"));
             append_archive_directory(&mut builder, &format!("{ROOT}/Contents/MacOS/"));
+            append_archive_directory(&mut builder, &format!("{ROOT}/Contents/Resources/"));
             append_archive_file(
                 &mut builder,
                 &format!("{ROOT}/Contents/Info.plist"),
@@ -831,6 +807,12 @@ mod tests {
                 &format!("{ROOT}/Contents/MacOS/{EXECUTABLE}"),
                 0o755,
                 &macho,
+            );
+            append_archive_file(
+                &mut builder,
+                &format!("{ROOT}/Contents/Resources/config.js"),
+                0o644,
+                b"archive resource",
             );
             builder.finish().unwrap();
         }
@@ -1039,6 +1021,11 @@ mod tests {
             .join(&digest)
             .join("Cornell Method Notebook.app")
             .is_dir());
+        let resource_path = staging
+            .join("extract")
+            .join(&digest)
+            .join("Cornell Method Notebook.app/Contents/Resources/config.js");
+        assert_eq!(fs::read(&resource_path).unwrap(), b"archive resource");
         assert!(!staging
             .join("incoming")
             .join(format!("{digest}.part"))
@@ -1047,6 +1034,40 @@ mod tests {
             .join("extract")
             .join(format!("{digest}.tmp"))
             .exists());
+
+        fs::write(&resource_path, b"tampered resource").unwrap();
+        assert_eq!(
+            coordinator.run(25).unwrap(),
+            VerifyPendingUpdateOutcome::Verified
+        );
+        assert_eq!(artifact.calls.get(), 1);
+        assert_eq!(fs::read(&resource_path).unwrap(), b"archive resource");
+        assert!(!fs::symlink_metadata(&resource_path)
+            .unwrap()
+            .file_type()
+            .is_symlink());
+
+        #[cfg(unix)]
+        {
+            let external_resource = directory.join("external-resource.js");
+            fs::write(&external_resource, b"external resource").unwrap();
+            fs::remove_file(&resource_path).unwrap();
+            std::os::unix::fs::symlink(&external_resource, &resource_path).unwrap();
+
+            assert_eq!(
+                coordinator.run(27).unwrap(),
+                VerifyPendingUpdateOutcome::Verified
+            );
+            assert_eq!(artifact.calls.get(), 1);
+            assert_eq!(fs::read(&resource_path).unwrap(), b"archive resource");
+            assert!(!fs::symlink_metadata(&resource_path)
+                .unwrap()
+                .file_type()
+                .is_symlink());
+            assert_eq!(fs::read(&external_resource).unwrap(), b"external resource");
+        }
+
+        let verification_runs_before_corrupted_cache = if cfg!(unix) { 3 } else { 2 };
 
         let package_path = staging
             .join("packages")
@@ -1064,9 +1085,15 @@ mod tests {
             coordinator.run(30).unwrap(),
             VerifyPendingUpdateOutcome::Verified
         );
-        assert_eq!(manifest.calls.get(), 2);
+        assert_eq!(
+            manifest.calls.get(),
+            verification_runs_before_corrupted_cache + 1
+        );
         assert_eq!(artifact.calls.get(), 2);
-        assert_eq!(signature_factory.calls.get(), 2);
+        assert_eq!(
+            signature_factory.calls.get(),
+            verification_runs_before_corrupted_cache + 1
+        );
         assert!(package_path.is_file());
         assert!(staging
             .join("extract")
@@ -1078,13 +1105,77 @@ mod tests {
             coordinator.run(40).unwrap(),
             VerifyPendingUpdateOutcome::Verified
         );
-        assert_eq!(manifest.calls.get(), 3);
+        assert_eq!(
+            manifest.calls.get(),
+            verification_runs_before_corrupted_cache + 2
+        );
         assert_eq!(artifact.calls.get(), 2);
-        assert_eq!(signature_factory.calls.get(), 3);
+        assert_eq!(
+            signature_factory.calls.get(),
+            verification_runs_before_corrupted_cache + 2
+        );
         assert_eq!(
             state.snapshot().pending_update.unwrap().verification_state,
             crate::update_state::VerificationState::Verified
         );
+
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn existing_ready_path_anomalies_fail_closed() {
+        let directory = test_directory("ready-anomaly");
+        let staging = directory.join("staging");
+        let extract = staging.join("extract");
+        fs::create_dir_all(&extract).unwrap();
+        let digest = "abcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcd";
+        let verified_archive = VerifiedArchive {
+            relative_package_path: PathBuf::from("packages").join("unused.app.tar.gz"),
+            artifact_id: "test-artifact".to_string(),
+            raw_size_bytes: 1,
+            raw_sha256: digest.to_string(),
+            version: "1.2.3".to_string(),
+            architecture: TARGET_ARCHITECTURE.to_string(),
+        };
+        let ready = extract.join(digest);
+
+        fs::write(&ready, b"not a directory").unwrap();
+        assert_eq!(
+            extract_or_revalidate(&verified_archive, &staging),
+            Err("staging-path")
+        );
+        fs::remove_file(&ready).unwrap();
+
+        #[cfg(unix)]
+        {
+            let external = directory.join("external-ready");
+            fs::create_dir_all(&external).unwrap();
+            let marker = external.join("marker");
+            fs::write(&marker, b"external marker").unwrap();
+            std::os::unix::fs::symlink(&external, &ready).unwrap();
+            assert_eq!(
+                extract_or_revalidate(&verified_archive, &staging),
+                Err("staging-path")
+            );
+            assert_eq!(fs::read(&marker).unwrap(), b"external marker");
+            fs::remove_file(&ready).unwrap();
+
+            fs::remove_dir(&extract).unwrap();
+            let external_extract = directory.join("external-extract");
+            fs::create_dir_all(external_extract.join(digest)).unwrap();
+            let external_marker = external_extract.join("marker");
+            fs::write(&external_marker, b"external extract marker").unwrap();
+            std::os::unix::fs::symlink(&external_extract, &extract).unwrap();
+            assert_eq!(
+                extract_or_revalidate(&verified_archive, &staging),
+                Err("staging-path")
+            );
+            assert_eq!(
+                fs::read(&external_marker).unwrap(),
+                b"external extract marker"
+            );
+            fs::remove_file(&extract).unwrap();
+        }
 
         fs::remove_dir_all(directory).unwrap();
     }
