@@ -1,6 +1,7 @@
 use super::AppResult;
 use serde::Deserialize;
 use std::env;
+use std::fs;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpStream;
 use std::path::{Path, PathBuf};
@@ -10,12 +11,13 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 #[cfg(unix)]
-use std::os::unix::process::CommandExt;
+use std::os::unix::{fs::PermissionsExt, process::CommandExt};
 
 use tauri::{AppHandle, Manager};
 
 const READY_TIMEOUT: Duration = Duration::from_secs(35);
 const SIDECAR_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(5);
+const PACKAGED_NODE_BINARY_NAME: &str = "node";
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -93,8 +95,44 @@ pub(crate) fn runtime_project_root(app: &AppHandle) -> AppResult<PathBuf> {
         .map_err(|error| format!("cannot resolve packaged runtime resources: {error}"))
 }
 
-fn node_binary() -> String {
-    env::var("CORNELL_DESKTOP_NODE_BINARY").unwrap_or_else(|_| "node".to_string())
+fn packaged_node_binary(root: &Path) -> AppResult<PathBuf> {
+    let path = root.join(PACKAGED_NODE_BINARY_NAME);
+    let metadata = fs::metadata(&path).map_err(|error| {
+        format!(
+            "packaged Node executable is missing: {} ({error})",
+            path.display()
+        )
+    })?;
+    if !metadata.is_file() {
+        return Err(format!(
+            "packaged Node executable is not a regular file: {}",
+            path.display()
+        ));
+    }
+    #[cfg(unix)]
+    if metadata.permissions().mode() & 0o111 == 0 {
+        return Err(format!(
+            "packaged Node executable is not executable: {}",
+            path.display()
+        ));
+    }
+    Ok(path)
+}
+
+fn node_binary(_root: &Path) -> AppResult<PathBuf> {
+    if let Some(configured) = env::var_os("CORNELL_DESKTOP_NODE_BINARY") {
+        return Ok(PathBuf::from(configured));
+    }
+
+    #[cfg(debug_assertions)]
+    {
+        Ok(PathBuf::from(PACKAGED_NODE_BINARY_NAME))
+    }
+
+    #[cfg(not(debug_assertions))]
+    {
+        packaged_node_binary(_root)
+    }
 }
 
 fn launcher_path(root: &Path) -> AppResult<PathBuf> {
@@ -152,7 +190,8 @@ fn database_url_path(database_url: &str) -> AppResult<PathBuf> {
 
 pub(crate) fn run_bootstrap(root: &Path) -> AppResult<StorageLayout> {
     let launcher = launcher_path(root)?;
-    let output = Command::new(node_binary())
+    let node = node_binary(root)?;
+    let output = Command::new(&node)
         .arg(&launcher)
         .arg("bootstrap")
         .current_dir(root)
@@ -295,7 +334,8 @@ fn wait_for_runtime(url: &tauri::Url) -> AppResult<()> {
 
 pub(crate) fn start_sidecar(root: &Path, storage: &StorageLayout) -> AppResult<SidecarHandle> {
     let launcher = launcher_path(root)?;
-    let mut command = Command::new(node_binary());
+    let node = node_binary(root)?;
+    let mut command = Command::new(&node);
     command
         .arg(&launcher)
         .arg("serve")
@@ -463,6 +503,34 @@ impl Drop for SidecarHandle {
 mod tests {
     use super::*;
 
+    struct TestDirectory(PathBuf);
+
+    impl TestDirectory {
+        fn new() -> Self {
+            let nonce = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system clock is before the Unix epoch")
+                .as_nanos();
+            let path = env::temp_dir().join(format!(
+                "cornell-runtime-node-{}-{}",
+                std::process::id(),
+                nonce
+            ));
+            fs::create_dir_all(&path).expect("create runtime test directory");
+            Self(path)
+        }
+
+        fn path(&self) -> &Path {
+            &self.0
+        }
+    }
+
+    impl Drop for TestDirectory {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
     #[test]
     fn sidecar_database_url_must_be_absolute() {
         assert!(database_url_path("file:/tmp/notebook.sqlite").is_ok());
@@ -487,5 +555,29 @@ mod tests {
         };
         assert_ne!(message.status, "ready");
         assert_eq!(message.reason.as_deref(), Some("migration-missing"));
+    }
+
+    #[test]
+    fn packaged_node_binary_uses_root_node_and_validates_the_resource() {
+        let directory = TestDirectory::new();
+        let node_path = directory.path().join(PACKAGED_NODE_BINARY_NAME);
+
+        assert!(packaged_node_binary(directory.path()).is_err());
+
+        fs::create_dir(&node_path).expect("create invalid node directory");
+        assert!(packaged_node_binary(directory.path()).is_err());
+        fs::remove_dir(&node_path).expect("remove invalid node directory");
+
+        fs::write(&node_path, b"node").expect("create invalid node file");
+        #[cfg(unix)]
+        {
+            fs::set_permissions(&node_path, fs::Permissions::from_mode(0o644))
+                .expect("remove executable permission");
+            assert!(packaged_node_binary(directory.path()).is_err());
+            fs::set_permissions(&node_path, fs::Permissions::from_mode(0o755))
+                .expect("add executable permission");
+        }
+
+        assert_eq!(packaged_node_binary(directory.path()).unwrap(), node_path);
     }
 }

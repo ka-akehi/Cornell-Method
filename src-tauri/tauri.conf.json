@@ -6,7 +6,7 @@
   "build": {
     "frontendDist": "ui",
     "beforeDevCommand": "npm run build",
-    "beforeBuildCommand": "npm run build"
+    "beforeBuildCommand": "npm run build && npm run desktop:prepare-node-runtime"
   },
   "app": {
     "withGlobalTauri": false,
@@ -23,6 +23,7 @@
     "longDescription": "A local-first Cornell Method notebook for macOS.",
     "icon": ["icons/icon.png"],
     "resources": {
+      "../.desktop-runtime/": "runtime/",
       "sidecar/launcher.cjs": "runtime/sidecar/launcher.cjs",
       "../.next/**/*": "runtime/.next/",
       "../node_modules/**/*": "runtime/node_modules/",

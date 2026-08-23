@@ -24,6 +24,8 @@
 
 # production
 /build
+/.desktop-runtime/*
+!/.desktop-runtime/.gitkeep
 /src-tauri/target/
 /src-tauri/gen/
 
