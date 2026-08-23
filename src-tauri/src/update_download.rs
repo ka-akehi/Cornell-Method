@@ -5,9 +5,8 @@ use std::io::{self, Read, Write};
 use std::path::{Component, Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use reqwest::blocking::{Client, Response};
-use reqwest::header::{CONTENT_TYPE, LOCATION};
-use reqwest::Url;
+use reqwest::header::{HeaderMap, CONTENT_TYPE, LOCATION};
+use reqwest::{Client, Response, Url};
 use ring::digest::{Context, SHA256};
 
 use crate::update_manifest::{UpdateManifest, UpdateRelease, TARGET_ARTIFACT_FORMAT};
@@ -161,14 +160,68 @@ pub(crate) struct ReqwestArtifactHttpTransport {
     client: Client,
 }
 
+struct AsyncResponseBody {
+    response: Response,
+    pending: Vec<u8>,
+    pending_offset: usize,
+    finished: bool,
+}
+
+impl AsyncResponseBody {
+    fn new(response: Response) -> Self {
+        Self {
+            response,
+            pending: Vec::new(),
+            pending_offset: 0,
+            finished: false,
+        }
+    }
+}
+
+impl Read for AsyncResponseBody {
+    fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+        if buffer.is_empty() {
+            return Ok(0);
+        }
+
+        loop {
+            if self.pending_offset < self.pending.len() {
+                let bytes_to_copy = (self.pending.len() - self.pending_offset).min(buffer.len());
+                buffer[..bytes_to_copy].copy_from_slice(
+                    &self.pending[self.pending_offset..self.pending_offset + bytes_to_copy],
+                );
+                self.pending_offset += bytes_to_copy;
+                return Ok(bytes_to_copy);
+            }
+
+            if self.finished {
+                return Ok(0);
+            }
+
+            let chunk = tauri::async_runtime::block_on(self.response.chunk())
+                .map_err(map_reqwest_body_error)?;
+            match chunk {
+                Some(chunk) => {
+                    self.pending = chunk.to_vec();
+                    self.pending_offset = 0;
+                }
+                None => {
+                    self.finished = true;
+                    return Ok(0);
+                }
+            }
+        }
+    }
+}
+
 impl ReqwestArtifactHttpTransport {
     pub(crate) fn new() -> Result<Self, ArtifactHttpError> {
         let client = Client::builder()
             .redirect(reqwest::redirect::Policy::none())
-            // The blocking client applies this timeout to the response wait and
-            // each Response::read operation. It is intentionally not a total
-            // request timeout, so progress on a large package is allowed.
-            .timeout(PACKAGE_READ_IDLE_TIMEOUT)
+            // The blocking builder has no separate read-idle option. The async
+            // client resets this timeout after every successful body chunk and
+            // does not impose a total request deadline.
+            .read_timeout(PACKAGE_READ_IDLE_TIMEOUT)
             .connect_timeout(PACKAGE_CONNECTION_TIMEOUT)
             .build()
             .map_err(|_| ArtifactHttpError::Internal)?;
@@ -204,11 +257,9 @@ impl ArtifactHttpTransport for ReqwestArtifactHttpTransport {
         let mut redirects = Vec::new();
 
         loop {
-            let response = self
-                .client
-                .get(current_url.clone())
-                .send()
-                .map_err(map_reqwest_error)?;
+            let response =
+                tauri::async_runtime::block_on(self.client.get(current_url.clone()).send())
+                    .map_err(map_reqwest_error)?;
             let status = response.status().as_u16();
 
             if is_redirect_status(status) {
@@ -233,13 +284,13 @@ impl ArtifactHttpTransport for ReqwestArtifactHttpTransport {
                 continue;
             }
 
-            let content_type = response_content_type(&response);
+            let content_type = response_content_type(response.headers());
             let content_length = response.content_length();
             return Ok(ArtifactHttpResponse {
                 status,
                 content_type,
                 content_length,
-                body: Box::new(response),
+                body: Box::new(AsyncResponseBody::new(response)),
                 redirects,
                 final_url: current_url.to_string(),
             });
@@ -779,9 +830,8 @@ fn validate_redirect_trace(
     Ok(())
 }
 
-fn response_content_type(response: &Response) -> Option<String> {
-    response
-        .headers()
+fn response_content_type(headers: &HeaderMap) -> Option<String> {
+    headers
         .get(CONTENT_TYPE)
         .and_then(|value| value.to_str().ok())
         .map(str::to_owned)
@@ -884,6 +934,15 @@ fn map_reqwest_error(error: reqwest::Error) -> ArtifactHttpError {
     } else {
         ArtifactHttpError::Network
     }
+}
+
+fn map_reqwest_body_error(error: reqwest::Error) -> io::Error {
+    let kind = if error.is_timeout() {
+        io::ErrorKind::TimedOut
+    } else {
+        io::ErrorKind::Other
+    };
+    io::Error::new(kind, "package response body read failed")
 }
 
 fn map_body_read_error(error: io::Error) -> PackageDownloadError {
@@ -1150,8 +1209,8 @@ mod tests {
     }
 
     #[test]
-    fn valid_package_can_stream_beyond_connection_timeout_without_package_timeout() {
-        let bytes = b"0123456789abcdef".to_vec();
+    fn valid_package_can_progress_beyond_read_idle_timeout_without_body_timeout() {
+        let bytes = b"0123456789abcdefghijklmnopqrstuvwxyz".to_vec();
         let (_manifest, release) = manifest_and_release(&bytes);
         let elapsed = Rc::new(Cell::new(Duration::ZERO));
         let response = ArtifactHttpResponse::from_reader(
@@ -1171,9 +1230,9 @@ mod tests {
         let verifier = FakeVerifier::success();
 
         let archive = download_and_verify_artifact(&release, &root.path, &transport, &verifier)
-            .expect("a progressing package body should not hit the connection timeout");
+            .expect("a progressing package body should not hit the read idle timeout");
 
-        assert!(elapsed.get() > PACKAGE_CONNECTION_TIMEOUT);
+        assert!(elapsed.get() > PACKAGE_READ_IDLE_TIMEOUT);
         assert!(transport.requests.borrow()[0].body_timeout > elapsed.get());
         assert_eq!(
             fs::read(root.path.join(archive.relative_package_path)).unwrap(),
@@ -1389,6 +1448,25 @@ mod tests {
             );
             assert_no_part_or_final(&root.path, &release.artifact.sha256);
         }
+    }
+
+    #[test]
+    fn body_deadline_is_enforced_before_reading_more_bytes() {
+        let root = TestRoot::new();
+        let part_path = root.path.join("body.part");
+        let mut package_file = File::create(&part_path).unwrap();
+        let mut body = Cursor::new(b"body bytes");
+        let expected_size_bytes = body.get_ref().len() as u64;
+
+        let result = stream_package_bytes(
+            &mut body,
+            &mut package_file,
+            expected_size_bytes,
+            Duration::ZERO,
+        );
+
+        assert!(matches!(result, Err(PackageDownloadError::Timeout)));
+        assert_eq!(package_file.metadata().unwrap().len(), 0);
     }
 
     #[test]

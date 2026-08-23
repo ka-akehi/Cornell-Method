@@ -26,8 +26,9 @@ test("desktop update download keeps raw package verification before archive hand
   assert.match(source, /PACKAGE_READ_IDLE_TIMEOUT: Duration = Duration::from_secs\(30\)/);
   assert.match(source, /PACKAGE_BODY_MIN_TIMEOUT: Duration = Duration::from_secs\(5 \* 60\)/);
   assert.match(source, /body_timeout: package_body_timeout\(/);
-  assert.match(source, /\.timeout\(PACKAGE_READ_IDLE_TIMEOUT\)/);
+  assert.match(source, /\.read_timeout\(PACKAGE_READ_IDLE_TIMEOUT\)/);
   assert.match(source, /\.connect_timeout\(PACKAGE_CONNECTION_TIMEOUT\)/);
+  assert.doesNotMatch(source, /\.timeout\(PACKAGE_READ_IDLE_TIMEOUT\)/);
   assert.doesNotMatch(source, /PACKAGE_DOWNLOAD_TIMEOUT/);
   assert.doesNotMatch(source, /\.timeout\(remaining\)/);
   assert.match(source, /MAX_ARTIFACT_REDIRECT_HOPS: usize = 5/);
