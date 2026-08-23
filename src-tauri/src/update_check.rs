@@ -489,6 +489,59 @@ mod tests {
     }
 
     #[test]
+    fn provider_failure_during_recheck_keeps_the_existing_candidate_available() {
+        let (directory, store) = store("provider-recheck-failure");
+        let available_transport = FakeTransport::from_body(VALID_MANIFEST);
+
+        assert_eq!(
+            run(
+                &store,
+                &available_transport,
+                CheckTrigger::Manual,
+                100,
+                "1.0.0"
+            ),
+            Ok(UpdateCheckResult::Started(UpdateCheckOutcome::Available))
+        );
+        let candidate_before = store.snapshot().pending_update.unwrap();
+
+        let failure_transport = FakeTransport::failure(ManifestHttpError::Timeout);
+        assert_eq!(
+            run(
+                &store,
+                &failure_transport,
+                CheckTrigger::Manual,
+                200,
+                "1.0.0"
+            ),
+            Ok(UpdateCheckResult::Started(UpdateCheckOutcome::Failed {
+                code: "provider-timeout",
+            }))
+        );
+
+        let snapshot = store.snapshot();
+        assert_eq!(snapshot.status, UpdateStatus::Available);
+        assert_eq!(snapshot.pending_update, Some(candidate_before));
+        assert_eq!(snapshot.failure.as_ref().unwrap().code, "provider-timeout");
+        assert_eq!(
+            snapshot.failure.as_ref().unwrap().retry_at,
+            200 + AUTO_CHECK_INTERVAL_SECONDS
+        );
+
+        let response = manual_update_check_response(
+            UpdateCheckResult::Started(UpdateCheckOutcome::Failed {
+                code: "provider-timeout",
+            }),
+            &snapshot,
+        );
+        assert_eq!(response.state.status, UpdateStatus::Available);
+        assert!(response.state.pending_update.is_some());
+        assert!(response.state.failure.is_some());
+
+        cleanup(&directory);
+    }
+
+    #[test]
     fn manual_response_mapping_keeps_terminal_outcomes_and_sanitized_errors() {
         let state = UpdateState::initial();
         for (result, expected) in [

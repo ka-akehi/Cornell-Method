@@ -423,10 +423,7 @@ impl UpdateState {
                 }
             }
             UpdateStatus::Available => {
-                if self.check_started_at.is_some()
-                    || self.pending_update.is_none()
-                    || self.failure.is_some()
-                {
+                if self.check_started_at.is_some() || self.pending_update.is_none() {
                     return Err(UpdateStateError::Invalid(
                         "available state is incomplete".to_string(),
                     ));
@@ -797,11 +794,18 @@ impl UpdateStateStore {
         let code = sanitize_error_code(error_code);
         self.ensure_writable()?;
         self.mutate_check_result(|state| {
-            state.status = UpdateStatus::Failed;
+            let has_pending_update = state.pending_update.is_some();
+            state.status = if has_pending_update {
+                UpdateStatus::Available
+            } else {
+                UpdateStatus::Failed
+            };
             state.phase = None;
             state.check_started_at = None;
-            state.pending_update = None;
-            state.notification = None;
+            if !has_pending_update {
+                state.pending_update = None;
+                state.notification = None;
+            }
             state.failure = Some(UpdateFailure { code, retry_at });
             Ok(())
         })
@@ -2158,6 +2162,66 @@ mod tests {
             verified_after.extracted_app_path,
             verified_before.extracted_app_path
         );
+
+        cleanup(&directory);
+    }
+
+    #[test]
+    fn provider_recheck_failure_preserves_verified_candidate_and_clears_on_success() {
+        let (directory, store) = store("provider-recheck-failure");
+        store.begin_check(CheckTrigger::Manual, 100).unwrap();
+        let candidate = pending("1.2.3", "artifact", 100);
+        store.record_available(candidate.clone()).unwrap();
+        store.begin_package_verification(&candidate, 110).unwrap();
+        record_test_verified(&store);
+        let verified_before = store.snapshot().pending_update.unwrap();
+
+        store.begin_check(CheckTrigger::Manual, 200).unwrap();
+        store
+            .record_failure(
+                "Provider timeout: sensitive detail",
+                200 + AUTO_CHECK_INTERVAL_SECONDS,
+            )
+            .unwrap();
+
+        let failed_recheck = store.snapshot();
+        assert_eq!(failed_recheck.status, UpdateStatus::Available);
+        assert_eq!(failed_recheck.phase, None);
+        assert_eq!(failed_recheck.check_started_at, None);
+        assert_eq!(failed_recheck.pending_update, Some(verified_before.clone()));
+        let failure = failed_recheck.failure.as_ref().expect("provider failure");
+        assert_eq!(failure.code, "unknown");
+        assert_eq!(failure.retry_at, 200 + AUTO_CHECK_INTERVAL_SECONDS);
+        assert!(!store
+            .can_start_check(
+                CheckTrigger::Automatic,
+                200 + AUTO_CHECK_INTERVAL_SECONDS - 1,
+            )
+            .unwrap());
+        assert!(store
+            .can_start_check(CheckTrigger::Automatic, 200 + AUTO_CHECK_INTERVAL_SECONDS)
+            .unwrap());
+
+        let snapshot = serde_json::to_value(UpdateStateSnapshot::from(&failed_recheck)).unwrap();
+        assert_eq!(snapshot["status"], "available");
+        assert_eq!(snapshot["pendingUpdate"]["verificationState"], "verified");
+        assert_eq!(snapshot["failure"]["code"], "unknown");
+
+        store.begin_check(CheckTrigger::Manual, 300).unwrap();
+        store
+            .record_available(pending("1.2.3", "artifact", 301))
+            .unwrap();
+        let recovered = store.snapshot();
+        assert_eq!(recovered.status, UpdateStatus::Available);
+        assert_eq!(recovered.failure, None);
+        let pending = recovered.pending_update.unwrap();
+        assert_eq!(pending.verification_state, VerificationState::Verified);
+        assert_eq!(pending.package_path, verified_before.package_path);
+        assert_eq!(
+            pending.extracted_app_path,
+            verified_before.extracted_app_path
+        );
+        assert_eq!(pending.verified_at, verified_before.verified_at);
 
         cleanup(&directory);
     }
