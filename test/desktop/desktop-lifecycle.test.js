@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/no-require-imports -- This focused test uses Node's built-in test runner. */
 const assert = require("node:assert/strict");
+const { EventEmitter } = require("node:events");
 const fs = require("node:fs");
 const http = require("node:http");
 const net = require("node:net");
@@ -7,6 +8,14 @@ const os = require("node:os");
 const path = require("node:path");
 const { spawn } = require("node:child_process");
 const { test } = require("node:test");
+
+const {
+  createReadyNonce,
+  pickEphemeralPort,
+  READY_HEALTH_KIND,
+  READY_HEALTH_PATH,
+  waitForHttpReady,
+} = require("../../src-tauri/sidecar/launcher.cjs");
 
 const projectRoot = path.resolve(__dirname, "../..");
 const launcherPath = path.join(projectRoot, "src-tauri", "sidecar", "launcher.cjs");
@@ -29,6 +38,17 @@ function waitForExit(child, timeoutMs = 10_000) {
       clearTimeout(timeout);
       resolve({ code, signal });
     });
+  });
+}
+
+function collectOutput(child) {
+  let stdout = "";
+  let stderr = "";
+  child.stdout.on("data", (chunk) => { stdout += chunk.toString(); });
+  child.stderr.on("data", (chunk) => { stderr += chunk.toString(); });
+  return new Promise((resolve, reject) => {
+    child.once("error", reject);
+    child.once("close", (code, signal) => resolve({ code, signal, stdout, stderr }));
   });
 }
 
@@ -72,13 +92,57 @@ function canBindLoopback() {
 }
 
 function getNotes(port) {
+  return getHttp(port, "/notes").then((response) => response.statusCode);
+}
+
+function getHttp(port, requestPath) {
   return new Promise((resolve, reject) => {
-    const request = http.get({ host: "127.0.0.1", port, path: "/notes" }, (response) => {
-      response.resume();
-      resolve(response.statusCode);
+    const request = http.get({ host: "127.0.0.1", port, path: requestPath }, (response) => {
+      let body = "";
+      response.setEncoding("utf8");
+      response.on("data", (chunk) => { body += chunk; });
+      response.once("end", () => resolve({ statusCode: response.statusCode, body }));
     });
     request.once("error", reject);
   });
+}
+
+function listenLoopback(server, port = 0) {
+  return new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen({ host: "127.0.0.1", port }, () => {
+      const address = server.address();
+      resolve(typeof address === "object" && address !== null ? address.port : null);
+    });
+  });
+}
+
+function closeServer(server) {
+  return new Promise((resolve, reject) => {
+    server.close((error) => error ? reject(error) : resolve());
+  });
+}
+
+function healthBody(nonce, overrides = {}) {
+  return JSON.stringify({
+    kind: READY_HEALTH_KIND,
+    status: "ready",
+    nonce,
+    ...overrides,
+  });
+}
+
+async function assertReadinessRejects(port, nonce, message) {
+  await assert.rejects(
+    waitForHttpReady(port, nonce, {
+      timeoutMs: 180,
+      retryDelayMs: 10,
+      requestTimeoutMs: 50,
+    }),
+    (error) => error instanceof Error
+      && error.message.startsWith("local runtime readiness timeout:"),
+    message,
+  );
 }
 
 async function waitForPortClosed(port) {
@@ -153,8 +217,16 @@ test("sidecar ready handshake uses a dynamic loopback port and cleans its owned 
     assert.equal(ready.host, "127.0.0.1");
     assert.equal(ready.status, "ready");
     assert.ok(Number.isInteger(ready.port) && ready.port > 0);
+    assert.match(ready.readyNonce, /^[a-f0-9]{64}$/);
     assert.match(ready.url, new RegExp(`^http://127\\.0\\.0\\.1:${ready.port}/notes$`));
     assert.equal(await getNotes(ready.port), 200);
+    const health = await getHttp(ready.port, READY_HEALTH_PATH);
+    assert.equal(health.statusCode, 200);
+    assert.deepEqual(JSON.parse(health.body), {
+      kind: READY_HEALTH_KIND,
+      status: "ready",
+      nonce: ready.readyNonce,
+    });
 
     child.kill("SIGTERM");
     const exit = await waitForExit(child);
@@ -164,6 +236,173 @@ test("sidecar ready handshake uses a dynamic loopback port and cleans its owned 
     if (child.exitCode === null) child.kill("SIGKILL");
     fs.rmSync(directory, { recursive: true, force: true });
   }
+});
+
+test("nonce mismatch exits with a fixed error and does not publish ready", async (t) => {
+  if (!(await canBindLoopback())) {
+    t.skip("this runner does not permit disposable loopback listeners");
+    return;
+  }
+  const directory = temporaryDirectory();
+  const databasePath = path.join(directory, "live", "notebook.sqlite");
+  fs.mkdirSync(path.dirname(databasePath), { recursive: true });
+  const child = spawn(process.execPath, [launcherPath, "serve"], {
+    cwd: projectRoot,
+    env: {
+      ...process.env,
+      CORNELL_DESKTOP_PROJECT_ROOT: projectRoot,
+      CORNELL_DESKTOP_RUNTIME_ENTRY: fixturePath,
+      CORNELL_DESKTOP_RUNTIME_HEALTH_NONCE: "wrong-nonce",
+      CORNELL_DESKTOP_RUNTIME_EXIT_AFTER_HEALTH: "1",
+      DATABASE_URL: `file:${databasePath}`,
+      PRISMA_PROVIDER: "sqlite",
+    },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+
+  try {
+    const result = await collectOutput(child);
+    assert.equal(result.code, 1);
+    assert.equal(result.stdout, "");
+    assert.equal(result.stderr.trim(), "local runtime child exited before readiness");
+  } finally {
+    if (child.exitCode === null) child.kill("SIGKILL");
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("port handoff rejects a third-party service that only answers /notes", async (t) => {
+  if (!(await canBindLoopback())) {
+    t.skip("this runner does not permit disposable loopback listeners");
+    return;
+  }
+  const port = await pickEphemeralPort();
+  const server = http.createServer((request, response) => {
+    if (request.url === "/notes") {
+      response.writeHead(200, { "content-type": "text/html" });
+      response.end("<main>unrelated service</main>");
+      return;
+    }
+    response.writeHead(404);
+    response.end();
+  });
+  await listenLoopback(server, port);
+  try {
+    await assertReadinessRejects(
+      port,
+      createReadyNonce(),
+      "port reuse must not accept the unrelated /notes service",
+    );
+  } finally {
+    await closeServer(server);
+  }
+});
+
+test("third-party health responses do not satisfy readiness", async (t) => {
+  if (!(await canBindLoopback())) {
+    t.skip("this runner does not permit disposable loopback listeners");
+    return;
+  }
+  const port = await pickEphemeralPort();
+  const server = http.createServer((request, response) => {
+    if (request.url === READY_HEALTH_PATH) {
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(JSON.stringify({ kind: "other-service", status: "ready", nonce: "other" }));
+      return;
+    }
+    response.writeHead(200);
+    response.end("unrelated service");
+  });
+  await listenLoopback(server, port);
+  try {
+    await assertReadinessRejects(
+      port,
+      createReadyNonce(),
+      "third-party health response must not satisfy readiness",
+    );
+  } finally {
+    await closeServer(server);
+  }
+});
+
+test("health nonce mismatch and abnormal responses do not satisfy readiness", async (t) => {
+  if (!(await canBindLoopback())) {
+    t.skip("this runner does not permit disposable loopback listeners");
+    return;
+  }
+  const nonce = createReadyNonce();
+  const port = await pickEphemeralPort();
+  const server = http.createServer((request, response) => {
+    if (request.url === READY_HEALTH_PATH) {
+      response.writeHead(500, { "content-type": "application/json" });
+      response.end(healthBody("wrong-nonce"));
+      return;
+    }
+    response.writeHead(200);
+    response.end("unrelated service");
+  });
+  await listenLoopback(server, port);
+  try {
+    await assertReadinessRejects(
+      port,
+      nonce,
+      "abnormal health responses must not satisfy readiness",
+    );
+  } finally {
+    await closeServer(server);
+  }
+});
+
+test("the matching health nonce satisfies readiness", async (t) => {
+  if (!(await canBindLoopback())) {
+    t.skip("this runner does not permit disposable loopback listeners");
+    return;
+  }
+  const nonce = createReadyNonce();
+  const port = await pickEphemeralPort();
+  const server = http.createServer((request, response) => {
+    if (request.url === READY_HEALTH_PATH) {
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(healthBody(nonce));
+      return;
+    }
+    response.writeHead(200);
+    response.end("unrelated /notes response");
+  });
+  await listenLoopback(server, port);
+  try {
+    await waitForHttpReady(port, nonce, {
+      timeoutMs: 500,
+      retryDelayMs: 10,
+      requestTimeoutMs: 50,
+    });
+  } finally {
+    await closeServer(server);
+  }
+});
+
+test("child exit and timeout fail readiness without resolving", async () => {
+  const child = new EventEmitter();
+  child.exitCode = null;
+  child.signalCode = null;
+  const port = 65534;
+  const readiness = waitForHttpReady(port, createReadyNonce(), {
+    child,
+    timeoutMs: 500,
+    retryDelayMs: 10,
+    requestTimeoutMs: 50,
+  });
+  child.emit("exit", 1, null);
+  await assert.rejects(readiness, /local runtime child exited before readiness/);
+
+  await assert.rejects(
+    waitForHttpReady(65533, createReadyNonce(), {
+      timeoutMs: 50,
+      retryDelayMs: 10,
+      requestTimeoutMs: 20,
+    }),
+    /local runtime readiness timeout:/,
+  );
 });
 
 test("desktop close bridge keeps save failure on the dirty side", () => {
@@ -293,4 +532,33 @@ test("application-level exit requests are prevented and share one close bridge",
   assert.match(lifecycle, /state\.allow_application_exit\(\);[\s\S]*app\.exit\(0\)/);
   assert.match(lifecycle, /if self\.exit_allowed\.load\(Ordering::Acquire\)/);
   assert.match(main, /if state\.application_exit_is_allowed\(\) \{\s*return;/);
+});
+
+test("close request cleanup is scoped to the request generation", () => {
+  const lifecycle = fs.readFileSync(
+    path.join(projectRoot, "src-tauri", "src", "lifecycle.rs"),
+    "utf8",
+  );
+
+  assert.match(lifecycle, /AtomicU64/);
+  assert.match(lifecycle, /type CloseRequestGeneration = u64/);
+  assert.match(
+    lifecycle,
+    /struct PendingCloseRequest\s*\{[\s\S]*generation: CloseRequestGeneration[\s\S]*sender:/,
+  );
+  assert.match(
+    lifecycle,
+    /let generation = self\.next_generation\.fetch_add\(1, Ordering::Relaxed\)/,
+  );
+  assert.match(
+    lifecycle,
+    /fn clear\(&self, generation: CloseRequestGeneration\)[\s\S]*pending\.as_ref\(\)\.map\(\|request\| request\.generation\) == Some\(generation\)/,
+  );
+
+  const requestCloseStart = lifecycle.indexOf("pub(crate) fn request_close");
+  const navigationStart = lifecycle.indexOf("fn handle_close_navigation");
+  assert.ok(requestCloseStart >= 0 && navigationStart > requestCloseStart);
+  const requestClose = lifecycle.slice(requestCloseStart, navigationStart);
+  assert.match(requestClose, /let \(generation, receiver\) = match state\.close\.begin\(\)/);
+  assert.match(requestClose, /state\.close\.clear\(generation\)/);
 });

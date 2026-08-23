@@ -3,7 +3,7 @@ use super::window_state::capture_window_state;
 use super::{manual_update_check_worker, AppResult, PRIMARY_WINDOW_LABEL};
 use crate::update_check::{ManualUpdateCheckCommandError, ManualUpdateCheckResponse};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
 use std::time::Duration;
@@ -40,19 +40,28 @@ impl CloseDecision {
 }
 
 pub(crate) struct CloseCoordinator {
-    pending: Mutex<Option<mpsc::Sender<CloseDecision>>>,
+    pending: Mutex<Option<PendingCloseRequest>>,
+    next_generation: AtomicU64,
     exit_allowed: AtomicBool,
+}
+
+type CloseRequestGeneration = u64;
+
+struct PendingCloseRequest {
+    generation: CloseRequestGeneration,
+    sender: mpsc::Sender<CloseDecision>,
 }
 
 impl CloseCoordinator {
     fn new() -> Self {
         Self {
             pending: Mutex::new(None),
+            next_generation: AtomicU64::new(0),
             exit_allowed: AtomicBool::new(false),
         }
     }
 
-    fn begin(&self) -> AppResult<mpsc::Receiver<CloseDecision>> {
+    fn begin(&self) -> AppResult<(CloseRequestGeneration, mpsc::Receiver<CloseDecision>)> {
         let (sender, receiver) = mpsc::channel();
         let mut pending = self
             .pending
@@ -64,27 +73,32 @@ impl CloseCoordinator {
         if pending.is_some() {
             return Err("a close request is already pending".to_string());
         }
-        *pending = Some(sender);
-        Ok(receiver)
+        let generation = self.next_generation.fetch_add(1, Ordering::Relaxed);
+        *pending = Some(PendingCloseRequest { generation, sender });
+        Ok((generation, receiver))
     }
 
-    fn resolve(&self, decision: CloseDecision) -> AppResult<()> {
-        let sender = self
+    fn resolve(&self, decision: CloseDecision) -> AppResult<CloseRequestGeneration> {
+        let request = self
             .pending
             .lock()
             .map_err(|_| "close coordinator lock is poisoned".to_string())?
             .take();
-        let Some(sender) = sender else {
+        let Some(request) = request else {
             return Err("there is no pending close request".to_string());
         };
-        sender
+        request
+            .sender
             .send(decision)
-            .map_err(|_| "close request is no longer waiting".to_string())
+            .map_err(|_| "close request is no longer waiting".to_string())?;
+        Ok(request.generation)
     }
 
-    fn clear(&self) {
+    fn clear(&self, generation: CloseRequestGeneration) {
         if let Ok(mut pending) = self.pending.lock() {
-            *pending = None;
+            if pending.as_ref().map(|request| request.generation) == Some(generation) {
+                *pending = None;
+            }
         }
     }
 
@@ -154,14 +168,14 @@ fn finalize_close(window: WebviewWindow, app: AppHandle, state: Arc<AppState>) {
 }
 
 pub(crate) fn request_close(window: WebviewWindow, app: AppHandle, state: Arc<AppState>) {
-    let receiver = match state.close.begin() {
-        Ok(receiver) => receiver,
+    let (generation, receiver) = match state.close.begin() {
+        Ok(request) => request,
         Err(_) => return,
     };
     let script = "window.dispatchEvent(new CustomEvent('cornell:desktop-close-request'));";
     if let Err(error) = window.eval(script) {
         eprintln!("desktop close bridge could not be reached: {error}");
-        state.close.clear();
+        state.close.clear(generation);
         return;
     }
     let close = state.close.clone();
@@ -169,7 +183,7 @@ pub(crate) fn request_close(window: WebviewWindow, app: AppHandle, state: Arc<Ap
         let decision = receiver
             .recv_timeout(CLOSE_RESPONSE_TIMEOUT)
             .unwrap_or(CloseDecision::Cancel);
-        close.clear();
+        close.clear(generation);
         if decision.closes_window() {
             finalize_close(window, app, state);
         }
@@ -312,7 +326,7 @@ mod tests {
     #[test]
     fn pending_close_resolution_delivers_the_decision_once() {
         let close = CloseCoordinator::new();
-        let receiver = close.begin().unwrap();
+        let (_, receiver) = close.begin().unwrap();
 
         assert!(close.begin().is_err());
         close.resolve(CloseDecision::Save).unwrap();
@@ -333,12 +347,34 @@ mod tests {
     #[test]
     fn close_navigation_resolves_decision_and_blocks_close_fragments() {
         let close = CloseCoordinator::new();
-        let receiver = close.begin().unwrap();
+        let (_, receiver) = close.begin().unwrap();
         let url =
             tauri::Url::parse("http://127.0.0.1:43127/notes#cornell-desktop-close=cancel").unwrap();
 
         assert_eq!(handle_close_navigation(&url, &close), Some(false));
         assert_eq!(receiver.recv().unwrap(), CloseDecision::Cancel);
+    }
+
+    #[test]
+    fn old_close_cleanup_does_not_clear_a_new_pending_request() {
+        let close = CloseCoordinator::new();
+        let (old_generation, old_receiver) = close.begin().unwrap();
+
+        assert_eq!(
+            close.resolve(CloseDecision::Cancel).unwrap(),
+            old_generation
+        );
+        let (new_generation, new_receiver) = close.begin().unwrap();
+        assert_ne!(old_generation, new_generation);
+
+        close.clear(old_generation);
+        assert_eq!(
+            close.resolve(CloseDecision::Discard).unwrap(),
+            new_generation
+        );
+
+        assert_eq!(old_receiver.recv().unwrap(), CloseDecision::Cancel);
+        assert_eq!(new_receiver.recv().unwrap(), CloseDecision::Discard);
     }
 
     #[test]
