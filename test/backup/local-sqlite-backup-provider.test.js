@@ -14,7 +14,9 @@ const {
 } = require("../../src/server/backup/infrastructure/local-sqlite-backup-provider.js");
 
 function createTempRoot() {
-  return fs.mkdtempSync(path.join(os.tmpdir(), "cornell-backup-provider-"));
+  return fs.mkdtempSync(
+    path.join(fs.realpathSync(os.tmpdir()), "cornell-backup-provider-"),
+  );
 }
 
 function writeFile(file, contents = "backup") {
@@ -186,6 +188,40 @@ test("fails closed for unsafe explicit desktop backup directories", () => {
     }
   } finally {
     removeTempRoot(root);
+  }
+});
+
+test("fails closed for a missing backup directory below a symlink parent", () => {
+  const root = createTempRoot();
+  const outsideRoot = createTempRoot();
+  const linkedParent = path.join(root, "linked-parent");
+  const backupsDirectory = path.join(linkedParent, "backups");
+  const sourceFile = path.join(root, "source.db");
+
+  try {
+    fs.symlinkSync(outsideRoot, linkedParent);
+    writeFile(sourceFile, "sqlite source");
+
+    const operations = [
+      () => listBackups({ backupsDirectory }),
+      () => pruneBackups({ backupsDirectory }),
+      () =>
+        createBackup({
+          projectRoot: root,
+          databaseUrl: "file:./source.db",
+          backupsDirectory,
+        }),
+    ];
+
+    operations.forEach((operation) => {
+      assert.throws(operation, (error) => error instanceof BackupError);
+    });
+
+    assert.equal(fs.existsSync(path.join(outsideRoot, "backups")), false);
+    assert.deepEqual(fs.readdirSync(outsideRoot), []);
+  } finally {
+    removeTempRoot(root);
+    removeTempRoot(outsideRoot);
   }
 });
 

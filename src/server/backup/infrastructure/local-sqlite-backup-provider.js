@@ -71,34 +71,44 @@ function validateBackupDirectory(directoryPath) {
   }
 
   const absolutePath = path.normalize(directoryPath);
-  let stats;
+  const rootPath = path.parse(absolutePath).root;
+  const components = path
+    .relative(rootPath, absolutePath)
+    .split(path.sep)
+    .filter(Boolean);
+  let currentPath = rootPath;
 
-  try {
-    stats = fs.lstatSync(absolutePath);
-  } catch (error) {
-    if (hasErrorCode(error, "ENOENT")) {
-      return absolutePath;
+  for (const component of components) {
+    currentPath = path.join(currentPath, component);
+
+    let stats;
+    try {
+      stats = fs.lstatSync(currentPath);
+    } catch (error) {
+      if (hasErrorCode(error, "ENOENT")) {
+        return absolutePath;
+      }
+
+      if (hasErrorCode(error, "ENOTDIR")) {
+        throw new BackupError(
+          `backup directory の親 path はディレクトリである必要があります: ${directoryPath}`,
+        );
+      }
+
+      throw error;
     }
 
-    if (hasErrorCode(error, "ENOTDIR")) {
+    if (stats.isSymbolicLink()) {
       throw new BackupError(
-        `backup directory の親 path はディレクトリである必要があります: ${directoryPath}`,
+        `backup directory に symlink は指定できません: ${directoryPath}`,
       );
     }
 
-    throw error;
-  }
-
-  if (stats.isSymbolicLink()) {
-    throw new BackupError(
-      `backup directory に symlink は指定できません: ${directoryPath}`,
-    );
-  }
-
-  if (!stats.isDirectory()) {
-    throw new BackupError(
-      `backup directory はディレクトリである必要があります: ${directoryPath}`,
-    );
+    if (!stats.isDirectory()) {
+      throw new BackupError(
+        `backup directory はディレクトリである必要があります: ${directoryPath}`,
+      );
+    }
   }
 
   return absolutePath;
@@ -229,10 +239,11 @@ function backupEntry(dir, file) {
 }
 
 function allBackupEntries(dir) {
+  const validatedDir = validateBackupDirectory(dir);
   let dirStats;
 
   try {
-    dirStats = fs.lstatSync(dir);
+    dirStats = fs.lstatSync(validatedDir);
   } catch (error) {
     if (hasErrorCode(error, "ENOENT")) {
       return [];
@@ -246,13 +257,15 @@ function allBackupEntries(dir) {
   }
 
   if (!dirStats.isDirectory()) {
-    throw new BackupError(`backup directory はディレクトリである必要があります: ${dir}`);
+    throw new BackupError(
+      `backup directory はディレクトリである必要があります: ${validatedDir}`,
+    );
   }
 
   return fs
-    .readdirSync(dir)
+    .readdirSync(validatedDir)
     .filter((file) => file.endsWith(".db"))
-    .map((file) => backupEntry(dir, file))
+    .map((file) => backupEntry(validatedDir, file))
     .filter(Boolean)
     .sort(
       (a, b) =>
