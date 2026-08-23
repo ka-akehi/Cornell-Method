@@ -28,6 +28,7 @@ const FAT_MAGIC_64: [u8; 4] = [0xca, 0xfe, 0xba, 0xbf];
 const FAT_CIGAM_64: [u8; 4] = [0xbf, 0xba, 0xfe, 0xca];
 
 const CPU_TYPE_ARM64: u32 = 0x0100_000c;
+const MH_EXECUTE: u32 = 0x0000_0002;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum BundleValidationError {
@@ -461,7 +462,7 @@ fn inspect_macho_reader(
     }
 
     if magic == MH_MAGIC_64 {
-        return validate_thin_macho_64(&mut file, file_size);
+        return validate_thin_macho_64(&mut file, file_size, required_main_executable);
     }
     if is_known_non_thin_macho_magic(magic) {
         return Err(BundleValidationError::BundleArchitecture);
@@ -486,7 +487,11 @@ fn is_known_non_thin_macho_magic(magic: [u8; 4]) -> bool {
     )
 }
 
-fn validate_thin_macho_64(file: &mut File, file_size: u64) -> Result<(), BundleValidationError> {
+fn validate_thin_macho_64(
+    file: &mut File,
+    file_size: u64,
+    required_main_executable: bool,
+) -> Result<(), BundleValidationError> {
     if file_size < MACH_HEADER_64_BYTES {
         return Err(BundleValidationError::BundleArchitecture);
     }
@@ -504,6 +509,11 @@ fn validate_thin_macho_64(file: &mut File, file_size: u64) -> Result<(), BundleV
 
     let cpu_type = u32::from_le_bytes(header_tail[0..4].try_into().expect("cpu type"));
     if cpu_type != CPU_TYPE_ARM64 {
+        return Err(BundleValidationError::BundleArchitecture);
+    }
+
+    let file_type = u32::from_le_bytes(header_tail[8..12].try_into().expect("file type"));
+    if required_main_executable && file_type != MH_EXECUTE {
         return Err(BundleValidationError::BundleArchitecture);
     }
 
@@ -734,17 +744,26 @@ mod tests {
         }
     }
 
-    fn thin_macho(cpu_type: u32, command_count: u32, command_bytes: u32) -> Vec<u8> {
+    fn thin_macho_with_file_type(
+        file_type: u32,
+        cpu_type: u32,
+        command_count: u32,
+        command_bytes: u32,
+    ) -> Vec<u8> {
         let mut bytes = Vec::new();
         bytes.extend_from_slice(&MH_MAGIC_64);
         bytes.extend_from_slice(&cpu_type.to_le_bytes());
         bytes.extend_from_slice(&0_u32.to_le_bytes());
-        bytes.extend_from_slice(&2_u32.to_le_bytes());
+        bytes.extend_from_slice(&file_type.to_le_bytes());
         bytes.extend_from_slice(&command_count.to_le_bytes());
         bytes.extend_from_slice(&command_bytes.to_le_bytes());
         bytes.extend_from_slice(&0_u32.to_le_bytes());
         bytes.extend_from_slice(&0_u32.to_le_bytes());
         bytes
+    }
+
+    fn thin_macho(cpu_type: u32, command_count: u32, command_bytes: u32) -> Vec<u8> {
+        thin_macho_with_file_type(MH_EXECUTE, cpu_type, command_count, command_bytes)
     }
 
     fn valid_main_macho() -> Vec<u8> {
@@ -1043,6 +1062,33 @@ mod tests {
                 Some(TEST_EXECUTABLE),
             );
             write_main_executable(&app, &bytes, true);
+            assert_code(
+                validate_extracted_app_bundle(&extracted_archive(), &root.path),
+                "bundle-architecture",
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_non_execute_main_macho_filetypes_with_fixed_architecture_error() {
+        const MH_OBJECT: u32 = 0x0000_0001;
+        const MH_DYLIB: u32 = 0x0000_0006;
+        const UNKNOWN_FILE_TYPE: u32 = 0x7fff_ffff;
+
+        for file_type in [MH_OBJECT, MH_DYLIB, UNKNOWN_FILE_TYPE] {
+            let root = TestRoot::new();
+            let app = create_layout(&root);
+            write_xml_plist(
+                &app,
+                Some(MANIFEST_PRODUCT_ID),
+                Some(TEST_VERSION),
+                Some(TEST_EXECUTABLE),
+            );
+            write_main_executable(
+                &app,
+                &thin_macho_with_file_type(file_type, CPU_TYPE_ARM64, 0, 0),
+                true,
+            );
             assert_code(
                 validate_extracted_app_bundle(&extracted_archive(), &root.path),
                 "bundle-architecture",
