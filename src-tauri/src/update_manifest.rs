@@ -542,12 +542,8 @@ fn normalize_manifest(raw: RawManifest) -> Result<UpdateManifest, ManifestValida
             )));
         }
 
-        if release.channel == TARGET_CHANNEL && release.version.is_prerelease() {
-            return Err(ManifestValidationError::new(
-                "stable release must not use a prerelease version",
-            ));
-        }
         if release.channel == TARGET_CHANNEL
+            && !release.version.is_prerelease()
             && release.architecture == TARGET_ARCHITECTURE
             && release.artifact.format == TARGET_ARTIFACT_FORMAT
         {
@@ -789,6 +785,23 @@ mod tests {
     }
 
     #[test]
+    fn excludes_stable_prereleases_but_keeps_valid_stable_releases() {
+        let prerelease = VALID_RELEASE.replace(
+            "\"version\": \"1.2.3+build.7\"",
+            "\"version\": \"9.0.0-rc.1\"",
+        );
+        let prerelease_only = parse_manifest(&manifest_with_releases(&prerelease)).unwrap();
+        assert!(prerelease_only.is_no_update());
+
+        let mixed = parse_manifest(&manifest_with_releases(&format!(
+            "{prerelease},{VALID_RELEASE}"
+        )))
+        .unwrap();
+        assert_eq!(mixed.releases.len(), 1);
+        assert_eq!(mixed.releases[0].version.to_string(), "1.2.3+build.7");
+    }
+
+    #[test]
     fn rejects_missing_required_fields_and_explicit_null_optional_version() {
         for source in [
             r#"{"schemaVersion":1,"releases":[]}"#,
@@ -859,17 +872,13 @@ mod tests {
     }
 
     #[test]
-    fn rejects_product_schema_semver_and_stable_prerelease_errors() {
+    fn rejects_product_schema_and_malformed_semver() {
         assert_invalid(&valid_manifest().replace(MANIFEST_PRODUCT_ID, "com.other.product"));
         assert_invalid(&valid_manifest().replace("\"schemaVersion\":1", "\"schemaVersion\":2"));
         assert_invalid(&valid_manifest().replace("\"schemaVersion\":1", "\"schemaVersion\":1.0"));
         assert_invalid(
             &valid_manifest().replace("\"version\": \"1.2.3+build.7\"", "\"version\": \"1.2\""),
         );
-        assert_invalid(&valid_manifest().replace(
-            "\"version\": \"1.2.3+build.7\"",
-            "\"version\": \"1.2.3-rc.1\"",
-        ));
         assert_invalid(
             &valid_manifest().replace("\"version\": \"1.2.3+build.7\"", "\"version\": \"\""),
         );

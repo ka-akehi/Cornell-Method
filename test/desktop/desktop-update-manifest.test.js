@@ -30,7 +30,8 @@ test("desktop update manifest has a strict provider-neutral validation boundary"
   assert.match(source, /parsed\.scheme\(\)\.eq_ignore_ascii_case\("https"\)/);
   assert.match(source, /authority_contains_userinfo/);
   assert.match(source, /is_credential_or_token_query_key/);
-  assert.match(source, /stable release must not use a prerelease version/);
+  assert.match(source, /release\.channel == TARGET_CHANNEL\s*&& !release\.version\.is_prerelease\(\)/);
+  assert.doesNotMatch(source, /stable release must not use a prerelease version/);
   assert.match(source, /struct DuplicateTarget/);
   assert.match(source, /let mut seen_targets = std::collections::HashSet::new\(\)/);
   assert.match(source, /if !seen_targets\.insert\(target\)/);
