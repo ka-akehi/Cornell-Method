@@ -7,7 +7,7 @@ use std::path::{Component, Path, PathBuf};
 use flate2::bufread::GzDecoder;
 use tar::{Archive, EntryType};
 
-use crate::update_download::VerifiedArchive;
+use crate::update_download::{PackageDownloadError, VerifiedArchiveHandle};
 
 pub(crate) const MAX_COMPRESSED_ARCHIVE_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 pub(crate) const MAX_EXPANDED_REGULAR_BYTES: u64 = 8 * 1024 * 1024 * 1024;
@@ -269,22 +269,30 @@ impl Read for LimitedArchiveReader {
 }
 
 pub(crate) fn extract_verified_archive(
-    verified_archive: &VerifiedArchive,
+    verified_archive: &VerifiedArchiveHandle,
     staging_root: &Path,
 ) -> Result<ExtractedArchive, ArchiveExtractionError> {
     validate_staging_root(staging_root)?;
-    let digest = validate_digest(&verified_archive.raw_sha256)?;
-    let package_file =
-        open_verified_package(staging_root, &verified_archive.relative_package_path)?;
-    let package_size = package_file
+    let digest = validate_digest(&verified_archive.archive.raw_sha256)?;
+    let package_size = verified_archive
+        .package_file
         .metadata()
         .map_err(|_| ArchiveExtractionError::StagingRead)?
         .len();
     if package_size > MAX_COMPRESSED_ARCHIVE_BYTES {
         return Err(ArchiveExtractionError::ArchiveLimit);
     }
+    revalidate_verified_archive(verified_archive, staging_root)?;
 
-    let (specs, mut package_file) = preflight_archive(package_file)?;
+    let mut preflight_file = verified_archive
+        .package_file
+        .try_clone()
+        .map_err(|_| ArchiveExtractionError::StagingRead)?;
+    preflight_file
+        .seek(SeekFrom::Start(0))
+        .map_err(|_| ArchiveExtractionError::StagingRead)?;
+    let (specs, mut package_file) = preflight_archive(preflight_file)?;
+
     let extract_directory = staging_root.join("extract");
     ensure_directory_no_follow(&extract_directory)?;
 
@@ -298,6 +306,7 @@ pub(crate) fn extract_verified_archive(
 
     let extraction_result = (|| {
         prepare_directory_tree(&temporary_directory, &specs)?;
+        revalidate_verified_archive_path(verified_archive, staging_root)?;
         package_file
             .seek(SeekFrom::Start(0))
             .map_err(|_| ArchiveExtractionError::StagingRead)?;
@@ -305,6 +314,10 @@ pub(crate) fn extract_verified_archive(
     })();
 
     if let Err(error) = extraction_result {
+        return Err(cleanup_temporary_directory(&temporary_directory, error));
+    }
+
+    if let Err(error) = revalidate_verified_archive(verified_archive, staging_root) {
         return Err(cleanup_temporary_directory(&temporary_directory, error));
     }
 
@@ -320,11 +333,91 @@ pub(crate) fn extract_verified_archive(
 
     Ok(ExtractedArchive {
         relative_app_path: PathBuf::from("extract").join(digest).join(ROOT_NAME),
-        artifact_id: verified_archive.artifact_id.clone(),
-        raw_sha256: verified_archive.raw_sha256.clone(),
-        version: verified_archive.version.clone(),
-        architecture: verified_archive.architecture.clone(),
+        artifact_id: verified_archive.archive.artifact_id.clone(),
+        raw_sha256: verified_archive.archive.raw_sha256.clone(),
+        version: verified_archive.archive.version.clone(),
+        architecture: verified_archive.archive.architecture.clone(),
     })
+}
+
+pub(crate) fn revalidate_verified_archive(
+    verified_archive: &VerifiedArchiveHandle,
+    staging_root: &Path,
+) -> Result<(), ArchiveExtractionError> {
+    revalidate_verified_archive_path(verified_archive, staging_root)?;
+    verified_archive
+        .verify_contents()
+        .map_err(map_package_verification_error)
+}
+
+pub(crate) fn revalidate_verified_archive_path(
+    verified_archive: &VerifiedArchiveHandle,
+    staging_root: &Path,
+) -> Result<(), ArchiveExtractionError> {
+    validate_staging_root(staging_root)?;
+    let package_path_file = open_verified_package(
+        staging_root,
+        &verified_archive.archive.relative_package_path,
+    )?;
+    if !same_file_identity(&package_path_file, &verified_archive.package_file) {
+        return Err(ArchiveExtractionError::StagingPath);
+    }
+    Ok(())
+}
+
+fn map_package_verification_error(error: PackageDownloadError) -> ArchiveExtractionError {
+    match error {
+        PackageDownloadError::StagingPath => ArchiveExtractionError::StagingPath,
+        PackageDownloadError::StagingRead => ArchiveExtractionError::StagingRead,
+        PackageDownloadError::StagingWrite => ArchiveExtractionError::StagingWrite,
+        PackageDownloadError::StagingRename => ArchiveExtractionError::StagingRename,
+        PackageDownloadError::Size | PackageDownloadError::Digest => {
+            ArchiveExtractionError::ArchiveTar
+        }
+        PackageDownloadError::Network
+        | PackageDownloadError::Timeout
+        | PackageDownloadError::HttpStatus
+        | PackageDownloadError::Redirect
+        | PackageDownloadError::ContentType
+        | PackageDownloadError::Signature
+        | PackageDownloadError::SignatureKey
+        | PackageDownloadError::SignatureProof => ArchiveExtractionError::ArchiveTar,
+    }
+}
+
+fn same_file_identity(left: &File, right: &File) -> bool {
+    let Ok(left_metadata) = left.metadata() else {
+        return false;
+    };
+    let Ok(right_metadata) = right.metadata() else {
+        return false;
+    };
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        left_metadata.dev() == right_metadata.dev() && left_metadata.ino() == right_metadata.ino()
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        match (
+            left_metadata.volume_serial_number(),
+            left_metadata.file_index(),
+            right_metadata.volume_serial_number(),
+            right_metadata.file_index(),
+        ) {
+            (Some(left_volume), Some(left_index), Some(right_volume), Some(right_index)) => {
+                left_volume == right_volume && left_index == right_index
+            }
+            _ => false,
+        }
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        let _ = (left_metadata, right_metadata);
+        false
+    }
 }
 
 fn preflight_archive(
@@ -1097,8 +1190,10 @@ fn map_tar_error(error: &io::Error) -> ArchiveExtractionError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::update_download::VerifiedArchive;
     use flate2::write::GzEncoder;
     use flate2::Compression;
+    use ring::digest::{digest, SHA256};
     use std::sync::atomic::{AtomicU64, Ordering};
     use std::time::{SystemTime, UNIX_EPOCH};
     use tar::{Builder, Header};
@@ -1131,21 +1226,26 @@ mod tests {
         }
     }
 
-    fn verified(root: &Path, bytes: &[u8]) -> VerifiedArchive {
-        let digest = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
-        fs::write(
-            root.join("packages").join(format!("{digest}.app.tar.gz")),
-            bytes,
+    fn verified(root: &Path, bytes: &[u8]) -> VerifiedArchiveHandle {
+        let digest = digest(&SHA256, bytes)
+            .as_ref()
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect::<String>();
+        let package_path = root.join("packages").join(format!("{digest}.app.tar.gz"));
+        fs::write(&package_path, bytes).expect("package");
+        VerifiedArchiveHandle::new(
+            VerifiedArchive {
+                relative_package_path: PathBuf::from("packages")
+                    .join(format!("{digest}.app.tar.gz")),
+                artifact_id: "test-artifact".to_owned(),
+                raw_size_bytes: bytes.len() as u64,
+                raw_sha256: digest,
+                version: "1.2.3".to_owned(),
+                architecture: "aarch64".to_owned(),
+            },
+            File::open(package_path).expect("package handle"),
         )
-        .expect("package");
-        VerifiedArchive {
-            relative_package_path: PathBuf::from("packages").join(format!("{digest}.app.tar.gz")),
-            artifact_id: "test-artifact".to_owned(),
-            raw_size_bytes: bytes.len() as u64,
-            raw_sha256: digest.to_owned(),
-            version: "1.2.3".to_owned(),
-            architecture: "aarch64".to_owned(),
-        }
     }
 
     fn append_directory(builder: &mut Builder<&mut GzEncoder<Vec<u8>>>, path: &str, mode: u32) {
@@ -1247,14 +1347,16 @@ mod tests {
         let root = TestRoot::new();
         let bytes = valid_archive();
         let verified_archive = verified(&root.path, &bytes);
-        let package_path = root.path.join(&verified_archive.relative_package_path);
+        let package_path = root
+            .path
+            .join(&verified_archive.archive.relative_package_path);
         let package_before = fs::read(&package_path).expect("package before");
 
         let extracted = extract_verified_archive(&verified_archive, &root.path).expect("extract");
         assert_eq!(
             extracted.relative_app_path,
             PathBuf::from("extract")
-                .join(&verified_archive.raw_sha256)
+                .join(&verified_archive.archive.raw_sha256)
                 .join(ROOT_NAME)
         );
         assert!(root
@@ -1429,7 +1531,7 @@ mod tests {
 
         let bytes = valid_archive();
         let mut archive = verified(&root.path, &bytes);
-        archive.relative_package_path = PathBuf::from("../outside.app.tar.gz");
+        archive.archive.relative_package_path = PathBuf::from("../outside.app.tar.gz");
         assert_error(
             extract_verified_archive(&archive, &root.path),
             "staging-path",
@@ -1463,7 +1565,7 @@ mod tests {
             extract_verified_archive(&archive, &root.path),
             "archive-symlink",
         );
-        let digest = &archive.raw_sha256;
+        let digest = &archive.archive.raw_sha256;
         assert!(!root
             .path
             .join("extract")
@@ -1476,7 +1578,7 @@ mod tests {
         let root = TestRoot::new();
         let bytes = valid_archive();
         let archive = verified(&root.path, &bytes);
-        let package = root.path.join(&archive.relative_package_path);
+        let package = root.path.join(&archive.archive.relative_package_path);
         let target = root.path.join("real-package");
         fs::rename(&package, &target).expect("move package");
         #[cfg(unix)]
@@ -1488,7 +1590,7 @@ mod tests {
 
         let root = TestRoot::new();
         let archive = verified(&root.path, &bytes);
-        let ready = root.path.join("extract").join(&archive.raw_sha256);
+        let ready = root.path.join("extract").join(&archive.archive.raw_sha256);
         fs::create_dir_all(&ready).expect("ready collision");
         fs::write(ready.join("untouched"), b"keep").expect("collision marker");
         assert_error(
@@ -1496,5 +1598,38 @@ mod tests {
             "staging-rename",
         );
         assert_eq!(fs::read(ready.join("untouched")).expect("marker"), b"keep");
+    }
+
+    #[test]
+    fn rejects_truncation_and_content_mutation_of_verified_package_handle() {
+        let bytes = valid_archive();
+
+        let root = TestRoot::new();
+        let archive = verified(&root.path, &bytes);
+        let package_path = root.path.join(&archive.archive.relative_package_path);
+        OpenOptions::new()
+            .write(true)
+            .open(&package_path)
+            .expect("package writer")
+            .set_len(1)
+            .expect("truncate package");
+        assert_error(
+            extract_verified_archive(&archive, &root.path),
+            "archive-tar",
+        );
+        assert!(!root.path.join("extract").exists());
+
+        let root = TestRoot::new();
+        let archive = verified(&root.path, &bytes);
+        let package_path = root.path.join(&archive.archive.relative_package_path);
+        let mut mutated = bytes.clone();
+        let mutation_index = mutated.len() / 2;
+        mutated[mutation_index] ^= 1;
+        fs::write(&package_path, mutated).expect("mutate package");
+        assert_error(
+            extract_verified_archive(&archive, &root.path),
+            "archive-tar",
+        );
+        assert!(!root.path.join("extract").exists());
     }
 }

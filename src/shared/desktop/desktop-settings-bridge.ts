@@ -7,10 +7,21 @@ export const DESKTOP_MANUAL_UPDATE_CHECK_REQUEST_FRAGMENT =
   "cornell-desktop-manual-update-check";
 export const DESKTOP_MANUAL_UPDATE_CHECK_RESULT_EVENT =
   "cornell:desktop-manual-update-check-result";
+export const DESKTOP_UPDATE_STATE_REQUEST_FRAGMENT =
+  "cornell-desktop-read-update-state";
+export const DESKTOP_UPDATE_STATE_RESULT_EVENT =
+  "cornell:desktop-read-update-state-result";
+export const DESKTOP_VERIFY_PENDING_UPDATE_REQUEST_FRAGMENT =
+  "cornell-desktop-verify-pending-update";
+export const DESKTOP_VERIFY_PENDING_UPDATE_RESULT_EVENT =
+  "cornell:desktop-verify-pending-update-result";
 
 const MANUAL_UPDATE_CHECK_COMMAND = "manual_update_check";
+const READ_UPDATE_STATE_COMMAND = "read_update_state";
+const VERIFY_PENDING_UPDATE_COMMAND = "verify_pending_update";
 const UPDATE_STATE_SNAPSHOT_VERSION = 1;
 const MANUAL_UPDATE_CHECK_TIMEOUT_MS = 30_000;
+const VERIFY_PENDING_UPDATE_TIMEOUT_MS = 30_000;
 const MIN_DYNAMIC_PORT = 1;
 const MAX_DYNAMIC_PORT = 65_535;
 const NOTES_PATH = "/notes";
@@ -81,11 +92,58 @@ export type DesktopManualUpdateCheckResult =
     }
   | { kind: "state-error"; code: "update-state" };
 
+export type DesktopUpdateStateReadResult =
+  | { kind: "snapshot"; snapshot: DesktopUpdateStateSnapshot }
+  | { kind: "unsupported-web" }
+  | { kind: "state-error"; code: "update-state" };
+
+type DesktopVerifyPendingUpdateOutcome =
+  | "verified"
+  | "no-pending-update"
+  | "no-update"
+  | "update-candidate-changed"
+  | "failed"
+  | "busy";
+
+type DesktopVerifyPendingUpdateResponse = {
+  outcome: DesktopVerifyPendingUpdateOutcome;
+  state: DesktopUpdateStateSnapshot;
+};
+
+type DesktopVerifyPendingUpdateCommandErrorCode =
+  | "update-revalidation"
+  | "update-download"
+  | "update-signature-key"
+  | "update-state"
+  | "staging-path"
+  | "staging-read"
+  | "staging-write"
+  | "staging-rename"
+  | "update-target-app-version-invalid"
+  | "update-target-macos-command-failed"
+  | "update-target-macos-output-invalid"
+  | "update-command-worker-failed";
+
+export type DesktopVerifyPendingUpdateResult =
+  | {
+      kind: DesktopVerifyPendingUpdateOutcome;
+      response: DesktopVerifyPendingUpdateResponse;
+    }
+  | { kind: "unsupported-web" }
+  | {
+      kind: "command-error";
+      code: DesktopVerifyPendingUpdateCommandErrorCode | "command-unavailable";
+    }
+  | { kind: "state-error"; code: "update-state" | "command-unavailable" };
+
 type TauriWindow = Window & {
   __TAURI_INTERNALS__?: unknown;
 };
 
 let manualUpdateCheckInFlight: Promise<DesktopManualUpdateCheckResult> | null =
+  null;
+let updateStateReadInFlight: Promise<DesktopUpdateStateReadResult> | null = null;
+let verifyPendingUpdateInFlight: Promise<DesktopVerifyPendingUpdateResult> | null =
   null;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -214,6 +272,102 @@ function normalizeResponse(value: unknown): DesktopManualUpdateCheckResult {
   };
 }
 
+function normalizeUpdateStateReadResult(
+  value: unknown,
+): DesktopUpdateStateReadResult {
+  if (isSnapshot(value)) {
+    return { kind: "snapshot", snapshot: value };
+  }
+
+  return { kind: "state-error", code: "update-state" };
+}
+
+function normalizeVerifyPendingUpdateResponse(
+  value: unknown,
+): DesktopVerifyPendingUpdateResult {
+  if (
+    !isRecord(value) ||
+    !hasOnlyKeys(value, ["outcome", "state"]) ||
+    ![
+      "verified",
+      "no-pending-update",
+      "no-update",
+      "update-candidate-changed",
+      "failed",
+      "busy",
+    ].includes(value.outcome as string) ||
+    !isSnapshot(value.state)
+  ) {
+    return { kind: "command-error", code: "command-unavailable" };
+  }
+
+  return {
+    kind: value.outcome as DesktopVerifyPendingUpdateOutcome,
+    response: value as DesktopVerifyPendingUpdateResponse,
+  };
+}
+
+function isVerifyPendingUpdateCommandErrorCode(
+  value: unknown,
+): value is
+  | DesktopVerifyPendingUpdateCommandErrorCode
+  | "command-unavailable" {
+  return (
+    typeof value === "string" &&
+    [
+      "update-revalidation",
+      "update-download",
+      "update-signature-key",
+      "update-state",
+      "staging-path",
+      "staging-read",
+      "staging-write",
+      "staging-rename",
+      "update-target-app-version-invalid",
+      "update-target-macos-command-failed",
+      "update-target-macos-output-invalid",
+      "update-command-worker-failed",
+      "command-unavailable",
+    ].includes(value)
+  );
+}
+
+function normalizeVerifyPendingUpdateInvokeError(
+  value: unknown,
+): DesktopVerifyPendingUpdateResult {
+  if (
+    !isRecord(value) ||
+    !hasOnlyKeys(value, ["kind", "code"]) ||
+    (value.kind !== "command-error" && value.kind !== "state-error") ||
+    !isVerifyPendingUpdateCommandErrorCode(value.code)
+  ) {
+    return { kind: "command-error", code: "command-unavailable" };
+  }
+
+  if (value.kind === "state-error" && value.code === "update-state") {
+    return { kind: "state-error", code: "update-state" };
+  }
+
+  if (value.kind === "command-error") {
+    return {
+      kind: "command-error",
+      code: value.code,
+    };
+  }
+
+  return { kind: "state-error", code: "command-unavailable" };
+}
+
+function normalizeVerifyPendingUpdateExternalResult(
+  value: unknown,
+): DesktopVerifyPendingUpdateResult {
+  if (isRecord(value) && "outcome" in value) {
+    return normalizeVerifyPendingUpdateResponse(value);
+  }
+
+  return normalizeVerifyPendingUpdateInvokeError(value);
+}
+
 function isCommandErrorCode(
   value: unknown,
 ): value is Exclude<DesktopManualUpdateCheckCommandErrorCode, "command-unavailable"> {
@@ -300,12 +454,9 @@ function isExternalLoopbackPage() {
   );
 }
 
-function clearExternalRequestFragment() {
+function clearExternalRequestFragment(requestFragment: string) {
   try {
-    if (
-      window.location.hash ===
-      `#${DESKTOP_MANUAL_UPDATE_CHECK_REQUEST_FRAGMENT}`
-    ) {
+    if (window.location.hash === `#${requestFragment}`) {
       window.history.replaceState(
         null,
         "",
@@ -339,7 +490,9 @@ function requestManualUpdateCheckFromExternalWeb(): Promise<DesktopManualUpdateC
           // The WebView may be closing while the request is settling.
         }
       }
-      clearExternalRequestFragment();
+      clearExternalRequestFragment(
+        DESKTOP_MANUAL_UPDATE_CHECK_REQUEST_FRAGMENT,
+      );
     };
 
     const settle = (result: DesktopManualUpdateCheckResult) => {
@@ -371,6 +524,128 @@ function requestManualUpdateCheckFromExternalWeb(): Promise<DesktopManualUpdateC
         MANUAL_UPDATE_CHECK_TIMEOUT_MS,
       );
       window.location.hash = DESKTOP_MANUAL_UPDATE_CHECK_REQUEST_FRAGMENT;
+    } catch {
+      settle({
+        kind: "command-error",
+        code: "command-unavailable",
+      });
+    }
+  });
+}
+
+function requestUpdateStateFromExternalWeb(): Promise<DesktopUpdateStateReadResult> {
+  return new Promise((resolve) => {
+    let settled = false;
+    let timeoutId: number | undefined;
+
+    const cleanup = () => {
+      try {
+        window.removeEventListener(
+          DESKTOP_UPDATE_STATE_RESULT_EVENT,
+          handleResult,
+        );
+      } catch {
+        // The WebView may be closing while the request is settling.
+      }
+
+      if (timeoutId !== undefined) {
+        try {
+          window.clearTimeout(timeoutId);
+        } catch {
+          // The WebView may be closing while the request is settling.
+        }
+      }
+      clearExternalRequestFragment(DESKTOP_UPDATE_STATE_REQUEST_FRAGMENT);
+    };
+
+    const settle = (result: DesktopUpdateStateReadResult) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      cleanup();
+      resolve(result);
+    };
+
+    const handleResult = (event: Event) => {
+      settle(
+        normalizeUpdateStateReadResult(
+          (event as CustomEvent<unknown>).detail,
+        ),
+      );
+    };
+
+    try {
+      window.addEventListener(DESKTOP_UPDATE_STATE_RESULT_EVENT, handleResult);
+      timeoutId = window.setTimeout(
+        () => settle({ kind: "state-error", code: "update-state" }),
+        MANUAL_UPDATE_CHECK_TIMEOUT_MS,
+      );
+      window.location.hash = DESKTOP_UPDATE_STATE_REQUEST_FRAGMENT;
+    } catch {
+      settle({ kind: "state-error", code: "update-state" });
+    }
+  });
+}
+
+function requestVerifyPendingUpdateFromExternalWeb(): Promise<DesktopVerifyPendingUpdateResult> {
+  return new Promise((resolve) => {
+    let settled = false;
+    let timeoutId: number | undefined;
+
+    const cleanup = () => {
+      try {
+        window.removeEventListener(
+          DESKTOP_VERIFY_PENDING_UPDATE_RESULT_EVENT,
+          handleResult,
+        );
+      } catch {
+        // The WebView may be closing while the request is settling.
+      }
+
+      if (timeoutId !== undefined) {
+        try {
+          window.clearTimeout(timeoutId);
+        } catch {
+          // The WebView may be closing while the request is settling.
+        }
+      }
+      clearExternalRequestFragment(
+        DESKTOP_VERIFY_PENDING_UPDATE_REQUEST_FRAGMENT,
+      );
+    };
+
+    const settle = (result: DesktopVerifyPendingUpdateResult) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      cleanup();
+      resolve(result);
+    };
+
+    const handleResult = (event: Event) => {
+      settle(
+        normalizeVerifyPendingUpdateExternalResult(
+          (event as CustomEvent<unknown>).detail,
+        ),
+      );
+    };
+
+    try {
+      window.addEventListener(
+        DESKTOP_VERIFY_PENDING_UPDATE_RESULT_EVENT,
+        handleResult,
+      );
+      timeoutId = window.setTimeout(
+        () =>
+          settle({
+            kind: "command-error",
+            code: "command-unavailable",
+          }),
+        VERIFY_PENDING_UPDATE_TIMEOUT_MS,
+      );
+      window.location.hash = DESKTOP_VERIFY_PENDING_UPDATE_REQUEST_FRAGMENT;
     } catch {
       settle({
         kind: "command-error",
@@ -419,6 +694,82 @@ export function requestManualUpdateCheck(): Promise<DesktopManualUpdateCheckResu
     }
   });
   return request;
+}
+
+export function readUpdateStateSnapshot(): Promise<DesktopUpdateStateReadResult> {
+  if (typeof window === "undefined") {
+    return Promise.resolve({ kind: "unsupported-web" });
+  }
+
+  const nativeRuntime = hasTauriRuntime();
+  if (!nativeRuntime && !isExternalLoopbackPage()) {
+    return Promise.resolve({ kind: "unsupported-web" });
+  }
+
+  if (updateStateReadInFlight) {
+    return updateStateReadInFlight;
+  }
+
+  const request = (
+    nativeRuntime
+      ? Promise.resolve()
+          .then(() => invoke<unknown>(READ_UPDATE_STATE_COMMAND))
+          .then(normalizeUpdateStateReadResult, () => ({
+            kind: "state-error" as const,
+            code: "update-state" as const,
+          }))
+      : requestUpdateStateFromExternalWeb()
+  ).catch(() => ({
+    kind: "state-error" as const,
+    code: "update-state" as const,
+  }));
+  updateStateReadInFlight = request;
+  request.then(() => {
+    if (updateStateReadInFlight === request) {
+      updateStateReadInFlight = null;
+    }
+  });
+  return request;
+}
+
+export function requestVerifyPendingUpdate(): Promise<DesktopVerifyPendingUpdateResult> {
+  if (typeof window === "undefined") {
+    return Promise.resolve({ kind: "unsupported-web" });
+  }
+
+  const nativeRuntime = hasTauriRuntime();
+  if (!nativeRuntime && !isExternalLoopbackPage()) {
+    return Promise.resolve({ kind: "unsupported-web" });
+  }
+
+  if (verifyPendingUpdateInFlight) {
+    return verifyPendingUpdateInFlight;
+  }
+
+  const request = (
+    nativeRuntime
+      ? Promise.resolve()
+          .then(() => invoke<unknown>(VERIFY_PENDING_UPDATE_COMMAND))
+          .then(
+            normalizeVerifyPendingUpdateResponse,
+            normalizeVerifyPendingUpdateInvokeError,
+          )
+      : requestVerifyPendingUpdateFromExternalWeb()
+  ).catch(() => ({
+    kind: "command-error" as const,
+    code: "command-unavailable" as const,
+  }));
+  verifyPendingUpdateInFlight = request;
+  request.then(() => {
+    if (verifyPendingUpdateInFlight === request) {
+      verifyPendingUpdateInFlight = null;
+    }
+  });
+  return request;
+}
+
+export function verifyPendingUpdate(): Promise<DesktopVerifyPendingUpdateResult> {
+  return requestVerifyPendingUpdate();
 }
 
 export function sendDesktopSettingsRequest() {

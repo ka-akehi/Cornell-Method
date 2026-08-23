@@ -7,9 +7,63 @@ export type DesktopDirtyController = {
 };
 
 export const DESKTOP_CLOSE_REQUEST_EVENT = "cornell:desktop-close-request";
+export const DESKTOP_CLOSE_BRIDGE_READY_FRAGMENT =
+  "cornell-desktop-close-bridge-ready=";
+export const DESKTOP_CLOSE_BRIDGE_NOT_READY_FRAGMENT =
+  "cornell-desktop-close-bridge-not-ready=";
 
 const dirtyControllers = new Map<symbol, DesktopDirtyController>();
 let dirtyControllersSaveInFlight: Promise<boolean> | null = null;
+let nextDesktopCloseBridgeGeneration = 0;
+
+export function createDesktopCloseBridgeGeneration() {
+  nextDesktopCloseBridgeGeneration += 1;
+  return `${Date.now().toString(36)}-${nextDesktopCloseBridgeGeneration.toString(36)}-${Math.random()
+    .toString(36)
+    .slice(2, 10)}`;
+}
+
+function isDesktopCloseBridgeLocation() {
+  if (typeof window === "undefined") {
+    return false;
+  }
+
+  return (
+    window.location.protocol === "http:" &&
+    window.location.hostname === "127.0.0.1" &&
+    window.location.port !== ""
+  );
+}
+
+function sendDesktopCloseBridgeSignal(fragment: string, generation: string) {
+  if (!isDesktopCloseBridgeLocation() || generation.length === 0) {
+    return false;
+  }
+
+  try {
+    // The local runtime is an external loopback URL, so it intentionally does
+    // not receive the Tauri global API. Rust consumes this transient fragment
+    // in WebviewWindowBuilder::on_navigation and cancels the navigation.
+    window.location.hash = `${fragment}${generation}`;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function sendDesktopCloseBridgeReady(generation: string) {
+  return sendDesktopCloseBridgeSignal(
+    DESKTOP_CLOSE_BRIDGE_READY_FRAGMENT,
+    generation,
+  );
+}
+
+export function sendDesktopCloseBridgeNotReady(generation: string) {
+  return sendDesktopCloseBridgeSignal(
+    DESKTOP_CLOSE_BRIDGE_NOT_READY_FRAGMENT,
+    generation,
+  );
+}
 
 export function registerDesktopDirtyController(
   nextController: DesktopDirtyController,

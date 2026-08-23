@@ -102,6 +102,7 @@ export function NoteEditor({
     const initialForm = createInitialNoteEditorForm(initial);
     return mode === "create" ? { ...initialForm, bodyMode: "canvas" } : initialForm;
   });
+  const latestFormRef = useRef(form);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<ApiFieldError[]>([]);
@@ -109,12 +110,26 @@ export function NoteEditor({
   const formRef = useRef<HTMLFormElement>(null);
   const alertRef = useRef<HTMLDivElement>(null);
   const saveInFlightRef = useRef<Promise<boolean> | null>(null);
+  const formRevisionRef = useRef(0);
+  const persistedNoteIdRef = useRef<string | undefined>(form.id);
   const errorFocusRequestIdRef = useRef(0);
   const handledErrorFocusRequestIdRef = useRef(0);
   const [errorFocusRequest, setErrorFocusRequest] =
     useState<ErrorFocusRequest | null>(null);
   const today = useMemo(() => todayDateString(), []);
   const initialCanvasTool = "select" as const;
+
+  const updateFormState = useCallback(
+    (
+      updater: (current: NoteEditorFormState) => NoteEditorFormState,
+    ) => {
+      const nextForm = updater(latestFormRef.current);
+      latestFormRef.current = nextForm;
+      formRevisionRef.current += 1;
+      setForm(nextForm);
+    },
+    [],
+  );
 
   const requestErrorFocus = useCallback((nextFieldErrors: ApiFieldError[]) => {
     const id = errorFocusRequestIdRef.current + 1;
@@ -147,9 +162,12 @@ export function NoteEditor({
     target.focus({ preventScroll: true });
   }, [errorFocusRequest]);
 
-  const handleCanvasDocumentChange = useCallback((canvas: NoteEditorFormState["canvas"]) => {
-    setForm((current) => ({ ...current, canvas }));
-  }, []);
+  const handleCanvasDocumentChange = useCallback(
+    (canvas: NoteEditorFormState["canvas"]) => {
+      updateFormState((current) => ({ ...current, canvas }));
+    },
+    [updateFormState],
+  );
 
   const handleCanvasError = useCallback((error: string | null) => {
     setCanvasError(error);
@@ -172,11 +190,11 @@ export function NoteEditor({
         ),
       );
     }
-    setForm((current) => ({ ...current, ...next }));
+    updateFormState((current) => ({ ...current, ...next }));
   }
 
   function addCue() {
-    setForm((current) => ({
+    updateFormState((current) => ({
       ...current,
       cues: [
         ...current.cues,
@@ -189,7 +207,7 @@ export function NoteEditor({
   }
 
   function updateCue(index: number, text: string) {
-    setForm((current) => ({
+    updateFormState((current) => ({
       ...current,
       cues: current.cues.map((cue, cueIndex) =>
         cueIndex === index ? { ...cue, text } : cue,
@@ -198,7 +216,7 @@ export function NoteEditor({
   }
 
   function removeCue(index: number) {
-    setForm((current) => ({
+    updateFormState((current) => ({
       ...current,
       cues: current.cues
         .filter((_, cueIndex) => cueIndex !== index)
@@ -207,11 +225,15 @@ export function NoteEditor({
   }
 
   async function performSave() {
-    if (mode === "edit" && !form.id) {
+    const currentForm = latestFormRef.current;
+    if (mode === "edit" && !currentForm.id) {
       setMessage("更新対象のノートIDがありません。");
       requestErrorFocus([]);
       return false;
     }
+
+    let saveForm = currentForm;
+    let saveRevision = formRevisionRef.current;
 
     setSaving(true);
     setMessage(null);
@@ -220,25 +242,44 @@ export function NoteEditor({
     setErrorFocusRequest(null);
 
     try {
-      const data =
-        mode === "create"
-          ? await createNote(noteEditorFormToPayload(form))
-          : await updateExistingNote(form.id, noteEditorFormToPayload(form));
+      while (true) {
+        const input = noteEditorFormToPayload(saveForm);
+        const data =
+          mode === "create" && !persistedNoteIdRef.current
+            ? await createNote(input)
+            : await updateExistingNote(
+                persistedNoteIdRef.current ?? saveForm.id,
+                input,
+              );
 
-      if (mode === "edit" && typeof data.id === "string" && onSaved) {
-        markSaved();
-        onSaved(data);
-        router.refresh();
+        if (typeof data.id === "string") {
+          persistedNoteIdRef.current = data.id;
+        }
+
+        if (formRevisionRef.current !== saveRevision) {
+          saveForm = latestFormRef.current;
+          saveRevision = formRevisionRef.current;
+          continue;
+        }
+
+        if (mode === "edit" && typeof data.id === "string" && onSaved) {
+          markSaved(saveForm);
+          onSaved(data);
+          router.refresh();
+          return true;
+        }
+
+        const savedId =
+          typeof data.id === "string"
+            ? data.id
+            : persistedNoteIdRef.current ?? saveForm.id;
+        if (savedId) {
+          markSaved(saveForm);
+          router.push(`/notes/${savedId}`);
+          router.refresh();
+        }
         return true;
       }
-
-      const savedId = typeof data.id === "string" ? data.id : form.id;
-      if (savedId) {
-        markSaved();
-        router.push(`/notes/${savedId}`);
-        router.refresh();
-      }
-      return true;
     } catch (caught) {
       if (caught instanceof NotesRemoteError) {
         setMessage(caught.message);
@@ -246,7 +287,7 @@ export function NoteEditor({
         requestErrorFocus(caught.fieldErrors);
         return false;
       }
-      if (caught instanceof Error && form.bodyMode === "canvas") {
+      if (caught instanceof Error && saveForm.bodyMode === "canvas") {
         setCanvasError(caught.message);
         setMessage(caught.message);
         requestErrorFocus([]);

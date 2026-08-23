@@ -77,6 +77,32 @@ function availableResponse(artifact, pendingUpdate = {}) {
   };
 }
 
+function verifyResponse(outcome = "verified") {
+  return {
+    outcome,
+    state: availableResponse("verified-artifact", {
+      verificationState: "verified",
+    }).state,
+  };
+}
+
+function verifyFailureResponse() {
+  return {
+    outcome: "failed",
+    state: {
+      snapshotVersion: 1,
+      status: "failed",
+      lastCheckAt: 100,
+      checkStartedAt: null,
+      pendingUpdate: null,
+      failure: {
+        code: "update-signature-proof",
+        retryAt: 200,
+      },
+    },
+  };
+}
+
 function createExternalWindow({
   protocol = "http:",
   hostname = "127.0.0.1",
@@ -201,6 +227,78 @@ test("manual update bridge returns unsupported-web without invoking Tauri", asyn
   }
 });
 
+test("read-only update state bridge invokes only the snapshot command", async () => {
+  const originalWindow = global.window;
+  global.window = { __TAURI_INTERNALS__: {} };
+  const calls = [];
+  const bridge = loadBridge((...args) => {
+    calls.push(args);
+    return Promise.resolve(response().state);
+  });
+
+  try {
+    assert.deepEqual(await bridge.readUpdateStateSnapshot(), {
+      kind: "snapshot",
+      snapshot: response().state,
+    });
+    assert.deepEqual(calls, [["read_update_state"]]);
+  } finally {
+    if (originalWindow === undefined) {
+      delete global.window;
+    } else {
+      global.window = originalWindow;
+    }
+  }
+});
+
+test("read-only update state bridge normalizes malformed or unavailable state to state-error", async () => {
+  const originalWindow = global.window;
+  global.window = { __TAURI_INTERNALS__: {} };
+
+  try {
+    for (const implementation of [
+      () => Promise.resolve({ ...response().state, unexpected: "private" }),
+      () => Promise.reject({ message: "private state path" }),
+    ]) {
+      const bridge = loadBridge(implementation);
+      assert.deepEqual(await bridge.readUpdateStateSnapshot(), {
+        kind: "state-error",
+        code: "update-state",
+      });
+    }
+  } finally {
+    if (originalWindow === undefined) {
+      delete global.window;
+    } else {
+      global.window = originalWindow;
+    }
+  }
+});
+
+test("verify bridge invokes the native verification command without changing its response contract", async () => {
+  const originalWindow = global.window;
+  global.window = { __TAURI_INTERNALS__: {} };
+  const calls = [];
+  const bridge = loadBridge((...args) => {
+    calls.push(args);
+    return Promise.resolve(verifyResponse());
+  });
+
+  try {
+    assert.deepEqual(await bridge.verifyPendingUpdate(), {
+      kind: "verified",
+      response: verifyResponse(),
+    });
+    assert.deepEqual(calls, [["verify_pending_update"]]);
+  } finally {
+    if (originalWindow === undefined) {
+      delete global.window;
+    } else {
+      global.window = originalWindow;
+    }
+  }
+});
+
 test("manual update bridge returns unsupported-web for non-loopback browsers without bridge setup", async () => {
   const originalWindow = global.window;
   const pages = [
@@ -313,6 +411,258 @@ test("external loopback bridge sends one fixed fragment and receives a sanitized
       external.listenerCount("cornell:desktop-manual-update-check-result"),
       0,
     );
+  } finally {
+    if (originalWindow === undefined) {
+      delete global.window;
+    } else {
+      global.window = originalWindow;
+    }
+  }
+});
+
+test("external loopback bridge reads a sanitized update state snapshot without invoking Tauri", async () => {
+  const originalWindow = global.window;
+  const external = createExternalWindow();
+  global.window = external.window;
+  let invokeCalls = 0;
+  const bridge = loadBridge(() => {
+    invokeCalls += 1;
+    return Promise.resolve(response());
+  });
+
+  external.setHashChangeHandler(() => {
+    external.window.dispatchEvent({
+      type: "cornell:desktop-read-update-state-result",
+      detail: response().state,
+    });
+  });
+
+  try {
+    assert.deepEqual(await bridge.readUpdateStateSnapshot(), {
+      kind: "snapshot",
+      snapshot: response().state,
+    });
+    assert.equal(invokeCalls, 0);
+    assert.equal(external.hashAssignments, 1);
+    assert.equal(external.window.location.hash, "");
+    assert.deepEqual(external.historyReplacementUrls, ["/notes"]);
+  } finally {
+    if (originalWindow === undefined) {
+      delete global.window;
+    } else {
+      global.window = originalWindow;
+    }
+  }
+});
+
+test("external loopback update state read reports timeout as state-error", async () => {
+  const originalWindow = global.window;
+  const external = createExternalWindow();
+  global.window = external.window;
+  const bridge = loadBridge(() => Promise.resolve(response()));
+
+  try {
+    const pending = bridge.readUpdateStateSnapshot();
+    external.runNextTimer();
+    assert.deepEqual(await pending, {
+      kind: "state-error",
+      code: "update-state",
+    });
+    assert.equal(external.window.location.hash, "");
+    assert.equal(
+      external.listenerCount("cornell:desktop-read-update-state-result"),
+      0,
+    );
+  } finally {
+    if (originalWindow === undefined) {
+      delete global.window;
+    } else {
+      global.window = originalWindow;
+    }
+  }
+});
+
+test("external loopback verify bridge returns success and sanitized failure events", async () => {
+  const originalWindow = global.window;
+  const external = createExternalWindow();
+  global.window = external.window;
+  const bridge = loadBridge(() => Promise.resolve(verifyResponse()));
+  let detail = verifyResponse();
+
+  external.setHashChangeHandler(() => {
+    external.window.dispatchEvent({
+      type: "cornell:desktop-verify-pending-update-result",
+      detail,
+    });
+  });
+
+  try {
+    assert.deepEqual(await bridge.verifyPendingUpdate(), {
+      kind: "verified",
+      response: verifyResponse(),
+    });
+    assert.equal(external.hashAssignments, 1);
+    assert.equal(external.window.location.hash, "");
+    assert.deepEqual(external.historyReplacementUrls, ["/notes"]);
+    assert.equal(
+      external.listenerCount("cornell:desktop-verify-pending-update-result"),
+      0,
+    );
+
+    detail = verifyFailureResponse();
+    assert.deepEqual(await bridge.verifyPendingUpdate(), {
+      kind: "failed",
+      response: verifyFailureResponse(),
+    });
+    assert.equal(external.hashAssignments, 2);
+    assert.equal(external.activeTimerCount, 0);
+    assert.equal(
+      external.listenerCount("cornell:desktop-verify-pending-update-result"),
+      0,
+    );
+  } finally {
+    if (originalWindow === undefined) {
+      delete global.window;
+    } else {
+      global.window = originalWindow;
+    }
+  }
+});
+
+test("external loopback verify bridge times out and cleans its listener, timer, and fragment", async () => {
+  const originalWindow = global.window;
+  const external = createExternalWindow();
+  global.window = external.window;
+  const bridge = loadBridge(() => Promise.resolve(verifyResponse()));
+
+  try {
+    const pending = bridge.verifyPendingUpdate();
+    external.runNextTimer();
+    assert.deepEqual(await pending, {
+      kind: "command-error",
+      code: "command-unavailable",
+    });
+    assert.equal(external.window.location.hash, "");
+    assert.equal(external.activeTimerCount, 0);
+    assert.equal(
+      external.listenerCount("cornell:desktop-verify-pending-update-result"),
+      0,
+    );
+
+    const malformed = bridge.verifyPendingUpdate();
+    external.window.dispatchEvent({
+      type: "cornell:desktop-verify-pending-update-result",
+      detail: {
+        kind: "command-error",
+        code: "private-error",
+        path: "/Users/private/update.zip",
+      },
+    });
+    assert.deepEqual(await malformed, {
+      kind: "command-error",
+      code: "command-unavailable",
+    });
+    assert.equal(external.window.location.hash, "");
+    assert.equal(external.activeTimerCount, 0);
+    assert.equal(
+      external.listenerCount("cornell:desktop-verify-pending-update-result"),
+      0,
+    );
+  } finally {
+    if (originalWindow === undefined) {
+      delete global.window;
+    } else {
+      global.window = originalWindow;
+    }
+  }
+});
+
+test("external loopback verify bridge coalesces duplicate dispatches and only settles once", async () => {
+  const originalWindow = global.window;
+  const external = createExternalWindow();
+  global.window = external.window;
+  const bridge = loadBridge(() => Promise.resolve(verifyResponse()));
+
+  try {
+    const first = bridge.verifyPendingUpdate();
+    const duplicate = bridge.verifyPendingUpdate();
+    assert.strictEqual(duplicate, first);
+    assert.equal(external.hashAssignments, 1);
+    assert.equal(
+      external.listenerCount("cornell:desktop-verify-pending-update-result"),
+      1,
+    );
+
+    const event = {
+      type: "cornell:desktop-verify-pending-update-result",
+      detail: verifyResponse(),
+    };
+    external.window.dispatchEvent(event);
+    external.window.dispatchEvent(event);
+    assert.deepEqual(await first, {
+      kind: "verified",
+      response: verifyResponse(),
+    });
+    assert.equal(external.activeTimerCount, 0);
+    assert.equal(
+      external.listenerCount("cornell:desktop-verify-pending-update-result"),
+      0,
+    );
+  } finally {
+    if (originalWindow === undefined) {
+      delete global.window;
+    } else {
+      global.window = originalWindow;
+    }
+  }
+});
+
+test("external loopback verify bridge rejects non-loopback and non-canonical pages", async () => {
+  const originalWindow = global.window;
+  const pages = [
+    {
+      protocol: "https:",
+      hostname: "127.0.0.1",
+      port: "43127",
+      pathname: "/notes",
+    },
+    {
+      protocol: "http:",
+      hostname: "localhost",
+      port: "43127",
+      pathname: "/notes",
+    },
+    {
+      protocol: "http:",
+      hostname: "127.0.0.1",
+      port: "43127",
+      pathname: "/settings",
+    },
+    {
+      protocol: "http:",
+      hostname: "127.0.0.1",
+      port: "43127",
+      pathname: "/notes/note-1/extra",
+    },
+  ];
+
+  try {
+    for (const page of pages) {
+      const external = createExternalWindow(page);
+      global.window = external.window;
+      const bridge = loadBridge(() => Promise.resolve(verifyResponse()));
+
+      assert.deepEqual(await bridge.verifyPendingUpdate(), {
+        kind: "unsupported-web",
+      });
+      assert.equal(external.hashAssignments, 0);
+      assert.equal(external.historyReplacements, 0);
+      assert.equal(external.activeTimerCount, 0);
+      assert.equal(
+        external.listenerCount("cornell:desktop-verify-pending-update-result"),
+        0,
+      );
+    }
   } finally {
     if (originalWindow === undefined) {
       delete global.window;
@@ -612,6 +962,19 @@ test("manual update bridge keeps the command and sanitized response contract loc
   assert.match(source, /normalizeExternalResult/);
   assert.match(source, /unsupported-web/);
   assert.match(source, /manualUpdateCheckInFlight/);
+  assert.match(source, /read_update_state/);
+  assert.match(source, /readUpdateStateSnapshot\(\)/);
+  assert.match(source, /DESKTOP_UPDATE_STATE_REQUEST_FRAGMENT/);
+  assert.match(source, /DESKTOP_UPDATE_STATE_RESULT_EVENT/);
+  assert.match(source, /updateStateReadInFlight/);
+  assert.match(source, /VERIFY_PENDING_UPDATE_COMMAND = "verify_pending_update"/);
+  assert.match(source, /DESKTOP_VERIFY_PENDING_UPDATE_REQUEST_FRAGMENT/);
+  assert.match(source, /DESKTOP_VERIFY_PENDING_UPDATE_RESULT_EVENT/);
+  assert.match(source, /requestVerifyPendingUpdate\(\)/);
+  assert.match(source, /verifyPendingUpdateInFlight/);
+  assert.match(source, /VERIFY_PENDING_UPDATE_TIMEOUT_MS/);
+  assert.match(source, /normalizeVerifyPendingUpdateExternalResult/);
+  assert.match(source, /kind: "state-error"/);
   assert.match(source, /command-unavailable/);
   assert.doesNotMatch(source, /window\.\.__TAURI__\.core|fetch\(|GITHUB_RELEASES_MANIFEST_URL/);
 });

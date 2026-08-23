@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 use std::fmt;
 use std::fs::{self, File, OpenOptions};
-use std::io::{self, Read, Write};
+use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -340,10 +340,54 @@ pub(crate) struct VerifiedArchive {
     pub(crate) architecture: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Debug)]
+pub(crate) struct VerifiedArchiveHandle {
+    pub(crate) archive: VerifiedArchive,
+    pub(crate) package_file: File,
+}
+
+impl VerifiedArchiveHandle {
+    pub(crate) fn new(archive: VerifiedArchive, package_file: File) -> Self {
+        Self {
+            archive,
+            package_file,
+        }
+    }
+
+    pub(crate) fn verify_contents(&self) -> Result<(), PackageDownloadError> {
+        let mut package_file = self
+            .package_file
+            .try_clone()
+            .map_err(|_| PackageDownloadError::StagingRead)?;
+        let metadata = package_file
+            .metadata()
+            .map_err(|_| PackageDownloadError::StagingRead)?;
+        if !metadata.is_file() {
+            return Err(PackageDownloadError::StagingPath);
+        }
+        if metadata.len() != self.archive.raw_size_bytes {
+            return Err(PackageDownloadError::Size);
+        }
+        package_file
+            .seek(SeekFrom::Start(0))
+            .map_err(|_| PackageDownloadError::StagingRead)?;
+        let (actual_size_bytes, actual_sha256) = hash_cached_package(&mut package_file)?;
+        if actual_size_bytes != self.archive.raw_size_bytes {
+            return Err(PackageDownloadError::Size);
+        }
+        let expected_sha256 =
+            decode_sha256(&self.archive.raw_sha256).ok_or(PackageDownloadError::Digest)?;
+        if actual_sha256 != expected_sha256 {
+            return Err(PackageDownloadError::Digest);
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug)]
 pub(crate) enum CachedArtifact {
     Missing,
-    Verified(VerifiedArchive),
+    Verified(VerifiedArchiveHandle),
     Invalid {
         error: PackageDownloadError,
         removable: bool,
@@ -415,7 +459,7 @@ pub(crate) fn download_and_verify_artifact(
     staging_root: &Path,
     artifact_transport: &dyn ArtifactHttpTransport,
     signature_verifier: &dyn ArtifactSignatureVerifier,
-) -> Result<VerifiedArchive, PackageDownloadError> {
+) -> Result<VerifiedArchiveHandle, PackageDownloadError> {
     let expected_digest = validate_selected_release(selected_release)?;
     let (incoming_directory, packages_directory) = ensure_staging_directories(staging_root)?;
     let digest_hex = selected_release.artifact.sha256.as_str();
@@ -434,6 +478,7 @@ pub(crate) fn download_and_verify_artifact(
     validate_artifact_response(artifact_transport, &request, &response)?;
 
     let mut package_file = OpenOptions::new()
+        .read(true)
         .write(true)
         .create_new(true)
         .open(&part_path)
@@ -477,20 +522,21 @@ pub(crate) fn download_and_verify_artifact(
         drop(package_file);
         return Err(cleanup_part(&part_path, PackageDownloadError::StagingWrite));
     }
-    drop(package_file);
-
     if let Err(error) = signature_verifier.verify_selected_package(
         selected_release,
         actual_size_bytes,
         actual_sha256,
     ) {
+        drop(package_file);
         return Err(cleanup_part(&part_path, map_signature_error(error)));
     }
 
     if let Err(error) = ensure_final_absent(&final_path) {
+        drop(package_file);
         return Err(cleanup_part(&part_path, error));
     }
     if fs::rename(&part_path, &final_path).is_err() {
+        drop(package_file);
         return Err(cleanup_part(
             &part_path,
             PackageDownloadError::StagingRename,
@@ -500,6 +546,7 @@ pub(crate) fn download_and_verify_artifact(
     Ok(verified_archive_for_release(
         selected_release,
         actual_size_bytes,
+        package_file,
     ))
 }
 
@@ -562,6 +609,7 @@ pub(crate) fn revalidate_cached_artifact(
     Ok(CachedArtifact::Verified(verified_archive_for_release(
         selected_release,
         actual_size_bytes,
+        package_file,
     )))
 }
 
@@ -587,16 +635,20 @@ pub(crate) fn remove_invalid_cached_artifact(
 fn verified_archive_for_release(
     selected_release: &UpdateRelease,
     raw_size_bytes: u64,
-) -> VerifiedArchive {
-    VerifiedArchive {
-        relative_package_path: PathBuf::from("packages")
-            .join(format!("{}.app.tar.gz", selected_release.artifact.sha256)),
-        artifact_id: selected_release.artifact.artifact_id.clone(),
-        raw_size_bytes,
-        raw_sha256: selected_release.artifact.sha256.clone(),
-        version: selected_release.version.to_string(),
-        architecture: selected_release.architecture.clone(),
-    }
+    package_file: File,
+) -> VerifiedArchiveHandle {
+    VerifiedArchiveHandle::new(
+        VerifiedArchive {
+            relative_package_path: PathBuf::from("packages")
+                .join(format!("{}.app.tar.gz", selected_release.artifact.sha256)),
+            artifact_id: selected_release.artifact.artifact_id.clone(),
+            raw_size_bytes,
+            raw_sha256: selected_release.artifact.sha256.clone(),
+            version: selected_release.version.to_string(),
+            architecture: selected_release.architecture.clone(),
+        },
+        package_file,
+    )
 }
 
 fn open_cached_package(path: &Path) -> Result<File, PackageDownloadError> {
@@ -1391,7 +1443,7 @@ mod tests {
         let root = TestRoot::new();
         let archive = download_and_verify_artifact(&release, &root.path, &transport, &verifier)
             .expect("public resolved addresses should be accepted");
-        assert_eq!(archive.raw_size_bytes, bytes.len() as u64);
+        assert_eq!(archive.archive.raw_size_bytes, bytes.len() as u64);
         assert_eq!(transport.calls.get(), 1);
     }
 
@@ -1425,17 +1477,20 @@ mod tests {
             .expect("valid package should be published");
 
         assert_eq!(
-            archive.relative_package_path,
+            archive.archive.relative_package_path,
             PathBuf::from("packages").join(format!("{digest}.app.tar.gz"))
         );
-        assert!(!archive.relative_package_path.is_absolute());
-        assert_eq!(archive.artifact_id, "opaque-artifact-id-without-path-use");
-        assert_eq!(archive.raw_size_bytes, bytes.len() as u64);
-        assert_eq!(archive.raw_sha256, digest);
-        assert_eq!(archive.version, "1.2.3");
-        assert_eq!(archive.architecture, "aarch64-apple-darwin");
+        assert!(!archive.archive.relative_package_path.is_absolute());
         assert_eq!(
-            fs::read(root.path.join(&archive.relative_package_path)).unwrap(),
+            archive.archive.artifact_id,
+            "opaque-artifact-id-without-path-use"
+        );
+        assert_eq!(archive.archive.raw_size_bytes, bytes.len() as u64);
+        assert_eq!(archive.archive.raw_sha256, digest);
+        assert_eq!(archive.archive.version, "1.2.3");
+        assert_eq!(archive.archive.architecture, "aarch64-apple-darwin");
+        assert_eq!(
+            fs::read(root.path.join(&archive.archive.relative_package_path)).unwrap(),
             bytes
         );
         assert!(root.path.join("extract").exists() == false);
@@ -1475,7 +1530,7 @@ mod tests {
         assert!(elapsed.get() > PACKAGE_READ_IDLE_TIMEOUT);
         assert!(transport.requests.borrow()[0].body_timeout > elapsed.get());
         assert_eq!(
-            fs::read(root.path.join(archive.relative_package_path)).unwrap(),
+            fs::read(root.path.join(archive.archive.relative_package_path)).unwrap(),
             bytes
         );
     }
@@ -1496,7 +1551,7 @@ mod tests {
             panic!("expected a verified cache hit");
         };
         assert_eq!(
-            archive.relative_package_path,
+            archive.archive.relative_package_path,
             PathBuf::from("packages").join(format!("{}.app.tar.gz", release.artifact.sha256))
         );
         assert_eq!(verifier.calls.borrow().len(), 1);

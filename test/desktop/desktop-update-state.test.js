@@ -42,9 +42,13 @@ test("update state keeps a provider-neutral, atomic settings boundary", () => {
   assert.match(productionSource, /canonical_extracted_app_path/);
   assert.match(productionSource, /symlink_metadata/);
   assert.match(productionSource, /staging_directory: PathBuf/);
+  assert.match(productionSource, /read_only_snapshot/);
+  assert.match(productionSource, /update state is unavailable/);
   assert.match(productionSource, /state_path = settings_directory\.join\(UPDATE_STATE_FILE_NAME\)/);
   assert.match(productionSource, /state\.validate_paths_at\(staging_directory\)/);
   assert.match(productionSource, /pending_update\.validate_paths_at\(&self\.staging_directory\)/);
+  assert.match(productionSource, /signed_identity_sha256/);
+  assert.match(productionSource, /downgrade_unbound_verified_candidate/);
   assert.doesNotMatch(
     productionSource,
     /reqwest|ureq|hyper|http_client|package_url|provider_response|token|sqlite|backup|notes|signature|sha-256/i,
@@ -90,4 +94,27 @@ test("persistent checkpoint validation is rooted at staging and has a symlink re
   assert.match(source, /symlink\(&target, staging_directory\.join\(component\)\)/);
   assert.match(source, /UpdateStateLoadIssue::Invalid/);
   assert.match(source, /VerificationState::Verified/);
+});
+
+test("discarded verified candidates clean only validated canonical staging artifacts", () => {
+  const source = readSource("src-tauri/src/update_state.rs");
+  const productionSource = source.split("#[cfg(test)]", 1)[0];
+
+  assert.match(productionSource, /fn cleanup_discarded_verified_artifacts/);
+  assert.match(productionSource, /record_no_update[\s\S]*cleanup_discarded_verified_artifacts/);
+  assert.match(
+    productionSource,
+    /replace_available_candidate[\s\S]*cleanup_discarded_verified_artifacts/
+  );
+  assert.match(productionSource, /record_revalidated_no_update[\s\S]*cleanup_discarded_verified_artifacts/);
+  assert.match(productionSource, /CleanupTargetKind::RegularFile/);
+  assert.match(productionSource, /CleanupTargetKind::Directory/);
+  assert.match(productionSource, /fs::remove_file\(&target\.path\)/);
+  assert.match(productionSource, /fs::remove_dir_all\(&target\.path\)/);
+  assert.match(productionSource, /metadata\.file_type\(\)\.is_symlink\(\)/);
+  assert.match(source, /changed_candidate_identity_returns_to_not_verified_without_old_paths/);
+  assert.match(source, /record_no_update_cleans_the_discarded_verified_artifact/);
+  assert.match(source, /same_candidate_identity_preserves_verified_evidence_but_refreshes_discovery_time/);
+  assert.match(source, /changed_signed_identity_drops_verified_evidence_but_keeps_safe_cache/);
+  assert.match(source, /v2_verified_state_without_signed_identity_is_downgraded_before_restore/);
 });

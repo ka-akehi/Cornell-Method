@@ -238,6 +238,49 @@ test("sidecar ready handshake uses a dynamic loopback port and cleans its owned 
   }
 });
 
+test("child exit immediately after readiness lets the launcher exit and cleans up", async (t) => {
+  if (!(await canBindLoopback())) {
+    t.skip("this runner does not permit disposable loopback listeners");
+    return;
+  }
+  const directory = temporaryDirectory();
+  const databasePath = path.join(directory, "live", "notebook.sqlite");
+  fs.mkdirSync(path.dirname(databasePath), { recursive: true });
+  const child = spawn(process.execPath, [launcherPath, "serve"], {
+    cwd: projectRoot,
+    env: {
+      ...process.env,
+      CORNELL_DESKTOP_PROJECT_ROOT: projectRoot,
+      CORNELL_DESKTOP_RUNTIME_ENTRY: fixturePath,
+      CORNELL_DESKTOP_RUNTIME_EXIT_AFTER_HEALTH: "1",
+      DATABASE_URL: `file:${databasePath}`,
+      PRISMA_PROVIDER: "sqlite",
+    },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  const outputPromise = collectOutput(child);
+
+  try {
+    const exit = await waitForExit(child, 3_000);
+    const result = await outputPromise;
+    assert.equal(exit.code, 0);
+    assert.equal(result.code, 0);
+    assert.equal(result.signal, null);
+    assert.equal(result.stderr, "");
+
+    const lines = result.stdout.trim().split(/\r?\n/);
+    assert.equal(lines.length, 1);
+    const ready = JSON.parse(lines[0]);
+    assert.equal(ready.kind, "ready");
+    assert.equal(ready.status, "ready");
+    assert.ok(Number.isInteger(ready.port) && ready.port > 0);
+    await waitForPortClosed(ready.port);
+  } finally {
+    if (child.exitCode === null) child.kill("SIGKILL");
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test("nonce mismatch exits with a fixed error and does not publish ready", async (t) => {
   if (!(await canBindLoopback())) {
     t.skip("this runner does not permit disposable loopback listeners");
@@ -561,4 +604,46 @@ test("close request cleanup is scoped to the request generation", () => {
   const requestClose = lifecycle.slice(requestCloseStart, navigationStart);
   assert.match(requestClose, /let \(generation, receiver\) = match state\.close\.begin\(\)/);
   assert.match(requestClose, /state\.close\.clear\(generation\)/);
+});
+
+test("close bridge readiness is generation-scoped and waits before dispatch", () => {
+  const bridge = fs.readFileSync(
+    path.join(
+      projectRoot,
+      "src",
+      "shared",
+      "desktop",
+      "desktop-close-bridge.ts",
+    ),
+    "utf8",
+  );
+  const coordinator = fs.readFileSync(
+    path.join(
+      projectRoot,
+      "src",
+      "app",
+      "_components",
+      "desktop-close-coordinator.tsx",
+    ),
+    "utf8",
+  );
+  const lifecycle = fs.readFileSync(
+    path.join(projectRoot, "src-tauri", "src", "lifecycle.rs"),
+    "utf8",
+  );
+
+  assert.match(bridge, /cornell-desktop-close-bridge-ready=/);
+  assert.match(bridge, /cornell-desktop-close-bridge-not-ready=/);
+  assert.match(bridge, /window\.location\.hostname === "127\.0\.0\.1"/);
+  assert.match(coordinator, /sendDesktopCloseBridgeReady\(bridgeGeneration\)/);
+  assert.match(
+    coordinator,
+    /window\.removeEventListener\([\s\S]*sendDesktopCloseBridgeNotReady\(bridgeGeneration\)/,
+  );
+  assert.match(lifecycle, /bridge_generation: Mutex<Option<String>>/);
+  assert.match(lifecycle, /fn bridge_ready\(&self, generation: &str\)/);
+  assert.match(lifecycle, /fn bridge_not_ready\(&self, generation: &str\)/);
+  assert.match(lifecycle, /CLOSE_BRIDGE_READY_FRAGMENT_PREFIX/);
+  assert.match(lifecycle, /claim_close_event_dispatch/);
+  assert.match(lifecycle, /CLOSE_RESPONSE_TIMEOUT: Duration = Duration::from_secs\(120\)/);
 });

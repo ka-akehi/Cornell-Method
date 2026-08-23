@@ -62,8 +62,8 @@ export function useNoteEditorDirtyController({
     [mode],
   );
 
-  return () => {
-    savedFormSerializedRef.current = serializedForm;
+  return (savedForm = form) => {
+    savedFormSerializedRef.current = JSON.stringify(savedForm);
     dirtyRef.current = false;
   };
 }

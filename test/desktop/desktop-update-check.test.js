@@ -25,7 +25,8 @@ test("desktop update check orchestrates provider, selection, and state without l
   assert.match(source, /fetch_manifest\(transport\)/);
   assert.match(source, /select_update\(/);
   assert.match(source, /record_no_update\(\)/);
-  assert.match(source, /PendingUpdate::new\(/);
+  assert.match(source, /PendingUpdate::new_with_signed_identity\(/);
+  assert.match(source, /signed_release_identity_sha256\(/);
   assert.match(source, /release\.artifact\.size_bytes/);
   assert.match(source, /release\.artifact\.sha256/);
   assert.match(source, /release\.signature\.key_id/);
@@ -59,12 +60,14 @@ test("desktop update check orchestrates provider, selection, and state without l
   );
   assert.match(
     main,
-    /\.invoke_handler\(tauri::generate_handler!\[\s*manual_update_check,\s*verify_pending_update\s*\]\)/s,
+    /\.invoke_handler\(tauri::generate_handler!\[[\s\S]*manual_update_check,[\s\S]*read_update_state,[\s\S]*verify_pending_update[\s\S]*\]\)/s,
   );
   assert.equal(
-    (main.match(/generate_handler!\[\s*manual_update_check,\s*verify_pending_update\s*\]/gs) || []).length,
+    (main.match(/generate_handler!\[[\s\S]*manual_update_check,[\s\S]*read_update_state,[\s\S]*verify_pending_update[\s\S]*\]/gs) || []).length,
     1,
   );
+  assert.match(main, /#\[tauri::command\]\s*async fn read_update_state\(/s);
+  assert.match(main, /read_only_snapshot\(\)/);
   assert.equal(packageJson.dependencies["@tauri-apps/api"], "=2.5.0");
   assert.equal(
     packageLock.packages[""].dependencies["@tauri-apps/api"],

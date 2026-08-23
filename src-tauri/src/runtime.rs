@@ -1,4 +1,4 @@
-use super::AppResult;
+use super::{instance, AppResult};
 use serde::Deserialize;
 use std::env;
 use std::fs;
@@ -208,6 +208,10 @@ pub(crate) fn run_bootstrap(root: &Path) -> AppResult<StorageLayout> {
         .arg("bootstrap")
         .current_dir(root)
         .env("CORNELL_DESKTOP_PROJECT_ROOT", root)
+        .env(
+            "CORNELL_DESKTOP_APPLICATION_ID",
+            instance::desktop_application_id(),
+        )
         .env("PRISMA_PROVIDER", "sqlite")
         .output()
         .map_err(|error| format!("desktop storage bootstrap process could not start: {error}"))?;
@@ -436,6 +440,10 @@ pub(crate) fn start_sidecar(root: &Path, storage: &StorageLayout) -> AppResult<S
         .arg("serve")
         .current_dir(root)
         .env("CORNELL_DESKTOP_PROJECT_ROOT", root)
+        .env(
+            "CORNELL_DESKTOP_APPLICATION_ID",
+            instance::desktop_application_id(),
+        )
         .env(
             "CORNELL_DESKTOP_APPLICATION_SUPPORT_ROOT",
             &storage.application_support_root,

@@ -8,8 +8,10 @@ const { test } = require("node:test");
 
 const {
   UNSUPPORTED_TARGET_MESSAGE,
+  desktopRuntimeDirectory,
   desktopNodeRuntimePath,
   prepareDesktopNodeRuntime,
+  productionRuntimePackage,
   validateBuildTarget,
 } = require("../../scripts/prepare-desktop-node-runtime.js");
 
@@ -41,13 +43,79 @@ test("desktop build maps the generated Node runtime into runtime/node", () => {
     config.build.beforeBuildCommand,
     /npm run build && npm run desktop:prepare-node-runtime/,
   );
-  assert.equal(config.bundle.resources["../.desktop-runtime/"], "runtime/");
-  assert.equal(config.bundle.resources["../.desktop-runtime/node"], undefined);
+  assert.equal(
+    config.bundle.resources["../.desktop-runtime/node"],
+    "runtime/node",
+  );
+  assert.equal(
+    config.bundle.resources["../.desktop-runtime/package.json"],
+    "runtime/package.json",
+  );
+  assert.equal(
+    config.bundle.resources["../.desktop-runtime/node_modules/**/*"],
+    "runtime/node_modules/",
+  );
+  assert.equal(
+    config.bundle.resources["../.desktop-runtime/node_modules/.bin/**/*"],
+    "runtime/node_modules/.bin/",
+  );
+  assert.equal(
+    config.bundle.resources["../.desktop-runtime/node_modules/.prisma/**/*"],
+    "runtime/node_modules/.prisma/",
+  );
+  assert.equal(config.bundle.resources["../.desktop-runtime/"], undefined);
+  assert.equal(config.bundle.resources["../node_modules/**/*"], undefined);
+  assert.equal(config.bundle.resources["../package.json"], undefined);
+  assert.equal(config.bundle.resources["../.next/**/*"], undefined);
+  assert.equal(
+    config.bundle.resources["../.next/BUILD_ID"],
+    "runtime/.next/BUILD_ID",
+  );
+  assert.equal(
+    config.bundle.resources["../.next/*.json"],
+    "runtime/.next/",
+  );
+  assert.equal(
+    config.bundle.resources["../.next/server/**/*"],
+    "runtime/.next/server/",
+  );
+  assert.equal(
+    config.bundle.resources["../.next/static/**/*"],
+    "runtime/.next/static/",
+  );
   assert.match(gitignore, /^\/.desktop-runtime\/\*$/m);
   assert.match(gitignore, /^!\/.desktop-runtime\/\.gitkeep$/m);
   assert.equal(
     fs.existsSync(path.join(projectRoot, ".desktop-runtime", ".gitkeep")),
     true,
+  );
+});
+
+test("desktop runtime package contains production dependencies only", () => {
+  const packageJson = JSON.parse(
+    fs.readFileSync(path.join(projectRoot, "package.json"), "utf8"),
+  );
+  const runtimePackage = productionRuntimePackage(projectRoot);
+
+  assert.equal(runtimePackage.private, true);
+  assert.equal(runtimePackage.dependencies.next, packageJson.dependencies.next);
+  assert.equal(
+    runtimePackage.dependencies["@prisma/client"],
+    packageJson.dependencies["@prisma/client"],
+  );
+  assert.equal(
+    runtimePackage.dependencies["better-sqlite3"],
+    packageJson.dependencies["better-sqlite3"],
+  );
+  assert.equal(runtimePackage.dependencies.prisma, packageJson.dependencies.prisma);
+  assert.equal(packageJson.dependencies.playwright, undefined);
+  assert.equal(packageJson.devDependencies.playwright, "1.61.0");
+  for (const dependencyName of Object.keys(packageJson.devDependencies)) {
+    assert.equal(runtimePackage.dependencies[dependencyName], undefined, dependencyName);
+  }
+  assert.equal(
+    desktopRuntimeDirectory(projectRoot),
+    path.join(projectRoot, ".desktop-runtime"),
   );
 });
 

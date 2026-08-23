@@ -36,11 +36,14 @@ function absoluteDatabaseUrl(value) {
 function storageOptions(root) {
   const storage = require(path.join(root, "src/server/infrastructure/desktop-storage.js"));
   const homeDirectory = process.env.CORNELL_DESKTOP_HOME?.trim() || os.homedir();
+  const applicationId = process.env.CORNELL_DESKTOP_APPLICATION_ID?.trim()
+    || storage.DESKTOP_APPLICATION_ID;
   const nodeExecutable = process.execPath;
   const prismaBinary = path.join(root, "node_modules", ".bin", process.platform === "win32" ? "prisma.cmd" : "prisma");
   return {
     storage,
     homeDirectory,
+    storagePaths: storage.resolveDesktopStoragePaths({ homeDirectory, applicationId }),
     nodeExecutable,
     migrationsDirectory: path.join(root, "prisma", "migrations"),
     prismaBinary,
@@ -53,7 +56,7 @@ function bootstrap() {
   const root = projectRoot();
   const options = storageOptions(root);
   const result = options.storage.bootstrapDesktopStorage({
-    homeDirectory: options.homeDirectory,
+    storagePaths: options.storagePaths,
     nodeExecutable: options.nodeExecutable,
     migrationsDirectory: options.migrationsDirectory,
     prismaBinary: options.prismaBinary,
@@ -325,21 +328,22 @@ function spawnRuntime(root, port, readyNonce) {
   return child;
 }
 
-function waitForChildExit(child, timeoutMs) {
+function waitForChildExit(child, timeoutMs = null) {
   if (!child || child.exitCode !== null || child.signalCode !== null) {
     return Promise.resolve();
   }
 
   return new Promise((resolve) => {
     let settled = false;
+    let timeout = null;
     const finish = () => {
       if (settled) return;
       settled = true;
-      clearTimeout(timeout);
+      if (timeout !== null) clearTimeout(timeout);
       child.removeListener("exit", finish);
       resolve();
     };
-    const timeout = setTimeout(finish, timeoutMs);
+    if (timeoutMs !== null) timeout = setTimeout(finish, timeoutMs);
     child.once("exit", finish);
   });
 }
@@ -366,12 +370,10 @@ async function serve() {
   const port = await pickEphemeralPort();
   const child = spawnRuntime(root, port, readyNonce);
   runtimeChild = child;
+  const childExit = waitForChildExit(child);
 
   try {
     await waitForHttpReady(port, readyNonce, { child });
-    if (childHasExited(child)) {
-      throw new Error("local runtime child exited before readiness");
-    }
   } catch (error) {
     await stopRuntime("SIGTERM");
     throw error;
@@ -387,14 +389,8 @@ async function serve() {
     runtimePid: child.pid,
   })}\n`);
 
-  await new Promise((resolve) => {
-    child.once("exit", resolve);
-  });
+  await childExit;
   runtimeChild = null;
-}
-
-function childHasExited(child) {
-  return typeof child.exitCode === "number" || typeof child.signalCode === "string";
 }
 
 async function shutdown(code = 0) {

@@ -100,14 +100,27 @@ function databasePathToUrl(databasePath) {
 
 function resolveDesktopStoragePaths({
   homeDirectory = os.homedir(),
+  applicationId = DESKTOP_APPLICATION_ID,
 } = {}) {
   const home = assertAbsolutePath(homeDirectory, "home directory");
+  if (
+    typeof applicationId !== "string"
+    || applicationId.trim() === ""
+    || applicationId !== path.basename(applicationId)
+    || applicationId.includes("\\")
+    || applicationId === "."
+    || applicationId === ".."
+  ) {
+    throw new DesktopStorageError("application identifier が不正です", {
+      code: "INVALID_APPLICATION_ID",
+    });
+  }
 
   const root = path.join(
     home,
     "Library",
     "Application Support",
-    DESKTOP_APPLICATION_ID,
+    applicationId,
   );
   const liveDirectory = path.join(root, DESKTOP_STORAGE_LAYOUT.live);
   const databasePath = path.join(root, DESKTOP_STORAGE_LAYOUT.database);
@@ -120,7 +133,7 @@ function resolveDesktopStoragePaths({
   );
 
   return Object.freeze({
-    applicationId: DESKTOP_APPLICATION_ID,
+    applicationId,
     applicationSupportRoot: root,
     root,
     liveDirectory,

@@ -26,6 +26,9 @@ use tauri::{AppHandle, Manager};
 use super::{AppResult, PRIMARY_WINDOW_LABEL};
 
 const APPLICATION_ID: &str = "com.cornellmethod.notebook";
+#[cfg(debug_assertions)]
+const DEBUG_APPLICATION_ID: &str = "com.cornellmethod.notebook.debug";
+const CORNELL_DESKTOP_HOME_ENV: &str = "CORNELL_DESKTOP_HOME";
 const INSTANCE_LOCK_FILE: &str = ".instance.lock";
 const INSTANCE_OWNER_FILE: &str = ".instance.owner";
 const INSTANCE_SOCKET_FILE: &str = ".instance.sock";
@@ -126,7 +129,7 @@ enum FocusRequestError {
 }
 
 fn configured_home_directory() -> AppResult<PathBuf> {
-    let value = env::var_os("CORNELL_DESKTOP_HOME")
+    let value = env::var_os(CORNELL_DESKTOP_HOME_ENV)
         .or_else(|| env::var_os("HOME"))
         .ok_or_else(|| "macOS home directory is unavailable".to_string())?;
     let path = PathBuf::from(value);
@@ -136,16 +139,34 @@ fn configured_home_directory() -> AppResult<PathBuf> {
     Ok(path)
 }
 
-fn application_support_root(home: &Path) -> PathBuf {
-    home.join("Library")
-        .join("Application Support")
-        .join(APPLICATION_ID)
+#[cfg(debug_assertions)]
+fn application_id_for(explicit_home_override: bool) -> &'static str {
+    if explicit_home_override {
+        APPLICATION_ID
+    } else {
+        DEBUG_APPLICATION_ID
+    }
 }
 
-fn focus_socket_identity(settings_directory: &Path) -> String {
+#[cfg(not(debug_assertions))]
+fn application_id_for(_explicit_home_override: bool) -> &'static str {
+    APPLICATION_ID
+}
+
+pub(crate) fn desktop_application_id() -> &'static str {
+    application_id_for(env::var_os(CORNELL_DESKTOP_HOME_ENV).is_some())
+}
+
+fn application_support_root(home: &Path, application_id: &str) -> PathBuf {
+    home.join("Library")
+        .join("Application Support")
+        .join(application_id)
+}
+
+fn focus_socket_identity_for(application_id: &str, settings_directory: &Path) -> String {
     let settings_bytes = settings_directory.as_os_str().as_bytes();
-    let mut identity = Vec::with_capacity(APPLICATION_ID.len() + 1 + settings_bytes.len());
-    identity.extend_from_slice(APPLICATION_ID.as_bytes());
+    let mut identity = Vec::with_capacity(application_id.len() + 1 + settings_bytes.len());
+    identity.extend_from_slice(application_id.as_bytes());
     identity.push(0);
     identity.extend_from_slice(settings_bytes);
 
@@ -163,13 +184,21 @@ fn focus_socket_identity(settings_directory: &Path) -> String {
     encoded
 }
 
-fn focus_socket_path_at(temp_directory: &Path, settings_directory: &Path) -> PathBuf {
+fn focus_socket_path_at_for(
+    temp_directory: &Path,
+    settings_directory: &Path,
+    application_id: &str,
+) -> PathBuf {
     temp_directory
         .join(format!(
             "{INSTANCE_SOCKET_DIRECTORY_PREFIX}{}",
-            focus_socket_identity(settings_directory)
+            focus_socket_identity_for(application_id, settings_directory)
         ))
         .join(INSTANCE_SOCKET_FILE)
+}
+
+fn focus_socket_path_at(temp_directory: &Path, settings_directory: &Path) -> PathBuf {
+    focus_socket_path_at_for(temp_directory, settings_directory, desktop_application_id())
 }
 
 fn focus_socket_path(settings_directory: &Path) -> PathBuf {
@@ -186,7 +215,7 @@ fn instance_paths_at(settings_directory: PathBuf) -> InstancePaths {
 }
 
 fn instance_paths() -> AppResult<InstancePaths> {
-    let root = application_support_root(&configured_home_directory()?);
+    let root = application_support_root(&configured_home_directory()?, desktop_application_id());
     let settings = root.join("settings");
     fs::create_dir_all(&settings)
         .map_err(|error| format!("cannot create desktop settings directory: {error}"))?;
@@ -212,7 +241,7 @@ fn instance_owner_with_pid(pid: u32) -> InstanceOwner {
     InstanceOwner {
         schema_version: INSTANCE_SCHEMA_VERSION,
         pid,
-        application_id: APPLICATION_ID.to_string(),
+        application_id: desktop_application_id().to_string(),
     }
 }
 
@@ -599,6 +628,46 @@ mod tests {
             }
             Err(error) => panic!("Unix socket test setup failed: {error}"),
         }
+    }
+
+    #[test]
+    fn debug_default_identity_is_separate_from_the_product_storage_namespace() {
+        let home = PathBuf::from("/Users/cornell-test");
+        let product_root = application_support_root(&home, APPLICATION_ID);
+        let default_root = application_support_root(&home, application_id_for(false));
+
+        assert_eq!(application_id_for(true), APPLICATION_ID);
+        assert_eq!(
+            product_root,
+            home.join("Library/Application Support")
+                .join(APPLICATION_ID)
+        );
+
+        #[cfg(debug_assertions)]
+        {
+            assert_eq!(application_id_for(false), DEBUG_APPLICATION_ID);
+            assert_ne!(default_root, product_root);
+            assert!(default_root.ends_with(DEBUG_APPLICATION_ID));
+        }
+
+        #[cfg(not(debug_assertions))]
+        {
+            assert_eq!(application_id_for(false), APPLICATION_ID);
+            assert_eq!(default_root, product_root);
+        }
+    }
+
+    #[cfg(debug_assertions)]
+    #[test]
+    fn debug_focus_socket_identity_is_separate_from_the_product_identity() {
+        let settings = PathBuf::from("/Users/cornell-test/Library/Application Support/settings");
+        let temp_directory = Path::new("/tmp");
+
+        let debug_socket =
+            focus_socket_path_at_for(temp_directory, &settings, DEBUG_APPLICATION_ID);
+        let product_socket = focus_socket_path_at_for(temp_directory, &settings, APPLICATION_ID);
+
+        assert_ne!(debug_socket, product_socket);
     }
 
     #[test]

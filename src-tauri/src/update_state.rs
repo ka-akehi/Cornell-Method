@@ -124,6 +124,8 @@ pub(crate) struct PendingUpdate {
     pub(crate) size_bytes: Option<u64>,
     pub(crate) sha256: Option<String>,
     pub(crate) key_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) signed_identity_sha256: Option<String>,
     pub(crate) package_path: Option<PathBuf>,
     pub(crate) extracted_app_path: Option<PathBuf>,
     pub(crate) discovered_at: u64,
@@ -131,7 +133,7 @@ pub(crate) struct PendingUpdate {
 }
 
 impl PendingUpdate {
-    pub(crate) fn new(
+    pub(crate) fn new_with_signed_identity(
         version: impl Into<String>,
         channel: impl Into<String>,
         architecture: impl Into<String>,
@@ -139,6 +141,7 @@ impl PendingUpdate {
         size_bytes: u64,
         sha256: impl Into<String>,
         key_id: impl Into<String>,
+        signed_identity_sha256: impl Into<String>,
         discovered_at: u64,
     ) -> Result<Self, UpdateStateError> {
         let pending = Self {
@@ -150,6 +153,7 @@ impl PendingUpdate {
             size_bytes: Some(size_bytes),
             sha256: Some(sha256.into()),
             key_id: Some(key_id.into()),
+            signed_identity_sha256: Some(signed_identity_sha256.into()),
             package_path: None,
             extracted_app_path: None,
             discovered_at,
@@ -184,6 +188,10 @@ impl PendingUpdate {
             }
         };
 
+        if let Some(signed_identity_sha256) = &self.signed_identity_sha256 {
+            validate_sha256(signed_identity_sha256)?;
+        }
+
         match self.verification_state {
             VerificationState::NotVerified => {
                 if self.verified_at.is_some() {
@@ -194,6 +202,7 @@ impl PendingUpdate {
             }
             VerificationState::Verified => {
                 if !evidence
+                    || self.signed_identity_sha256.is_none()
                     || self.package_path.is_none()
                     || self.extracted_app_path.is_none()
                     || self.verified_at.is_none()
@@ -258,6 +267,7 @@ impl PendingUpdate {
             size_bytes: None,
             sha256: None,
             key_id: None,
+            signed_identity_sha256: None,
             package_path: None,
             extracted_app_path: None,
             discovered_at,
@@ -266,6 +276,14 @@ impl PendingUpdate {
     }
 
     pub(crate) fn candidate_identity_matches(&self, other: &Self) -> bool {
+        let signed_identity_matches = match (
+            self.signed_identity_sha256.as_deref(),
+            other.signed_identity_sha256.as_deref(),
+        ) {
+            (Some(left), Some(right)) => left == right,
+            _ => false,
+        };
+
         self.version == other.version
             && self.channel == other.channel
             && self.architecture == other.architecture
@@ -273,6 +291,7 @@ impl PendingUpdate {
             && self.size_bytes == other.size_bytes
             && self.sha256 == other.sha256
             && self.key_id == other.key_id
+            && signed_identity_matches
     }
 
     fn notification_key_matches(&self, notification: &UpdateNotification) -> bool {
@@ -618,6 +637,22 @@ impl UpdateStateStore {
             .unwrap_or_else(|_| UpdateState::initial())
     }
 
+    pub(crate) fn read_only_snapshot(&self) -> Result<UpdateStateSnapshot, UpdateStateError> {
+        if self
+            .load_issue
+            .is_some_and(|issue| issue != UpdateStateLoadIssue::MigrationWrite)
+        {
+            return Err(UpdateStateError::Storage(
+                "update state is unavailable".to_string(),
+            ));
+        }
+
+        self.state
+            .lock()
+            .map(|state| UpdateStateSnapshot::from(&*state))
+            .map_err(|_| UpdateStateError::LockPoisoned)
+    }
+
     pub(crate) fn can_start_check(
         &self,
         trigger: CheckTrigger,
@@ -678,6 +713,11 @@ impl UpdateStateStore {
     pub(crate) fn record_no_update(&self) -> Result<(), UpdateStateError> {
         self.ensure_writable()?;
         self.mutate_check_result(|state| {
+            cleanup_discarded_verified_artifacts(
+                &self.staging_directory,
+                state.pending_update.as_ref(),
+                None,
+            )?;
             state.status = UpdateStatus::NoUpdate;
             state.phase = None;
             state.check_started_at = None;
@@ -699,6 +739,13 @@ impl UpdateStateStore {
                 .pending_update
                 .as_ref()
                 .is_some_and(|existing| existing.candidate_identity_matches(&pending_update));
+            if !same_pending {
+                cleanup_discarded_verified_artifacts(
+                    &self.staging_directory,
+                    state.pending_update.as_ref(),
+                    Some(&pending_update),
+                )?;
+            }
             let pending_update = if same_pending {
                 let existing = state
                     .pending_update
@@ -738,7 +785,30 @@ impl UpdateStateStore {
                 "revalidated candidate has no available update".to_string(),
             ));
         }
+        let pending_update = if state
+            .pending_update
+            .as_ref()
+            .is_some_and(|existing| existing.candidate_identity_matches(&pending_update))
+        {
+            let existing = state
+                .pending_update
+                .as_ref()
+                .expect("same pending update must exist");
+            let mut merged = pending_update;
+            merged.verification_state = existing.verification_state;
+            merged.package_path = existing.package_path.clone();
+            merged.extracted_app_path = existing.extracted_app_path.clone();
+            merged.verified_at = existing.verified_at;
+            merged
+        } else {
+            pending_update
+        };
         let previous = state.clone();
+        cleanup_discarded_verified_artifacts(
+            &self.staging_directory,
+            state.pending_update.as_ref(),
+            Some(&pending_update),
+        )?;
         state.phase = None;
         state.check_started_at = None;
         state.pending_update = Some(pending_update);
@@ -764,6 +834,11 @@ impl UpdateStateStore {
             ));
         }
         let previous = state.clone();
+        cleanup_discarded_verified_artifacts(
+            &self.staging_directory,
+            state.pending_update.as_ref(),
+            None,
+        )?;
         state.status = UpdateStatus::NoUpdate;
         state.phase = None;
         state.check_started_at = None;
@@ -1288,18 +1363,36 @@ fn parse_state(contents: &[u8], now: u64) -> Result<ParsedState, UpdateStateLoad
                 .map_err(|_| UpdateStateLoadIssue::Invalid)
         }
         version if version == u64::from(UPDATE_STATE_SCHEMA_VERSION) => {
-            let state = serde_json::from_value::<UpdateState>(value)
+            let mut state = serde_json::from_value::<UpdateState>(value)
                 .map_err(|_| UpdateStateLoadIssue::Invalid)?;
+            let needs_migration = downgrade_unbound_verified_candidate(&mut state);
             state
                 .validate()
                 .map_err(|_| UpdateStateLoadIssue::Invalid)?;
             Ok(ParsedState {
                 state,
-                needs_migration: false,
+                needs_migration,
             })
         }
         _ => Err(UpdateStateLoadIssue::UnsupportedSchema),
     }
+}
+
+fn downgrade_unbound_verified_candidate(state: &mut UpdateState) -> bool {
+    let Some(pending_update) = state.pending_update.as_mut() else {
+        return false;
+    };
+    if pending_update.verification_state != VerificationState::Verified
+        || pending_update.signed_identity_sha256.is_some()
+    {
+        return false;
+    }
+
+    pending_update.verification_state = VerificationState::NotVerified;
+    pending_update.package_path = None;
+    pending_update.extracted_app_path = None;
+    pending_update.verified_at = None;
+    true
 }
 
 fn migrate_legacy_state(
@@ -1470,6 +1563,209 @@ pub(crate) fn canonical_extracted_app_path(sha256: &str) -> Result<PathBuf, Upda
     Ok(PathBuf::from("extract")
         .join(sha256)
         .join("Cornell Method Notebook.app"))
+}
+
+#[derive(Clone, Copy)]
+enum CleanupTargetKind {
+    RegularFile,
+    Directory,
+}
+
+struct CleanupTarget {
+    path: PathBuf,
+    kind: CleanupTargetKind,
+}
+
+fn cleanup_discarded_verified_artifacts(
+    staging_directory: &Path,
+    discarded_candidate: Option<&PendingUpdate>,
+    replacement_candidate: Option<&PendingUpdate>,
+) -> Result<(), UpdateStateError> {
+    let Some(discarded_candidate) = discarded_candidate else {
+        return Ok(());
+    };
+    if discarded_candidate.verification_state != VerificationState::Verified {
+        return Ok(());
+    }
+
+    discarded_candidate.validate_paths_at(staging_directory)?;
+    let replacement_paths = replacement_candidate
+        .and_then(|candidate| candidate.sha256.as_deref())
+        .map(|digest| {
+            Ok::<_, UpdateStateError>((
+                canonical_package_path(digest)?,
+                canonical_extracted_app_path(digest)?,
+            ))
+        })
+        .transpose()?;
+
+    if !validate_cleanup_staging_root(staging_directory)? {
+        return Ok(());
+    }
+
+    let package_path = discarded_candidate.package_path.as_ref().ok_or_else(|| {
+        UpdateStateError::Invalid("verified update has no package path to clean".to_string())
+    })?;
+    let extracted_app_path = discarded_candidate
+        .extracted_app_path
+        .as_ref()
+        .ok_or_else(|| {
+            UpdateStateError::Invalid(
+                "verified update has no extracted app path to clean".to_string(),
+            )
+        })?;
+
+    let mut targets = Vec::with_capacity(2);
+    if replacement_paths
+        .as_ref()
+        .is_none_or(|paths| paths.0 != *package_path)
+    {
+        if let Some(target) = resolve_cleanup_target(
+            staging_directory,
+            package_path,
+            CleanupTargetKind::RegularFile,
+            "package path",
+        )? {
+            targets.push(target);
+        }
+    }
+    if replacement_paths
+        .as_ref()
+        .is_none_or(|paths| paths.1 != *extracted_app_path)
+    {
+        if let Some(target) = resolve_cleanup_target(
+            staging_directory,
+            extracted_app_path,
+            CleanupTargetKind::Directory,
+            "extracted app path",
+        )? {
+            targets.push(target);
+        }
+    }
+
+    for target in targets {
+        remove_cleanup_target(&target)?;
+    }
+    Ok(())
+}
+
+fn validate_cleanup_staging_root(staging_directory: &Path) -> Result<bool, UpdateStateError> {
+    if !staging_directory.is_absolute()
+        || staging_directory
+            .components()
+            .any(|component| matches!(component, Component::CurDir | Component::ParentDir))
+    {
+        return Err(UpdateStateError::Invalid(
+            "staging directory is not a safe absolute path".to_string(),
+        ));
+    }
+
+    match fs::symlink_metadata(staging_directory) {
+        Ok(metadata) if metadata.file_type().is_symlink() => Err(UpdateStateError::Invalid(
+            "staging directory is a symlink".to_string(),
+        )),
+        Ok(metadata) if !metadata.is_dir() => Err(UpdateStateError::Invalid(
+            "staging directory is not a directory".to_string(),
+        )),
+        Ok(_) => Ok(true),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(false),
+        Err(_) => Err(UpdateStateError::Storage(
+            "staging directory could not be inspected".to_string(),
+        )),
+    }
+}
+
+fn resolve_cleanup_target(
+    staging_directory: &Path,
+    relative_path: &Path,
+    kind: CleanupTargetKind,
+    label: &str,
+) -> Result<Option<CleanupTarget>, UpdateStateError> {
+    let mut current = staging_directory.to_path_buf();
+    let components: Vec<_> = relative_path.components().collect();
+    if components.is_empty() {
+        return Err(UpdateStateError::Invalid(format!("{label} is empty")));
+    }
+
+    for (index, component) in components.iter().enumerate() {
+        let Component::Normal(component) = component else {
+            return Err(UpdateStateError::Invalid(format!(
+                "{label} contains an unsafe path component"
+            )));
+        };
+        current.push(component);
+        let is_target = index + 1 == components.len();
+        match fs::symlink_metadata(&current) {
+            Ok(metadata) if metadata.file_type().is_symlink() => {
+                return Err(UpdateStateError::Invalid(format!(
+                    "{label} contains a symlink"
+                )));
+            }
+            Ok(metadata) if is_target => {
+                let expected = match kind {
+                    CleanupTargetKind::RegularFile => metadata.is_file(),
+                    CleanupTargetKind::Directory => metadata.is_dir(),
+                };
+                if !expected {
+                    return Err(UpdateStateError::Invalid(format!(
+                        "{label} has an unexpected file type"
+                    )));
+                }
+            }
+            Ok(metadata) if !metadata.is_dir() => {
+                return Err(UpdateStateError::Invalid(format!(
+                    "{label} contains a non-directory component"
+                )));
+            }
+            Ok(_) => {}
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+            Err(_) => {
+                return Err(UpdateStateError::Storage(format!(
+                    "{label} could not be inspected"
+                )));
+            }
+        }
+    }
+
+    Ok(Some(CleanupTarget {
+        path: current,
+        kind,
+    }))
+}
+
+fn remove_cleanup_target(target: &CleanupTarget) -> Result<(), UpdateStateError> {
+    let metadata = match fs::symlink_metadata(&target.path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
+        Err(_) => {
+            return Err(UpdateStateError::Storage(
+                "verified staging artifact could not be inspected".to_string(),
+            ));
+        }
+    };
+    if metadata.file_type().is_symlink() {
+        return Err(UpdateStateError::Invalid(
+            "verified staging artifact is a symlink".to_string(),
+        ));
+    }
+
+    let expected = match target.kind {
+        CleanupTargetKind::RegularFile => metadata.is_file(),
+        CleanupTargetKind::Directory => metadata.is_dir(),
+    };
+    if !expected {
+        return Err(UpdateStateError::Invalid(
+            "verified staging artifact has an unexpected file type".to_string(),
+        ));
+    }
+
+    let result = match target.kind {
+        CleanupTargetKind::RegularFile => fs::remove_file(&target.path),
+        CleanupTargetKind::Directory => fs::remove_dir_all(&target.path),
+    };
+    result.map_err(|_| {
+        UpdateStateError::Storage("verified staging artifact cleanup failed".to_string())
+    })
 }
 
 fn validate_canonical_package_path(path: &Path, sha256: &str) -> Result<(), UpdateStateError> {
@@ -1675,6 +1971,14 @@ fn write_state_atomically(path: &Path, state: &UpdateState) -> Result<(), Update
 mod tests {
     use super::*;
 
+    const TEST_DIGEST: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+    const OTHER_TEST_DIGEST: &str =
+        "abcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcd";
+    const TEST_SIGNED_IDENTITY: &str =
+        "1111111111111111111111111111111111111111111111111111111111111111";
+    const OTHER_TEST_SIGNED_IDENTITY: &str =
+        "2222222222222222222222222222222222222222222222222222222222222222";
+
     fn test_directory(label: &str) -> PathBuf {
         let counter = TEMP_FILE_COUNTER.fetch_add(1, Ordering::Relaxed);
         let directory = std::env::temp_dir().join(format!(
@@ -1704,7 +2008,7 @@ mod tests {
     }
 
     fn pending(version: &str, artifact: &str, discovered_at: u64) -> PendingUpdate {
-        PendingUpdate::new(
+        PendingUpdate::new_with_signed_identity(
             version,
             "stable",
             "aarch64-apple-darwin",
@@ -1712,25 +2016,25 @@ mod tests {
             1,
             "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
             "test-key",
+            TEST_SIGNED_IDENTITY,
             discovered_at,
         )
         .unwrap()
     }
 
     fn record_test_verified(store: &UpdateStateStore) {
-        let digest = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
         let verified_archive = VerifiedArchive {
-            relative_package_path: canonical_package_path(digest).unwrap(),
+            relative_package_path: canonical_package_path(TEST_DIGEST).unwrap(),
             artifact_id: "artifact".to_string(),
             raw_size_bytes: 1,
-            raw_sha256: digest.to_string(),
+            raw_sha256: TEST_DIGEST.to_string(),
             version: "1.2.3".to_string(),
             architecture: "aarch64-apple-darwin".to_string(),
         };
         let extracted_archive = ExtractedArchive {
-            relative_app_path: canonical_extracted_app_path(digest).unwrap(),
+            relative_app_path: canonical_extracted_app_path(TEST_DIGEST).unwrap(),
             artifact_id: "artifact".to_string(),
-            raw_sha256: digest.to_string(),
+            raw_sha256: TEST_DIGEST.to_string(),
             version: "1.2.3".to_string(),
             architecture: "aarch64-apple-darwin".to_string(),
         };
@@ -1748,6 +2052,18 @@ mod tests {
         store
             .record_verified(&verified_archive, &extracted_archive, &verified_bundle, 111)
             .unwrap();
+    }
+
+    fn create_test_artifacts(directory: &Path, digest: &str) -> (PathBuf, PathBuf) {
+        let staging_directory = directory.join("staging");
+        let package_path = staging_directory.join(canonical_package_path(digest).unwrap());
+        fs::create_dir_all(package_path.parent().unwrap()).unwrap();
+        fs::write(&package_path, b"verified package").unwrap();
+
+        let extracted_app_path =
+            staging_directory.join(canonical_extracted_app_path(digest).unwrap());
+        fs::create_dir_all(&extracted_app_path).unwrap();
+        (package_path, extracted_app_path)
     }
 
     #[test]
@@ -1797,6 +2113,22 @@ mod tests {
         assert!(pending.get("signature").is_none());
         assert!(available.get("notification").is_none());
 
+        cleanup(&directory);
+    }
+
+    #[test]
+    fn read_only_snapshot_rejects_a_persisted_state_load_issue() {
+        let directory = test_directory("read-only-snapshot-error");
+        let staging_directory = directory.join("staging");
+        fs::create_dir_all(&staging_directory).unwrap();
+        fs::write(directory.join(UPDATE_STATE_FILE_NAME), b"{").unwrap();
+
+        let store = UpdateStateStore::load_or_default_at(&directory, &staging_directory, 100);
+
+        assert!(matches!(
+            store.read_only_snapshot(),
+            Err(UpdateStateError::Storage(_))
+        ));
         cleanup(&directory);
     }
 
@@ -1901,6 +2233,49 @@ mod tests {
     }
 
     #[test]
+    fn v2_verified_state_without_signed_identity_is_downgraded_before_restore() {
+        let (directory, store) = store("missing-signed-identity");
+        store.begin_check(CheckTrigger::Manual, 100).unwrap();
+        let candidate = pending("1.2.3", "artifact", 100);
+        store.record_available(candidate.clone()).unwrap();
+        store.begin_package_verification(&candidate, 110).unwrap();
+        let (package_path, extracted_app_path) = create_test_artifacts(&directory, TEST_DIGEST);
+        record_test_verified(&store);
+
+        let path = store.state_path().to_path_buf();
+        let mut state_json: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+        state_json["pendingUpdate"]
+            .as_object_mut()
+            .unwrap()
+            .remove("signedIdentitySha256");
+        fs::write(&path, serde_json::to_vec(&state_json).unwrap()).unwrap();
+        drop(store);
+
+        let migrated = load_at(&directory, 200);
+        assert_eq!(migrated.load_issue(), None);
+        let pending = migrated.snapshot().pending_update.unwrap();
+        assert_eq!(pending.verification_state, VerificationState::NotVerified);
+        assert_eq!(pending.package_path, None);
+        assert_eq!(pending.extracted_app_path, None);
+        assert_eq!(pending.verified_at, None);
+        assert!(package_path.exists());
+        assert!(extracted_app_path.exists());
+
+        let persisted: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+        assert_eq!(
+            persisted["pendingUpdate"]["verificationState"],
+            "not-verified"
+        );
+        assert!(persisted["pendingUpdate"]["packagePath"].is_null());
+        assert!(persisted["pendingUpdate"]["extractedAppPath"].is_null());
+        assert!(persisted["pendingUpdate"]
+            .get("signedIdentitySha256")
+            .is_none());
+
+        cleanup(&directory);
+    }
+
+    #[test]
     fn migration_write_failure_keeps_the_original_v1_file() {
         let directory = test_directory("migration-write-failure");
         let path = directory.join(UPDATE_STATE_FILE_NAME);
@@ -1925,6 +2300,10 @@ mod tests {
         assert_eq!(
             store.load_issue(),
             Some(UpdateStateLoadIssue::MigrationWrite)
+        );
+        assert_eq!(
+            store.read_only_snapshot().unwrap().status,
+            UpdateStatus::NotChecked
         );
         assert_eq!(fs::read(&path).unwrap(), original);
         assert!(store.begin_check(CheckTrigger::Manual, 201).is_err());
@@ -2224,6 +2603,7 @@ mod tests {
         let candidate = pending("1.2.3", "artifact", 100);
         store.record_available(candidate.clone()).unwrap();
         store.begin_package_verification(&candidate, 110).unwrap();
+        let (package_path, extracted_app_path) = create_test_artifacts(&directory, TEST_DIGEST);
         record_test_verified(&store);
 
         let verified_before = store.snapshot().pending_update.unwrap();
@@ -2256,6 +2636,8 @@ mod tests {
             verified_after.extracted_app_path,
             verified_before.extracted_app_path
         );
+        assert!(package_path.exists());
+        assert!(extracted_app_path.exists());
 
         cleanup(&directory);
     }
@@ -2327,10 +2709,12 @@ mod tests {
         let candidate = pending("1.2.3", "artifact", 100);
         store.record_available(candidate.clone()).unwrap();
         store.begin_package_verification(&candidate, 110).unwrap();
+        let (old_package_path, old_extracted_app_path) =
+            create_test_artifacts(&directory, TEST_DIGEST);
         record_test_verified(&store);
 
         store.begin_check(CheckTrigger::Manual, 200).unwrap();
-        let changed = PendingUpdate::new(
+        let changed = PendingUpdate::new_with_signed_identity(
             "1.2.3",
             "stable",
             "aarch64-apple-darwin",
@@ -2338,9 +2722,14 @@ mod tests {
             2,
             "abcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcd",
             "new-key",
+            OTHER_TEST_SIGNED_IDENTITY,
             201,
         )
         .unwrap();
+        let (new_package_path, new_extracted_app_path) =
+            create_test_artifacts(&directory, OTHER_TEST_DIGEST);
+        let outside_sentinel = directory.join("outside-sentinel");
+        fs::write(&outside_sentinel, b"keep").unwrap();
         store.record_available(changed).unwrap();
 
         let pending = store.snapshot().pending_update.unwrap();
@@ -2348,6 +2737,219 @@ mod tests {
         assert_eq!(pending.package_path, None);
         assert_eq!(pending.extracted_app_path, None);
         assert_eq!(pending.verified_at, None);
+        assert!(!old_package_path.exists());
+        assert!(!old_extracted_app_path.exists());
+        assert!(new_package_path.exists());
+        assert!(new_extracted_app_path.exists());
+        assert!(outside_sentinel.exists());
+
+        cleanup(&directory);
+    }
+
+    #[test]
+    fn changed_signed_identity_drops_verified_evidence_but_keeps_safe_cache() {
+        let (directory, store) = store("signed-identity-changed");
+        store.begin_check(CheckTrigger::Manual, 100).unwrap();
+        let candidate = pending("1.2.3", "artifact", 100);
+        store.record_available(candidate.clone()).unwrap();
+        store.begin_package_verification(&candidate, 110).unwrap();
+        let (old_package_path, old_extracted_app_path) =
+            create_test_artifacts(&directory, TEST_DIGEST);
+        record_test_verified(&store);
+
+        store.begin_check(CheckTrigger::Manual, 200).unwrap();
+        let mut changed = pending("1.2.3", "artifact", 201);
+        changed.signed_identity_sha256 = Some(OTHER_TEST_SIGNED_IDENTITY.to_string());
+        store.record_available(changed).unwrap();
+
+        let pending = store.snapshot().pending_update.unwrap();
+        assert_eq!(pending.verification_state, VerificationState::NotVerified);
+        assert_eq!(pending.package_path, None);
+        assert_eq!(pending.extracted_app_path, None);
+        assert_eq!(pending.verified_at, None);
+        assert!(old_package_path.exists());
+        assert!(old_extracted_app_path.exists());
+
+        cleanup(&directory);
+    }
+
+    #[test]
+    fn replace_available_candidate_cleans_only_the_discarded_verified_artifact() {
+        let (directory, store) = store("replace-candidate-cleanup");
+        store.begin_check(CheckTrigger::Manual, 100).unwrap();
+        let candidate = pending("1.2.3", "artifact", 100);
+        store.record_available(candidate.clone()).unwrap();
+        store.begin_package_verification(&candidate, 110).unwrap();
+        let (old_package_path, old_extracted_app_path) =
+            create_test_artifacts(&directory, TEST_DIGEST);
+        record_test_verified(&store);
+
+        let replacement = PendingUpdate::new_with_signed_identity(
+            "1.2.4",
+            "stable",
+            "aarch64-apple-darwin",
+            "artifact-new",
+            2,
+            OTHER_TEST_DIGEST,
+            "new-key",
+            OTHER_TEST_SIGNED_IDENTITY,
+            200,
+        )
+        .unwrap();
+        let (new_package_path, new_extracted_app_path) =
+            create_test_artifacts(&directory, OTHER_TEST_DIGEST);
+        let outside_sentinel = directory.join("outside-sentinel");
+        fs::write(&outside_sentinel, b"keep").unwrap();
+
+        store.replace_available_candidate(replacement).unwrap();
+
+        let snapshot = store.snapshot();
+        assert_eq!(snapshot.status, UpdateStatus::Available);
+        assert_eq!(snapshot.pending_update.unwrap().version, "1.2.4");
+        assert!(!old_package_path.exists());
+        assert!(!old_extracted_app_path.exists());
+        assert!(new_package_path.exists());
+        assert!(new_extracted_app_path.exists());
+        assert!(outside_sentinel.exists());
+
+        cleanup(&directory);
+    }
+
+    #[test]
+    fn record_no_update_cleans_the_discarded_verified_artifact() {
+        let (directory, store) = store("no-update-cleanup");
+        store.begin_check(CheckTrigger::Manual, 100).unwrap();
+        let candidate = pending("1.2.3", "artifact", 100);
+        store.record_available(candidate.clone()).unwrap();
+        store.begin_package_verification(&candidate, 110).unwrap();
+        let (old_package_path, old_extracted_app_path) =
+            create_test_artifacts(&directory, TEST_DIGEST);
+        record_test_verified(&store);
+        store.begin_check(CheckTrigger::Manual, 200).unwrap();
+        let outside_sentinel = directory.join("outside-sentinel");
+        fs::write(&outside_sentinel, b"keep").unwrap();
+
+        store.record_no_update().unwrap();
+
+        let snapshot = store.snapshot();
+        assert_eq!(snapshot.status, UpdateStatus::NoUpdate);
+        assert_eq!(snapshot.pending_update, None);
+        assert!(!old_package_path.exists());
+        assert!(!old_extracted_app_path.exists());
+        assert!(outside_sentinel.exists());
+
+        cleanup(&directory);
+    }
+
+    #[test]
+    fn record_revalidated_no_update_cleans_the_discarded_verified_artifact() {
+        let (directory, store) = store("revalidated-no-update-cleanup");
+        store.begin_check(CheckTrigger::Manual, 100).unwrap();
+        let candidate = pending("1.2.3", "artifact", 100);
+        store.record_available(candidate.clone()).unwrap();
+        store.begin_package_verification(&candidate, 110).unwrap();
+        let (old_package_path, old_extracted_app_path) =
+            create_test_artifacts(&directory, TEST_DIGEST);
+        record_test_verified(&store);
+        let outside_sentinel = directory.join("outside-sentinel");
+        fs::write(&outside_sentinel, b"keep").unwrap();
+
+        store.record_revalidated_no_update().unwrap();
+
+        let snapshot = store.snapshot();
+        assert_eq!(snapshot.status, UpdateStatus::NoUpdate);
+        assert_eq!(snapshot.pending_update, None);
+        assert!(!old_package_path.exists());
+        assert!(!old_extracted_app_path.exists());
+        assert!(outside_sentinel.exists());
+
+        cleanup(&directory);
+    }
+
+    #[test]
+    fn unsafe_discarded_verified_path_fails_closed_without_replacing_state() {
+        let (directory, store) = store("unsafe-cleanup-path");
+        store.begin_check(CheckTrigger::Manual, 100).unwrap();
+        let candidate = pending("1.2.3", "artifact", 100);
+        store.record_available(candidate.clone()).unwrap();
+        store.begin_package_verification(&candidate, 110).unwrap();
+        let (old_package_path, old_extracted_app_path) =
+            create_test_artifacts(&directory, TEST_DIGEST);
+        record_test_verified(&store);
+        let outside_sentinel = directory.join("outside-sentinel");
+        fs::write(&outside_sentinel, b"keep").unwrap();
+        {
+            let mut state = store.state.lock().unwrap();
+            state.pending_update.as_mut().unwrap().package_path =
+                Some(PathBuf::from("../outside-sentinel"));
+        }
+
+        let result = store.record_revalidated_no_update();
+
+        assert!(matches!(result, Err(UpdateStateError::Invalid(_))));
+        let snapshot = store.snapshot();
+        assert_eq!(snapshot.status, UpdateStatus::Available);
+        assert!(snapshot.pending_update.is_some());
+        assert!(old_package_path.exists());
+        assert!(old_extracted_app_path.exists());
+        assert!(outside_sentinel.exists());
+
+        cleanup(&directory);
+    }
+
+    #[test]
+    fn unexpected_discarded_verified_file_type_fails_closed_before_any_delete() {
+        let (directory, store) = store("unexpected-cleanup-type");
+        store.begin_check(CheckTrigger::Manual, 100).unwrap();
+        let candidate = pending("1.2.3", "artifact", 100);
+        store.record_available(candidate.clone()).unwrap();
+        store.begin_package_verification(&candidate, 110).unwrap();
+        let (package_path, extracted_app_path) = create_test_artifacts(&directory, TEST_DIGEST);
+        record_test_verified(&store);
+        fs::remove_file(&package_path).unwrap();
+        fs::create_dir(&package_path).unwrap();
+
+        let result = store.record_revalidated_no_update();
+
+        assert!(matches!(result, Err(UpdateStateError::Invalid(_))));
+        let snapshot = store.snapshot();
+        assert_eq!(snapshot.status, UpdateStatus::Available);
+        assert!(snapshot.pending_update.is_some());
+        assert!(package_path.is_dir());
+        assert!(extracted_app_path.exists());
+
+        cleanup(&directory);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn symlinked_discarded_verified_artifact_fails_closed_without_following_target() {
+        use std::os::unix::fs::symlink;
+
+        let (directory, store) = store("symlink-cleanup-target");
+        store.begin_check(CheckTrigger::Manual, 100).unwrap();
+        let candidate = pending("1.2.3", "artifact", 100);
+        store.record_available(candidate.clone()).unwrap();
+        store.begin_package_verification(&candidate, 110).unwrap();
+        let (package_path, extracted_app_path) = create_test_artifacts(&directory, TEST_DIGEST);
+        record_test_verified(&store);
+
+        let outside_directory = directory.join("outside");
+        fs::create_dir_all(&outside_directory).unwrap();
+        let outside_package_path = outside_directory.join("package");
+        fs::write(&outside_package_path, b"keep").unwrap();
+        fs::remove_file(&package_path).unwrap();
+        symlink(&outside_package_path, &package_path).unwrap();
+
+        let result = store.record_revalidated_no_update();
+
+        assert!(matches!(result, Err(UpdateStateError::Invalid(_))));
+        let snapshot = store.snapshot();
+        assert_eq!(snapshot.status, UpdateStatus::Available);
+        assert!(snapshot.pending_update.is_some());
+        assert!(package_path.is_symlink());
+        assert!(outside_package_path.exists());
+        assert!(extracted_app_path.exists());
 
         cleanup(&directory);
     }

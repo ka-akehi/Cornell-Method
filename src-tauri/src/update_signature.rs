@@ -10,6 +10,9 @@ pub(crate) const SIGNATURE_PAYLOAD_DOMAIN_BYTES: &[u8] =
     b"com.cornellmethod.notebook/desktop-update-signature/ed25519\0";
 pub(crate) const TRUSTED_KEY_ID_PREFIX: &str = "cmn-ed25519-v1-";
 
+const SIGNED_IDENTITY_DOMAIN_BYTES: &[u8] =
+    b"com.cornellmethod.notebook/desktop-update-signed-identity/sha256\0";
+
 const TRUSTED_PUBLIC_KEY_BYTES: usize = 32;
 const ED25519_SIGNATURE_BYTES: usize = 64;
 
@@ -35,9 +38,16 @@ struct EmbeddedTrustedKeySpec {
     status: TrustedKeyStatus,
 }
 
-// Production keys are intentionally absent until their values are approved.
 // The only non-test source for trusted keys is this compile-time table.
-const EMBEDDED_TRUSTED_KEY_TABLE: &[EmbeddedTrustedKeySpec] = &[];
+const EMBEDDED_TRUSTED_KEY_TABLE: &[EmbeddedTrustedKeySpec] = &[EmbeddedTrustedKeySpec {
+    key_id: "cmn-ed25519-v1-381374c2723e7e3624ed21bd2836992ae9266ef78dfeb9ac21b33a08e8632f54",
+    public_key: [
+        0xf1, 0xca, 0xe2, 0x84, 0x7e, 0x46, 0x9f, 0x73, 0x66, 0x23, 0x0a, 0xa3, 0x4d, 0x4e, 0x48,
+        0x9d, 0x53, 0xb5, 0x4b, 0x43, 0xc0, 0x61, 0x12, 0x9b, 0xe2, 0xdd, 0x47, 0xbd, 0xce, 0xde,
+        0x03, 0x39,
+    ],
+    status: TrustedKeyStatus::Current,
+}];
 
 pub(crate) struct EmbeddedTrustedKeyStore {
     entries: Vec<TrustedKeyEntry>,
@@ -271,6 +281,28 @@ pub(crate) fn encode_signature_payload(
     Ok(payload)
 }
 
+pub(crate) fn signed_release_identity_sha256(
+    manifest: &UpdateManifest,
+    release: &UpdateRelease,
+) -> Result<String, SignaturePayloadError> {
+    let manifest_digest = decode_manifest_digest(&release.artifact.sha256)?;
+    let canonical_payload = encode_signature_payload(manifest, release, manifest_digest)?;
+
+    let mut identity = Vec::with_capacity(
+        SIGNED_IDENTITY_DOMAIN_BYTES.len()
+            + canonical_payload.len()
+            + release.signature.key_id.len()
+            + release.signature.proof.len()
+            + 24,
+    );
+    identity.extend_from_slice(SIGNED_IDENTITY_DOMAIN_BYTES);
+    append_identity_part(&mut identity, &canonical_payload);
+    append_identity_part(&mut identity, release.signature.key_id.as_bytes());
+    append_identity_part(&mut identity, release.signature.proof.as_bytes());
+
+    Ok(hex_digest(digest(&SHA256, &identity).as_ref()))
+}
+
 pub(crate) fn verify_selected_package(
     manifest_root: &UpdateManifest,
     selected_release: &UpdateRelease,
@@ -325,6 +357,15 @@ fn decode_signature_proof(
     }
 
     Ok(signature)
+}
+
+fn append_identity_part(identity: &mut Vec<u8>, value: &[u8]) {
+    identity.extend_from_slice(&(value.len() as u64).to_be_bytes());
+    identity.extend_from_slice(value);
+}
+
+fn hex_digest(bytes: &[u8]) -> String {
+    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
 fn is_base64url_byte(byte: u8) -> bool {
@@ -659,6 +700,36 @@ mod tests {
     }
 
     #[test]
+    fn signed_identity_binds_range_and_proof_without_changing_wire_payload() {
+        let manifest = parsed_manifest();
+        let release = &manifest.releases[0];
+        let original = signed_release_identity_sha256(&manifest, release).unwrap();
+        assert_eq!(original.len(), 64);
+
+        let mut min_changed = release.clone();
+        min_changed.min_version = MacOsVersion::parse("15", "test min version").unwrap();
+        assert_ne!(
+            original,
+            signed_release_identity_sha256(&manifest, &min_changed).unwrap()
+        );
+
+        let mut max_changed = release.clone();
+        max_changed.max_version_exclusive =
+            Some(MacOsVersion::parse("16", "test max version").unwrap());
+        assert_ne!(
+            original,
+            signed_release_identity_sha256(&manifest, &max_changed).unwrap()
+        );
+
+        let mut proof_changed = release.clone();
+        proof_changed.signature.proof = "different-proof".to_string();
+        assert_ne!(
+            original,
+            signed_release_identity_sha256(&manifest, &proof_changed).unwrap()
+        );
+    }
+
+    #[test]
     fn ignores_json_representation_and_unsigned_release_metadata() {
         let reordered = r#"{
           "releases":[{
@@ -781,9 +852,28 @@ mod tests {
     }
 
     #[test]
-    fn embedded_store_is_empty_until_production_keys_are_approved() {
+    fn embedded_store_contains_the_approved_current_production_key() {
         let store = EmbeddedTrustedKeyStore::embedded().unwrap();
-        assert!(store.entries.is_empty());
+        assert_eq!(store.entries.len(), 1);
+
+        let entry = store
+            .lookup(
+                "cmn-ed25519-v1-381374c2723e7e3624ed21bd2836992ae9266ef78dfeb9ac21b33a08e8632f54",
+            )
+            .unwrap();
+        assert_eq!(
+            entry.key_id,
+            "cmn-ed25519-v1-381374c2723e7e3624ed21bd2836992ae9266ef78dfeb9ac21b33a08e8632f54"
+        );
+        assert_eq!(
+            entry.public_key,
+            [
+                0xf1, 0xca, 0xe2, 0x84, 0x7e, 0x46, 0x9f, 0x73, 0x66, 0x23, 0x0a, 0xa3, 0x4d, 0x4e,
+                0x48, 0x9d, 0x53, 0xb5, 0x4b, 0x43, 0xc0, 0x61, 0x12, 0x9b, 0xe2, 0xdd, 0x47, 0xbd,
+                0xce, 0xde, 0x03, 0x39,
+            ]
+        );
+        assert_eq!(entry.status, TrustedKeyStatus::Current);
     }
 
     #[test]

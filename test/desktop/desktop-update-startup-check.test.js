@@ -59,10 +59,10 @@ test("startup worker reports only fixed codes and has no manual or package side 
   );
   assert.match(
     main,
-    /\.invoke_handler\(tauri::generate_handler!\[\s*manual_update_check,\s*verify_pending_update\s*\]\)/s,
+    /\.invoke_handler\(tauri::generate_handler!\[\s*manual_update_check,\s*read_update_state,\s*verify_pending_update\s*\]\)/s,
   );
   assert.equal(
-    (main.match(/generate_handler!\[\s*manual_update_check,\s*verify_pending_update\s*\]/gs) || []).length,
+    (main.match(/generate_handler!\[\s*manual_update_check,\s*read_update_state,\s*verify_pending_update\s*\]/gs) || []).length,
     1,
   );
   assert.doesNotMatch(main, /fetch_manifest_from_github/);

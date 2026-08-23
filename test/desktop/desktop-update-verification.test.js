@@ -22,7 +22,7 @@ test("explicit verification is a separate command with a blocking worker", () =>
   assert.match(main, /^mod update_verification;$/m);
   assert.match(main, /#\[tauri::command\]\s*async fn verify_pending_update/s);
   assert.match(main, /spawn_blocking\(move \|\| verify_pending_update_command_worker\(app\)\)/);
-  assert.match(main, /manual_update_check,\s*verify_pending_update/s);
+  assert.match(main, /manual_update_check,\s*read_update_state,\s*verify_pending_update/s);
   assert.match(main, /app\.manage\(storage\.clone\(\)\)/);
   assert.doesNotMatch(startup, /verify_pending_update/);
   assert.match(runtime, /pub\(crate\) fn staging_directory\(&self\)/);
@@ -31,6 +31,8 @@ test("explicit verification is a separate command with a blocking worker", () =>
   assert.match(verification, /fetch_manifest\(self\.manifest_transport\)/);
   assert.match(verification, /select_update\(/);
   assert.match(verification, /candidate_identity_matches_release/);
+  assert.match(verification, /signed_release_identity_sha256/);
+  assert.match(verification, /changed_signed_identity_does_not_reuse_verified_artifact_cache/);
   assert.match(verification, /revalidate_cached_artifact/);
   assert.match(verification, /download_and_verify_artifact/);
   assert.match(verification, /extract_verified_archive/);
@@ -38,6 +40,8 @@ test("explicit verification is a separate command with a blocking worker", () =>
   assert.match(verification, /record_package_checkpoint/);
   assert.match(verification, /record_extraction_checkpoint/);
   assert.match(verification, /record_verified\(/);
+  assert.match(verification, /VerifiedArchiveHandle/);
+  assert.match(verification, /package_path_replacement_after_package_verification_fails_closed/);
   assert.match(verification, /recover_staging_artifacts/);
   assert.doesNotMatch(verification, /run_update_check/);
 });

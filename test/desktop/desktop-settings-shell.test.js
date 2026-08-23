@@ -233,6 +233,22 @@ test("external manual update bridge is fixed-contract and keeps remote IPC disab
     lifecycle,
     /MANUAL_UPDATE_CHECK_RESULT_EVENT: &str = "cornell:desktop-manual-update-check-result"/,
   );
+  assert.match(
+    lifecycle,
+    /UPDATE_STATE_REQUEST_FRAGMENT: &str = "cornell-desktop-read-update-state"/,
+  );
+  assert.match(
+    lifecycle,
+    /UPDATE_STATE_RESULT_EVENT: &str = "cornell:desktop-read-update-state-result"/,
+  );
+  assert.match(
+    lifecycle,
+    /VERIFY_PENDING_UPDATE_REQUEST_FRAGMENT: &str = "cornell-desktop-verify-pending-update"/,
+  );
+  assert.match(
+    lifecycle,
+    /VERIFY_PENDING_UPDATE_RESULT_EVENT: &str = "cornell:desktop-verify-pending-update-result"/,
+  );
   assert.match(lifecycle, /url\.fragment\(\) == Some\(MANUAL_UPDATE_CHECK_REQUEST_FRAGMENT\)/);
   assert.match(
     lifecycle,
@@ -243,13 +259,16 @@ test("external manual update bridge is fixed-contract and keeps remote IPC disab
     /fragment\.starts_with\(MANUAL_UPDATE_CHECK_REQUEST_FRAGMENT\)/,
   );
   assert.match(lifecycle, /is_manual_update_check_navigation\(url, primary_url\)/);
+  assert.match(lifecycle, /is_update_state_navigation\(url, primary_url\)/);
   assert.match(lifecycle, /is_manual_update_check_primary_page/);
   assert.match(lifecycle, /spawn_blocking\(move \|\|/);
   assert.match(lifecycle, /manual_update_check_worker\(app\.clone\(\)\)/);
+  assert.match(lifecycle, /read_update_state_worker\(app\.clone\(\)\)/);
+  assert.match(lifecycle, /verify_pending_update_command_worker\(app\.clone\(\)\)/);
+  assert.match(lifecycle, /is_verify_pending_update_navigation\(url, primary_url\)/);
   assert.match(lifecycle, /get_webview_window\(PRIMARY_WINDOW_LABEL\)/);
   assert.match(lifecycle, /window\.eval\(&script\)/);
   assert.match(lifecycle, /history\.replaceState/);
   assert.match(lifecycle, /JSON\.parse/);
   assert.doesNotMatch(lifecycle, /window\.location\.hash\s*===/);
-  assert.doesNotMatch(lifecycle, /verify_pending_update/);
 });

@@ -55,6 +55,9 @@ test("desktop update download keeps raw package verification before archive hand
   assert.match(source, /package-size/);
   assert.match(source, /package-digest/);
   assert.match(source, /package-signature/);
+  assert.match(source, /struct VerifiedArchiveHandle/);
+  assert.match(source, /package_file: File/);
+  assert.match(source, /verify_contents\(&self\)/);
   assert.match(source, /staging-path/);
   assert.match(source, /staging-read/);
   assert.match(source, /staging-write/);

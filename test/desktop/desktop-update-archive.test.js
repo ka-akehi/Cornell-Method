@@ -37,6 +37,9 @@ test("desktop update archive module has a bounded library-only extraction bounda
   assert.match(source, /fs::rename\(&temporary_directory, &ready_directory\)/);
   assert.match(source, /create_new\(true\)/);
   assert.match(source, /O_NOFOLLOW/);
+  assert.match(source, /revalidate_verified_archive\(/);
+  assert.match(source, /same_file_identity\(/);
+  assert.match(source, /verify_contents\(\)/);
   assert.match(source, /archive-gzip/);
   assert.match(source, /archive-tar/);
   assert.match(source, /archive-trailing-data/);

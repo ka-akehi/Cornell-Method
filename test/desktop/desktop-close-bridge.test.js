@@ -34,6 +34,93 @@ function loadBridge() {
   return compiledModule.exports;
 }
 
+test("desktop close bridge signals readiness only on the validated loopback", () => {
+  const previousWindow = global.window;
+  const hashes = [];
+  global.window = {
+    location: {
+      protocol: "http:",
+      hostname: "127.0.0.1",
+      port: "43127",
+      set hash(value) {
+        hashes.push(value);
+      },
+    },
+  };
+
+  try {
+    const bridge = loadBridge();
+    const generation = bridge.createDesktopCloseBridgeGeneration();
+
+    assert.equal(bridge.sendDesktopCloseBridgeReady(generation), true);
+    assert.equal(bridge.sendDesktopCloseBridgeNotReady(generation), true);
+    assert.deepEqual(hashes, [
+      `cornell-desktop-close-bridge-ready=${generation}`,
+      `cornell-desktop-close-bridge-not-ready=${generation}`,
+    ]);
+  } finally {
+    if (previousWindow === undefined) {
+      delete global.window;
+    } else {
+      global.window = previousWindow;
+    }
+  }
+});
+
+test("desktop close bridge does not send readiness to a non-loopback page", () => {
+  const previousWindow = global.window;
+  global.window = {
+    location: {
+      protocol: "http:",
+      hostname: "localhost",
+      port: "43127",
+    },
+  };
+
+  try {
+    const bridge = loadBridge();
+    const generation = bridge.createDesktopCloseBridgeGeneration();
+    assert.equal(bridge.sendDesktopCloseBridgeReady(generation), false);
+  } finally {
+    if (previousWindow === undefined) {
+      delete global.window;
+    } else {
+      global.window = previousWindow;
+    }
+  }
+});
+
+test("close coordinator registers its listener before ready and invalidates it on cleanup", () => {
+  const coordinatorPath = path.join(
+    projectRoot,
+    "src",
+    "app",
+    "_components",
+    "desktop-close-coordinator.tsx",
+  );
+  const coordinator = fs.readFileSync(coordinatorPath, "utf8");
+  const addListener = coordinator.indexOf("window.addEventListener(");
+  const readySignal = coordinator.indexOf(
+    "sendDesktopCloseBridgeReady(bridgeGeneration)",
+  );
+  const cleanup = coordinator.indexOf("return () =>", addListener);
+  const removeListener = coordinator.indexOf(
+    "window.removeEventListener(",
+    cleanup,
+  );
+  const notReadySignal = coordinator.indexOf(
+    "sendDesktopCloseBridgeNotReady(bridgeGeneration)",
+    removeListener,
+  );
+
+  assert.ok(addListener >= 0);
+  assert.ok(readySignal > addListener);
+  assert.ok(cleanup > readySignal);
+  assert.ok(removeListener > cleanup);
+  assert.ok(notReadySignal > removeListener);
+  assert.match(coordinator, /createDesktopCloseBridgeGeneration\(\)/);
+});
+
 test("desktop dirty bridge aggregates owners and removes only their own registration", async () => {
   const bridge = loadBridge();
   let editorDirty = true;

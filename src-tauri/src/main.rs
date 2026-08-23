@@ -31,7 +31,7 @@ use update_check::{
 use update_download::ReqwestArtifactHttpTransport;
 use update_provider::ReqwestManifestHttpTransport;
 use update_signature::EmbeddedTrustedKeyStore;
-use update_state::{current_timestamp, CheckTrigger, UpdateStateStore};
+use update_state::{current_timestamp, CheckTrigger, UpdateStateSnapshot, UpdateStateStore};
 use update_target::load_update_target_context;
 use update_verification::{
     verify_pending_update_worker, VerifyPendingUpdateCommandError, VerifyPendingUpdateResponse,
@@ -110,6 +110,24 @@ fn manual_update_check_worker(
 }
 
 #[tauri::command]
+async fn read_update_state(
+    app: tauri::AppHandle,
+) -> Result<UpdateStateSnapshot, ManualUpdateCheckCommandError> {
+    tauri::async_runtime::spawn_blocking(move || read_update_state_worker(app))
+        .await
+        .map_err(|_| ManualUpdateCheckCommandError::state_error())?
+}
+
+pub(crate) fn read_update_state_worker(
+    app: tauri::AppHandle,
+) -> Result<UpdateStateSnapshot, ManualUpdateCheckCommandError> {
+    let state = app.state::<UpdateStateStore>();
+    state
+        .read_only_snapshot()
+        .map_err(|_| ManualUpdateCheckCommandError::state_error())
+}
+
+#[tauri::command]
 async fn verify_pending_update(
     app: tauri::AppHandle,
 ) -> Result<VerifyPendingUpdateResponse, VerifyPendingUpdateCommandError> {
@@ -168,6 +186,7 @@ fn run_application(instance: InstanceGuard) -> AppResult<()> {
         .on_menu_event(handle_desktop_menu_event)
         .invoke_handler(tauri::generate_handler![
             manual_update_check,
+            read_update_state,
             verify_pending_update
         ])
         .setup(move |app| {

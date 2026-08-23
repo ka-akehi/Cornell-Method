@@ -92,6 +92,11 @@ test("Updates panel uses the manual bridge and keeps result copy safe", () => {
     modal,
     /requestManualUpdateCheck,\s*type DesktopManualUpdateCheckResult/s,
   );
+  assert.match(modal, /readUpdateStateSnapshot/);
+  assert.match(modal, /void readUpdateStateSnapshot\(\)\.then/);
+  assert.match(modal, /phase: "loading"/);
+  assert.match(modal, /resultKindForSnapshot/);
+  assert.match(modal, /pendingUpdate\?\.verificationState/);
   assert.match(modal, /await requestManualUpdateCheck\(\)/);
   assert.match(modal, /type="button"/);
   assert.match(modal, /disabled=\{isCheckDisabled\}/);

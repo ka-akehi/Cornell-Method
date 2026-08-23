@@ -10,6 +10,7 @@ import {
   type ReactNode,
 } from "react";
 import {
+  readUpdateStateSnapshot,
   requestManualUpdateCheck,
   type DesktopManualUpdateCheckResult,
   type DesktopUpdateStateSnapshot,
@@ -83,7 +84,7 @@ function SettingsCategoryPanel({
   );
 }
 
-type UpdatePanelPhase = "idle" | "checking" | "resolved";
+type UpdatePanelPhase = "loading" | "idle" | "checking" | "resolved";
 type UpdatePanelResultKind = DesktopManualUpdateCheckResult["kind"] | null;
 
 type UpdatePanelState = {
@@ -93,18 +94,84 @@ type UpdatePanelState = {
 };
 
 const initialUpdatePanelState: UpdatePanelState = {
-  phase: "idle",
+  phase: "loading",
   resultKind: null,
   snapshot: null,
 };
+
+function resultKindForSnapshot(
+  snapshot: DesktopUpdateStateSnapshot,
+): UpdatePanelResultKind {
+  if (snapshot.status === "available" && snapshot.failure !== null) {
+    return "failed";
+  }
+
+  switch (snapshot.status) {
+    case "no-update":
+      return "no-update";
+    case "available":
+      return "available";
+    case "failed":
+      return "failed";
+    case "checking":
+      return "already-checking";
+    case "not-checked":
+      return null;
+  }
+}
+
+function verificationStatusMessage(
+  verificationState: NonNullable<
+    DesktopUpdateStateSnapshot["pendingUpdate"]
+  >["verificationState"],
+) {
+  switch (verificationState) {
+    case "verified":
+      return "検証済みの更新候補です。";
+    case "failed":
+      return "更新候補の検証に失敗しました。";
+    case "not-verified":
+      return "署名検証前 / 未検証です。";
+  }
+}
 
 function UpdatesPanel() {
   const [updateState, setUpdateState] = useState<UpdatePanelState>(
     initialUpdatePanelState,
   );
 
+  useEffect(() => {
+    let isMounted = true;
+
+    void readUpdateStateSnapshot().then((result) => {
+      if (!isMounted) {
+        return;
+      }
+
+      if (result.kind === "snapshot") {
+        setUpdateState({
+          phase: "idle",
+          resultKind: resultKindForSnapshot(result.snapshot),
+          snapshot: result.snapshot,
+        });
+        return;
+      }
+
+      setUpdateState({
+        phase: "idle",
+        resultKind: result.kind,
+        snapshot: null,
+      });
+    });
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
   const handleManualUpdateCheck = async () => {
     if (
+      updateState.phase === "loading" ||
       updateState.phase === "checking" ||
       updateState.resultKind === "unsupported-web"
     ) {
@@ -144,16 +211,20 @@ function UpdatesPanel() {
     }));
   };
 
+  const isReading = updateState.phase === "loading";
   const isChecking = updateState.phase === "checking";
   const isUnsupported = updateState.resultKind === "unsupported-web";
-  const isCheckDisabled = isChecking || isUnsupported;
+  const isCheckDisabled = isReading || isChecking || isUnsupported;
   const pendingVersion = updateState.snapshot?.pendingUpdate?.version;
+  const verificationState = updateState.snapshot?.pendingUpdate?.verificationState;
 
   let statusMessage: ReactNode = null;
   let statusRole: "status" | "alert" = "status";
   let statusClassName = styles.updateStatus;
 
-  if (isChecking) {
+  if (isReading) {
+    statusMessage = "更新状態を読み込み中…";
+  } else if (isChecking) {
     statusMessage = "確認中…";
   } else {
     switch (updateState.resultKind) {
@@ -171,13 +242,26 @@ function UpdatesPanel() {
             ) : (
               <p>利用可能なバージョン情報を表示できません。</p>
             )}
-            <p>署名検証前 / 未検証です。</p>
+            {verificationState ? (
+              <p>{verificationStatusMessage(verificationState)}</p>
+            ) : null}
           </>
         );
         break;
       case "failed":
-        statusMessage =
-          "更新情報を確認できませんでした。もう一度お試しください。";
+        statusMessage = (
+          <>
+            <p>更新情報を確認できませんでした。もう一度お試しください。</p>
+            {pendingVersion ? (
+              <p className={styles.updateVersion}>
+                保留中のバージョン: {pendingVersion}
+              </p>
+            ) : null}
+            {verificationState ? (
+              <p>{verificationStatusMessage(verificationState)}</p>
+            ) : null}
+          </>
+        );
         statusRole = "alert";
         statusClassName = `${styles.updateStatus} ${styles.updateStatusError}`;
         break;

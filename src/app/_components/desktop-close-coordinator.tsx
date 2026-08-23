@@ -2,8 +2,11 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  createDesktopCloseBridgeGeneration,
   DESKTOP_CLOSE_REQUEST_EVENT,
   getDesktopDirtyController,
+  sendDesktopCloseBridgeNotReady,
+  sendDesktopCloseBridgeReady,
   sendDesktopCloseDecision,
 } from "@/shared/desktop/desktop-close-bridge";
 
@@ -32,6 +35,7 @@ export function DesktopCloseCoordinator() {
   const desktopCloseOpenRef = useRef(false);
 
   useEffect(() => {
+    const bridgeGeneration = createDesktopCloseBridgeGeneration();
     const handleDesktopCloseRequest = () => {
       const controller = getDesktopDirtyController();
       let dirty = false;
@@ -64,11 +68,13 @@ export function DesktopCloseCoordinator() {
       DESKTOP_CLOSE_REQUEST_EVENT,
       handleDesktopCloseRequest,
     );
+    void sendDesktopCloseBridgeReady(bridgeGeneration);
     return () => {
       window.removeEventListener(
         DESKTOP_CLOSE_REQUEST_EVENT,
         handleDesktopCloseRequest,
       );
+      void sendDesktopCloseBridgeNotReady(bridgeGeneration);
     };
   }, []);
 

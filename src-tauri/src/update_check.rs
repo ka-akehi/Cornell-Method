@@ -1,5 +1,6 @@
 use crate::update_provider::{fetch_manifest, ManifestHttpTransport};
 use crate::update_selection::{select_update, UpdateSelection};
+use crate::update_signature::signed_release_identity_sha256;
 use crate::update_state::{
     CheckStart, CheckTrigger, PendingUpdate, UpdateState, UpdateStateError, UpdateStateSnapshot,
     UpdateStateStore, AUTO_CHECK_INTERVAL_SECONDS,
@@ -109,6 +110,12 @@ impl ManualUpdateCheckCommandError {
             code: ManualUpdateCheckCommandCode::UpdateCommandWorkerFailed,
         }
     }
+
+    pub(crate) const fn state_error() -> Self {
+        Self::StateError {
+            code: ManualUpdateCheckStateCode::UpdateState,
+        }
+    }
 }
 
 impl From<UpdateCheckError> for ManualUpdateCheckCommandError {
@@ -195,7 +202,16 @@ pub(crate) fn run_update_check<T: ManifestHttpTransport>(
             Ok(UpdateCheckResult::Started(UpdateCheckOutcome::NoUpdate))
         }
         UpdateSelection::Selected(release) => {
-            let pending_update = match PendingUpdate::new(
+            let signed_identity_sha256 = match signed_release_identity_sha256(&manifest, release) {
+                Ok(identity) => identity,
+                Err(_) => {
+                    state_store.record_failure(SELECTION_ERROR_CODE, retry_at)?;
+                    return Ok(UpdateCheckResult::Started(UpdateCheckOutcome::Failed {
+                        code: SELECTION_ERROR_CODE,
+                    }));
+                }
+            };
+            let pending_update = match PendingUpdate::new_with_signed_identity(
                 release.version.to_string(),
                 release.channel.clone(),
                 release.architecture.clone(),
@@ -203,6 +219,7 @@ pub(crate) fn run_update_check<T: ManifestHttpTransport>(
                 release.artifact.size_bytes,
                 release.artifact.sha256.clone(),
                 release.signature.key_id.clone(),
+                signed_identity_sha256,
                 now,
             ) {
                 Ok(pending_update) => pending_update,
@@ -443,6 +460,10 @@ mod tests {
             Some("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
         );
         assert_eq!(pending.key_id.as_deref(), Some("test-key"));
+        assert!(pending
+            .signed_identity_sha256
+            .as_deref()
+            .is_some_and(|identity| identity.len() == 64));
         assert_eq!(pending.package_path, None);
         assert_eq!(pending.extracted_app_path, None);
         assert_eq!(pending.discovered_at, 123);
@@ -458,6 +479,12 @@ mod tests {
             "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
         );
         assert_eq!(state_json["pendingUpdate"]["keyId"], "test-key");
+        assert_eq!(
+            state_json["pendingUpdate"]["signedIdentitySha256"]
+                .as_str()
+                .map(str::len),
+            Some(64)
+        );
         assert!(state_json["pendingUpdate"]["packagePath"].is_null());
         assert!(state_json["pendingUpdate"]["extractedAppPath"].is_null());
         assert!(state_json.get("url").is_none());

@@ -64,6 +64,7 @@ export type DesktopDatabaseInspection = DesktopStoragePaths & {
 
 export function resolveDesktopStoragePaths(options?: {
   homeDirectory?: string;
+  applicationId?: string;
 }): DesktopStoragePaths;
 
 export function ensureDesktopStorageDirectories(

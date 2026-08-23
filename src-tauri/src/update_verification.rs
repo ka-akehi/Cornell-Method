@@ -4,18 +4,21 @@ use std::path::{Component, Path};
 
 use serde::Serialize;
 
-use crate::update_archive::{extract_verified_archive, ArchiveExtractionError, ExtractedArchive};
+use crate::update_archive::{
+    extract_verified_archive, revalidate_verified_archive, ArchiveExtractionError, ExtractedArchive,
+};
 use crate::update_bundle::{
     validate_extracted_app_bundle, BundleValidationError, VerifiedAppBundle,
 };
 use crate::update_download::{
     download_and_verify_artifact, remove_invalid_cached_artifact, revalidate_cached_artifact,
     ArtifactHttpTransport, ArtifactSignatureVerifier, ArtifactSignatureVerifierFactory,
-    CachedArtifact, PackageDownloadError, VerifiedArchive,
+    CachedArtifact, PackageDownloadError, VerifiedArchiveHandle,
 };
-use crate::update_manifest::{UpdateRelease, MANIFEST_PRODUCT_ID};
+use crate::update_manifest::{UpdateManifest, UpdateRelease, MANIFEST_PRODUCT_ID};
 use crate::update_provider::{fetch_manifest, ManifestHttpTransport};
 use crate::update_selection::{select_update, UpdateSelection};
+use crate::update_signature::signed_release_identity_sha256;
 use crate::update_signature::EmbeddedTrustedKeyStore;
 use crate::update_state::{
     PendingUpdate, UpdateState, UpdateStateError, UpdateStateSnapshot, UpdateStateStore,
@@ -222,7 +225,7 @@ impl<'a> UpdateVerificationCoordinator<'a> {
             }
             UpdateSelection::Selected(release) => release,
         };
-        let fresh_candidate = match pending_from_release(selected_release, now) {
+        let fresh_candidate = match pending_from_release(&manifest, selected_release, now) {
             Ok(candidate) => candidate,
             Err(_) => return self.fail(UPDATE_REVALIDATION, now),
         };
@@ -231,7 +234,9 @@ impl<'a> UpdateVerificationCoordinator<'a> {
         let Some(active_candidate) = active_candidate else {
             return self.fail(UPDATE_REVALIDATION, now);
         };
-        if !candidate_identity_matches_release(&initial_candidate, selected_release)
+        let candidate_matches_selected_release =
+            candidate_identity_matches_release(&initial_candidate, &manifest, selected_release);
+        if !candidate_matches_selected_release
             || !active_candidate.candidate_identity_matches(&initial_candidate)
         {
             self.state_store
@@ -263,38 +268,39 @@ impl<'a> UpdateVerificationCoordinator<'a> {
             Ok(cached_artifact) => cached_artifact,
             Err(error) => return self.fail(map_package_error(error), now),
         };
-        let verified_archive_result: Result<VerifiedArchive, &'static str> = match cached_artifact {
-            CachedArtifact::Missing => download_and_verify_artifact(
-                selected_release,
-                self.staging_root,
-                self.artifact_transport,
-                signature_verifier.as_ref(),
-            )
-            .map_err(map_package_error),
-            CachedArtifact::Verified(verified_archive) => Ok(verified_archive),
-            CachedArtifact::Invalid { error, removable } => {
-                if !removable {
-                    Err(map_package_error(error))
-                } else {
-                    match remove_invalid_cached_artifact(selected_release, self.staging_root) {
-                        Ok(()) => download_and_verify_artifact(
-                            selected_release,
-                            self.staging_root,
-                            self.artifact_transport,
-                            signature_verifier.as_ref(),
-                        )
-                        .map_err(map_package_error),
-                        Err(error) => Err(map_package_error(error)),
+        let verified_archive_result: Result<VerifiedArchiveHandle, &'static str> =
+            match cached_artifact {
+                CachedArtifact::Missing => download_and_verify_artifact(
+                    selected_release,
+                    self.staging_root,
+                    self.artifact_transport,
+                    signature_verifier.as_ref(),
+                )
+                .map_err(map_package_error),
+                CachedArtifact::Verified(verified_archive) => Ok(verified_archive),
+                CachedArtifact::Invalid { error, removable } => {
+                    if !removable {
+                        Err(map_package_error(error))
+                    } else {
+                        match remove_invalid_cached_artifact(selected_release, self.staging_root) {
+                            Ok(()) => download_and_verify_artifact(
+                                selected_release,
+                                self.staging_root,
+                                self.artifact_transport,
+                                signature_verifier.as_ref(),
+                            )
+                            .map_err(map_package_error),
+                            Err(error) => Err(map_package_error(error)),
+                        }
                     }
                 }
-            }
-        };
+            };
         let verified_archive = match verified_archive_result {
             Ok(verified_archive) => verified_archive,
             Err(code) => return self.fail(code, now),
         };
         self.state_store
-            .record_package_checkpoint(&verified_archive)?;
+            .record_package_checkpoint(&verified_archive.archive)?;
 
         let extracted_archive = match extract_or_revalidate(&verified_archive, self.staging_root) {
             Ok(extracted_archive) => extracted_archive,
@@ -309,7 +315,7 @@ impl<'a> UpdateVerificationCoordinator<'a> {
                 Err(error) => {
                     let code = match cleanup_ready_directory(
                         self.staging_root,
-                        &verified_archive.raw_sha256,
+                        &verified_archive.archive.raw_sha256,
                     ) {
                         Ok(()) => map_bundle_error(error),
                         Err(code) => code,
@@ -318,14 +324,26 @@ impl<'a> UpdateVerificationCoordinator<'a> {
                 }
             };
         if !bundle_matches_candidate(&verified_bundle, &extracted_archive, selected_release) {
-            let code = cleanup_ready_directory(self.staging_root, &verified_archive.raw_sha256)
-                .err()
-                .unwrap_or(UPDATE_BUNDLE);
+            let code =
+                cleanup_ready_directory(self.staging_root, &verified_archive.archive.raw_sha256)
+                    .err()
+                    .unwrap_or(UPDATE_BUNDLE);
+            return self.fail(code, now);
+        }
+
+        if let Err(error) = revalidate_verified_archive(&verified_archive, self.staging_root) {
+            let code = match cleanup_ready_directory(
+                self.staging_root,
+                &verified_archive.archive.raw_sha256,
+            ) {
+                Ok(()) => map_archive_error(error),
+                Err(code) => code,
+            };
             return self.fail(code, now);
         }
 
         self.state_store.record_verified(
-            &verified_archive,
+            &verified_archive.archive,
             &extracted_archive,
             &verified_bundle,
             now,
@@ -378,10 +396,13 @@ pub(crate) fn verify_pending_update_worker(
 }
 
 fn pending_from_release(
+    manifest: &UpdateManifest,
     release: &UpdateRelease,
     discovered_at: u64,
 ) -> Result<PendingUpdate, UpdateStateError> {
-    PendingUpdate::new(
+    let signed_identity_sha256 = signed_release_identity_sha256(manifest, release)
+        .map_err(|error| UpdateStateError::Invalid(error.to_string()))?;
+    PendingUpdate::new_with_signed_identity(
         release.version.to_string(),
         release.channel.clone(),
         release.architecture.clone(),
@@ -389,18 +410,19 @@ fn pending_from_release(
         release.artifact.size_bytes,
         release.artifact.sha256.clone(),
         release.signature.key_id.clone(),
+        signed_identity_sha256,
         discovered_at,
     )
 }
 
-fn candidate_identity_matches_release(candidate: &PendingUpdate, release: &UpdateRelease) -> bool {
-    candidate.version == release.version.to_string()
-        && candidate.channel == release.channel
-        && candidate.architecture == release.architecture
-        && candidate.artifact == release.artifact.artifact_id
-        && candidate.size_bytes == Some(release.artifact.size_bytes)
-        && candidate.sha256.as_deref() == Some(release.artifact.sha256.as_str())
-        && candidate.key_id.as_deref() == Some(release.signature.key_id.as_str())
+fn candidate_identity_matches_release(
+    candidate: &PendingUpdate,
+    manifest: &UpdateManifest,
+    release: &UpdateRelease,
+) -> bool {
+    pending_from_release(manifest, release, 0)
+        .ok()
+        .is_some_and(|fresh_candidate| candidate.candidate_identity_matches(&fresh_candidate))
 }
 
 fn bundle_matches_candidate(
@@ -417,10 +439,10 @@ fn bundle_matches_candidate(
 }
 
 fn extract_or_revalidate(
-    verified_archive: &VerifiedArchive,
+    verified_archive: &VerifiedArchiveHandle,
     staging_root: &Path,
 ) -> Result<ExtractedArchive, &'static str> {
-    let digest = verified_archive.raw_sha256.as_str();
+    let digest = verified_archive.archive.raw_sha256.as_str();
     let ready_directory = staging_root.join("extract").join(digest);
     match fs::symlink_metadata(&ready_directory) {
         Ok(metadata) => {
@@ -635,12 +657,15 @@ fn map_bundle_error(error: BundleValidationError) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::update_download::{ArtifactHttpError, ArtifactHttpRequest, ArtifactHttpResponse};
+    use crate::update_download::{
+        ArtifactHttpError, ArtifactHttpRequest, ArtifactHttpResponse, VerifiedArchive,
+    };
     use crate::update_manifest::{MacOsVersion, SemVer, TARGET_ARCHITECTURE, TARGET_CHANNEL};
     use crate::update_provider::{
         ManifestHttpError, ManifestHttpRequest, ManifestHttpResponse, GITHUB_RELEASES_MANIFEST_URL,
     };
     use crate::update_signature::SignatureVerificationError;
+    use crate::update_state::VerificationState;
     use std::cell::Cell;
     use std::fs;
     use std::io::{self, Cursor, Write};
@@ -742,6 +767,42 @@ mod tests {
         }
     }
 
+    struct ReplacingSignatureVerifierFactory {
+        package_path: PathBuf,
+        replacement: Vec<u8>,
+    }
+
+    struct ReplacingSignatureVerifier {
+        package_path: PathBuf,
+        replacement: Vec<u8>,
+    }
+
+    impl ArtifactSignatureVerifier for ReplacingSignatureVerifier {
+        fn verify_selected_package(
+            &self,
+            _selected_release: &UpdateRelease,
+            _actual_size_bytes: u64,
+            _actual_sha256: [u8; 32],
+        ) -> Result<(), SignatureVerificationError> {
+            let moved_path = self.package_path.with_extension("verified");
+            fs::rename(&self.package_path, &moved_path).unwrap();
+            fs::write(&self.package_path, &self.replacement).unwrap();
+            Ok(())
+        }
+    }
+
+    impl ArtifactSignatureVerifierFactory for ReplacingSignatureVerifierFactory {
+        fn create<'a>(
+            &'a self,
+            _manifest_root: &crate::update_manifest::UpdateManifest,
+        ) -> Box<dyn ArtifactSignatureVerifier + 'a> {
+            Box::new(ReplacingSignatureVerifier {
+                package_path: self.package_path.clone(),
+                replacement: self.replacement.clone(),
+            })
+        }
+    }
+
     fn sha256_hex(bytes: &[u8]) -> String {
         digest(&SHA256, bytes)
             .as_ref()
@@ -834,6 +895,29 @@ mod tests {
         size_bytes: u64,
         sha256: &str,
     ) -> ManifestHttpResponse {
+        manifest_response_with_signed_fields(
+            version,
+            artifact_id,
+            size_bytes,
+            sha256,
+            "14",
+            None,
+            "opaque-proof",
+        )
+    }
+
+    fn manifest_response_with_signed_fields(
+        version: &str,
+        artifact_id: &str,
+        size_bytes: u64,
+        sha256: &str,
+        min_version: &str,
+        max_version_exclusive: Option<&str>,
+        proof: &str,
+    ) -> ManifestHttpResponse {
+        let max_version_field = max_version_exclusive
+            .map(|value| format!(r#""maxVersionExclusive":"{value}","#))
+            .unwrap_or_default();
         let body = format!(
             r#"{{
               "productId":"com.cornellmethod.notebook",
@@ -842,7 +926,8 @@ mod tests {
                 "channel":"stable",
                 "version":"{version}",
                 "architecture":"aarch64-apple-darwin",
-                "minVersion":"14",
+                "minVersion":"{min_version}",
+                {max_version_field}
                 "artifact":{{
                   "artifactId":"{artifact_id}",
                   "format":"app-archive",
@@ -850,7 +935,7 @@ mod tests {
                   "sizeBytes":{size_bytes},
                   "sha256":"{sha256}"
                 }},
-                "signature":{{"keyId":"test-key","proof":"opaque-proof"}}
+                "signature":{{"keyId":"test-key","proof":"{proof}"}}
               }}]
             }}"#
         );
@@ -862,6 +947,17 @@ mod tests {
             redirects: Vec::new(),
             final_url: GITHUB_RELEASES_MANIFEST_URL.to_string(),
         }
+    }
+
+    fn pending_for_manifest_response(
+        response: &ManifestHttpResponse,
+        discovered_at: u64,
+    ) -> PendingUpdate {
+        let manifest = crate::update_manifest::parse_manifest(
+            std::str::from_utf8(&response.body).expect("manifest fixture must be UTF-8"),
+        )
+        .unwrap();
+        pending_from_release(&manifest, &manifest.releases[0], discovered_at).unwrap()
     }
 
     fn target_context() -> UpdateTargetContext {
@@ -897,8 +993,10 @@ mod tests {
         )
         .unwrap();
         let release = &manifest.releases[0];
-        let candidate = pending_from_release(release, 1).unwrap();
-        assert!(candidate_identity_matches_release(&candidate, release));
+        let candidate = pending_from_release(&manifest, release, 1).unwrap();
+        assert!(candidate_identity_matches_release(
+            &candidate, &manifest, release
+        ));
 
         for mutation in [
             |candidate: &mut PendingUpdate| candidate.version = "1.2.4".to_string(),
@@ -917,8 +1015,35 @@ mod tests {
         ] {
             let mut changed = candidate.clone();
             mutation(&mut changed);
-            assert!(!candidate_identity_matches_release(&changed, release));
+            assert!(!candidate_identity_matches_release(
+                &changed, &manifest, release
+            ));
         }
+
+        let mut range_changed = release.clone();
+        range_changed.min_version = MacOsVersion::parse("15", "test min version").unwrap();
+        assert!(!candidate_identity_matches_release(
+            &candidate,
+            &manifest,
+            &range_changed
+        ));
+
+        let mut max_changed = release.clone();
+        max_changed.max_version_exclusive =
+            Some(MacOsVersion::parse("16", "test max version").unwrap());
+        assert!(!candidate_identity_matches_release(
+            &candidate,
+            &manifest,
+            &max_changed
+        ));
+
+        let mut proof_changed = release.clone();
+        proof_changed.signature.proof = "different-proof".to_string();
+        assert!(!candidate_identity_matches_release(
+            &candidate,
+            &manifest,
+            &proof_changed
+        ));
     }
 
     #[test]
@@ -943,17 +1068,8 @@ mod tests {
         let package_bytes = valid_update_archive(version);
         let digest = sha256_hex(&package_bytes);
         let size_bytes = package_bytes.len() as u64;
-        let candidate = PendingUpdate::new(
-            version,
-            TARGET_CHANNEL,
-            TARGET_ARCHITECTURE,
-            artifact_id,
-            size_bytes,
-            &digest,
-            "test-key",
-            10,
-        )
-        .unwrap();
+        let manifest_response = manifest_response_for(version, artifact_id, size_bytes, &digest);
+        let candidate = pending_for_manifest_response(&manifest_response, 10);
         let state = UpdateStateStore::load_or_default(&directory, &staging);
         state
             .begin_check(crate::update_state::CheckTrigger::Manual, 10)
@@ -961,7 +1077,7 @@ mod tests {
         state.record_available(candidate).unwrap();
 
         let manifest = FakeManifestTransport {
-            response: manifest_response_for(version, artifact_id, size_bytes, &digest),
+            response: manifest_response,
             calls: Cell::new(0),
         };
         let artifact = ByteArtifactTransport {
@@ -1123,20 +1239,165 @@ mod tests {
     }
 
     #[test]
+    fn changed_signed_identity_does_not_reuse_verified_artifact_cache() {
+        let directory = test_directory("signed-identity-cache");
+        let staging = directory.join("staging");
+        let version = "1.3.2";
+        let artifact_id = "signed-identity-cache-artifact";
+        let package_bytes = valid_update_archive(version);
+        let digest = sha256_hex(&package_bytes);
+        let size_bytes = package_bytes.len() as u64;
+        let original_response = manifest_response_for(version, artifact_id, size_bytes, &digest);
+        let candidate = pending_for_manifest_response(&original_response, 10);
+        let state = UpdateStateStore::load_or_default(&directory, &staging);
+        state
+            .begin_check(crate::update_state::CheckTrigger::Manual, 10)
+            .unwrap();
+        state.record_available(candidate).unwrap();
+
+        let original_manifest = FakeManifestTransport {
+            response: original_response,
+            calls: Cell::new(0),
+        };
+        let artifact = ByteArtifactTransport {
+            bytes: package_bytes,
+            calls: Cell::new(0),
+        };
+        let signature_factory = AcceptingSignatureVerifierFactory {
+            calls: Cell::new(0),
+        };
+        let target = target_context();
+        let coordinator = UpdateVerificationCoordinator::new(
+            &state,
+            &target,
+            &staging,
+            &original_manifest,
+            &artifact,
+            &signature_factory,
+        );
+        assert_eq!(
+            coordinator.run(20).unwrap(),
+            VerifyPendingUpdateOutcome::Verified
+        );
+        assert_eq!(artifact.calls.get(), 1);
+
+        let changed_manifest = FakeManifestTransport {
+            response: manifest_response_with_signed_fields(
+                version,
+                artifact_id,
+                size_bytes,
+                &digest,
+                "14",
+                Some("16"),
+                "opaque-proof",
+            ),
+            calls: Cell::new(0),
+        };
+        let changed_coordinator = UpdateVerificationCoordinator::new(
+            &state,
+            &target,
+            &staging,
+            &changed_manifest,
+            &artifact,
+            &signature_factory,
+        );
+        assert_eq!(
+            changed_coordinator.run(30).unwrap(),
+            VerifyPendingUpdateOutcome::CandidateChanged
+        );
+        assert_eq!(artifact.calls.get(), 1);
+        let pending = state.snapshot().pending_update.unwrap();
+        assert_eq!(pending.verification_state, VerificationState::NotVerified);
+        assert_eq!(pending.package_path, None);
+        assert_eq!(pending.extracted_app_path, None);
+        assert_eq!(pending.verified_at, None);
+
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn package_path_replacement_after_package_verification_fails_closed() {
+        let directory = test_directory("package-path-replacement");
+        let staging = directory.join("staging");
+        let version = "1.3.1";
+        let artifact_id = "package-path-replacement-artifact";
+        let package_bytes = valid_update_archive(version);
+        let digest = sha256_hex(&package_bytes);
+        let size_bytes = package_bytes.len() as u64;
+        let manifest_response = manifest_response_for(version, artifact_id, size_bytes, &digest);
+        let candidate = pending_for_manifest_response(&manifest_response, 10);
+        let state = UpdateStateStore::load_or_default(&directory, &staging);
+        state
+            .begin_check(crate::update_state::CheckTrigger::Manual, 10)
+            .unwrap();
+        state.record_available(candidate).unwrap();
+
+        let package_path = staging
+            .join("packages")
+            .join(format!("{digest}.app.tar.gz"));
+        fs::create_dir_all(package_path.parent().unwrap()).unwrap();
+        fs::write(&package_path, &package_bytes).unwrap();
+        let moved_path = package_path.with_extension("verified");
+
+        let manifest = FakeManifestTransport {
+            response: manifest_response,
+            calls: Cell::new(0),
+        };
+        let artifact = CountingArtifactTransport {
+            calls: Cell::new(0),
+        };
+        let signature_factory = ReplacingSignatureVerifierFactory {
+            package_path: package_path.clone(),
+            replacement: b"replacement package bytes".to_vec(),
+        };
+        let target = target_context();
+        let coordinator = UpdateVerificationCoordinator::new(
+            &state,
+            &target,
+            &staging,
+            &manifest,
+            &artifact,
+            &signature_factory,
+        );
+
+        assert_eq!(
+            coordinator.run(20).unwrap(),
+            VerifyPendingUpdateOutcome::Failed
+        );
+        assert_eq!(artifact.calls.get(), 0);
+        assert_eq!(state.snapshot().status, UpdateStatus::Failed);
+        assert!(state.snapshot().pending_update.is_none());
+        assert_eq!(fs::read(&moved_path).unwrap(), package_bytes);
+        assert_eq!(
+            fs::read(&package_path).unwrap(),
+            b"replacement package bytes"
+        );
+        assert!(!staging.join("extract").join(&digest).exists());
+
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
     fn existing_ready_path_anomalies_fail_closed() {
         let directory = test_directory("ready-anomaly");
         let staging = directory.join("staging");
         let extract = staging.join("extract");
         fs::create_dir_all(&extract).unwrap();
         let digest = "abcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcd";
-        let verified_archive = VerifiedArchive {
-            relative_package_path: PathBuf::from("packages").join("unused.app.tar.gz"),
-            artifact_id: "test-artifact".to_string(),
-            raw_size_bytes: 1,
-            raw_sha256: digest.to_string(),
-            version: "1.2.3".to_string(),
-            architecture: TARGET_ARCHITECTURE.to_string(),
-        };
+        let package_path = staging.join("packages").join("unused.app.tar.gz");
+        fs::create_dir_all(package_path.parent().unwrap()).unwrap();
+        fs::write(&package_path, b"x").unwrap();
+        let verified_archive = VerifiedArchiveHandle::new(
+            VerifiedArchive {
+                relative_package_path: PathBuf::from("packages").join("unused.app.tar.gz"),
+                artifact_id: "test-artifact".to_string(),
+                raw_size_bytes: 1,
+                raw_sha256: digest.to_string(),
+                version: "1.2.3".to_string(),
+                architecture: TARGET_ARCHITECTURE.to_string(),
+            },
+            fs::File::open(package_path).unwrap(),
+        );
         let ready = extract.join(digest);
 
         fs::write(&ready, b"not a directory").unwrap();
@@ -1190,7 +1451,7 @@ mod tests {
             .unwrap();
         state
             .record_available(
-                PendingUpdate::new(
+                PendingUpdate::new_with_signed_identity(
                     "1.2.3",
                     "stable",
                     "aarch64-apple-darwin",
@@ -1198,6 +1459,7 @@ mod tests {
                     4,
                     "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
                     "old-key",
+                    "4444444444444444444444444444444444444444444444444444444444444444",
                     10,
                 )
                 .unwrap(),
