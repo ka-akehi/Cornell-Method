@@ -122,6 +122,16 @@ export function DesktopCloseCoordinator() {
     }
   }, [restoreDesktopCloseFocus]);
 
+  const cancelAfterSaveFailure = useCallback(async () => {
+    if (await sendDesktopCloseDecision("cancel")) {
+      restoreDesktopCloseFocus();
+    } else {
+      setDesktopCloseError(
+        "終了処理へ応答できませんでした。編集内容を保持しています。",
+      );
+    }
+  }, [restoreDesktopCloseFocus]);
+
   useEffect(() => {
     if (!desktopCloseOpen) {
       return;
@@ -212,13 +222,11 @@ export function DesktopCloseCoordinator() {
       try {
         saved = await controller.save();
       } catch {
-        await sendDesktopCloseDecision("cancel");
-        setDesktopCloseError("保存に失敗しました。編集内容を保持しています。");
+        await cancelAfterSaveFailure();
         return;
       }
       if (!saved) {
-        await sendDesktopCloseDecision("cancel");
-        setDesktopCloseError("保存に失敗しました。編集内容を保持しています。");
+        await cancelAfterSaveFailure();
         return;
       }
       if (await sendDesktopCloseDecision("save")) {

@@ -206,3 +206,63 @@ test("desktop close bridge keeps save failure on the dirty side", () => {
   assert.match(editorDirtyController, /registerDesktopDirtyController/);
   assert.doesNotMatch(editor, /registerDesktopDirtyController/);
 });
+
+test("save failure cancels the pending close before restoring focus", () => {
+  const closeCoordinator = fs.readFileSync(
+    path.join(
+      projectRoot,
+      "src",
+      "app",
+      "_components",
+      "desktop-close-coordinator.tsx",
+    ),
+    "utf8",
+  );
+  const cancelAfterSaveFailureStart = closeCoordinator.indexOf(
+    "const cancelAfterSaveFailure =",
+  );
+  const saveStart = closeCoordinator.indexOf(
+    "async function saveAndCloseDesktop()",
+  );
+  const discardStart = closeCoordinator.indexOf(
+    "async function discardAndCloseDesktop()",
+  );
+  const renderStart = closeCoordinator.indexOf("\n  return (", discardStart);
+
+  assert.ok(
+    cancelAfterSaveFailureStart >= 0 &&
+      saveStart > cancelAfterSaveFailureStart &&
+      discardStart > saveStart &&
+      renderStart > discardStart,
+  );
+
+  const saveFailureCancel = closeCoordinator.slice(
+    cancelAfterSaveFailureStart,
+    saveStart,
+  );
+  assert.match(
+    saveFailureCancel,
+    /if \(await sendDesktopCloseDecision\("cancel"\)\) \{[\s\S]*restoreDesktopCloseFocus\(\)[\s\S]*\} else \{[\s\S]*終了処理へ応答できませんでした。編集内容を保持しています。/,
+  );
+
+  const saveFlow = closeCoordinator.slice(saveStart, discardStart);
+  assert.match(
+    saveFlow,
+    /catch \{[\s\S]*await cancelAfterSaveFailure\(\)[\s\S]*return;/,
+  );
+  assert.match(
+    saveFlow,
+    /if \(!saved\) \{[\s\S]*await cancelAfterSaveFailure\(\)[\s\S]*return;/,
+  );
+  assert.match(
+    saveFlow,
+    /sendDesktopCloseDecision\("save"\)[\s\S]*completeDesktopClose\(\)/,
+  );
+
+  const discardFlow = closeCoordinator.slice(discardStart, renderStart);
+  assert.match(
+    discardFlow,
+    /sendDesktopCloseDecision\("discard"\)[\s\S]*completeDesktopClose\(\)/,
+  );
+  assert.doesNotMatch(discardFlow, /restoreDesktopCloseFocus\(\)/);
+});

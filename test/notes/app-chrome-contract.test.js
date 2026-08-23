@@ -188,7 +188,7 @@ test("desktop close coordinator は AppChrome の composition から独立して
   );
   assert.match(
     closeCoordinator,
-    /保存に失敗しました。編集内容を保持しています。/,
+    /終了処理へ応答できませんでした。編集内容を保持しています。/,
   );
 });
 
