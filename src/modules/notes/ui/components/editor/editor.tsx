@@ -27,6 +27,7 @@ import {
   NotesRemoteError,
   updateNote,
 } from "@/modules/notes/remote";
+import { useNoteEditorDirtyController } from "@/modules/notes/ui/hooks/use-note-editor-dirty-controller";
 import { NoteEditorBodySection } from "./body";
 import { NoteEditorCueSection } from "./cues";
 import { findNoteEditorErrorTarget } from "./error-focus";
@@ -205,7 +206,7 @@ export function NoteEditor({
     if (mode === "edit" && !form.id) {
       setMessage("更新対象のノートIDがありません。");
       requestErrorFocus([]);
-      return;
+      return false;
     }
 
     setSaving(true);
@@ -221,35 +222,41 @@ export function NoteEditor({
           : await updateExistingNote(form.id, noteEditorFormToPayload(form));
 
       if (mode === "edit" && typeof data.id === "string" && onSaved) {
+        markSaved();
         onSaved(data);
         router.refresh();
-        return;
+        return true;
       }
 
       const savedId = typeof data.id === "string" ? data.id : form.id;
       if (savedId) {
+        markSaved();
         router.push(`/notes/${savedId}`);
         router.refresh();
       }
+      return true;
     } catch (caught) {
       if (caught instanceof NotesRemoteError) {
         setMessage(caught.message);
         setFieldErrors(caught.fieldErrors);
         requestErrorFocus(caught.fieldErrors);
-        return;
+        return false;
       }
       if (caught instanceof Error && form.bodyMode === "canvas") {
         setCanvasError(caught.message);
         setMessage(caught.message);
         requestErrorFocus([]);
-        return;
+        return false;
       }
       setMessage("保存に失敗しました。通信状態またはAPIを確認してください。");
       requestErrorFocus([]);
+      return false;
     } finally {
       setSaving(false);
     }
   }
+
+  const markSaved = useNoteEditorDirtyController({ mode, form, save });
 
   function handleCancel() {
     if (onCancel) {

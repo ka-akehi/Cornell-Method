@@ -1,20 +1,16 @@
 "use client";
 
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useRef, useState } from "react";
+import { useState } from "react";
 import type { NoteDetailResponse } from "@/modules/notes/contracts";
 import {
   completeReview,
   deleteNote as deleteRemoteNote,
   NotesRemoteError,
-  updateNote,
 } from "@/modules/notes/remote";
-import {
-  noteDetailToSummaryUpdatePayload,
-  normalizeSourceType,
-} from "@/modules/notes/model";
+import { normalizeSourceType } from "@/modules/notes/model";
 import { addDaysToDateString, todayDateString } from "@/shared/date";
-import { updateMarkdownTaskMarker } from "@/shared/markdown";
+import { useNoteDetailSummaryDraft } from "@/modules/notes/ui/hooks/use-note-detail-summary-draft";
 import {
   NoteDetailEditActions,
   NoteDetailReviewActions,
@@ -45,11 +41,21 @@ export function NoteDetailModes({
   const searchParams = useSearchParams();
   const [mode, setMode] = useState<Mode>(initialMode);
   const [note, setNote] = useState(initialNote);
-  const [summaryDraft, setSummaryDraft] = useState(initialNote.summary ?? "");
-  const [summarySaving, setSummarySaving] = useState(false);
-  const [summaryError, setSummaryError] = useState<string | null>(null);
-  const summarySavingRef = useRef(false);
-  const summaryRevisionRef = useRef(0);
+  const {
+    summaryDraft,
+    summaryDirty,
+    summarySaving,
+    summaryError,
+    handleSummaryTaskToggle,
+    saveSummary,
+    discardSummaryDraft,
+    isSummarySaving,
+    acceptSavedNote,
+  } = useNoteDetailSummaryDraft({
+    mode,
+    note,
+    onSavedNote: (savedNote) => setNote(savedNote),
+  });
   const [showBody, setShowBody] = useState(false);
   const [showSummary, setShowSummary] = useState(false);
   const [bodyConfirmed, setBodyConfirmed] = useState(false);
@@ -60,7 +66,6 @@ export function NoteDetailModes({
   const [error, setError] = useState<string | null>(null);
   const [reviewSuccess, setReviewSuccess] =
     useState<ReviewSuccessFeedback | null>(null);
-  const summaryDirty = summaryDraft !== (note.summary ?? "");
 
   function replaceModeUrl(nextMode: UrlMode) {
     const nextSearchParams = new URLSearchParams(searchParams.toString());
@@ -75,70 +80,8 @@ export function NoteDetailModes({
     router.replace(query ? `${pathname}?${query}` : pathname);
   }
 
-  function discardSummaryDraft(nextSummary = note.summary ?? "") {
-    if (summarySavingRef.current) {
-      return;
-    }
-
-    summaryRevisionRef.current += 1;
-    setSummaryDraft(nextSummary);
-    setSummaryError(null);
-  }
-
-  function handleSummaryTaskToggle(taskIndex: number, checked: boolean) {
-    if (summarySavingRef.current) {
-      return;
-    }
-
-    summaryRevisionRef.current += 1;
-    setSummaryDraft((current) =>
-      updateMarkdownTaskMarker(current, taskIndex, checked),
-    );
-    setSummaryError(null);
-  }
-
-  async function saveSummary() {
-    if (!summaryDirty || summarySavingRef.current) {
-      return;
-    }
-
-    const saveRevision = summaryRevisionRef.current;
-    summarySavingRef.current = true;
-    setSummarySaving(true);
-    setSummaryError(null);
-
-    try {
-      const savedNote = await updateNote(
-        note.id,
-        noteDetailToSummaryUpdatePayload(note, summaryDraft),
-      );
-
-      if (summaryRevisionRef.current !== saveRevision) {
-        return;
-      }
-
-      setNote(savedNote);
-      setSummaryDraft(savedNote.summary ?? "");
-      summaryRevisionRef.current += 1;
-      setSummaryError(null);
-    } catch (caught) {
-      if (caught instanceof NotesRemoteError) {
-        setSummaryError(caught.message);
-      } else if (caught instanceof Error) {
-        setSummaryError(caught.message);
-      } else {
-        setSummaryError(
-          "サマリーの保存に失敗しました。通信状態またはAPIを確認してください。",
-        );
-      }
-    } finally {
-      summarySavingRef.current = false;
-      setSummarySaving(false);
-    }
-  }
-
   function enterEditMode() {
-    if (summarySavingRef.current) {
+    if (isSummarySaving()) {
       return;
     }
 
@@ -149,7 +92,7 @@ export function NoteDetailModes({
   }
 
   function leaveEditMode(nextSummary = note.summary ?? "") {
-    if (summarySavingRef.current) {
+    if (isSummarySaving()) {
       return;
     }
 
@@ -160,7 +103,7 @@ export function NoteDetailModes({
 
   async function submitReview() {
     if (
-      summarySavingRef.current ||
+      isSummarySaving() ||
       reviewing ||
       !bodyConfirmed ||
       !summaryConfirmed
@@ -254,10 +197,8 @@ export function NoteDetailModes({
         showCancel={false}
         onCancel={() => leaveEditMode()}
         onSaved={(savedNote) => {
-          setNote(savedNote);
+          acceptSavedNote(savedNote);
           setReviewNextDate(savedNote.nextReviewDate ?? "");
-          setSummaryDraft(savedNote.summary ?? "");
-          setSummaryError(null);
           setShowBody(false);
           setShowSummary(false);
           setError(null);
@@ -281,28 +222,28 @@ export function NoteDetailModes({
       showSummary={showSummary}
       bodyConfirmed={bodyConfirmed}
       onShowBody={() => {
-        if (summarySavingRef.current) {
+        if (isSummarySaving()) {
           return;
         }
         setBodyConfirmed(true);
         setShowBody(true);
       }}
       onHideBody={() => {
-        if (summarySavingRef.current) {
+        if (isSummarySaving()) {
           return;
         }
         setShowBody(false);
         setShowSummary(false);
       }}
       onShowSummary={() => {
-        if (summarySavingRef.current || !bodyConfirmed) {
+        if (isSummarySaving() || !bodyConfirmed) {
           return;
         }
         setSummaryConfirmed(true);
         setShowSummary(true);
       }}
       onHideSummary={() => {
-        if (summarySavingRef.current) {
+        if (isSummarySaving()) {
           return;
         }
         setShowSummary(false);
@@ -315,7 +256,7 @@ export function NoteDetailModes({
           <NoteDetailReviewModeActions
             disabled={summarySaving}
             onBackToView={() => {
-              if (summarySavingRef.current) {
+              if (isSummarySaving()) {
                 return;
               }
               discardSummaryDraft();
@@ -332,7 +273,7 @@ export function NoteDetailModes({
             disabled={summarySaving}
             onEdit={enterEditMode}
             onReview={() => {
-              if (summarySavingRef.current) {
+              if (isSummarySaving()) {
                 return;
               }
               discardSummaryDraft();

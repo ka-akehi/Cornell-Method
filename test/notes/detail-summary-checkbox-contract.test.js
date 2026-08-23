@@ -35,10 +35,21 @@ function loadTranspiledModule(relativePath, dependencies = {}) {
   return moduleObject.exports;
 }
 
+function sourceSection(source, startMarker, endMarker) {
+  const start = source.indexOf(startMarker);
+  assert.notEqual(start, -1, `Missing source marker: ${startMarker}`);
+  const end = source.indexOf(endMarker, start + startMarker.length);
+  assert.notEqual(end, -1, `Missing source marker: ${endMarker}`);
+  return source.slice(start, end);
+}
+
 const readView = readSource(
   "src/modules/notes/ui/components/detail/read-view.tsx",
 );
 const modes = readSource("src/modules/notes/ui/components/detail/modes.tsx");
+const summaryDraft = readSource(
+  "src/modules/notes/ui/hooks/use-note-detail-summary-draft.ts",
+);
 const actions = readSource("src/modules/notes/ui/components/detail/actions.tsx");
 const payload = readSource(
   "src/modules/notes/model/detail-summary-payload.ts",
@@ -47,7 +58,11 @@ const payload = readSource(
 test("detail Summary uses the interactive read renderer in view and review", () => {
   assert.match(readView, /MarkdownReadView/);
   assert.doesNotMatch(readView, /MarkdownPreview/);
-  assert.match(readView, /onTaskToggle=\{onSummaryTaskToggle\}/);
+  assert.equal(
+    (readView.match(/onTaskToggle=\{onSummaryTaskToggle\}/g) ?? []).length,
+    2,
+    "view and review should both use the interactive Summary task toggle",
+  );
   assert.match(readView, /summaryDraft/);
   assert.match(readView, /summaryDirty/);
   assert.match(readView, /NoteDetailSummaryActions/);
@@ -56,15 +71,97 @@ test("detail Summary uses the interactive read renderer in view and review", () 
 });
 
 test("detail Summary toggle is draft-only and explicit save uses the existing note update", () => {
-  assert.match(modes, /const \[summaryDraft, setSummaryDraft\] = useState\(initialNote\.summary \?\? ""\);/);
-  assert.match(modes, /const summaryDirty = summaryDraft !== \(note\.summary \?\? ""\);/);
-  assert.match(modes, /updateMarkdownTaskMarker\(current, taskIndex, checked\)/);
-  assert.match(modes, /const summaryRevisionRef = useRef\(0\);/);
-  assert.match(modes, /if \(summarySavingRef\.current\) \{[\s\S]*return;/);
-  assert.match(modes, /async function saveSummary\(\)/);
-  assert.match(modes, /await updateNote\([\s\S]*noteDetailToSummaryUpdatePayload\(note, summaryDraft\)/);
-  assert.match(modes, /const saveRevision = summaryRevisionRef\.current;/);
-  assert.match(modes, /summaryRevisionRef\.current !== saveRevision/);
+  const toggleBody = sourceSection(
+    summaryDraft,
+    "function handleSummaryTaskToggle",
+    "  async function saveSummary",
+  );
+  const saveBody = sourceSection(
+    summaryDraft,
+    "async function saveSummary(): Promise<boolean>",
+    "  function acceptSavedNote",
+  );
+  const dirtyOwnerBody = sourceSection(
+    summaryDraft,
+    'useEffect(() => {\n    if (mode === "edit")',
+    "  return {",
+  );
+
+  assert.match(modes, /useNoteDetailSummaryDraft/);
+  assert.match(modes, /onSavedNote: \(savedNote\) => setNote\(savedNote\)/);
+  assert.match(modes, /onSummaryTaskToggle=\{handleSummaryTaskToggle\}/);
+  assert.match(modes, /onSaveSummary=\{\(\) => void saveSummary\(\)\}/);
+  assert.match(modes, /onDiscardSummary=\{\(\) => discardSummaryDraft\(\)\}/);
+  assert.doesNotMatch(modes, /registerDesktopDirtyController/);
+  assert.doesNotMatch(modes, /updateMarkdownTaskMarker/);
+  assert.doesNotMatch(modes, /noteDetailToSummaryUpdatePayload/);
+  assert.match(summaryDraft, /const \[summaryDraft, setSummaryDraft\] = useState\(note\.summary \?\? ""\);/);
+  assert.match(summaryDraft, /const summaryDirty = summaryDraft !== \(note\.summary \?\? ""\);/);
+  assert.match(summaryDraft, /const noteRef = useRef\(note\);/);
+  assert.match(summaryDraft, /const summaryDraftRef = useRef\(note\.summary \?\? ""\);/);
+  assert.match(summaryDraft, /const summaryDirtyRef = useRef\(false\);/);
+  assert.match(summaryDraft, /noteRef\.current = note;/);
+  assert.match(summaryDraft, /summaryDraftRef\.current = summaryDraft;/);
+  assert.match(
+    toggleBody,
+    /const nextSummary = updateMarkdownTaskMarker\(\s*summaryDraftRef\.current,\s*taskIndex,\s*checked,\s*\);/,
+  );
+  assert.match(
+    toggleBody,
+    /summaryDirtyRef\.current = true;[\s\S]*summaryDraftRef\.current = nextSummary;[\s\S]*setSummaryDraft\(nextSummary\);/,
+  );
+  assert.doesNotMatch(toggleBody, /updateNote\(/);
+  assert.match(summaryDraft, /const summaryRevisionRef = useRef\(0\);/);
+  const cleanSaveGuard = sourceSection(
+    saveBody,
+    "if (!summaryDirtyRef.current)",
+    "    if (summarySavingRef.current)",
+  );
+  assert.match(cleanSaveGuard, /return true;/);
+  const savingSaveGuard = sourceSection(
+    saveBody,
+    "if (summarySavingRef.current)",
+    "    const saveRevision",
+  );
+  assert.match(savingSaveGuard, /return false;/);
+  assert.match(saveBody, /const saveRevision = summaryRevisionRef\.current;/);
+  const updateCall = sourceSection(
+    saveBody,
+    "const savedNote = await updateNote(",
+    "      if (summaryRevisionRef.current !== saveRevision)",
+  );
+  assert.match(
+    updateCall,
+    /noteRef\.current\.id,[\s\S]*noteDetailToSummaryUpdatePayload\(\s*noteRef\.current,\s*summaryDraftRef\.current,\s*\)/,
+  );
+  const revisionGuard = sourceSection(
+    saveBody,
+    "if (summaryRevisionRef.current !== saveRevision)",
+    "      noteRef.current = savedNote;",
+  );
+  assert.match(revisionGuard, /return false;/);
+  const successfulSave = sourceSection(
+    saveBody,
+    "noteRef.current = savedNote;",
+    "    } catch (caught)",
+  );
+  assert.match(
+    successfulSave,
+    /summaryDirtyRef\.current = false;[\s\S]*return true;/,
+  );
+  const failedSave = sourceSection(
+    saveBody,
+    "    } catch (caught)",
+    "    } finally",
+  );
+  assert.match(failedSave, /caught instanceof NotesRemoteError/);
+  assert.match(failedSave, /setSummaryError\(caught\.message\)/);
+  assert.match(failedSave, /return false;/);
+  assert.match(dirtyOwnerBody, /return registerDesktopDirtyController\(\{/);
+  assert.match(dirtyOwnerBody, /isDirty: \(\) => summaryDirtyRef\.current/);
+  assert.match(dirtyOwnerBody, /save: \(\) => summarySaveRef\.current\(\)/);
+  assert.match(dirtyOwnerBody, /discard: \(\) => summaryDiscardRef\.current\(\)/);
+  assert.match(dirtyOwnerBody, /\}, \[mode\]\);/);
   assert.match(readView, /taskToggleDisabled=\{summarySaving\}/);
   assert.match(actions, /disabled=\{saving\}/);
   assert.match(actions, /disabled=\{disabled\}/);
@@ -87,10 +184,10 @@ test("detail Summary toggle is draft-only and explicit save uses the existing no
 
 test("Summary discard does not pass the click event into the draft in view or review", () => {
   assert.match(
-    modes,
-    /function discardSummaryDraft\(nextSummary = note\.summary \?\? ""\)/,
+    summaryDraft,
+    /function discardSummaryDraft\(nextSummary = noteRef\.current\.summary \?\? ""\)/,
   );
-  assert.match(modes, /setSummaryDraft\(nextSummary\)/);
+  assert.match(summaryDraft, /setSummaryDraft\(nextSummary\)/);
   assert.match(modes, /onDiscardSummary=\{\(\) => discardSummaryDraft\(\)\}/);
 
   assert.equal(

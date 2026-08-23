@@ -1,8 +1,16 @@
 # Desktop Alpha の Tauri 基盤境界
 
 作成日: 2026-08-17
+最終更新: 2026-08-22
 
-状態: 基盤は選定済み。製品識別子、製品実装ディレクトリ、保存構成は承認済み。実装は未着手
+状態: 基盤は選定済み。製品側 `src-tauri/` は作成済みで、user data / SQLite bootstrap、single-instance recovery、既存 primary lifecycle、Settings shell / bridge / entrypoint の部分実装と責務 audit が完了している。Desktop Alpha の更新契約は確定したが、provider normalization、manifest validation、compatible selection、download、signature verification、staging migration、apply / rollback は未実装である。Desktop Alpha 全体は未完了で、Settings の操作機能、backup / restore、完全なデータ削除、診断、packaged Apple Silicon GUI QA も残っている。
+
+## 現在地（2026-08-22）
+
+- 製品側 `src-tauri/` に Tauri shell、dynamic loopback を使う sidecar 起動、user data / SQLite bootstrap、single-instance recovery、window state、dirty close bridge、sidecar cleanup の実装がある。Rust unit test と静的 contract test で確認できる範囲を実装済みとする。
+- Settings は、既存 primary WebView へ届く Mac menu bridge、Web gear / mobile trigger の shared bridge、3カテゴリ modal、focus / keyboard 制御までが実装済みである。General は読み取り専用、Updates と Data and Backup の操作は準備中で、現行 `/backup` を維持する。
+- UI / Rust の責務抽出と 2026-08-21 の最終 audit は完了し、現時点で追加の責務分割 coding task はない。Desktop Alpha 全体の完了とは扱わない。
+- dynamic loopback の実 runtime、browser / DB read-back、packaged Apple Silicon GUI、更新 provider の normalization、manifest validation、compatible selection、download / apply、署名検証、staging migration、rollback、backup / restore、完全なデータ削除、startup failure / 診断は未確認または未実装である。
 
 ## 選定結果
 
@@ -69,7 +77,9 @@ PoC の識別子を製品へ昇格させると、macOS が管理するアプリ�
 ├── live/
 │   └── notebook.sqlite
 ├── backups/
+├── staging/
 ├── settings/
+│   └── update-state.json
 ├── logs/
 └── pending-restore/
 ```
@@ -78,9 +88,10 @@ PoC の識別子を製品へ昇格させると、macOS が管理するアプリ�
 |---|---|---|
 | `~/Library/Application Support/com.cornellmethod.notebook/` | `APPROVED` | 製品のユーザーデータのルート。製品識別子と同じ名前空間を使う。 |
 | `live/notebook.sqlite` | `APPROVED` | 稼働中の SQLite。ノートデータの唯一の正本とする。 |
-| `backups/` | `APPROVED` | マイグレーション前と復元前に作る管理用バックアップ。最新3世代を保持する。 |
-| `settings/` | `APPROVED` | ウィンドウ状態、更新状態、アプリ設定を保存する。ノート本文の代替にはしない。 |
-| `logs/` | `APPROVED` | ノート本文等を含まないローカルログ。最大14日かつ合計20MBで古いものから削除する。 |
+| `backups/` | `APPROVED` | マイグレーション前と復元前に作る管理用バックアップ。保持世代数などの retention policy は未決定とする。 |
+| `staging/` | `APPROVED` | 更新 package と DB staging copy を一時保管する app 管理領域。package の file layout は未決定とする。 |
+| `settings/` | `APPROVED` | ウィンドウ状態、更新状態、アプリ設定を保存する。`update-state.json` に保存する再起動後の検証用 artifact metadata は承認済みの項目だけとし、manifest root の schema version とは分離する。 |
+| `logs/` | `APPROVED` | ノート本文等を含まないローカルログ。保持期間、容量、世代整理の細則は未決定とする。 |
 | `pending-restore/` | `APPROVED` | 更新後に明示確認して復元を再開するための隔離したコピーを置く。起動時に自動復元しない。 |
 | Application Support 外の SQLite 書き出し | `APPROVED` | ユーザーが保存先を選ぶ平文の書き出し。管理用バックアップの世代管理や完全なデータ削除の対象にしない。 |
 
@@ -96,8 +107,9 @@ PoC の識別子を製品へ昇格させると、macOS が管理するアプリ�
 | 製品実装ディレクトリ | `src-tauri/` | 承認済み。PoC からソース、検証用データ、証跡、ロックファイルを移さない |
 | Application Support のルート | `~/Library/Application Support/com.cornellmethod.notebook/` | 承認済み。保存先解決処理の入力とする |
 | 稼働 SQLite | `<root>/live/notebook.sqlite` | 承認済み。稼働 DB の唯一の正本とする |
-| 管理用バックアップ | `<root>/backups/` | 承認済み。マイグレーション前と復元前に限定する |
-| 設定、ログ、保留中の復元 | `<root>/settings/`、`<root>/logs/`、`<root>/pending-restore/` | 保存形式とメタデータの詳細は実装 task で決める |
+| 管理用バックアップ | `<root>/backups/` | 承認済み。マイグレーション前と復元前に限定し、retention policy の細則は未決定とする |
+| 更新 package / DB staging | `<root>/staging/` | 承認済み。package の file layout と staging metadata の詳細は実装 task で決める |
+| 設定、ログ、保留中の復元 | `<root>/settings/`、`<root>/logs/`、`<root>/pending-restore/` | `settings/update-state.json` は version、channel、architecture、`artifactId`、`sizeBytes`、`sha256`、`keyId`、verification state、app 管理 staging からの relative package path、時刻を atomic に保存する。state の lifecycle/status、file layout、保持条件は実装 task で決める |
 | 開発用実行環境 | 製品と分離した識別子と保存先 | 具体値は未決定 |
 
 ## 識別子と保存先を変更する場合のリスク
@@ -144,6 +156,18 @@ WebView の画面
 4. 実行環境の ready 状態とプロセス識別情報を確認してから主ウィンドウを作り、常に `/notes` を表示する。
 5. 二重起動では新しい主ウィンドウを作らず、既存の主ウィンドウを前面に出す。Settings モーダル、確認ダイアログ、OS のファイル選択ダイアログは主ウィンドウ数に数えない。
 
+### Desktop Alpha の single-instance 実装境界
+
+製品側の lifecycle は次の境界まで実装済みである。
+
+- `settings/.instance.lock` は rename / unlink しない stable file とし、read/write で開いて Unix/macOS の `flock(LOCK_EX | LOCK_NB)` を取得する。ファイルの内容、PID、marker、socket pathname は ownership の authority ではない。
+- owner 情報は `settings/.instance.owner` に分離し、temp file への全量書き込み、`sync_all`、同一 directory 内の `rename` で atomic replace する。stable lock file に旧形式 JSON が残る場合は、旧 process を推測で奪取せず、sanitized error で停止する。
+- advisory lock を取得した primary だけが owner marker を更新し、focus socket を bind する。secondary は `Focused`、または socket 未作成 / `not-ready` の bounded retry 後に `AlreadyRunningNotReady` として終了し、Tauri window や sidecar を作らない。
+- lock 保持中に接続不能と確認できた stale Unix socket だけを再利用する。active endpoint、unknown protocol、permission error は socket を残して起動失敗とする。guard の clean exit は自分の owner marker と socket だけを cleanup し、stable lock file は残す。
+- primary の bootstrap より前に focus listener を bind するため、起動途中の secondary には `not-ready` を返せる。実装の正本は `src-tauri/src/main.rs` の Rust unit test であり、Node test は製品識別子と静的契約だけを補強する。
+
+この task の範囲は single-instance recovery と既存の primary lifecycle である。Settings、更新、backup / restore、完全削除、diagnostic、packaging QA は別境界として残す。旧 `create_new` 実装で起動した live process との hot upgrade は Desktop Alpha の受け入れ対象外であり、旧 marker/socket/DB/backup の無条件削除は行わない。
+
 ### 終了
 
 1. 最後の主ウィンドウに対する終了要求を受ける。
@@ -157,17 +181,55 @@ WebView の画面
 
 - 稼働 SQLite をノートデータの唯一の正本とする。
 - ノートの作成、編集、閲覧、検索、復習、保存、バックアップ / 復元はオフラインで動作させる。
-- ネットワーク通信は更新マニフェストの確認と更新パッケージの取得に限る。更新提供元、マニフェスト / パッケージの配置、署名方式は未決定である。
+- ネットワーク通信は更新マニフェストの確認と更新パッケージの取得に限る。初期 provider は GitHub Releases とするが、取得側は provider-neutral な manifest interface とする。manifest の logical field allowlist と validation boundary は下記で承認済みとし、具体的な URL、署名アルゴリズム名・encoding・canonicalization・鍵値、package archive の拡張子は未決定である。
 - 現行 MVP の `/notes`、`/notes/new`、`/notes/[id]`、`/backup`、API、明示保存、確認付き物理削除、復習、`CanvasDocumentV1`、旧形式の Markdown 互換を変更しない。
 - アプリバンドルの更新、再インストール、通常のアンインストールで稼働 DB、管理用バックアップ、設定を暗黙に削除しない。
 - 開発・検証用の Next.js Web 起動経路を維持する。開発 Web とパッケージ済み Tauri の実行環境で、保存先と DB を共有しない。
 
+## Desktop Alpha の更新契約と基盤責務
+
+更新契約は確定済みである。製品側の更新 provider normalization、manifest validation、compatible selection、download / apply、署名検証、staging migration、rollback の実装と、packaged Apple Silicon GUI の検証は未完了である。
+
+- 初期配布は DMG とする。アプリ内更新は Apple Silicon の `aarch64-apple-darwin` 向け `.app archive` とする。Intel の artifact と QA は Desktop Alpha の対象にせず、Public Mac Release で別途判断する。archive の具体的な拡張子は固定しない。
+- 初期 provider は GitHub Releases とする。Tauri 側は provider 固有の response へ直接依存せず、provider adapter が `releases[]` を持つ provider-neutral な manifest interface へ正規化した結果を受け取る。provider の並び順、文字列順、raw response、release notes は候補選択に使わない。
+- 端末側で channel、version、architecture、macOS compatibility を判定し、同一 channel の新しい compatible version だけを選択する。downgrade は行わない。
+- 各 release の `keyId` はアプリに保持する現行鍵または次期鍵を参照する。package は公開鍵署名と SHA-256 の両方を検証し、manifest を信頼根の追加経路にしない。署名アルゴリズム名、encoding、canonicalization、鍵値、承認済み field allowlist 以外の wire-level details は未決定とする。
+- 更新 package は Application Support の app 管理 `staging/` に保管する。DB compatibility はユーザー固有情報を manifest に載せず、端末内の DB staging copy で migration と reopen を検証する。
+- `settings/update-state.json` に保存する再起動後の検証用 artifact metadata は承認済みの項目だけとする。ノート本文、SQLite、backup、診断情報を保存せず、state の lifecycle/status と file layout は実装 task で決める。
+- package と DB staging の検証に成功した場合だけ明示的な再起動で切り替える。旧 app が新しい DB schema を検出した場合は live DB を変更せず、現行版への更新または backup restore を案内する。
+- 切り替え後の新版の初回起動と health check が成功するまで旧 app bundle を保持する。検証または health check に失敗した場合は現行 app、live DB、app 管理 backup を維持して rollback し、成功後にだけ旧 bundle を削除する。
+- Developer ID と notarization は Desktop Alpha の必須条件にしない。Public Mac Release で判断する。
+- 通常のアンインストールでは live DB を削除しない。Settings の完全なデータ削除は別操作とし、明示確認後に live DB、app 管理 backup、設定だけを対象にする。外部 SQLite export は削除しない。
+
+### Manifest validation boundary
+
+provider response の正規化後に、manifest を strict に検証する。次の logical field allowlist は、root、release、artifact、signature の未知 field を拒否するための境界である。
+
+| object | 許可する field | 必須・値の境界 |
+| --- | --- | --- |
+| root | `productId`, `schemaVersion`, `releases` | `productId` は `com.cornellmethod.notebook` と一致する。`schemaVersion` は必須の `1` とし、未知 version は fail closed とする。`releases[]` は必須配列で、空配列は有効な「更新なし」とする。 |
+| release | `channel`, `version`, `architecture`, `minVersion`, `maxVersionExclusive`, `artifact`, `signature` | `channel` は `stable` 固定、`version` は SemVer 互換、`minVersion` は必須の macOS 下限、`maxVersionExclusive` は任意の排他的上限とする。macOS version は数値 component で比較する。 |
+| artifact | `artifactId`, `format`, `url`, `sizeBytes`, `sha256` | `artifactId` は必須の opaque immutable ID とし、同じ package には同じ ID を使う。`format` は抽象値 `app-archive`、`sizeBytes` は正の整数 byte 数、`sha256` は 64 文字の lowercase hexadecimal とする。 |
+| signature | `keyId`, `proof` | `keyId` と opaque な `proof` を必須とする。proof は package digest と release metadata をまとめて署名した結果を表すが、署名アルゴリズム名、encoding、canonicalization、鍵値は固定しない。 |
+
+実際の最低対応 macOS version と deployment target は、Apple Silicon の packaged PoC 後に決める。`minVersion` / `maxVersionExclusive` の validation boundary を先に固定することは、最低対応 version の数値を確定することを意味しない。
+
+root、release、artifact、signature の未知 field、product ID 不一致、未知 root schema version、必須 field・型・SemVer・macOS range・artifact metadata・URL・signature proof の不備、同一 target の重複（duplicate）は manifest 全体を拒否する。`stable` 以外の channel、未知 architecture、未知 format はその release だけを対象外とし、他の有効な release を評価する。Desktop Alpha で評価する architecture は `aarch64-apple-darwin` である。
+
+`version` は SemVer の precedence で比較し、`releases[]` の並び順や文字列順を使わない。prerelease は対象外とし、build metadata は version の大小判定に使わない。対象 channel、architecture、format、macOS range に適合し、現行 version より新しい候補のうち、最も高い SemVer precedence の release を選ぶ。空配列、または非対象 release だけの manifest は有効な「更新なし」とする。
+
+同じ channel、version、architecture、macOS target（`minVersion` と `maxVersionExclusive` の組）の重複が manifest 全体にあれば、対象外 release を含めて manifest 全体を拒否する。`maxVersionExclusive` がない target は、上限なしの target として重複判定する。
+
+artifact URL は公開 direct HTTPS とする。許可する redirect は HTTPS から HTTPS への redirect だけであり、HTTP への downgrade、credential、token、ユーザー固有 query を含む URL は拒否する。package format は `app-archive` という抽象値だけを契約に置き、archive の具体的な拡張子は固定しない。
+
+manifest root の `schemaVersion: 1` は manifest の version namespace であり、local `settings/update-state.json` の schema version と分離する。update state には再起動後の検証に必要な version、channel、architecture、`artifactId`、`sizeBytes`、`sha256`、`keyId`、verification state、app 管理 staging からの relative package path、時刻だけを保存する。URL、provider response 全体、token、DB、user path は保存しない。
+
 ## 実装の順序
 
-1. `ユーザーデータ / SQLite 初期化`: 保存先の決定、初回 DB、スキーマ状態、実行環境への絶対パスの受け渡し。
-2. `単一ウィンドウのライフサイクル`: 単一インスタンス、二重起動時の表示、ウィンドウ状態、サイドカーの所有権、終了処理。
-3. `Settings`: General、Updates、Data and Backup の入口と、現行 `/backup` からの段階移行。
-4. `更新 / マイグレーション`: バックグラウンドでのダウンロード、明示的な再起動、マイグレーション前の安全確保用バックアップ、隔離環境でのマイグレーション、失敗時の現行版維持。
+1. `ユーザーデータ / SQLite 初期化`（実装済み）: 保存先の決定、初回 DB、スキーマ状態、実行環境への絶対パスの受け渡し。
+2. `単一ウィンドウのライフサイクル`（single-instance recovery、primary lifecycle、window state、close bridge、sidecar cleanup の実装済み。packaged QA は未確認）: 単一インスタンス、二重起動時の表示、ウィンドウ状態、サイドカーの所有権、終了処理。
+3. `Settings`（shell / bridge / entrypoint / 3カテゴリ modal は実装済み。操作機能は未実装）: General、Updates、Data and Backup の入口と、現行 `/backup` からの段階移行。
+4. `更新 / マイグレーション`: `releases[]` の端末内選択、package の署名・SHA-256 検証、Application Support 内の staging、明示的な再起動、マイグレーション前の安全確保用バックアップ、隔離環境での migration / reopen、失敗時の rollback。
 5. `バックアップ / 復元`: 手動 SQLite 書き出し、管理用バックアップと外部ファイルの別入口、検証、アトミックな切り替え、再オープン。
 6. `削除 / 診断`: 完全なデータ削除、ローカルログの保持、診断 ZIP、起動失敗時の画面。
 7. `パッケージ済み Desktop Alpha の品質確認`: Apple Silicon のパッケージ済みアプリで、現行 MVP と Desktop Alpha 契約を結合確認する。
@@ -178,16 +240,16 @@ WebView の画面
 
 - 開発専用の識別子と製品の識別子を分ける命名方針。
 - bundle ID またはユーザーデータのルートを将来変更する場合の移行対象、旧保存先の保持期間、失敗時の復旧方針。
-- 次の実装 task で使う設定の保存形式と、保留中の復元メタデータの最小項目。
+- package の staging metadata、保留中の復元メタデータ、app 管理 backup / local log の retention policy の細則。`update-state.json` に保存する artifact metadata の境界は承認済みである。
 
-## 次のユーザーデータ / SQLite 初期化実装 task が受け取る入力
+## 後続 task が引き継ぐ基盤情報
 
 1. 承認済みの製品識別子と製品ソースディレクトリ。
 2. PoC ディレクトリを参照しないパッケージ / リソースの境界。
 3. 承認済みの Application Support ルートと相対レイアウト。
 4. 稼働 DB の絶対パス、初回 DB 作成条件、既存 DB がない場合の復旧条件。
 5. `DATABASE_URL` をサイドカーへ渡す境界。画面側にはパスを公開しない。
-6. 管理用バックアップと保留中の復元を初期化 task で扱うか、後続 task に残すかという責務分担。
+6. 管理用バックアップ、更新 package / DB staging、`update-state.json`、保留中の復元を初期化 task で扱うか、後続 task に残すかという責務分担。
 
 ## 未決事項
 
@@ -199,13 +261,17 @@ WebView の画面
 | 開発用識別子と保存先 | `UNDECIDED` | 製品と分離する命名規則の承認 |
 | Node.js サイドカーの同梱方式 | `UNDECIDED` | パッケージ済み実行環境とネイティブ依存関係の配布設計 |
 | 最低対応 macOS | `UNDECIDED` | Tauri の実行環境と Apple Silicon の結合確認 |
-| 更新提供元、マニフェスト / パッケージの配置 | `UNDECIDED` | 更新設計。Desktop Alpha では独自ドメインを前提にしない |
-| パッケージ署名、完全性検証、Developer ID、公証（notarization） | `UNDECIDED` | Desktop Alpha と Public Mac Release の判断範囲を分ける |
+| 更新 provider | `APPROVED`: 初期 provider は GitHub Releases。取得側は provider-neutral な manifest interface とし、provider response を正規化してから strict validation する | 具体的な URL、provider adapter の実装詳細は更新実装 task で決める |
+| manifest / package の判定と配置 | `APPROVED`: `productId`、root `schemaVersion: 1`、strict field allowlist、`releases[]`、SemVer / stable / macOS range / Apple Silicon / artifact / URL / duplicate / non-target release の境界、Application Support 内の app 管理 staging | staging file layout、package archive の具体的な拡張子は未決定。manifest validation、compatible selection、provider normalization、download、apply は未実装 |
+| package の署名・完全性検証 | `APPROVED`: 公開鍵署名と SHA-256 を併用し、`keyId` と opaque proof で package digest / release metadata を検証する | 署名アルゴリズム名、encoding、canonicalization、秘密鍵・公開鍵の値、manifest から信頼根を追加しない検証実装は未実装 |
+| Developer ID / notarization | `UNDECIDED`、Desktop Alpha の必須条件ではない | Public Mac Release で判断する |
 | 画面操作の自動化 | PoC `BLOCKED` | パッケージ済み画面の Alpha 品質確認で使う検証方法 |
 
 ## 次に読むファイル
 
-- `doc/implementation/POST_MVP_IMPLEMENTATION_PLAN.md` §7〜§8
-- `doc/technical/TARGET_ARCHITECTURE.md` の Desktop shell / ローカル実行環境 / 保存領域の境界
-- `doc/requirements/MVP_CONTRACT.md`
-- `HANDOFF_2026-08-17.md`
+- `HANDOFF_2026-08-22.md`
+- `summary/20260821/0800-audit-final-responsibility-boundaries.md`
+- `doc/implementation/POST_MVP_IMPLEMENTATION_PLAN.md` §7〜§8、§12〜§14
+- `doc/implementation/MVP_CONTRACT.md` §9 と `doc/implementation/IMPLEMENTATION_STATUS.md` §5.4
+- `doc/testing/TEST_SCENARIOS.md` の Desktop Alpha 節
+- `src-tauri/src/main.rs`、`instance.rs`、`runtime.rs`、`lifecycle.rs`、`menu.rs`、Settings source と対応 contract test

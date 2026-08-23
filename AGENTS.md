@@ -12,7 +12,7 @@
 - 設計書一覧: [`doc/README.md`](doc/README.md)
 - Manager / Worker 運用: [`codex-queue/README.md`](codex-queue/README.md)
 - Task Summary 運用: [`summary/README.md`](summary/README.md)
-- 最新引き継ぎ: `HANDOFF_2026-08-17.md`
+- 最新引き継ぎ: `HANDOFF_2026-08-22.md`
 
 ### 仕様書の役割分担
 

@@ -1,10 +1,10 @@
 # 実装状況サマリ
 
-更新日: 2026-08-12
+更新日: 2026-08-22
 
 ## 判定基準
 
-現行 MVP の実装・受け入れ判断は `doc/implementation/MVP_CONTRACT.md` を正本とする。Desktop Alpha、Canvas PNG、検索サジェスト、大規模一覧は採用済みの将来要件だが未実装であり、この文書では現行 MVP と分けて扱う。autosave、Undo、専用復習タスク、NoteCard / D&D 等は未採用候補、PDF export は未実装かつ現在未採用である。
+現行 MVP の実装・受け入れ判断は `doc/implementation/MVP_CONTRACT.md` を正本とする。Desktop Alpha は全体として未完了であり、single-instance recovery / 既存 primary lifecycle / Settings shell・bridge・entrypoint の部分実装は完了（packaged Apple Silicon GUI は未検証）だが、Settings の操作機能、provider normalization、manifest validation、compatible selection、download / apply、署名検証、migration、rollback、backup / restore、完全なデータ削除、診断は未実装である。`settings/update-state.json` の local state persistence は別の部分実装であり、承認済み artifact metadata と更新 pipeline の結合を実装済みとは扱わない。更新契約自体は承認済みであり、実装済みとは扱わない。Canvas PNG、検索サジェスト、大規模一覧は採用済みの将来要件だが未実装であり、この文書では現行 MVP と分けて扱う。autosave、Undo、専用復習タスク、NoteCard / D&D 等は未採用候補、PDF export は未実装かつ現在未採用である。
 
 - **実装済み（静的確認）**: 現在の route、UI、Prisma schema、サービス、または確認可能な静的検証記録でコード上の実在を確認できるもの。ブラウザ実機 QA の完了を意味しない。
 - **部分実装**: 一部のコードは存在するが、MVP 契約の挙動または画面状態を満たしていないもの。
@@ -29,7 +29,7 @@
 - ノート内タグは、保存時の `tags` 配列 index を `NotebookTag.order` に 0 始まりで保存し、一覧・詳細の read repository は `order` 昇順で取得する。SQLite / Postgres の `20260809090000_add_notebook_tag_order` migration は既存行を Tag 名昇順（同名は `tagId` 昇順）で決定的に backfill する。`GET /api/tags` は候補を名前昇順で返し、ノート内タグの順序とは分けている。これは実装の静的確認であり、タグ順の保存・再読込を含む Browser runtime QA は未確認である。
 - 詳細画面の Summary は `MarkdownReadView` で task-list checkbox を表示し、view / review で toggle できる。toggle は対応する task marker の checked 状態だけを Summary draft に反映し、dirty 状態を表示する。明示保存は既存 `PATCH /api/notes/:id` を使い、成功 response で表示中ノートを更新して dirty 状態を解除する。破棄、モード離脱、復習完了では未保存 draft を保存せずに破棄し、保存失敗時は draft と dirty 状態を保持して error を表示する。編集画面の Markdown Preview checkbox は read-only のままで、自動保存は行わない。これは実装と contract test の静的確認であり、Browser runtime、実 DB read-back、E2E は未確認である。
 - 削除は確認後に物理削除する。`deletedAt` は schema に残る互換フィールドであり、Undo / soft delete の実装を意味しない。
-- Desktop shell、Settings、アプリ内更新、staging migration / restore、完全なデータ削除、診断 bundle、Canvas PNG、検索対象 selector、語句サジェスト、無限スクロール、list windowing に対応する製品コードは存在しない。専用復習タスク、draft / autosave、NoteCard、D&D、PDF export の route・model・UI も存在しない。
+- Desktop Alpha は全体として未完了である。single-instance recovery と既存 primary lifecycle、Settings shell / bridge / entrypoint の部分実装は確認できるが、Settings の操作機能、GitHub Releases provider response の normalization、provider-neutral manifest interface、strict manifest validation、`releases[]` の compatible selection、download / apply、公開鍵署名・SHA-256 検証、Application Support 内の app 管理 staging、承認済み artifact metadata を使う update-state integration、staging migration、rollback、完全なデータ削除、診断 bundle は未実装であり、packaged Apple Silicon GUI は未検証である。Canvas PNG、検索対象 selector、語句サジェスト、無限スクロール、list windowing に対応する製品コードは存在しない。専用復習タスク、draft / autosave、NoteCard、D&D、PDF export の route・model・UI も存在しない。
 - Canvas は、`CanvasDocumentV1`（既定 page 1200x800、各 320〜4000px）の共有 validation、JSON 保存・復元、Canvas text 要素由来の `searchText`、幅・高さ数値入力と適用操作、保存済み `page` 寸法による editor / viewer の実寸描画、page 寸法だけを更新して要素 geometry を保持する処理、draw.io 風 toolbar、sticky tool、消しゴム（触れた要素を object 単位で消去する whole-object eraser）、client history、style controls、図形内文字、既存要素上の重ね描き、図形ドラッグ閾値、Fabric path metadata までコード上で実装されている。2026-07-21 に API の Canvas 保存・復元境界を確認し、2026-07-25 は Worker の Browser backend `[]` / app-server `Operation not permitted` を補う Manager 側の権限付き headless Playwright Chromium で、寸法、style、保存・再読込、eraser、history、toolbar / touch の確認済み範囲を追加した。厳密な 4px 等を残す `CANVAS-INTERACTION-001` / `CANVAS-GESTURE-001` と、全体未確認の `CANVAS-SHAPE-TEXT-001` は部分実施のままである。
 - 2026-07-25 の最新 Manager fallback QA で、既存ノートの desktop edit は 1280 / 1440px、`nextReviewDate` は新規初期値・手動値保持・未設定維持の確認済み範囲を追加した。review 成功 UI、375 / 768px の mobile edit、wheel / trackpad 固有入力は未確認のままである。根拠は `summary/20260725/2230-mandatory-qa-manager-fallback-20260725.md`。
 - 2026-07-31 の追加 QA では、Canvas の wheel / trackpad / touch scroll handoff と scroll 中の drawing 干渉、および 375 / 768px の note editor・viewer・review・overflow runtime は Browser backend / localhost route / server bind / headless Chromium の制約により `BLOCKED` だった。7/25 に別経路で確認済みの desktop / Canvas subset は履歴として保持し、今回の未測定範囲を runtime `PASS` へ繰り上げない。根拠は `summary/20260731/worker-canvas-scroll-wheel-touch-qa-20260731.md`、`summary/20260731/worker-mobile-note-runtime-20260731.md`。
@@ -220,15 +220,15 @@ Worker task は Browser backend `[]` と app-server `Operation not permitted` �
 
 ### 5.4 将来契約と未採用候補
 
-Desktop Alpha とその後の採用済み要件は未実装である。次表は正本上の採用状態と、現在のコードで確認できる事実を分けて示す。
+Desktop Alpha は全体として未完了である。single-instance recovery と既存 primary lifecycle、Settings shell / bridge / entrypoint の部分実装は確認できるが、packaged Apple Silicon GUI は未検証で、Settings の操作機能、更新、migration、backup / restore、完全なデータ削除、診断は未実装である。次表は正本上の採用状態と、現在のコードで確認できる事実を分けて示す。
 
 | 領域 | 採用状態 / 実装状態 | 確認結果・根拠 |
 | --- | --- | --- |
-| Desktop PoC | 比較方針は承認済み、PoC 未着手 | Electron と Tauri + Node.js sidecar を、同じ現行 MVP、deterministic な 10,000 note fixture、Apple Silicon Mac、shell の main / core、renderer / WebView、local runtime、Node.js sidecar、framework helper、関連子 process の合計メモリを含む測定軸で比較する。内部 process を許容し、OS process が複数存在することだけを blocker や不合格理由にしない。`src` に desktop shell、Electron main、Tauri、sidecar の製品実装はない。PDF / Playwright / Chromium は PoC の blocker や必須条件ではない。 |
-| Desktop lifecycle / Settings | 採用済みの将来契約、未実装 | single application instance / 1 primary window、二重起動時の既存 primary window 前面化、内部 process の許容、最後の primary window close で application instance を終了し、local runtime と app-owned child process をすべて停止して orphan process を残さない契約、Settings modal、確認 dialog、OS file dialog と独立 primary window の区別、dirty close / update の 3 結果、General / Updates / Data and Backup、`/backup` の段階廃止に対応する Desktop code / UI はない。現行 `/backup` は実装済みのまま維持されている。 |
-| 更新 / migration | 採用済みの将来契約、未実装 | DMG、最大 1 日 1 回の更新確認、手動確認、toggle なし、background download、明示的な再起動適用、失敗時の現行版維持、最小 manifest、pending migration 時だけの safety backup、staging migration、atomic switch に対応する code / packaging 設定はない。 |
-| Backup / restore / 完全なデータ削除 | 採用済みの将来契約、未実装 | 手動 SQLite export、app 管理 backup と外部 file の別 restore、restore 前 backup、schema / integrity / semantic validation、pending restore、live DB・app 管理 backup・設定だけを対象とする完全削除は未実装。現行コードは `/backup` と `GET/POST /api/backups` の手動作成・一覧だけである。 |
-| Startup / diagnostics / privacy | 採用済みの将来契約、未実装 | DB recovery UI、14 日・20 MB の local log retention、local 診断 bundle、禁止データの allowlist / denylist test、異常終了後の一度だけの通知は未実装。外部 telemetry や app 独自 DB encryption を Desktop Alpha の要件にはしない。 |
+| Desktop PoC | Tauri + Node.js sidecar の shell 選定完了（2026-08-17）。retry24 の native lifecycle / package は PASS、renderer UI automation は BLOCKED | Electron と Tauri + Node.js sidecar を、同じ現行 MVP、deterministic な 10,000 note fixture、Apple Silicon Mac、shell の main / core、renderer / WebView、local runtime、Node.js sidecar、framework helper、関連子 process の合計メモリを含む測定軸で比較する。Tauri retry24 の `.app` / DMG package は確認済みだが、comparable な cold start / RSS と Electron の同形式追加 evidence は未確認である。製品実装は PoC と分離した `src-tauri/` にある。PDF / Playwright / Chromium は PoC の blocker や必須条件ではない。 |
+| Desktop lifecycle / Settings | 採用済みの将来契約、部分実装（single-instance recovery / 既存 primary lifecycle / Settings shell） | `settings/.instance.lock` を rename / unlink しない stable advisory lock とし、Unix/macOS の `flock(LOCK_EX | LOCK_NB)` を取得する。owner 情報は別の `settings/.instance.owner` に全量書き込み・`sync_all`・同一 directory 内の `rename` で atomic replace する。secondary は focus socket を bounded retry し、`focused` または `AlreadyRunningNotReady` で終了して Tauri window / sidecar を作らない。lock を取得した primary だけが focus listener を bind し、接続不能で stale と確認できた Unix socket だけを再利用する。active / unknown protocol / permission endpoint は削除せず fail-safe で停止する。primary の ready 後の window 作成、最後の primary window close 時の app-owned sidecar / child process cleanup、guard の自分の owner marker / socket だけの cleanup も実装済みである。Settings は Mac menu と Web gear / mobile trigger の shared bridge、既存 primary WebView 内の General / Updates / Data and Backup の modal shell、focus / keyboard 制御までで、更新、backup / restore、完全削除などの操作は未実装である。根拠は `src-tauri/src/main.rs`、`src-tauri/src/window_state.rs`、`src-tauri/src/menu.rs`、`src/app/_components/settings/`、`src/shared/desktop/`、Rust / Node contract test。packaged Apple Silicon GUI は未検証で、現行 `/backup` は代替受け入れまで維持する。 |
+| 更新 / migration / rollback | 採用済みの将来契約、未実装 | 初期 provider は GitHub Releases、取得側は provider-neutral な manifest interface とする。`releases[]`、channel / version / architecture / macOS compatibility の端末内判定、同一 channel の新しい compatible version のみの選択、downgrade 防止、初期配布 DMG、Apple Silicon `aarch64-apple-darwin` 向け `.app archive`、最大 1 日 1 回の更新確認、手動確認、toggle なし、background download、公開鍵署名と SHA-256、`keyId` によるアプリ内の現行鍵・次期鍵の参照、Application Support 内の app 管理 staging、atomic な `settings/update-state.json`、pending migration 時だけの safety backup、DB staging copy の migration / reopen、newer schema の非破壊導線、旧 app bundle 保持、health check 後の削除、失敗時 rollback に対応する code / packaging 設定はない。Intel、Developer ID、notarization は Public Mac Release の判断範囲である。 |
+| Backup / restore / 完全なデータ削除 | 採用済みの将来契約、未実装 | 手動 SQLite export、app 管理 backup と外部 file の別 restore、restore 前 backup、schema / integrity / semantic validation、pending restore、live DB・app 管理 backup・設定だけを対象とする完全削除は未実装。通常のアンインストールでは live DB を削除せず、外部 SQLite export は完全なデータ削除の対象にしない。現行コードは `/backup` と `GET/POST /api/backups` の手動作成・一覧だけである。 |
+| Startup / diagnostics / privacy | 採用済みの将来契約、未実装 | DB recovery UI、user data を含まない local log、local 診断 bundle、禁止データの allowlist / denylist test、異常終了後の一度だけの通知は未実装。local log の保持期間・容量・世代整理は未決定である。外部 telemetry や app 独自 DB encryption を Desktop Alpha の要件にはしない。 |
 | Canvas PNG | Desktop Alpha 後の最初の外部出力として採用済み、未実装 | Canvas の保存済み page 全体を同寸法で出力し、paper 背景を含め、UI / Cue / Summary / legacy Markdown を除外し、page 外を切り取り、`[タイトル]_[学習日].png` を初期名にする契約である。PNG export UI、route、provider、保存処理はない。使用不可文字、同名 file、保存先、失敗時 UI、色管理は未決定。 |
 | 検索サジェスト | Desktop Alpha 後の採用済み要件、未実装 | 単一の検索対象 selector、既定タイトル、タイトル / 学習元 / 本文 / Cue / すべて、local data の語句候補、1 文字目から最大 5 件、前方一致優先に対応する UI / contract / query はない。現行の tag 専用 filter は実装済みで、将来 selector に含めない。 |
 | 大規模一覧 | Desktop Alpha 後の採用済み要件、未実装 | 5,000 件の長期利用目標、10,000 件の性能確認、追加読み込み型の無限スクロール、virtualization / windowing は製品 UI に未実装。現行一覧は 1 ページ 50 件のページングである。現行 query の 300ms debounce は、将来サジェストの debounce 採用を意味しない。 |
@@ -239,6 +239,25 @@ Desktop Alpha とその後の採用済み要件は未実装である。次表は
 | 専用復習タスク | 未採用、未実装 | `/tasks/review`、`/api/review-tasks`、進捗 model はない。現行 MVP は `reviewDue` と詳細画面内復習を使う。 |
 | NoteCard / D&D | 未採用、未実装 | `NoteCard`、`CueCard`、`NoteCueLink` model と永続化 UI はない。`@dnd-kit/*` の依存だけでは実装済みと判定しない。 |
 | タグ管理 mutation / 定期 backup 等 | 未採用、未実装 | `POST /api/tags`、rename / delete UI、定期 backup、`BackupLog`、`POST /api/backups/retry` はない。Tag 作成は現行ノート保存時の upsert、backup は手動作成・一覧に限る。 |
+
+#### 5.4.1 承認済み manifest 境界と未実装状態
+
+更新 manifest の論理 field allowlist と validation boundary は承認済みだが、実装・検証の証跡はない。GitHub Releases の provider response を正規化する adapter、strict manifest validation、compatible selection、download、signature verification、migration、apply / rollback は未実装である。
+
+| object | 許可する field | validation boundary |
+| --- | --- | --- |
+| root | `productId`, `schemaVersion`, `releases` | `productId` は `com.cornellmethod.notebook` と一致し、root `schemaVersion` は必須の `1`。未知 schema version は fail closed。`releases[]` は空配列を有効な「更新なし」とする。 |
+| release | `channel`, `version`, `architecture`, `minVersion`, `maxVersionExclusive`, `artifact`, `signature` | `stable` 固定、SemVer version、必須の macOS `minVersion`、任意の排他的 `maxVersionExclusive`。macOS version は数値 component で比較する。 |
+| artifact | `artifactId`, `format`, `url`, `sizeBytes`, `sha256` | opaque immutable `artifactId`、`app-archive`、公開 direct HTTPS、正の整数 byte 数、64 文字 lowercase hexadecimal。 |
+| signature | `keyId`, `proof` | `keyId` と opaque proof。package digest と release metadata をまとめて署名する。署名アルゴリズム名、encoding、canonicalization、鍵値は未固定。 |
+
+実際の最低対応 macOS version と deployment target は、Apple Silicon の packaged PoC 後に決める。`minVersion` / `maxVersionExclusive` の validation boundary は承認済みだが、最低対応 version の数値は未確定である。
+
+root、release、artifact、signature の未知 field、product ID 不一致、未知 root schema version、必須 field・型・SemVer・macOS range・artifact metadata・URL・proof の不備、同じ channel・version・architecture・macOS target の重複（duplicate）は manifest 全体を拒否する。`stable` 以外の channel、未知 architecture、未知 format はその release だけを対象外とし、他の有効な候補を評価する。Desktop Alpha の architecture は `aarch64-apple-darwin` である。
+
+候補選択は SemVer precedence だけで行い、provider の並び順や文字列順を使わない。prerelease は対象外、build metadata は大小判定の対象外とする。現行 version より新しく、stable、Apple Silicon、`app-archive`、macOS range に適合する候補のうち最大の version を選ぶ。HTTPS から HTTPS への redirect だけを許可し、HTTP downgrade、credential、token、ユーザー固有 query は拒否する。空配列または非対象 release だけなら「更新なし」である。
+
+manifest root の `schemaVersion: 1` と local `settings/update-state.json` の schema version は別管理とする。update state に保存するのは version、channel、architecture、`artifactId`、`sizeBytes`、`sha256`、`keyId`、verification state、app 管理 staging からの relative package path、時刻だけであり、URL、provider response 全体、token、DB、user path は保存しない。現在の state persistence の部分実装を、この artifact metadata contract や manifest validation の実装済み証拠とは扱わない。
 
 ### 5.5 Canvas 実装・検証境界（後続確認入口）
 

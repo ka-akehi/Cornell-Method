@@ -68,7 +68,7 @@ test("desktop AppChrome は same-DOM sidebar と canonical route を共有する
   const desktopMarkup = appChrome.slice(desktopStart, desktopEnd);
   assert.match(
     compact(desktopMarkup),
-    /<aside id="app-chrome-sidebar" ref=\{desktopSidebarRef\}[\s\S]*<header className="app-chrome-sidebar-identity"> <AppChromeDesktopIdentity \/> <button[\s\S]*id=\{desktopRailToggleId\}[\s\S]*<\/button> <\/header> <AppChromeCreateLink[\s\S]*variant="desktop"[\s\S]*\/> <div className="app-chrome-navigation-scroll"> <AppChromeNavigation[\s\S]*variant="desktop"[\s\S]*\/> <\/div> <\/aside>/,
+    /<aside id="app-chrome-sidebar" ref=\{desktopSidebarRef\}[\s\S]*<header className="app-chrome-sidebar-identity"> <AppChromeDesktopIdentity \/> <button[\s\S]*id=\{desktopRailToggleId\}[\s\S]*<\/button> <\/header> <AppChromeCreateLink[\s\S]*variant="desktop"[\s\S]*\/> <div className="app-chrome-navigation-scroll"> <AppChromeNavigation[\s\S]*variant="desktop"[\s\S]*\/> <\/div> <SettingsEntrypoint isCollapsed=\{!isRailOpen\} \/> <\/aside>/,
   );
   assert.match(
     desktopMarkup,
@@ -124,7 +124,7 @@ test("desktop AppChrome は same-DOM sidebar と canonical route を共有する
 
   assert.doesNotMatch(
     appChrome,
-    /app-chrome-state-badge|app-chrome-state-slot|APP_CHROME_MODE_LABELS|AppChromeModeReporter|useAppChromeState|作成中|編集中|閲覧中|復習中/,
+    /app-chrome-state-badge|app-chrome-state-slot|APP_CHROME_MODE_LABELS|AppChromeModeReporter|useAppChromeState|作成中|閲覧中|復習中/,
   );
   assert.doesNotMatch(detailModes, /AppChromeModeReporter|app-chrome-state/);
   assert.doesNotMatch(editor, /AppChromeModeReporter|app-chrome-state/);
@@ -138,6 +138,57 @@ test("desktop AppChrome は same-DOM sidebar と canonical route を共有する
   assert.match(
     appChrome,
     /<main[\s\S]*id="app-main-content"[\s\S]*className="app-main"[\s\S]*>[\s\S]*\{children\}[\s\S]*<\/main>/,
+  );
+});
+
+test("desktop close coordinator は AppChrome の composition から独立して close 契約を保持する", () => {
+  const appChrome = readSource("src/app/_components/app-chrome.tsx");
+  const closeCoordinator = readSource(
+    "src/app/_components/desktop-close-coordinator.tsx",
+  );
+
+  assert.match(
+    appChrome,
+    /import \{ DesktopCloseCoordinator \} from "\.\/desktop-close-coordinator";/,
+  );
+  assert.equal(
+    (appChrome.match(/<DesktopCloseCoordinator \/>/g) ?? []).length,
+    1,
+  );
+  assert.doesNotMatch(
+    appChrome,
+    /DESKTOP_CLOSE_REQUEST_EVENT|getDesktopDirtyController|sendDesktopCloseDecision|desktopCloseOpen|desktopCloseBusy|desktopCloseError|desktop-close-dialog|保存して終了|保存せず終了|未保存の変更があります/,
+  );
+
+  assert.match(closeCoordinator, /^"use client";/m);
+  assert.match(
+    closeCoordinator,
+    /DESKTOP_CLOSE_REQUEST_EVENT[\s\S]*getDesktopDirtyController[\s\S]*sendDesktopCloseDecision[\s\S]*from "@\/shared\/desktop\/desktop-close-bridge";/,
+  );
+  assert.match(
+    closeCoordinator,
+    /window\.addEventListener\([\s\S]*DESKTOP_CLOSE_REQUEST_EVENT[\s\S]*window\.removeEventListener\([\s\S]*DESKTOP_CLOSE_REQUEST_EVENT/,
+  );
+  assert.match(closeCoordinator, /sendDesktopCloseDecision\("clean"\)/);
+  assert.match(closeCoordinator, /sendDesktopCloseDecision\("save"\)/);
+  assert.match(closeCoordinator, /sendDesktopCloseDecision\("discard"\)/);
+  assert.match(closeCoordinator, /sendDesktopCloseDecision\("cancel"\)/);
+  assert.match(
+    closeCoordinator,
+    /role="dialog"[\s\S]*aria-modal="true"[\s\S]*aria-labelledby="desktop-close-dialog-title"/,
+  );
+  assert.match(
+    closeCoordinator,
+    /保存して終了[\s\S]*保存せず終了[\s\S]*戻る/,
+  );
+  assert.match(closeCoordinator, /event\.key !== "Escape"/);
+  assert.match(
+    closeCoordinator,
+    /event\.target === event\.currentTarget[\s\S]*cancelDesktopClose\(\)/,
+  );
+  assert.match(
+    closeCoordinator,
+    /保存に失敗しました。編集内容を保持しています。/,
   );
 });
 

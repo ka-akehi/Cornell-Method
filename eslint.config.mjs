@@ -15,6 +15,8 @@ const eslintConfig = defineConfig([
     files: [
       "tools/desktop-poc/electron/**/*.cjs",
       "tools/desktop-poc/tauri/**/*.cjs",
+      "src-tauri/**/*.cjs",
+      "test/desktop/**/*.cjs",
     ],
     rules: {
       "@typescript-eslint/no-require-imports": "off",
@@ -28,6 +30,7 @@ const eslintConfig = defineConfig([
     "build/**",
     "src/generated/**",
     "next-env.d.ts",
+    "**/target/**",
   ]),
 ]);
 
