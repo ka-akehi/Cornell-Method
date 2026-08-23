@@ -27,7 +27,10 @@ import {
   NotesRemoteError,
   updateNote,
 } from "@/modules/notes/remote";
-import { useNoteEditorDirtyController } from "@/modules/notes/ui/hooks/use-note-editor-dirty-controller";
+import {
+  shareInFlightNoteEditorSave,
+  useNoteEditorDirtyController,
+} from "@/modules/notes/ui/hooks/use-note-editor-dirty-controller";
 import { NoteEditorBodySection } from "./body";
 import { NoteEditorCueSection } from "./cues";
 import { findNoteEditorErrorTarget } from "./error-focus";
@@ -105,6 +108,7 @@ export function NoteEditor({
   const [canvasError, setCanvasError] = useState<string | null>(null);
   const formRef = useRef<HTMLFormElement>(null);
   const alertRef = useRef<HTMLDivElement>(null);
+  const saveInFlightRef = useRef<Promise<boolean> | null>(null);
   const errorFocusRequestIdRef = useRef(0);
   const handledErrorFocusRequestIdRef = useRef(0);
   const [errorFocusRequest, setErrorFocusRequest] =
@@ -202,7 +206,7 @@ export function NoteEditor({
     }));
   }
 
-  async function save() {
+  async function performSave() {
     if (mode === "edit" && !form.id) {
       setMessage("更新対象のノートIDがありません。");
       requestErrorFocus([]);
@@ -254,6 +258,10 @@ export function NoteEditor({
     } finally {
       setSaving(false);
     }
+  }
+
+  function save() {
+    return shareInFlightNoteEditorSave(saveInFlightRef, performSave);
   }
 
   const markSaved = useNoteEditorDirtyController({ mode, form, save });

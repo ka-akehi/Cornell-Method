@@ -6,6 +6,28 @@ import { registerDesktopDirtyController } from "@/shared/desktop/desktop-close-b
 
 type NoteEditorMode = "create" | "edit";
 type NoteEditorSave = () => Promise<boolean>;
+type InFlightNoteEditorSaveRef = {
+  current: Promise<boolean> | null;
+};
+
+export function shareInFlightNoteEditorSave(
+  inFlightSaveRef: InFlightNoteEditorSaveRef,
+  save: NoteEditorSave,
+): Promise<boolean> {
+  if (inFlightSaveRef.current) {
+    return inFlightSaveRef.current;
+  }
+
+  const nextSave = save();
+  inFlightSaveRef.current = nextSave;
+  const clearInFlightSave = () => {
+    if (inFlightSaveRef.current === nextSave) {
+      inFlightSaveRef.current = null;
+    }
+  };
+  void nextSave.then(clearInFlightSave, clearInFlightSave);
+  return nextSave;
+}
 
 type UseNoteEditorDirtyControllerOptions = {
   mode: NoteEditorMode;
