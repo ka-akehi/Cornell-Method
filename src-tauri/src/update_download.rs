@@ -10,7 +10,9 @@ use reqwest::header::{HeaderMap, CONTENT_TYPE, LOCATION};
 use reqwest::{Client, Response, Url};
 use ring::digest::{Context, SHA256};
 
-use crate::update_manifest::{UpdateManifest, UpdateRelease, TARGET_ARTIFACT_FORMAT};
+use crate::update_manifest::{
+    is_safe_public_update_url, UpdateManifest, UpdateRelease, TARGET_ARTIFACT_FORMAT,
+};
 use crate::update_provider::{
     validate_public_address, validate_public_ip_literal, PinnedDnsResolver, PublicAddressResolver,
     SystemPublicAddressResolver,
@@ -952,15 +954,7 @@ fn is_redirect_status(status: u16) -> bool {
 }
 
 fn is_safe_artifact_url(url: &Url) -> bool {
-    url.scheme().eq_ignore_ascii_case("https")
-        && url.host_str().is_some()
-        && url.username().is_empty()
-        && url.password().is_none()
-        && url.fragment().is_none()
-        && !url
-            .query_pairs()
-            .any(|(key, _)| is_credential_or_token_query_key(&key))
-        && validate_public_ip_literal(url).is_ok()
+    is_safe_public_update_url(url) && validate_public_ip_literal(url).is_ok()
 }
 
 fn resolve_artifact_redirect(current_url: &Url, location: &str) -> Result<Url, ()> {
@@ -973,24 +967,6 @@ fn resolve_artifact_redirect(current_url: &Url, location: &str) -> Result<Url, (
         return Err(());
     }
     Ok(next_url)
-}
-
-fn is_credential_or_token_query_key(key: &str) -> bool {
-    let key = key.trim().to_ascii_lowercase();
-    key.contains("token")
-        || key.contains("credential")
-        || key.contains("password")
-        || key.contains("secret")
-        || matches!(
-            key.as_str(),
-            "auth"
-                | "authorization"
-                | "api_key"
-                | "api-key"
-                | "apikey"
-                | "access_key"
-                | "access-key"
-        )
 }
 
 fn decode_sha256(value: &str) -> Option<[u8; 32]> {
@@ -1844,6 +1820,81 @@ mod tests {
         let verifier = FakeVerifier::success();
         assert_error(
             download_and_verify_artifact(&release, &root.path, &transport, &verifier),
+            "package-redirect",
+        );
+    }
+
+    #[test]
+    fn accepts_query_free_https_redirect() {
+        let bytes = b"raw bytes".to_vec();
+        let (_manifest, release) = manifest_and_release(&bytes);
+        let next_url = "https://updates.example.test/next";
+        let response = ArtifactHttpResponse::from_reader(
+            200,
+            Some("application/gzip"),
+            Some(bytes.len() as u64),
+            Cursor::new(bytes.clone()),
+            vec![ArtifactRedirect {
+                status: 302,
+                location: Some(next_url.to_string()),
+            }],
+            next_url,
+        );
+        let transport = FakeTransport::response(response);
+        let verifier = FakeVerifier::success();
+        let root = TestRoot::new();
+
+        assert!(download_and_verify_artifact(&release, &root.path, &transport, &verifier).is_ok());
+    }
+
+    #[test]
+    fn rejects_signed_token_opaque_and_encoded_queries_in_redirects() {
+        let bytes = b"raw bytes".to_vec();
+        let (_manifest, release) = manifest_and_release(&bytes);
+        let request = ArtifactHttpRequest::fixed(&release);
+
+        for query in [
+            "?sig=opaque-signature",
+            "?signature=opaque-signature",
+            "?X-Amz-Signature=opaque-signature",
+            "?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=release%2F20260824%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Date=20260824T000000Z&X-Amz-Expires=300&X-Amz-SignedHeaders=host&X-Amz-Signature=opaque-signature",
+            "?access_token=opaque-token",
+            "?opaque=provider-value",
+            "?opaque",
+            "?%73ig=opaque-signature",
+            "?",
+        ] {
+            let redirect_url = format!("{TEST_URL}{query}");
+            let response = ArtifactHttpResponse::from_reader(
+                200,
+                Some("application/gzip"),
+                Some(bytes.len() as u64),
+                Cursor::new(bytes.clone()),
+                vec![ArtifactRedirect {
+                    status: 302,
+                    location: Some(redirect_url.clone()),
+                }],
+                &redirect_url,
+            );
+            let transport = FakeTransport::error(ArtifactHttpError::Network);
+            assert_error(
+                validate_redirect_trace(&transport, &request, &response),
+                "package-redirect",
+            );
+        }
+
+        let redirect_url = format!("{TEST_URL}?opaque=provider-value");
+        let response = ArtifactHttpResponse::from_reader(
+            200,
+            Some("application/gzip"),
+            Some(bytes.len() as u64),
+            Cursor::new(bytes),
+            Vec::new(),
+            &redirect_url,
+        );
+        let transport = FakeTransport::error(ArtifactHttpError::Network);
+        assert_error(
+            validate_redirect_trace(&transport, &request, &response),
             "package-redirect",
         );
     }

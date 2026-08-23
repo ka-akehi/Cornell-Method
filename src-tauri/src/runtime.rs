@@ -148,6 +148,7 @@ fn node_binary(_root: &Path) -> AppResult<PathBuf> {
 }
 
 fn launcher_path(root: &Path) -> AppResult<PathBuf> {
+    #[cfg(debug_assertions)]
     let path = if let Some(configured) = env::var_os("CORNELL_DESKTOP_LAUNCHER") {
         PathBuf::from(configured)
     } else {
@@ -158,6 +159,10 @@ fn launcher_path(root: &Path) -> AppResult<PathBuf> {
             root.join("src-tauri").join("sidecar").join("launcher.cjs")
         }
     };
+
+    #[cfg(not(debug_assertions))]
+    let path = root.join("sidecar").join("launcher.cjs");
+
     if !path.is_absolute() {
         return Err("sidecar launcher path must be absolute".to_string());
     }
@@ -734,6 +739,52 @@ mod tests {
         }
 
         assert_eq!(packaged_node_binary(directory.path()).unwrap(), node_path);
+    }
+
+    #[cfg(debug_assertions)]
+    #[test]
+    fn debug_launcher_honors_the_environment_override() {
+        let directory = TestDirectory::new();
+        let packaged = directory.path().join("sidecar").join("launcher.cjs");
+        let configured = directory.path().join("external-launcher.cjs");
+        fs::create_dir_all(packaged.parent().expect("packaged launcher parent"))
+            .expect("create packaged launcher directory");
+        fs::write(&packaged, b"packaged launcher").expect("create packaged launcher");
+        fs::write(&configured, b"external launcher").expect("create external launcher");
+        let _environment = EnvironmentVariableGuard::set("CORNELL_DESKTOP_LAUNCHER", &configured);
+
+        assert_eq!(launcher_path(directory.path()).unwrap(), configured);
+    }
+
+    #[cfg(not(debug_assertions))]
+    #[test]
+    fn release_launcher_uses_only_the_packaged_resource() {
+        let directory = TestDirectory::new();
+        let packaged = directory.path().join("sidecar").join("launcher.cjs");
+        let source_tree = directory
+            .path()
+            .join("src-tauri")
+            .join("sidecar")
+            .join("launcher.cjs");
+        let configured = directory.path().join("external-launcher.cjs");
+        fs::create_dir_all(source_tree.parent().expect("source launcher parent"))
+            .expect("create source launcher directory");
+        fs::write(&source_tree, b"source launcher").expect("create source launcher");
+        fs::write(&configured, b"external launcher").expect("create external launcher");
+        let _environment = EnvironmentVariableGuard::set("CORNELL_DESKTOP_LAUNCHER", &configured);
+
+        let error = launcher_path(directory.path()).expect_err(
+            "release launcher selection must not fall back to source-tree or external paths",
+        );
+        assert_eq!(
+            error,
+            format!("sidecar launcher is missing: {}", packaged.display())
+        );
+
+        fs::create_dir_all(packaged.parent().expect("packaged launcher parent"))
+            .expect("create packaged launcher directory");
+        fs::write(&packaged, b"packaged launcher").expect("create packaged launcher");
+        assert_eq!(launcher_path(directory.path()).unwrap(), packaged);
     }
 
     #[cfg(debug_assertions)]

@@ -10,6 +10,10 @@ use reqwest::blocking::{Client, Response};
 use reqwest::dns::{Addrs, Name, Resolve, Resolving};
 use reqwest::header::{CONTENT_TYPE, LOCATION};
 use reqwest::Url;
+#[cfg(not(target_os = "macos"))]
+use tokio::net::lookup_host;
+#[cfg(not(target_os = "macos"))]
+use tokio::time::timeout;
 
 use crate::update_manifest::{parse_manifest, UpdateManifest};
 
@@ -20,24 +24,273 @@ pub(crate) enum PublicAddressError {
     Mixed,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum PublicAddressResolveError {
+    Resolve,
+    Timeout,
+}
+
 pub(crate) trait PublicAddressResolver: Send + Sync {
     fn resolve(&self, host: &str, port: u16) -> Result<Vec<SocketAddr>, ()>;
+
+    fn resolve_with_deadline(
+        &self,
+        _host: &str,
+        _port: u16,
+        _deadline: Instant,
+    ) -> Result<Vec<SocketAddr>, PublicAddressResolveError> {
+        // A synchronous resolver must not be called from the manifest
+        // deadline path. Implementations that can resolve without blocking
+        // indefinitely must override this method.
+        Err(PublicAddressResolveError::Resolve)
+    }
+}
+
+#[cfg(target_os = "macos")]
+mod macos_system_dns {
+    use super::{Instant, PublicAddressResolveError, SocketAddr};
+    use std::ffi::CString;
+    use std::net::{Ipv4Addr, Ipv6Addr};
+    use std::os::raw::{c_char, c_void};
+    use std::ptr;
+
+    const DNS_SERVICE_FLAGS_MORE_COMING: u32 = 0x1;
+    const DNS_SERVICE_PROTOCOL_IPV4: u32 = 0x1;
+    const DNS_SERVICE_PROTOCOL_IPV6: u32 = 0x2;
+    const DNS_SERVICE_NO_ERROR: i32 = 0;
+
+    #[repr(C)]
+    struct DnsServiceRefOpaque {
+        _private: [u8; 0],
+    }
+
+    type DnsServiceRef = *mut DnsServiceRefOpaque;
+
+    #[derive(Default)]
+    struct LookupState {
+        addresses: Vec<SocketAddr>,
+        failed: bool,
+        complete: bool,
+        port: u16,
+    }
+
+    struct DnsServiceRefGuard(DnsServiceRef);
+
+    impl Drop for DnsServiceRefGuard {
+        fn drop(&mut self) {
+            if !self.0.is_null() {
+                // The query is explicitly terminated on every return path.
+                unsafe { DNSServiceRefDeallocate(self.0) };
+            }
+        }
+    }
+
+    #[link(name = "System")]
+    extern "C" {
+        fn DNSServiceGetAddrInfo(
+            sd_ref: *mut DnsServiceRef,
+            flags: u32,
+            interface_index: u32,
+            protocol: u32,
+            hostname: *const c_char,
+            callback: unsafe extern "C" fn(
+                DnsServiceRef,
+                u32,
+                u32,
+                i32,
+                *const c_char,
+                *const libc::sockaddr,
+                u32,
+                *mut c_void,
+            ),
+            context: *mut c_void,
+        ) -> i32;
+        fn DNSServiceRefSockFD(sd_ref: DnsServiceRef) -> libc::c_int;
+        fn DNSServiceProcessResult(sd_ref: DnsServiceRef) -> i32;
+        fn DNSServiceRefDeallocate(sd_ref: DnsServiceRef);
+    }
+
+    unsafe extern "C" fn address_callback(
+        _sd_ref: DnsServiceRef,
+        flags: u32,
+        _interface_index: u32,
+        error_code: i32,
+        _hostname: *const c_char,
+        address: *const libc::sockaddr,
+        _ttl: u32,
+        context: *mut c_void,
+    ) {
+        let state = &mut *(context.cast::<LookupState>());
+        if error_code != DNS_SERVICE_NO_ERROR || address.is_null() {
+            state.failed = true;
+        } else {
+            let family = (*address).sa_family as libc::c_int;
+            let socket_address = if family == libc::AF_INET {
+                let address = ptr::read_unaligned(address.cast::<libc::sockaddr_in>());
+                let ip = Ipv4Addr::from(u32::from_be(address.sin_addr.s_addr).to_be_bytes());
+                Some(SocketAddr::new(ip.into(), state.port))
+            } else if family == libc::AF_INET6 {
+                let address = ptr::read_unaligned(address.cast::<libc::sockaddr_in6>());
+                let ip = Ipv6Addr::from(address.sin6_addr.s6_addr);
+                Some(SocketAddr::new(ip.into(), state.port))
+            } else {
+                None
+            };
+
+            if let Some(socket_address) = socket_address {
+                if !state.addresses.contains(&socket_address) {
+                    state.addresses.push(socket_address);
+                }
+            } else {
+                state.failed = true;
+            }
+        }
+
+        if flags & DNS_SERVICE_FLAGS_MORE_COMING == 0 {
+            state.complete = true;
+        }
+    }
+
+    fn poll_timeout(deadline: Instant) -> libc::c_int {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        let milliseconds = remaining.as_millis().saturating_add(1);
+        milliseconds.min(libc::c_int::MAX as u128) as libc::c_int
+    }
+
+    pub(super) fn resolve(
+        host: &str,
+        port: u16,
+        deadline: Instant,
+    ) -> Result<Vec<SocketAddr>, PublicAddressResolveError> {
+        if Instant::now() >= deadline {
+            return Err(PublicAddressResolveError::Timeout);
+        }
+        let hostname = CString::new(host).map_err(|_| PublicAddressResolveError::Resolve)?;
+        let mut state = LookupState {
+            port,
+            ..LookupState::default()
+        };
+        let mut service_ref = ptr::null_mut();
+        let error = unsafe {
+            DNSServiceGetAddrInfo(
+                &mut service_ref,
+                0,
+                0,
+                DNS_SERVICE_PROTOCOL_IPV4 | DNS_SERVICE_PROTOCOL_IPV6,
+                hostname.as_ptr(),
+                address_callback,
+                (&mut state as *mut LookupState).cast::<c_void>(),
+            )
+        };
+        if error != DNS_SERVICE_NO_ERROR || service_ref.is_null() {
+            return Err(PublicAddressResolveError::Resolve);
+        }
+        let service_ref = DnsServiceRefGuard(service_ref);
+        if Instant::now() >= deadline {
+            return Err(PublicAddressResolveError::Timeout);
+        }
+        let fd = unsafe { DNSServiceRefSockFD(service_ref.0) };
+        if fd < 0 {
+            return Err(PublicAddressResolveError::Resolve);
+        }
+
+        let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
+        if flags < 0 || unsafe { libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) } < 0 {
+            return Err(PublicAddressResolveError::Resolve);
+        }
+
+        while !state.complete {
+            if Instant::now() >= deadline {
+                return Err(PublicAddressResolveError::Timeout);
+            }
+            let mut poll_fd = libc::pollfd {
+                fd,
+                events: libc::POLLIN,
+                revents: 0,
+            };
+            let poll_result = unsafe { libc::poll(&mut poll_fd, 1, poll_timeout(deadline)) };
+            if poll_result < 0 {
+                if std::io::Error::last_os_error().raw_os_error() == Some(libc::EINTR) {
+                    continue;
+                }
+                return Err(PublicAddressResolveError::Resolve);
+            }
+            if poll_result == 0 {
+                return Err(PublicAddressResolveError::Timeout);
+            }
+            if Instant::now() >= deadline {
+                return Err(PublicAddressResolveError::Timeout);
+            }
+
+            let process_result = unsafe { DNSServiceProcessResult(service_ref.0) };
+            if process_result != DNS_SERVICE_NO_ERROR {
+                return Err(PublicAddressResolveError::Resolve);
+            }
+        }
+
+        if state.failed || state.addresses.is_empty() {
+            Err(PublicAddressResolveError::Resolve)
+        } else {
+            Ok(state.addresses)
+        }
+    }
 }
 
 pub(crate) struct SystemPublicAddressResolver;
 
 impl PublicAddressResolver for SystemPublicAddressResolver {
     fn resolve(&self, host: &str, port: u16) -> Result<Vec<SocketAddr>, ()> {
-        let addresses = (host, port)
-            .to_socket_addrs()
-            .map_err(|_| ())?
-            .collect::<Vec<_>>();
+        let addresses = resolve_system_addresses(host, port)?;
         if addresses.is_empty() {
             Err(())
         } else {
             Ok(addresses)
         }
     }
+
+    fn resolve_with_deadline(
+        &self,
+        host: &str,
+        port: u16,
+        deadline: Instant,
+    ) -> Result<Vec<SocketAddr>, PublicAddressResolveError> {
+        #[cfg(target_os = "macos")]
+        {
+            return macos_system_dns::resolve(host, port, deadline);
+        }
+
+        #[cfg(not(target_os = "macos"))]
+        {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                return Err(PublicAddressResolveError::Timeout);
+            }
+
+            let result = tauri::async_runtime::block_on(timeout(
+                remaining,
+                lookup_host((host.to_owned(), port)),
+            ));
+            match result {
+                Ok(Ok(addresses)) => {
+                    let addresses = addresses.collect::<Vec<_>>();
+                    if addresses.is_empty() {
+                        Err(PublicAddressResolveError::Resolve)
+                    } else {
+                        Ok(addresses)
+                    }
+                }
+                Ok(Err(_)) => Err(PublicAddressResolveError::Resolve),
+                Err(_) => Err(PublicAddressResolveError::Timeout),
+            }
+        }
+    }
+}
+
+fn resolve_system_addresses(host: &str, port: u16) -> Result<Vec<SocketAddr>, ()> {
+    (host, port)
+        .to_socket_addrs()
+        .map_err(|_| ())
+        .map(|addresses| addresses.collect::<Vec<_>>())
 }
 
 #[derive(Clone)]
@@ -59,6 +312,13 @@ impl PinnedDnsResolver {
         let mut pinned = self.addresses.write().map_err(|_| ())?;
         pinned.insert(host.to_ascii_lowercase(), addresses.to_vec());
         Ok(())
+    }
+
+    fn addresses_for(&self, host: &str) -> Option<Vec<SocketAddr>> {
+        self.addresses
+            .read()
+            .ok()
+            .and_then(|addresses| addresses.get(&host.to_ascii_lowercase()).cloned())
     }
 }
 
@@ -141,6 +401,29 @@ fn classify_public_addresses(addresses: &[SocketAddr]) -> Result<(), PublicAddre
         (false, true) => Err(PublicAddressError::Unsafe),
         (false, false) => Err(PublicAddressError::Resolve),
     }
+}
+
+fn validate_public_address_with_deadline(
+    url: &Url,
+    resolver: &dyn PublicAddressResolver,
+    deadline: Instant,
+) -> Result<Vec<SocketAddr>, ManifestHttpError> {
+    let host = canonical_host(url).ok_or(ManifestHttpError::Network)?;
+    let port = url
+        .port_or_known_default()
+        .ok_or(ManifestHttpError::Network)?;
+    let addresses = if let Ok(ip) = host.parse::<IpAddr>() {
+        vec![SocketAddr::new(ip, port)]
+    } else {
+        resolver
+            .resolve_with_deadline(&host, port, deadline)
+            .map_err(|error| match error {
+                PublicAddressResolveError::Resolve => ManifestHttpError::Network,
+                PublicAddressResolveError::Timeout => ManifestHttpError::Timeout,
+            })?
+    };
+    classify_public_addresses(&addresses).map_err(|_| ManifestHttpError::Network)?;
+    Ok(addresses)
 }
 
 fn is_public_ip(ip: IpAddr) -> bool {
@@ -353,12 +636,16 @@ impl ReqwestManifestHttpTransport {
 
 impl ManifestHttpTransport for ReqwestManifestHttpTransport {
     fn validate_url(&self, url: &Url) -> Result<(), ManifestHttpError> {
-        let addresses = validate_public_address(url, self.resolver.as_ref())
-            .map_err(|_| ManifestHttpError::Network)?;
         let host = canonical_host(url).ok_or(ManifestHttpError::Network)?;
-        self.pinned_resolver
-            .pin(&host, &addresses)
-            .map_err(|_| ManifestHttpError::Network)
+        if host.parse::<IpAddr>().is_ok() {
+            return validate_public_ip_literal(url).map_err(|_| ManifestHttpError::Network);
+        }
+
+        let addresses = self
+            .pinned_resolver
+            .addresses_for(&host)
+            .ok_or(ManifestHttpError::Network)?;
+        classify_public_addresses(&addresses).map_err(|_| ManifestHttpError::Network)
     }
 
     fn get(&self, request: ManifestHttpRequest) -> Result<ManifestHttpResponse, ManifestHttpError> {
@@ -366,6 +653,19 @@ impl ManifestHttpTransport for ReqwestManifestHttpTransport {
             return Err(ManifestHttpError::Internal);
         }
 
+        let deadline = Instant::now()
+            .checked_add(request.timeout)
+            .ok_or(ManifestHttpError::Internal)?;
+        self.get_until(request, deadline)
+    }
+}
+
+impl ReqwestManifestHttpTransport {
+    fn get_until(
+        &self,
+        request: ManifestHttpRequest,
+        deadline: Instant,
+    ) -> Result<ManifestHttpResponse, ManifestHttpError> {
         let mut current_url = Url::parse(request.url).map_err(|_| ManifestHttpError::Internal)?;
         if !is_safe_https_url(&current_url)
             || current_url.query().is_some()
@@ -373,11 +673,14 @@ impl ManifestHttpTransport for ReqwestManifestHttpTransport {
         {
             return Err(ManifestHttpError::Internal);
         }
-        self.validate_url(&current_url)?;
-
-        let deadline = Instant::now()
-            .checked_add(request.timeout)
-            .ok_or(ManifestHttpError::Internal)?;
+        let addresses =
+            validate_public_address_with_deadline(&current_url, self.resolver.as_ref(), deadline)?;
+        let host = canonical_host(&current_url).ok_or(ManifestHttpError::Network)?;
+        if host.parse::<IpAddr>().is_err() {
+            self.pinned_resolver
+                .pin(&host, &addresses)
+                .map_err(|_| ManifestHttpError::Network)?;
+        }
         let mut visited = HashSet::new();
         visited.insert(current_url.to_string());
         let mut redirects = Vec::new();
@@ -407,7 +710,17 @@ impl ManifestHttpTransport for ReqwestManifestHttpTransport {
                     .ok_or(ManifestHttpError::Redirect)?;
                 let next_url = resolve_redirect(&current_url, location)
                     .map_err(|_| ManifestHttpError::Redirect)?;
-                self.validate_url(&next_url)?;
+                let addresses = validate_public_address_with_deadline(
+                    &next_url,
+                    self.resolver.as_ref(),
+                    deadline,
+                )?;
+                let host = canonical_host(&next_url).ok_or(ManifestHttpError::Network)?;
+                if host.parse::<IpAddr>().is_err() {
+                    self.pinned_resolver
+                        .pin(&host, &addresses)
+                        .map_err(|_| ManifestHttpError::Network)?;
+                }
                 if !visited.insert(next_url.to_string()) {
                     return Err(ManifestHttpError::Redirect);
                 }
@@ -759,6 +1072,33 @@ mod tests {
         }
     }
 
+    struct DelayedAddressResolver {
+        delay: Duration,
+        addresses: Vec<SocketAddr>,
+    }
+
+    impl PublicAddressResolver for DelayedAddressResolver {
+        fn resolve(&self, _host: &str, _port: u16) -> Result<Vec<SocketAddr>, ()> {
+            std::thread::sleep(self.delay);
+            Ok(self.addresses.clone())
+        }
+
+        fn resolve_with_deadline(
+            &self,
+            _host: &str,
+            _port: u16,
+            deadline: Instant,
+        ) -> Result<Vec<SocketAddr>, PublicAddressResolveError> {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining < self.delay {
+                std::thread::sleep(remaining);
+                return Err(PublicAddressResolveError::Timeout);
+            }
+            std::thread::sleep(self.delay);
+            Ok(self.addresses.clone())
+        }
+    }
+
     struct ResolverTransport {
         response: ManifestHttpResponse,
         resolver: FakeAddressResolver,
@@ -862,6 +1202,23 @@ mod tests {
             transport.get(ManifestHttpRequest::fixed()),
             Err(ManifestHttpError::Network)
         );
+    }
+
+    #[test]
+    fn delayed_dns_resolution_returns_timeout_before_http_request() {
+        let resolver = DelayedAddressResolver {
+            delay: Duration::from_millis(100),
+            addresses: vec!["93.184.216.34:443".parse().unwrap()],
+        };
+        let transport = ReqwestManifestHttpTransport::with_resolver(Arc::new(resolver)).unwrap();
+        let deadline = Instant::now() + Duration::from_millis(10);
+        let started = Instant::now();
+
+        assert_eq!(
+            transport.get_until(ManifestHttpRequest::fixed(), deadline),
+            Err(ManifestHttpError::Timeout)
+        );
+        assert!(started.elapsed() < Duration::from_secs(1));
     }
 
     #[test]

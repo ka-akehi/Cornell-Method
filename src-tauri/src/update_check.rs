@@ -518,6 +518,30 @@ mod tests {
     }
 
     #[test]
+    fn provider_timeout_releases_operation_guard_for_a_following_check() {
+        let (directory, store) = store("provider-timeout-guard");
+        let transport = FakeTransport::failure(ManifestHttpError::Timeout);
+
+        assert_eq!(
+            run(&store, &transport, CheckTrigger::Manual, 123, "1.0.0"),
+            Ok(UpdateCheckResult::Started(UpdateCheckOutcome::Failed {
+                code: "provider-timeout",
+            }))
+        );
+        assert_eq!(store.snapshot().status, UpdateStatus::Failed);
+
+        assert_eq!(
+            run(&store, &transport, CheckTrigger::Manual, 124, "1.0.0"),
+            Ok(UpdateCheckResult::Started(UpdateCheckOutcome::Failed {
+                code: "provider-timeout",
+            }))
+        );
+        assert_eq!(transport.calls.get(), 2);
+
+        cleanup(&directory);
+    }
+
+    #[test]
     fn provider_failure_during_recheck_keeps_the_existing_candidate_available() {
         let (directory, store) = store("provider-recheck-failure");
         let available_transport = FakeTransport::from_body(VALID_MANIFEST);

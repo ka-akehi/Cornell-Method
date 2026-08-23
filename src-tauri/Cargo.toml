@@ -23,3 +23,4 @@ tauri = "=2.5.1"
 # Keep tauri-build 2.2.0 and the Tauri runtime on the same utils API. The
 # product lockfile is generated independently of the comparison PoC.
 tauri-utils = "=2.4.0"
+tokio = { version = "=1.53.1", features = ["net", "rt", "time"] }

@@ -23,6 +23,7 @@ const TAR_BLOCK_BYTES: usize = 512;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ArchiveExtractionError {
     ArchiveGzip,
+    ArchiveFormatUnsupported,
     ArchiveTar,
     ArchiveTrailingData,
     ArchivePath,
@@ -41,6 +42,7 @@ impl ArchiveExtractionError {
     pub(crate) const fn code(self) -> &'static str {
         match self {
             Self::ArchiveGzip => "archive-gzip",
+            Self::ArchiveFormatUnsupported => "archive-format-unsupported",
             Self::ArchiveTar => "archive-tar",
             Self::ArchiveTrailingData => "archive-trailing-data",
             Self::ArchivePath => "archive-path",
@@ -81,6 +83,12 @@ enum MaterialKind {
     Symlink,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ArchiveFormat {
+    GzipTar,
+    PlainTar,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct ArchiveEntrySpec {
     path: String,
@@ -112,16 +120,16 @@ impl fmt::Display for GzipReadFailure {
 
 impl std::error::Error for GzipReadFailure {}
 
-struct CappedCompressedReader {
+struct CappedPackageReader {
     file: File,
-    compressed_bytes: u64,
+    package_bytes: u64,
 }
 
-impl CappedCompressedReader {
+impl CappedPackageReader {
     fn new(file: File) -> Self {
         Self {
             file,
-            compressed_bytes: 0,
+            package_bytes: 0,
         }
     }
 
@@ -130,31 +138,36 @@ impl CappedCompressedReader {
     }
 }
 
-impl Read for CappedCompressedReader {
+impl Read for CappedPackageReader {
     fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
         if buffer.is_empty() {
             return Ok(0);
         }
-        if self.compressed_bytes >= MAX_COMPRESSED_ARCHIVE_BYTES {
+        if self.package_bytes >= MAX_COMPRESSED_ARCHIVE_BYTES {
             let file_size = self.file.metadata()?.len();
-            if file_size <= self.compressed_bytes {
+            if file_size <= self.package_bytes {
                 return Ok(0);
             }
             return Err(io::Error::new(io::ErrorKind::Other, LimitExceeded));
         }
-        let remaining = (MAX_COMPRESSED_ARCHIVE_BYTES - self.compressed_bytes) as usize;
+        let remaining = (MAX_COMPRESSED_ARCHIVE_BYTES - self.package_bytes) as usize;
         let read_limit = buffer.len().min(remaining);
         let bytes_read = self.file.read(&mut buffer[..read_limit])?;
-        self.compressed_bytes = self
-            .compressed_bytes
+        self.package_bytes = self
+            .package_bytes
             .checked_add(bytes_read as u64)
             .ok_or_else(|| io::Error::new(io::ErrorKind::Other, LimitExceeded))?;
         Ok(bytes_read)
     }
 }
 
+enum ArchiveReader {
+    Gzip(GzDecoder<BufReader<CappedPackageReader>>),
+    Plain(BufReader<CappedPackageReader>),
+}
+
 struct LimitedArchiveReader {
-    decoder: GzDecoder<BufReader<CappedCompressedReader>>,
+    reader: ArchiveReader,
     decompressed_bytes: u64,
     trailer_bytes: u64,
     trailer_nonzero: bool,
@@ -164,16 +177,23 @@ struct LimitedArchiveReader {
 }
 
 impl LimitedArchiveReader {
-    fn new(file: File) -> Result<Self, ArchiveExtractionError> {
-        let decoder = GzDecoder::new(BufReader::with_capacity(
-            IO_BUFFER_BYTES,
-            CappedCompressedReader::new(file),
-        ));
-        if decoder.header().is_none() {
-            return Err(ArchiveExtractionError::ArchiveGzip);
-        }
+    fn new(mut file: File) -> Result<Self, ArchiveExtractionError> {
+        let format = detect_archive_format(&mut file)?;
+        file.seek(SeekFrom::Start(0))
+            .map_err(|_| ArchiveExtractionError::StagingRead)?;
+        let source = BufReader::with_capacity(IO_BUFFER_BYTES, CappedPackageReader::new(file));
+        let reader = match format {
+            ArchiveFormat::GzipTar => {
+                let decoder = GzDecoder::new(source);
+                if decoder.header().is_none() {
+                    return Err(ArchiveExtractionError::ArchiveGzip);
+                }
+                ArchiveReader::Gzip(decoder)
+            }
+            ArchiveFormat::PlainTar => ArchiveReader::Plain(source),
+        };
         Ok(Self {
-            decoder,
+            reader,
             decompressed_bytes: 0,
             trailer_bytes: 0,
             trailer_nonzero: false,
@@ -190,21 +210,27 @@ impl LimitedArchiveReader {
     }
 
     fn finish_file(self) -> Result<File, ArchiveExtractionError> {
-        let mut buffered = self.decoder.into_inner();
-        let trailing = buffered.fill_buf().map_err(|error| {
-            if error
-                .get_ref()
-                .is_some_and(|source| source.is::<LimitExceeded>())
-            {
-                ArchiveExtractionError::ArchiveLimit
-            } else {
-                ArchiveExtractionError::ArchiveGzip
+        let mut file = match self.reader {
+            ArchiveReader::Gzip(decoder) => {
+                let mut buffered = decoder.into_inner();
+                let trailing = buffered
+                    .fill_buf()
+                    .map_err(|error| map_archive_reader_error(&error))?;
+                if !trailing.is_empty() {
+                    return Err(ArchiveExtractionError::ArchiveTrailingData);
+                }
+                buffered.into_inner().into_file()
             }
-        })?;
-        if !trailing.is_empty() {
-            return Err(ArchiveExtractionError::ArchiveTrailingData);
-        }
-        let mut file = buffered.into_inner().into_file();
+            ArchiveReader::Plain(mut buffered) => {
+                let trailing = buffered
+                    .fill_buf()
+                    .map_err(|error| map_archive_reader_error(&error))?;
+                if !trailing.is_empty() {
+                    return Err(ArchiveExtractionError::ArchiveTrailingData);
+                }
+                buffered.into_inner().into_file()
+            }
+        };
         file.seek(SeekFrom::Start(0))
             .map_err(|_| ArchiveExtractionError::StagingRead)?;
         Ok(file)
@@ -241,16 +267,19 @@ impl Read for LimitedArchiveReader {
             return Ok(0);
         }
 
-        let bytes_read = self.decoder.read(buffer).map_err(|error| {
-            if error
-                .get_ref()
-                .is_some_and(|source| source.is::<LimitExceeded>())
-            {
-                io::Error::new(io::ErrorKind::Other, LimitExceeded)
-            } else {
-                io::Error::new(io::ErrorKind::InvalidData, GzipReadFailure)
-            }
-        })?;
+        let bytes_read = match &mut self.reader {
+            ArchiveReader::Gzip(decoder) => decoder.read(buffer).map_err(|error| {
+                if error
+                    .get_ref()
+                    .is_some_and(|source| source.is::<LimitExceeded>())
+                {
+                    io::Error::new(io::ErrorKind::Other, LimitExceeded)
+                } else {
+                    io::Error::new(io::ErrorKind::InvalidData, GzipReadFailure)
+                }
+            })?,
+            ArchiveReader::Plain(reader) => reader.read(buffer)?,
+        };
         if bytes_read == 0 {
             return Ok(0);
         }
@@ -266,6 +295,86 @@ impl Read for LimitedArchiveReader {
         self.record_output(&buffer[..bytes_read]);
         Ok(bytes_read)
     }
+}
+
+fn detect_archive_format(file: &mut File) -> Result<ArchiveFormat, ArchiveExtractionError> {
+    file.seek(SeekFrom::Start(0))
+        .map_err(|_| ArchiveExtractionError::StagingRead)?;
+    let mut probe = [0_u8; TAR_BLOCK_BYTES];
+    let bytes_read = file
+        .read(&mut probe)
+        .map_err(|_| ArchiveExtractionError::StagingRead)?;
+    file.seek(SeekFrom::Start(0))
+        .map_err(|_| ArchiveExtractionError::StagingRead)?;
+
+    if probe[..bytes_read].starts_with(&[0x1f, 0x8b]) {
+        return Ok(ArchiveFormat::GzipTar);
+    }
+    if looks_like_tar_header(&probe[..bytes_read]) {
+        return Ok(ArchiveFormat::PlainTar);
+    }
+    if has_unsupported_archive_magic(&probe[..bytes_read]) {
+        return Err(ArchiveExtractionError::ArchiveFormatUnsupported);
+    }
+
+    // Let the tar reader classify malformed or truncated plain input as
+    // archive-tar. Only recognizable non-tar container signatures are
+    // rejected at this boundary as unsupported formats.
+    Ok(ArchiveFormat::PlainTar)
+}
+
+fn looks_like_tar_header(probe: &[u8]) -> bool {
+    if probe.len() < TAR_BLOCK_BYTES {
+        return false;
+    }
+    if probe.iter().all(|byte| *byte == 0) {
+        return true;
+    }
+
+    let Some(expected_checksum) = parse_tar_octal(&probe[148..156]) else {
+        return false;
+    };
+    let actual_checksum = probe
+        .iter()
+        .enumerate()
+        .map(|(index, byte)| {
+            if (148..156).contains(&index) {
+                b' ' as u64
+            } else {
+                *byte as u64
+            }
+        })
+        .sum::<u64>();
+    expected_checksum == actual_checksum
+}
+
+fn parse_tar_octal(field: &[u8]) -> Option<u64> {
+    let mut value = 0_u64;
+    let mut saw_digit = false;
+    for &byte in field {
+        match byte {
+            b'0'..=b'7' => {
+                saw_digit = true;
+                value = value.checked_mul(8)?.checked_add((byte - b'0') as u64)?;
+            }
+            b' ' | 0 if !saw_digit => {}
+            b' ' | 0 => break,
+            _ => return None,
+        }
+    }
+    saw_digit.then_some(value)
+}
+
+fn has_unsupported_archive_magic(probe: &[u8]) -> bool {
+    probe.starts_with(b"PK\x03\x04")
+        || probe.starts_with(b"PK\x05\x06")
+        || probe.starts_with(b"PK\x07\x08")
+        || probe.starts_with(b"BZh")
+        || probe.starts_with(&[0xfd, 0x37, 0x7a, 0x58, 0x5a, 0x00])
+        || probe.starts_with(&[0x28, 0xb5, 0x2f, 0xfd])
+        || probe.starts_with(&[0x04, 0x22, 0x4d, 0x18])
+        || probe.starts_with(&[0x37, 0x7a, 0xbc, 0xaf, 0x27, 0x1c])
+        || probe.starts_with(b"Rar!")
 }
 
 pub(crate) fn extract_verified_archive(
@@ -617,21 +726,9 @@ fn consume_entry(
     let mut buffer = [0_u8; IO_BUFFER_BYTES];
     let mut actual_size = 0_u64;
     loop {
-        let bytes_read = entry.read(&mut buffer).map_err(|error| {
-            if error
-                .get_ref()
-                .is_some_and(|source| source.is::<LimitExceeded>())
-            {
-                ArchiveExtractionError::ArchiveLimit
-            } else if error
-                .get_ref()
-                .is_some_and(|source| source.is::<GzipReadFailure>())
-            {
-                ArchiveExtractionError::ArchiveGzip
-            } else {
-                ArchiveExtractionError::ArchiveTar
-            }
-        })?;
+        let bytes_read = entry
+            .read(&mut buffer)
+            .map_err(|error| map_archive_reader_error(&error))?;
         if bytes_read == 0 {
             break;
         }
@@ -660,16 +757,9 @@ fn finish_tar_stream(reader: &mut LimitedArchiveReader) -> Result<(), ArchiveExt
     reader.begin_tar_trailer();
     let mut buffer = [0_u8; IO_BUFFER_BYTES];
     loop {
-        let bytes_read = reader.read(&mut buffer).map_err(|error| {
-            if error
-                .get_ref()
-                .is_some_and(|source| source.is::<LimitExceeded>())
-            {
-                ArchiveExtractionError::ArchiveLimit
-            } else {
-                ArchiveExtractionError::ArchiveGzip
-            }
-        })?;
+        let bytes_read = reader
+            .read(&mut buffer)
+            .map_err(|error| map_archive_reader_error(&error))?;
         if bytes_read == 0 {
             break;
         }
@@ -1172,6 +1262,10 @@ fn validate_digest(value: &str) -> Result<String, ArchiveExtractionError> {
 }
 
 fn map_tar_error(error: &io::Error) -> ArchiveExtractionError {
+    map_archive_reader_error(error)
+}
+
+fn map_archive_reader_error(error: &io::Error) -> ArchiveExtractionError {
     if error
         .get_ref()
         .is_some_and(|source| source.is::<LimitExceeded>())
@@ -1248,7 +1342,7 @@ mod tests {
         )
     }
 
-    fn append_directory(builder: &mut Builder<&mut GzEncoder<Vec<u8>>>, path: &str, mode: u32) {
+    fn append_directory<W: Write>(builder: &mut Builder<W>, path: &str, mode: u32) {
         let mut header = Header::new_gnu();
         header.set_path(path).expect("directory path");
         header.set_entry_type(EntryType::dir());
@@ -1259,12 +1353,7 @@ mod tests {
             .expect("directory");
     }
 
-    fn append_file(
-        builder: &mut Builder<&mut GzEncoder<Vec<u8>>>,
-        path: &str,
-        mode: u32,
-        contents: &[u8],
-    ) {
+    fn append_file<W: Write>(builder: &mut Builder<W>, path: &str, mode: u32, contents: &[u8]) {
         let mut header = Header::new_gnu();
         header.set_path(path).expect("file path");
         header.set_entry_type(EntryType::file());
@@ -1275,7 +1364,7 @@ mod tests {
             .expect("file");
     }
 
-    fn append_link(builder: &mut Builder<&mut GzEncoder<Vec<u8>>>, path: &str, target: &str) {
+    fn append_link<W: Write>(builder: &mut Builder<W>, path: &str, target: &str) {
         let mut header = Header::new_gnu();
         header.set_path(path).expect("link path");
         header.set_entry_type(EntryType::symlink());
@@ -1287,10 +1376,10 @@ mod tests {
             .expect("link");
     }
 
-    fn archive_with_raw_entry(path: &[u8], entry_type: u8) -> Vec<u8> {
-        let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
+    fn tar_with_raw_entry(path: &[u8], entry_type: u8) -> Vec<u8> {
+        let mut bytes = Vec::new();
         {
-            let mut builder = Builder::new(&mut encoder);
+            let mut builder = Builder::new(&mut bytes);
             append_directory(&mut builder, ROOT_NAME, 0o755);
             let mut header = Header::new_gnu();
             header.set_path(ROOT_NAME).expect("raw header seed");
@@ -1304,13 +1393,23 @@ mod tests {
             builder.append(&header, io::empty()).expect("raw entry");
             builder.finish().expect("tar finish");
         }
+        bytes
+    }
+
+    fn gzip_tar(tar_bytes: &[u8]) -> Vec<u8> {
+        let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
+        encoder.write_all(tar_bytes).expect("gzip write");
         encoder.finish().expect("gzip finish")
     }
 
-    fn valid_archive() -> Vec<u8> {
-        let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
+    fn archive_with_raw_entry(path: &[u8], entry_type: u8) -> Vec<u8> {
+        gzip_tar(&tar_with_raw_entry(path, entry_type))
+    }
+
+    fn valid_tar() -> Vec<u8> {
+        let mut bytes = Vec::new();
         {
-            let mut builder = Builder::new(&mut encoder);
+            let mut builder = Builder::new(&mut bytes);
             append_directory(&mut builder, ROOT_NAME, 0o755);
             append_directory(&mut builder, &format!("{ROOT_NAME}/Contents/"), 0o755);
             append_directory(&mut builder, &format!("{ROOT_NAME}/Contents/MacOS/"), 0o755);
@@ -1333,7 +1432,11 @@ mod tests {
             );
             builder.finish().expect("tar finish");
         }
-        encoder.finish().expect("gzip finish")
+        bytes
+    }
+
+    fn valid_archive() -> Vec<u8> {
+        gzip_tar(&valid_tar())
     }
 
     fn assert_error(result: Result<ExtractedArchive, ArchiveExtractionError>, code: &str) {
@@ -1376,6 +1479,51 @@ mod tests {
     }
 
     #[test]
+    fn extracts_plain_tar_through_the_same_safe_pipeline() {
+        let root = TestRoot::new();
+        let bytes = valid_tar();
+        let verified_archive = verified(&root.path, &bytes);
+        let package_path = root
+            .path
+            .join(&verified_archive.archive.relative_package_path);
+        let mut probe_file = File::open(&package_path).expect("plain tar package");
+        assert_eq!(
+            detect_archive_format(&mut probe_file),
+            Ok(ArchiveFormat::PlainTar)
+        );
+
+        let extracted = extract_verified_archive(&verified_archive, &root.path).expect("extract");
+        let app_path = root.path.join(&extracted.relative_app_path);
+        assert!(app_path.join("Contents/MacOS/notebook").is_file());
+        assert!(app_path.join("Contents/current").is_symlink());
+
+        let mut trailing = bytes.clone();
+        trailing.extend_from_slice(b"trailing plain tar data");
+        let trailing_archive = verified(&root.path, &trailing);
+        assert_error(
+            extract_verified_archive(&trailing_archive, &root.path),
+            "archive-trailing-data",
+        );
+
+        let traversal = tar_with_raw_entry(b"../outside", 0);
+        let traversal_archive = verified(&root.path, &traversal);
+        assert_error(
+            extract_verified_archive(&traversal_archive, &root.path),
+            "archive-path",
+        );
+    }
+
+    #[test]
+    fn rejects_recognizable_unsupported_archive_formats_before_tar_extraction() {
+        let root = TestRoot::new();
+        let archive = verified(&root.path, b"PK\x03\x04not a tar");
+        assert_error(
+            extract_verified_archive(&archive, &root.path),
+            "archive-format-unsupported",
+        );
+    }
+
+    #[test]
     fn rejects_invalid_gzip_crc_and_compressed_trailing_data() {
         let root = TestRoot::new();
         let valid = valid_archive();
@@ -1383,7 +1531,7 @@ mod tests {
         let mut invalid_gzip = verified(&root.path, b"not gzip");
         assert_error(
             extract_verified_archive(&invalid_gzip, &root.path),
-            "archive-gzip",
+            "archive-tar",
         );
 
         let mut crc = valid.clone();

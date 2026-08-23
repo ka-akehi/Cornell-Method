@@ -85,28 +85,9 @@ impl HttpsUrl {
         let parsed = Url::parse(&value).map_err(|_| {
             ManifestValidationError::new("artifact URL must be a valid direct HTTPS URL")
         })?;
-        if !parsed.scheme().eq_ignore_ascii_case("https") {
-            return Err(ManifestValidationError::new("artifact URL must use HTTPS"));
-        }
-        if parsed.host_str().is_none() {
+        if !is_safe_public_update_url(&parsed) {
             return Err(ManifestValidationError::new(
-                "artifact URL must include a host",
-            ));
-        }
-        if !parsed.username().is_empty()
-            || parsed.password().is_some()
-            || authority_contains_userinfo(&value)
-        {
-            return Err(ManifestValidationError::new(
-                "artifact URL must not contain credentials or userinfo",
-            ));
-        }
-        if parsed
-            .query_pairs()
-            .any(|(key, _)| is_credential_or_token_query_key(&key))
-        {
-            return Err(ManifestValidationError::new(
-                "artifact URL must not contain credential or token query parameters",
+                "artifact URL must be a direct HTTPS URL without credentials, query parameters, or fragments",
             ));
         }
 
@@ -657,22 +638,14 @@ fn authority_contains_userinfo(value: &str) -> bool {
     value[authority_start..authority_end].contains('@')
 }
 
-fn is_credential_or_token_query_key(key: &str) -> bool {
-    let key = key.trim().to_ascii_lowercase();
-    key.contains("token")
-        || key.contains("credential")
-        || key.contains("password")
-        || key.contains("secret")
-        || matches!(
-            key.as_str(),
-            "auth"
-                | "authorization"
-                | "api_key"
-                | "api-key"
-                | "apikey"
-                | "access_key"
-                | "access-key"
-        )
+pub(crate) fn is_safe_public_update_url(url: &Url) -> bool {
+    url.scheme().eq_ignore_ascii_case("https")
+        && url.host_str().is_some()
+        && url.username().is_empty()
+        && url.password().is_none()
+        && !authority_contains_userinfo(url.as_str())
+        && url.fragment().is_none()
+        && url.query().is_none()
 }
 
 #[cfg(test)]
@@ -705,6 +678,10 @@ mod tests {
 
     fn valid_manifest() -> String {
         manifest_with_releases(VALID_RELEASE)
+    }
+
+    fn manifest_with_artifact_url(url: &str) -> String {
+        valid_manifest().replace("https://updates.example.test/cornell-method/app", url)
     }
 
     fn assert_invalid(json: &str) {
@@ -924,6 +901,24 @@ mod tests {
             ),
         ] {
             assert_invalid(&valid_manifest().replace(replacement.0, replacement.1));
+        }
+    }
+
+    #[test]
+    fn rejects_any_artifact_url_query_or_fragment() {
+        for url in [
+            "https://updates.example.test/cornell-method/app?sig=opaque-signature",
+            "https://updates.example.test/cornell-method/app?signature=opaque-signature",
+            "https://updates.example.test/cornell-method/app?X-Amz-Signature=opaque-signature",
+            "https://updates.example.test/cornell-method/app?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=release%2F20260824%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Date=20260824T000000Z&X-Amz-Expires=300&X-Amz-SignedHeaders=host&X-Amz-Signature=opaque-signature",
+            "https://updates.example.test/cornell-method/app?access_token=opaque-token",
+            "https://updates.example.test/cornell-method/app?opaque=provider-value",
+            "https://updates.example.test/cornell-method/app?opaque",
+            "https://updates.example.test/cornell-method/app?%73ig=opaque-signature",
+            "https://updates.example.test/cornell-method/app?",
+            "https://updates.example.test/cornell-method/app#fragment",
+        ] {
+            assert_invalid(&manifest_with_artifact_url(url));
         }
     }
 

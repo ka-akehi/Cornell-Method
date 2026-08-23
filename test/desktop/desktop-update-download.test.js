@@ -6,6 +6,7 @@ const { test } = require("node:test");
 
 const projectRoot = path.resolve(__dirname, "../..");
 const sourcePath = path.join(projectRoot, "src-tauri", "src", "update_download.rs");
+const manifestPath = path.join(projectRoot, "src-tauri", "src", "update_manifest.rs");
 const mainPath = path.join(projectRoot, "src-tauri", "src", "main.rs");
 const fixturePath = path.join(
   projectRoot,
@@ -74,6 +75,20 @@ test("desktop update download validates the initial URL and every redirect hop",
   assert.match(source, /self\.validate_url\(&next_url\)/);
   assert.match(source, /validate_redirect_trace\(transport, request, response\)/);
   assert.match(source, /validate_url\(&final_url\)/);
+});
+
+test("desktop update download shares the manifest's fail-closed artifact URL boundary", () => {
+  const source = fs.readFileSync(sourcePath, "utf8");
+  const manifest = fs.readFileSync(manifestPath, "utf8");
+
+  assert.match(source, /is_safe_public_update_url\(url\)/);
+  assert.match(source, /validate_public_ip_literal\(url\)/);
+  assert.match(manifest, /pub\(crate\) fn is_safe_public_update_url/);
+  assert.match(manifest, /url\.query\(\)\.is_none\(\)/);
+  assert.match(source, /resolve_artifact_redirect/);
+  assert.match(source, /final_url/);
+  assert.doesNotMatch(source, /is_credential_or_token_query_key/);
+  assert.doesNotMatch(manifest, /is_credential_or_token_query_key/);
 });
 
 test("download returns only relative SHA-256 package paths and does not use locator metadata", () => {

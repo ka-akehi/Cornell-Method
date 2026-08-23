@@ -630,6 +630,7 @@ fn map_archive_error(error: ArchiveExtractionError) -> &'static str {
         ArchiveExtractionError::StagingWrite => "staging-write",
         ArchiveExtractionError::StagingRename => "staging-rename",
         ArchiveExtractionError::ArchiveGzip
+        | ArchiveExtractionError::ArchiveFormatUnsupported
         | ArchiveExtractionError::ArchiveTar
         | ArchiveExtractionError::ArchiveTrailingData
         | ArchiveExtractionError::ArchivePath

@@ -24,6 +24,11 @@ test("desktop update archive module has a bounded library-only extraction bounda
 
   assert.match(main, /^mod update_archive;$/m);
   assert.match(source, /fn extract_verified_archive\(/);
+  assert.match(source, /enum ArchiveFormat/);
+  assert.match(source, /fn detect_archive_format\(/);
+  assert.match(source, /ArchiveFormat::GzipTar/);
+  assert.match(source, /ArchiveFormat::PlainTar/);
+  assert.match(source, /ArchiveFormatUnsupported/);
   assert.match(source, /GzDecoder/);
   assert.match(source, /Archive::new/);
   assert.match(source, /pax_extensions/);

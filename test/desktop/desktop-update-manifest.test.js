@@ -27,9 +27,12 @@ test("desktop update manifest has a strict provider-neutral validation boundary"
   assert.match(source, /deserialize_optional_string/);
   assert.match(source, /size_bytes: u64/);
   assert.match(source, /sha256\.len\(\) != 64/);
-  assert.match(source, /parsed\.scheme\(\)\.eq_ignore_ascii_case\("https"\)/);
+  assert.match(source, /pub\(crate\) fn is_safe_public_update_url/);
+  assert.match(source, /url\.scheme\(\)\.eq_ignore_ascii_case\("https"\)/);
+  assert.match(source, /url\.query\(\)\.is_none\(\)/);
+  assert.match(source, /url\.fragment\(\)\.is_none\(\)/);
   assert.match(source, /authority_contains_userinfo/);
-  assert.match(source, /is_credential_or_token_query_key/);
+  assert.doesNotMatch(source, /is_credential_or_token_query_key/);
   assert.match(source, /release\.channel == TARGET_CHANNEL\s*&& !release\.version\.is_prerelease\(\)/);
   assert.doesNotMatch(source, /stable release must not use a prerelease version/);
   assert.match(source, /struct DuplicateTarget/);

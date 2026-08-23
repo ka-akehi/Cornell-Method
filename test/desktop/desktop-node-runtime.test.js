@@ -207,6 +207,46 @@ test("runtime keeps the debug override separate from release packaged-node selec
   assert.match(runtime, /permissions\(\)\.mode\(\) & 0o111/);
   assert.equal((runtime.match(/Command::new\(&node\)/g) ?? []).length, 2);
   assert.doesNotMatch(runtime, /unwrap_or_else\(\|_\| "node"/);
+
+  const launcherPathStart = runtime.indexOf("fn launcher_path");
+  const bootstrapStart = runtime.indexOf("fn parse_bootstrap_message", launcherPathStart);
+  assert.notEqual(launcherPathStart, -1);
+  assert.notEqual(bootstrapStart, -1);
+
+  const launcherPath = runtime.slice(launcherPathStart, bootstrapStart);
+  const launcherDebugBranchStart = launcherPath.indexOf(
+    "#[cfg(debug_assertions)]",
+  );
+  const launcherReleaseBranchStart = launcherPath.indexOf(
+    "#[cfg(not(debug_assertions))]",
+  );
+  const launcherOverrideReference = launcherPath.indexOf(
+    'env::var_os("CORNELL_DESKTOP_LAUNCHER")',
+  );
+  assert.notEqual(launcherDebugBranchStart, -1);
+  assert.notEqual(launcherReleaseBranchStart, -1);
+  assert.ok(
+    launcherDebugBranchStart < launcherOverrideReference &&
+      launcherOverrideReference < launcherReleaseBranchStart,
+    "the launcher environment override must be debug-only",
+  );
+
+  const launcherDebugBranch = launcherPath.slice(
+    launcherDebugBranchStart,
+    launcherReleaseBranchStart,
+  );
+  const launcherReleaseBranch = launcherPath.slice(launcherReleaseBranchStart);
+  assert.match(
+    launcherDebugBranch,
+    /root\.join\("src-tauri"\)\.join\("sidecar"\)\.join\("launcher\.cjs"\)/,
+  );
+  assert.match(
+    launcherReleaseBranch,
+    /root\.join\("sidecar"\)\.join\("launcher\.cjs"\)/,
+  );
+  assert.doesNotMatch(launcherReleaseBranch, /CORNELL_DESKTOP_LAUNCHER/);
+  assert.doesNotMatch(launcherReleaseBranch, /src-tauri/);
+  assert.match(launcherPath, /path\.is_file\(\)/);
 });
 
 test("desktop readiness is nonce-bound and does not probe /notes", () => {
