@@ -1,3 +1,4 @@
+use ring::digest::{digest, SHA256};
 use serde::{Deserialize, Serialize};
 use std::env;
 use std::fs::{self, File, OpenOptions};
@@ -12,7 +13,10 @@ use std::time::Duration;
 use std::os::fd::AsRawFd;
 
 #[cfg(unix)]
-use std::os::unix::fs::FileTypeExt;
+use std::os::unix::ffi::OsStrExt;
+
+#[cfg(unix)]
+use std::os::unix::fs::{FileTypeExt, PermissionsExt};
 
 #[cfg(unix)]
 use std::os::unix::net::{UnixListener, UnixStream};
@@ -25,6 +29,8 @@ const APPLICATION_ID: &str = "com.cornellmethod.notebook";
 const INSTANCE_LOCK_FILE: &str = ".instance.lock";
 const INSTANCE_OWNER_FILE: &str = ".instance.owner";
 const INSTANCE_SOCKET_FILE: &str = ".instance.sock";
+const INSTANCE_SOCKET_DIRECTORY_PREFIX: &str = "cmn-";
+const INSTANCE_SOCKET_HASH_HEX_LENGTH: usize = 24;
 const INSTANCE_SCHEMA_VERSION: u32 = 1;
 const FOCUS_RETRY_COUNT: usize = 20;
 const FOCUS_RETRY_DELAY: Duration = Duration::from_millis(100);
@@ -127,11 +133,45 @@ fn application_support_root(home: &Path) -> PathBuf {
         .join(APPLICATION_ID)
 }
 
+fn focus_socket_identity(settings_directory: &Path) -> String {
+    let settings_bytes = settings_directory.as_os_str().as_bytes();
+    let mut identity = Vec::with_capacity(APPLICATION_ID.len() + 1 + settings_bytes.len());
+    identity.extend_from_slice(APPLICATION_ID.as_bytes());
+    identity.push(0);
+    identity.extend_from_slice(settings_bytes);
+
+    let hash = digest(&SHA256, &identity);
+    let hex = b"0123456789abcdef";
+    let mut encoded = String::with_capacity(INSTANCE_SOCKET_HASH_HEX_LENGTH);
+    for byte in hash
+        .as_ref()
+        .iter()
+        .take(INSTANCE_SOCKET_HASH_HEX_LENGTH / 2)
+    {
+        encoded.push(char::from(hex[(byte >> 4) as usize]));
+        encoded.push(char::from(hex[(byte & 0x0f) as usize]));
+    }
+    encoded
+}
+
+fn focus_socket_path_at(temp_directory: &Path, settings_directory: &Path) -> PathBuf {
+    temp_directory
+        .join(format!(
+            "{INSTANCE_SOCKET_DIRECTORY_PREFIX}{}",
+            focus_socket_identity(settings_directory)
+        ))
+        .join(INSTANCE_SOCKET_FILE)
+}
+
+fn focus_socket_path(settings_directory: &Path) -> PathBuf {
+    focus_socket_path_at(&env::temp_dir(), settings_directory)
+}
+
 fn instance_paths_at(settings_directory: PathBuf) -> InstancePaths {
     InstancePaths {
         lock_path: settings_directory.join(INSTANCE_LOCK_FILE),
         owner_path: settings_directory.join(INSTANCE_OWNER_FILE),
-        socket_path: settings_directory.join(INSTANCE_SOCKET_FILE),
+        socket_path: focus_socket_path(&settings_directory),
         settings_directory,
     }
 }
@@ -142,6 +182,17 @@ fn instance_paths() -> AppResult<InstancePaths> {
     fs::create_dir_all(&settings)
         .map_err(|error| format!("cannot create desktop settings directory: {error}"))?;
     Ok(instance_paths_at(settings))
+}
+
+fn prepare_focus_socket_directory(socket_path: &Path) -> AppResult<()> {
+    let directory = socket_path
+        .parent()
+        .ok_or_else(|| "single-instance focus socket has no parent directory".to_string())?;
+    fs::create_dir_all(directory)
+        .map_err(|error| format!("cannot create focus socket directory: {error}"))?;
+    fs::set_permissions(directory, fs::Permissions::from_mode(0o700))
+        .map_err(|error| format!("cannot secure focus socket directory: {error}"))?;
+    Ok(())
 }
 
 fn instance_owner() -> InstanceOwner {
@@ -390,6 +441,7 @@ fn acquire_instance_at(
 ) -> AppResult<InstanceAcquire> {
     fs::create_dir_all(&paths.settings_directory)
         .map_err(|_| "desktop settings directory could not be prepared".to_string())?;
+    prepare_focus_socket_directory(&paths.socket_path)?;
 
     for attempt in 0..=retry_count {
         match try_open_instance_lock(&paths.lock_path)? {
@@ -462,15 +514,9 @@ mod tests {
     use std::sync::{Arc, Barrier};
     use std::time::{SystemTime, UNIX_EPOCH};
 
-    fn test_directory(label: &str) -> PathBuf {
-        let suffix = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_nanos();
-        let directory = env::temp_dir().join(format!(
-            "cornell-method-desktop-{label}-{}-{suffix}",
-            std::process::id()
-        ));
+    fn test_directory(_label: &str) -> PathBuf {
+        let suffix = INSTANCE_OWNER_TEMP_COUNTER.fetch_add(1, Ordering::Relaxed);
+        let directory = env::temp_dir().join(format!("cmn-d-{}-{suffix}", std::process::id()));
         fs::create_dir_all(&directory).expect("test directory should be created");
         directory
     }
@@ -478,9 +524,9 @@ mod tests {
     fn test_instance_paths(label: &str) -> (PathBuf, InstancePaths) {
         let directory = test_directory(label);
         let mut paths = instance_paths_at(directory.clone());
-        let suffix = INSTANCE_OWNER_TEMP_COUNTER.fetch_add(1, Ordering::Relaxed);
-        paths.socket_path =
-            env::temp_dir().join(format!("cmn-is-{}-{suffix}.sock", std::process::id()));
+        paths.socket_path = directory.join("focus").join(INSTANCE_SOCKET_FILE);
+        prepare_focus_socket_directory(&paths.socket_path)
+            .expect("test focus socket directory should be prepared");
         (directory, paths)
     }
 
@@ -510,6 +556,67 @@ mod tests {
             }
             Err(error) => panic!("Unix socket test setup failed: {error}"),
         }
+    }
+
+    #[test]
+    fn focus_socket_path_is_stable_identity_scoped_and_bounded() {
+        let first_settings = PathBuf::from("/Users/first/Library/Application Support")
+            .join(APPLICATION_ID)
+            .join("settings");
+        let second_settings = PathBuf::from("/Users/second/Library/Application Support")
+            .join(APPLICATION_ID)
+            .join("settings");
+        let temp_directory = Path::new("/tmp");
+
+        let first_path = focus_socket_path_at(temp_directory, &first_settings);
+        let first_path_again = focus_socket_path_at(temp_directory, &first_settings);
+        let second_path = focus_socket_path_at(temp_directory, &second_settings);
+
+        assert_eq!(first_path, first_path_again);
+        assert_ne!(first_path, second_path);
+        assert_eq!(
+            first_path
+                .parent()
+                .and_then(Path::file_name)
+                .map(|name| name.len()),
+            Some(INSTANCE_SOCKET_DIRECTORY_PREFIX.len() + INSTANCE_SOCKET_HASH_HEX_LENGTH)
+        );
+        assert!(first_path.as_os_str().as_bytes().len() < 104);
+        assert!(!first_path
+            .as_os_str()
+            .as_bytes()
+            .windows(first_settings.as_os_str().as_bytes().len())
+            .any(|window| window == first_settings.as_os_str().as_bytes()));
+    }
+
+    #[test]
+    fn long_storage_path_focus_socket_binds_within_macos_path_limit() {
+        let directory = test_directory("bounded-socket");
+        let long_component = "x".repeat(120);
+        let settings_directory = PathBuf::from("/")
+            .join(&long_component)
+            .join(&long_component)
+            .join(directory.file_name().expect("test directory has a name"))
+            .join("settings");
+        let socket_path = focus_socket_path(&settings_directory);
+
+        assert!(socket_path.as_os_str().as_bytes().len() < 104);
+        prepare_focus_socket_directory(&socket_path).unwrap();
+        assert_eq!(
+            fs::metadata(socket_path.parent().expect("socket has a parent"))
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o777,
+            0o700
+        );
+        let listener = bind_test_socket(&socket_path);
+        if let Some(listener) = listener {
+            drop(listener);
+        }
+        let _ = fs::remove_file(&socket_path);
+        fs::remove_dir(socket_path.parent().expect("socket has a parent")).unwrap();
+        fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]
