@@ -6,6 +6,7 @@ export const DESKTOP_DATABASE_INITIALIZATION_MARKER_INVALID_REASON:
   "database-initialization-marker-invalid";
 export const DESKTOP_DATABASE_MISSING_AFTER_INITIALIZATION_REASON:
   "database-missing-after-initialization";
+export const DESKTOP_DATABASE_NOT_A_FILE_REASON: "database-not-a-file";
 
 export const DESKTOP_STORAGE_LAYOUT: {
   readonly root: ".";

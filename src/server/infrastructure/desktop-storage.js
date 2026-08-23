@@ -12,6 +12,7 @@ const DESKTOP_DATABASE_MISSING_AFTER_INITIALIZATION_REASON =
   "database-missing-after-initialization";
 const DESKTOP_DATABASE_INITIALIZATION_MARKER_INVALID_REASON =
   "database-initialization-marker-invalid";
+const DESKTOP_DATABASE_NOT_A_FILE_REASON = "database-not-a-file";
 const DESKTOP_STORAGE_LAYOUT = Object.freeze({
   root: ".",
   live: "live",
@@ -589,7 +590,7 @@ function inspectDesktopDatabase({
   let stats;
 
   try {
-    stats = fs.statSync(paths.databasePath);
+    stats = fs.lstatSync(paths.databasePath);
   } catch (error) {
     if (hasErrorCode(error, "ENOENT")) {
       if (initializationMarker.exists) {
@@ -603,7 +604,7 @@ function inspectDesktopDatabase({
   }
 
   if (!stats.isFile() || stats.size === 0) {
-    return unusableResult(paths, "database-not-a-file");
+    return unusableResult(paths, DESKTOP_DATABASE_NOT_A_FILE_REASON);
   }
 
   let manifest;
@@ -1027,6 +1028,7 @@ module.exports = {
   DESKTOP_DATABASE_INITIALIZATION_MARKER_INVALID_REASON,
   DESKTOP_DATABASE_INITIALIZATION_MARKER_NAME,
   DESKTOP_DATABASE_MISSING_AFTER_INITIALIZATION_REASON,
+  DESKTOP_DATABASE_NOT_A_FILE_REASON,
   DESKTOP_DATABASE_STATUS,
   DESKTOP_MIGRATION_STATE,
   DESKTOP_STORAGE_LAYOUT,

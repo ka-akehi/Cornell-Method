@@ -13,6 +13,7 @@ const {
   DESKTOP_DATABASE_INITIALIZATION_MARKER_INVALID_REASON,
   DESKTOP_DATABASE_INITIALIZATION_MARKER_NAME,
   DESKTOP_DATABASE_MISSING_AFTER_INITIALIZATION_REASON,
+  DESKTOP_DATABASE_NOT_A_FILE_REASON,
   DESKTOP_DATABASE_STATUS,
   DESKTOP_MIGRATION_STATE,
   DESKTOP_STORAGE_LAYOUT,
@@ -571,6 +572,51 @@ test("fails closed for an invalid initialization marker without changing the dat
     );
     assert.equal(fileDigest(result.databasePath), beforeDigest);
     assert.equal(fs.readFileSync(markerPath, "utf8"), "invalid marker");
+  });
+});
+
+test("fails closed when the live database path is a symlink to a valid SQLite database", () => {
+  withTempHome((homeDirectory) => {
+    const ready = bootstrapReadyDatabase(homeDirectory);
+    const paths = resolveDesktopStoragePaths({ homeDirectory });
+    const markerPath = initializationMarkerPath(homeDirectory);
+    const backupPath = path.join(paths.backupsDirectory, "preserved.sqlite.bak");
+    const settingsPath = path.join(paths.settingsDirectory, "user-settings.json");
+    const targetPath = path.join(homeDirectory, "external-notebook.sqlite");
+    const markerContent = fs.readFileSync(markerPath);
+    const backupContent = Buffer.from("backup preserved", "utf8");
+    const settingsContent = Buffer.from("settings preserved", "utf8");
+
+    fs.copyFileSync(ready.databasePath, targetPath);
+    fs.writeFileSync(backupPath, backupContent, { flag: "wx" });
+    fs.writeFileSync(settingsPath, settingsContent, { flag: "wx" });
+    const targetDigest = fileDigest(targetPath);
+
+    fs.unlinkSync(ready.databasePath);
+    fs.symlinkSync(targetPath, ready.databasePath);
+
+    assert.equal(fs.lstatSync(ready.databasePath).isSymbolicLink(), true);
+    assert.equal(fs.statSync(ready.databasePath).isFile(), true);
+
+    const inspection = inspectDesktopDatabase({
+      homeDirectory,
+      sqliteBinary,
+    });
+    assert.equal(inspection.status, DESKTOP_DATABASE_STATUS.UNUSABLE);
+    assert.equal(inspection.reason, DESKTOP_DATABASE_NOT_A_FILE_REASON);
+
+    const result = bootstrapDesktopStorage({
+      homeDirectory,
+      sqliteBinary,
+    });
+    assert.equal(result.status, DESKTOP_DATABASE_STATUS.UNUSABLE);
+    assert.equal(result.reason, DESKTOP_DATABASE_NOT_A_FILE_REASON);
+    assert.equal(result.created, false);
+    assert.equal(fileDigest(targetPath), targetDigest);
+    assert.deepEqual(fs.readFileSync(markerPath), markerContent);
+    assert.deepEqual(fs.readFileSync(backupPath), backupContent);
+    assert.deepEqual(fs.readFileSync(settingsPath), settingsContent);
+    assert.equal(fs.readlinkSync(ready.databasePath), targetPath);
   });
 });
 
