@@ -13,6 +13,9 @@ const UPDATE_STATE_SNAPSHOT_VERSION = 1;
 const MANUAL_UPDATE_CHECK_TIMEOUT_MS = 30_000;
 const MIN_DYNAMIC_PORT = 1;
 const MAX_DYNAMIC_PORT = 65_535;
+const NOTES_PATH = "/notes";
+const NEW_NOTE_PATH = "/notes/new";
+const BACKUP_PATH = "/backup";
 
 type DesktopUpdateStatus =
   | "not-checked"
@@ -266,6 +269,24 @@ function isValidDynamicPort(value: unknown): value is string {
   );
 }
 
+function isCanonicalManualUpdateCheckPath(pathname: string) {
+  if (
+    pathname === NOTES_PATH ||
+    pathname === NEW_NOTE_PATH ||
+    pathname === BACKUP_PATH
+  ) {
+    return true;
+  }
+
+  const noteDetailPrefix = `${NOTES_PATH}/`;
+  if (!pathname.startsWith(noteDetailPrefix)) {
+    return false;
+  }
+
+  const noteId = pathname.slice(noteDetailPrefix.length);
+  return noteId.length > 0 && !noteId.includes("/");
+}
+
 function isExternalLoopbackPage() {
   if (typeof window === "undefined") {
     return false;
@@ -275,8 +296,7 @@ function isExternalLoopbackPage() {
     window.location.protocol === "http:" &&
     window.location.hostname === "127.0.0.1" &&
     isValidDynamicPort(window.location.port) &&
-    window.location.pathname === "/notes" &&
-    window.location.search === ""
+    isCanonicalManualUpdateCheckPath(window.location.pathname)
   );
 }
 

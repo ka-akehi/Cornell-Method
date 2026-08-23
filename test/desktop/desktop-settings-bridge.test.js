@@ -90,6 +90,7 @@ function createExternalWindow({
   let currentHash = "";
   let hashAssignments = 0;
   let historyReplacements = 0;
+  const historyReplacementUrls = [];
   let timerCreations = 0;
   let hashChangeHandler = null;
 
@@ -114,6 +115,7 @@ function createExternalWindow({
     history: {
       replaceState(_state, _title, nextUrl) {
         historyReplacements += 1;
+        historyReplacementUrls.push(nextUrl);
         currentHash = nextUrl.includes("#")
           ? nextUrl.slice(nextUrl.indexOf("#"))
           : "";
@@ -160,6 +162,9 @@ function createExternalWindow({
     },
     get historyReplacements() {
       return historyReplacements;
+    },
+    get historyReplacementUrls() {
+      return historyReplacementUrls;
     },
     get timerCreations() {
       return timerCreations;
@@ -213,7 +218,26 @@ test("manual update bridge returns unsupported-web for non-loopback browsers wit
       protocol: "http:",
       hostname: "127.0.0.1",
       port: "43127",
+      pathname: "/api/updates",
       search: "?query=1",
+    },
+    {
+      protocol: "http:",
+      hostname: "127.0.0.1",
+      port: "43127",
+      pathname: "/settings",
+    },
+    {
+      protocol: "http:",
+      hostname: "127.0.0.1",
+      port: "43127",
+      pathname: "/notes/note-1/extra",
+    },
+    {
+      protocol: "http:",
+      hostname: "127.0.0.1",
+      port: "43127",
+      pathname: "/notes/",
     },
     {
       protocol: "http:",
@@ -289,6 +313,46 @@ test("external loopback bridge sends one fixed fragment and receives a sanitized
       external.listenerCount("cornell:desktop-manual-update-check-result"),
       0,
     );
+  } finally {
+    if (originalWindow === undefined) {
+      delete global.window;
+    } else {
+      global.window = originalWindow;
+    }
+  }
+});
+
+test("external loopback bridge accepts every canonical route and preserves its path and query", async () => {
+  const originalWindow = global.window;
+  const pages = [
+    { pathname: "/notes", search: "?query=canvas&page=2" },
+    { pathname: "/notes/new", search: "?mode=edit" },
+    { pathname: "/notes/note-1", search: "?mode=view" },
+    { pathname: "/backup", search: "?source=settings" },
+  ];
+
+  try {
+    for (const page of pages) {
+      const external = createExternalWindow(page);
+      global.window = external.window;
+      const bridge = loadBridge(() => Promise.resolve(response()));
+      external.setHashChangeHandler(() => {
+        external.window.dispatchEvent({
+          type: "cornell:desktop-manual-update-check-result",
+          detail: response(),
+        });
+      });
+
+      assert.deepEqual(await bridge.requestManualUpdateCheck(), {
+        kind: "no-update",
+        response: response(),
+      });
+      assert.equal(external.hashAssignments, 1);
+      assert.deepEqual(external.historyReplacementUrls, [
+        `${page.pathname}${page.search}`,
+      ]);
+      assert.equal(external.window.location.hash, "");
+    }
   } finally {
     if (originalWindow === undefined) {
       delete global.window;
@@ -538,8 +602,9 @@ test("manual update bridge keeps the command and sanitized response contract loc
   assert.match(source, /window\.location\.hash = DESKTOP_MANUAL_UPDATE_CHECK_REQUEST_FRAGMENT/);
   assert.match(source, /window\.location\.protocol === "http:"/);
   assert.match(source, /window\.location\.hostname === "127\.0\.0\.1"/);
-  assert.match(source, /window\.location\.pathname === "\/notes"/);
-  assert.match(source, /window\.location\.search === ""/);
+  assert.match(source, /isCanonicalManualUpdateCheckPath\(window\.location\.pathname\)/);
+  assert.match(source, /window\.location\.pathname/);
+  assert.match(source, /window\.location\.search/);
   assert.match(source, /isValidDynamicPort/);
   assert.match(source, /window\.addEventListener\(/);
   assert.match(source, /MANUAL_UPDATE_CHECK_TIMEOUT_MS/);

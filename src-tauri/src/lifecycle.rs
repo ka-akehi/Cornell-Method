@@ -11,7 +11,9 @@ use tauri::{AppHandle, Manager, WebviewWindow};
 
 const MANUAL_UPDATE_CHECK_REQUEST_FRAGMENT: &str = "cornell-desktop-manual-update-check";
 const MANUAL_UPDATE_CHECK_RESULT_EVENT: &str = "cornell:desktop-manual-update-check-result";
-const PRIMARY_PAGE_PATH: &str = "/notes";
+const NOTES_PATH: &str = "/notes";
+const NEW_NOTE_PATH: &str = "/notes/new";
+const BACKUP_PATH: &str = "/backup";
 
 const CLOSE_RESPONSE_TIMEOUT: Duration = Duration::from_secs(120);
 
@@ -207,24 +209,36 @@ fn handle_close_navigation(url: &tauri::Url, close: &CloseCoordinator) -> Option
 fn is_manual_update_check_navigation(url: &tauri::Url, primary_url: &tauri::Url) -> bool {
     url.fragment() == Some(MANUAL_UPDATE_CHECK_REQUEST_FRAGMENT)
         && is_manual_update_check_primary_page(primary_url)
+        && is_manual_update_check_origin(url)
         && url.scheme() == primary_url.scheme()
         && url.host_str() == primary_url.host_str()
         && url.port() == primary_url.port()
-        && url.path() == PRIMARY_PAGE_PATH
-        && url.query().is_none()
+        && is_manual_update_check_canonical_path(url.path())
+}
+
+fn is_manual_update_check_canonical_path(path: &str) -> bool {
+    if matches!(path, NOTES_PATH | NEW_NOTE_PATH | BACKUP_PATH) {
+        return true;
+    }
+
+    let Some(note_id) = path.strip_prefix("/notes/") else {
+        return false;
+    };
+    !note_id.is_empty() && !note_id.contains('/')
+}
+
+fn is_manual_update_check_origin(url: &tauri::Url) -> bool {
+    url.scheme() == "http"
+        && url.host_str() == Some("127.0.0.1")
+        && matches!(url.port(), Some(port) if port > 0)
         && url.username().is_empty()
         && url.password().is_none()
 }
 
 fn is_manual_update_check_primary_page(url: &tauri::Url) -> bool {
-    url.scheme() == "http"
-        && url.host_str() == Some("127.0.0.1")
-        && matches!(url.port(), Some(port) if port > 0)
-        && url.path() == PRIMARY_PAGE_PATH
-        && url.query().is_none()
+    is_manual_update_check_origin(url)
+        && is_manual_update_check_canonical_path(url.path())
         && url.fragment().is_none()
-        && url.username().is_empty()
-        && url.password().is_none()
 }
 
 fn is_manual_update_check_bridge_fragment(fragment: &str) -> bool {
@@ -233,9 +247,11 @@ fn is_manual_update_check_bridge_fragment(fragment: &str) -> bool {
 
 fn manual_update_check_result_script(
     result: Result<ManualUpdateCheckResponse, ManualUpdateCheckCommandError>,
-    primary_url: &tauri::Url,
+    target_url: &tauri::Url,
 ) -> Result<Option<String>, serde_json::Error> {
-    if !is_manual_update_check_primary_page(primary_url) {
+    if !is_manual_update_check_origin(target_url)
+        || !is_manual_update_check_canonical_path(target_url.path())
+    {
         return Ok(None);
     }
 
@@ -243,33 +259,39 @@ fn manual_update_check_result_script(
         Ok(response) => serde_json::to_string(&response)?,
         Err(error) => serde_json::to_string(&error)?,
     };
-    let Some(port) = primary_url.port() else {
+    let Some(port) = target_url.port() else {
         return Ok(None);
     };
     let primary_origin = format!(
         "{}://{}:{}",
-        primary_url.scheme(),
-        primary_url.host_str().unwrap_or_default(),
+        target_url.scheme(),
+        target_url.host_str().unwrap_or_default(),
         port
     );
     let origin_literal = serde_json::to_string(&primary_origin)?;
-    let path_literal = serde_json::to_string(PRIMARY_PAGE_PATH)?;
+    let path_literal = serde_json::to_string(target_url.path())?;
+    let search = target_url
+        .query()
+        .map(|query| format!("?{query}"))
+        .unwrap_or_default();
+    let search_literal = serde_json::to_string(&search)?;
+    let target_literal = serde_json::to_string(&format!("{}{search}", target_url.path()))?;
     let event_name = serde_json::to_string(MANUAL_UPDATE_CHECK_RESULT_EVENT)?;
     let payload_literal = serde_json::to_string(&payload)?;
 
     Ok(Some(format!(
-        "if(window.location.origin==={origin_literal}&&window.location.pathname==={path_literal}&&window.location.search===\"\"){{window.dispatchEvent(new CustomEvent({event_name},{{detail:JSON.parse({payload_literal})}}));window.history.replaceState(null,\"\",{path_literal});}}"
+        "if(window.location.origin==={origin_literal}&&window.location.pathname==={path_literal}&&window.location.search==={search_literal}){{window.dispatchEvent(new CustomEvent({event_name},{{detail:JSON.parse({payload_literal})}}));window.history.replaceState(null,\"\",{target_literal});}}"
     )))
 }
 
-fn start_external_manual_update_check(app: AppHandle, primary_url: tauri::Url) {
+fn start_external_manual_update_check(app: AppHandle, target_url: tauri::Url) {
     let _ = tauri::async_runtime::spawn_blocking(move || {
         let result = manual_update_check_worker(app.clone());
-        let script = match manual_update_check_result_script(result, &primary_url) {
+        let script = match manual_update_check_result_script(result, &target_url) {
             Ok(Some(script)) => script,
             Ok(None) => {
                 eprintln!(
-                    "desktop manual update check response target is not the primary loopback page"
+                    "desktop manual update check response target is not a canonical loopback page"
                 );
                 return;
             }
@@ -301,7 +323,7 @@ pub(crate) fn handle_navigation(
     if let Some(fragment) = url.fragment() {
         if is_manual_update_check_bridge_fragment(fragment) {
             if is_manual_update_check_navigation(url, primary_url) {
-                start_external_manual_update_check(app.clone(), primary_url.clone());
+                start_external_manual_update_check(app.clone(), url.clone());
             }
             return false;
         }
@@ -390,24 +412,33 @@ mod tests {
     }
 
     #[test]
-    fn manual_update_navigation_requires_the_exact_loopback_primary_page() {
+    fn manual_update_navigation_requires_a_canonical_loopback_route() {
         let primary_url = tauri::Url::parse("http://127.0.0.1:43127/notes").unwrap();
-        let valid =
-            tauri::Url::parse("http://127.0.0.1:43127/notes#cornell-desktop-manual-update-check")
-                .unwrap();
+        let valid_urls = [
+            "http://127.0.0.1:43127/notes#cornell-desktop-manual-update-check",
+            "http://127.0.0.1:43127/notes?query=1#cornell-desktop-manual-update-check",
+            "http://127.0.0.1:43127/notes/new?mode=edit#cornell-desktop-manual-update-check",
+            "http://127.0.0.1:43127/notes/note-1?mode=view#cornell-desktop-manual-update-check",
+            "http://127.0.0.1:43127/backup?source=settings#cornell-desktop-manual-update-check",
+        ];
         let invalid_urls = [
             "http://127.0.0.1:43127/notes#cornell-desktop-manual-update-check=extra",
-            "http://127.0.0.1:43127/notes?query=1#cornell-desktop-manual-update-check",
+            "http://127.0.0.1:43127/notes/",
+            "http://127.0.0.1:43127/notes/note-1/extra#cornell-desktop-manual-update-check",
+            "http://127.0.0.1:43127/api/updates?query=1#cornell-desktop-manual-update-check",
+            "http://127.0.0.1:43127/settings#cornell-desktop-manual-update-check",
             "http://127.0.0.1:0/notes#cornell-desktop-manual-update-check",
             "http://127.0.0.1/notes#cornell-desktop-manual-update-check",
-            "http://127.0.0.1:43127/settings#cornell-desktop-manual-update-check",
             "http://127.0.0.1:43128/notes#cornell-desktop-manual-update-check",
             "http://localhost:43127/notes#cornell-desktop-manual-update-check",
             "https://127.0.0.1:43127/notes#cornell-desktop-manual-update-check",
             "https://example.test/notes#cornell-desktop-manual-update-check",
         ];
 
-        assert!(is_manual_update_check_navigation(&valid, &primary_url));
+        for valid_url in valid_urls {
+            let url = tauri::Url::parse(valid_url).unwrap();
+            assert!(is_manual_update_check_navigation(&url, &primary_url));
+        }
         assert!(is_manual_update_check_bridge_fragment(
             MANUAL_UPDATE_CHECK_REQUEST_FRAGMENT
         ));
@@ -429,8 +460,9 @@ mod tests {
             ),
             &crate::update_state::UpdateState::initial(),
         );
-        let primary_url = tauri::Url::parse("http://127.0.0.1:43127/notes").unwrap();
-        let success_script = manual_update_check_result_script(Ok(response.clone()), &primary_url)
+        let target_url =
+            tauri::Url::parse("http://127.0.0.1:43127/notes/new?mode=edit#fragment").unwrap();
+        let success_script = manual_update_check_result_script(Ok(response.clone()), &target_url)
             .unwrap()
             .unwrap();
         assert!(success_script.contains(MANUAL_UPDATE_CHECK_RESULT_EVENT));
@@ -438,14 +470,16 @@ mod tests {
         assert!(success_script.contains("history.replaceState"));
         assert!(success_script.contains("window.location.origin"));
         assert!(success_script.contains("window.location.pathname"));
-        assert!(success_script.contains("window.location.search===\"\""));
+        assert!(success_script.contains("window.location.search"));
+        assert!(success_script.contains("/notes/new"));
+        assert!(success_script.contains("?mode=edit"));
         assert!(!success_script.contains("window.location.hash"));
         assert!(!success_script.contains("responseBody"));
         assert!(!success_script.contains("provider.example"));
 
         let error_script = manual_update_check_result_script(
             Err(ManualUpdateCheckCommandError::provider_internal()),
-            &primary_url,
+            &target_url,
         )
         .unwrap()
         .unwrap();
