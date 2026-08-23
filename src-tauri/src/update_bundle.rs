@@ -275,7 +275,11 @@ fn read_bundle_metadata(
         .get("CFBundleShortVersionString")
         .and_then(Value::as_string)
         .ok_or(BundleValidationError::BundlePlist)?;
-    if version != expected_version {
+    // CFBundleShortVersionString does not carry SemVer build metadata.
+    let expected_bundle_version = expected_version
+        .split_once('+')
+        .map_or(expected_version, |(version, _)| version);
+    if version != expected_bundle_version {
         return Err(BundleValidationError::BundleVersion);
     }
 
@@ -606,16 +610,20 @@ mod tests {
         }
     }
 
-    fn extracted_archive() -> ExtractedArchive {
+    fn extracted_archive_with_version(version: &str) -> ExtractedArchive {
         ExtractedArchive {
             relative_app_path: PathBuf::from("extract")
                 .join(TEST_DIGEST)
                 .join(APP_BUNDLE_NAME),
             artifact_id: "test-artifact".to_owned(),
             raw_sha256: TEST_DIGEST.to_owned(),
-            version: TEST_VERSION.to_owned(),
+            version: version.to_owned(),
             architecture: "x86_64-apple-darwin".to_owned(),
         }
+    }
+
+    fn extracted_archive() -> ExtractedArchive {
+        extracted_archive_with_version(TEST_VERSION)
     }
 
     fn create_layout(root: &TestRoot) -> PathBuf {
@@ -777,6 +785,49 @@ mod tests {
         write_binary_plist(&app);
         write_main_executable(&app, &valid_main_macho(), true);
         validate_extracted_app_bundle(&extracted_archive(), &root.path).expect("verify binary");
+    }
+
+    #[test]
+    fn verifies_build_metadata_release_against_bundle_release_version() {
+        const MANIFEST_VERSION: &str = "1.2.3+build.7";
+
+        let root = TestRoot::new();
+        let app = create_layout(&root);
+        write_xml_plist(
+            &app,
+            Some(MANIFEST_PRODUCT_ID),
+            Some("1.2.3"),
+            Some(TEST_EXECUTABLE),
+        );
+        write_main_executable(&app, &valid_main_macho(), true);
+
+        let archive = extracted_archive_with_version(MANIFEST_VERSION);
+        let verified =
+            validate_extracted_app_bundle(&archive, &root.path).expect("verify build metadata");
+        assert_eq!(verified.version, MANIFEST_VERSION);
+    }
+
+    #[test]
+    fn rejects_different_bundle_core_version_for_build_metadata_release() {
+        const MANIFEST_VERSION: &str = "1.2.3+build.7";
+
+        let root = TestRoot::new();
+        let app = create_layout(&root);
+        write_xml_plist(
+            &app,
+            Some(MANIFEST_PRODUCT_ID),
+            Some("1.2.4"),
+            Some(TEST_EXECUTABLE),
+        );
+        write_main_executable(&app, &valid_main_macho(), true);
+
+        assert_code(
+            validate_extracted_app_bundle(
+                &extracted_archive_with_version(MANIFEST_VERSION),
+                &root.path,
+            ),
+            "bundle-version",
+        );
     }
 
     #[test]
