@@ -81,7 +81,7 @@ test("view and review actions are placed in the title row without duplicating th
   );
   assert.match(
     modes,
-    /onReview=\{\(\) => \{[\s\S]*setShowBody\(false\);[\s\S]*setShowSummary\(false\);[\s\S]*setReviewNextDate\(addDaysToDateString\(todayDateString\(\), 7\)\);[\s\S]*setMode\("review"\);/,
+    /onReview=\{\(\) => \{[\s\S]*setShowBody\(false\);[\s\S]*setShowSummary\(false\);[\s\S]*const reviewBaseline = addDaysToDateString\(todayDateString\(\), 7\);[\s\S]*setReviewNextDate\(reviewBaseline\);[\s\S]*setMode\("review"\);/,
   );
   const reviewTransitionStart = modes.indexOf("onReview={() => {");
   const reviewTransitionEnd = modes.indexOf("          />", reviewTransitionStart);
@@ -91,12 +91,12 @@ test("view and review actions are placed in the title row without duplicating th
     modes.slice(reviewTransitionStart, reviewTransitionEnd),
     /note\.nextReviewDate/,
   );
-  assert.match(modes, /nextReviewDate: reviewNextDate \|\| null/);
+  assert.match(modes, /nextReviewDate: submittedNextReviewDate/);
   assert.match(
     modes,
-    /reviewNextDate=\{reviewNextDate\}[\s\S]*onReviewNextDateChange=\{setReviewNextDate\}/,
+    /reviewNextDate=\{reviewNextDate\}[\s\S]*onReviewNextDateChange=\{\(value\) => \{[\s\S]*setReviewNextDate\(value\);/,
   );
-  assert.match(modes, /setReviewNextDate\(data\?\.nextReviewDate \?\? ""\)/);
+  assert.match(modes, /setReviewNextDate\(confirmedNextReviewDate \?\? ""\)/);
   assert.match(modes, /<NoteDetailReviewModeActions[\s\S]*onBackToView=/);
   assert.match(
     modes,

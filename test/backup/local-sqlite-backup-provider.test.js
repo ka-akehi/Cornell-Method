@@ -10,10 +10,13 @@ const {
   createBackup,
   listBackups,
   pruneBackups,
+  resolveBackupDirectory,
 } = require("../../src/server/backup/infrastructure/local-sqlite-backup-provider.js");
 
 function createTempRoot() {
-  return fs.mkdtempSync(path.join(os.tmpdir(), "cornell-backup-provider-"));
+  return fs.mkdtempSync(
+    path.join(fs.realpathSync(os.tmpdir()), "cornell-backup-provider-"),
+  );
 }
 
 function writeFile(file, contents = "backup") {
@@ -91,6 +94,134 @@ test("creates a regular file backup and keeps the latest three generations", () 
     assert.equal(fs.existsSync(unmanagedFile), true);
   } finally {
     removeTempRoot(root);
+  }
+});
+
+test("uses the explicit desktop backup directory for list, create, and prune", () => {
+  const appBundleRoot = createTempRoot();
+  const applicationSupportRoot = createTempRoot();
+  const projectBackupDir = path.join(appBundleRoot, "backup");
+  const backupsDirectory = path.join(
+    applicationSupportRoot,
+    "Application Support",
+    "com.cornellmethod.notebook",
+    "backups",
+  );
+  const sourceFile = path.join(appBundleRoot, "dev.db");
+  const oldBackups = [
+    "2000-01-01T00-00-00.db",
+    "2000-01-02T00-00-00.db",
+    "2000-01-03T00-00-00.db",
+  ];
+
+  try {
+    fs.mkdirSync(projectBackupDir, { recursive: true });
+    fs.mkdirSync(backupsDirectory, { recursive: true });
+    oldBackups.forEach((file) => writeFile(path.join(backupsDirectory, file), "old"));
+    writeFile(path.join(projectBackupDir, "2000-01-04T00-00-00.db"), "bundle backup");
+    writeFile(sourceFile, "desktop sqlite source");
+
+    assert.equal(resolveBackupDirectory({ backupsDirectory }), backupsDirectory);
+
+    const created = createBackup({
+      projectRoot: appBundleRoot,
+      databaseUrl: "file:./dev.db",
+      backupsDirectory,
+    });
+
+    assert.equal(
+      fs.readFileSync(path.join(backupsDirectory, created.file), "utf8"),
+      "desktop sqlite source",
+    );
+    assert.equal(fs.existsSync(path.join(appBundleRoot, created.path)), false);
+    assert.equal(fs.existsSync(path.join(backupsDirectory, oldBackups[0])), false);
+    assert.equal(
+      listBackups({ projectRoot: appBundleRoot, backupsDirectory }).length,
+      3,
+    );
+    assert.deepEqual(
+      listBackups({ projectRoot: appBundleRoot }).map((entry) => entry.file),
+      ["2000-01-04T00-00-00.db"],
+    );
+    assert.deepEqual(pruneBackups({ backupsDirectory }), []);
+  } finally {
+    removeTempRoot(appBundleRoot);
+    removeTempRoot(applicationSupportRoot);
+  }
+});
+
+test("fails closed for unsafe explicit desktop backup directories", () => {
+  const root = createTempRoot();
+  const regularFile = path.join(root, "backup-file");
+  const symlinkTarget = path.join(root, "real-backups");
+  const symlinkDirectory = path.join(root, "backup-link");
+  const sourceFile = path.join(root, "source.db");
+
+  try {
+    writeFile(regularFile, "not a directory");
+    fs.mkdirSync(symlinkTarget);
+    fs.symlinkSync(symlinkTarget, symlinkDirectory);
+    writeFile(sourceFile, "sqlite source");
+
+    for (const backupsDirectory of [
+      "relative/backups",
+      regularFile,
+      symlinkDirectory,
+    ]) {
+      assert.throws(
+        () => listBackups({ backupsDirectory }),
+        (error) => error instanceof BackupError,
+      );
+      assert.throws(
+        () => pruneBackups({ backupsDirectory }),
+        (error) => error instanceof BackupError,
+      );
+      assert.throws(
+        () =>
+          createBackup({
+            projectRoot: root,
+            databaseUrl: "file:./source.db",
+            backupsDirectory,
+          }),
+        (error) => error instanceof BackupError,
+      );
+    }
+  } finally {
+    removeTempRoot(root);
+  }
+});
+
+test("fails closed for a missing backup directory below a symlink parent", () => {
+  const root = createTempRoot();
+  const outsideRoot = createTempRoot();
+  const linkedParent = path.join(root, "linked-parent");
+  const backupsDirectory = path.join(linkedParent, "backups");
+  const sourceFile = path.join(root, "source.db");
+
+  try {
+    fs.symlinkSync(outsideRoot, linkedParent);
+    writeFile(sourceFile, "sqlite source");
+
+    const operations = [
+      () => listBackups({ backupsDirectory }),
+      () => pruneBackups({ backupsDirectory }),
+      () =>
+        createBackup({
+          projectRoot: root,
+          databaseUrl: "file:./source.db",
+          backupsDirectory,
+        }),
+    ];
+
+    operations.forEach((operation) => {
+      assert.throws(operation, (error) => error instanceof BackupError);
+    });
+
+    assert.equal(fs.existsSync(path.join(outsideRoot, "backups")), false);
+    assert.deepEqual(fs.readdirSync(outsideRoot), []);
+  } finally {
+    removeTempRoot(root);
+    removeTempRoot(outsideRoot);
   }
 });
 

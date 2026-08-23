@@ -110,6 +110,23 @@ test("AppChrome は 901px desktop same-DOM sidebar と 900px mobile UI を分離
   );
 });
 
+test("responsive shell は desktop close coordinator を一度だけ composition する", () => {
+  const appChrome = readSource("src/app/_components/app-chrome.tsx");
+  const closeCoordinator = readSource(
+    "src/app/_components/desktop-close-coordinator.tsx",
+  );
+
+  assert.equal(
+    (appChrome.match(/<DesktopCloseCoordinator \/>/g) ?? []).length,
+    1,
+  );
+  assert.doesNotMatch(
+    appChrome,
+    /desktopCloseOpen|desktopCloseBusy|desktopCloseError|desktop-close-dialog|保存して終了|保存せず終了|未保存の変更があります/,
+  );
+  assert.match(closeCoordinator, /export function DesktopCloseCoordinator\(\)/);
+});
+
 test("breakpoint change は hidden navigation だけから focus を復帰し desktop を expanded reset する", () => {
   const appChrome = readSource("src/app/_components/app-chrome.tsx");
 

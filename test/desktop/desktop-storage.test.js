@@ -9,6 +9,11 @@ const { test } = require("node:test");
 
 const {
   DESKTOP_APPLICATION_ID,
+  DESKTOP_DATABASE_INITIALIZATION_MARKER_CONTENT,
+  DESKTOP_DATABASE_INITIALIZATION_MARKER_INVALID_REASON,
+  DESKTOP_DATABASE_INITIALIZATION_MARKER_NAME,
+  DESKTOP_DATABASE_MISSING_AFTER_INITIALIZATION_REASON,
+  DESKTOP_DATABASE_NOT_A_FILE_REASON,
   DESKTOP_DATABASE_STATUS,
   DESKTOP_MIGRATION_STATE,
   DESKTOP_STORAGE_LAYOUT,
@@ -30,6 +35,99 @@ function hasSqliteCli() {
   } catch {
     return false;
   }
+}
+
+function getUsableBetterSqlite3() {
+  let Database;
+  try {
+    Database = require("better-sqlite3");
+  } catch {
+    return null;
+  }
+
+  try {
+    const database = new Database(":memory:");
+    database.close();
+  } catch {
+    return null;
+  }
+
+  return Database;
+}
+
+function createLoggingSqliteBinary(homeDirectory, logPath) {
+  const binaryPath = path.join(homeDirectory, "logging-sqlite.js");
+  fs.writeFileSync(
+    binaryPath,
+    `#!/usr/bin/env node
+const fs = require("node:fs");
+const { spawnSync } = require("node:child_process");
+
+const args = process.argv.slice(2);
+fs.appendFileSync(${JSON.stringify(logPath)}, JSON.stringify(args) + "\\n");
+const result = spawnSync(
+  ${JSON.stringify(sqliteBinary)},
+  args,
+  { encoding: "utf8" },
+);
+if (result.stdout) {
+  process.stdout.write(result.stdout);
+}
+if (result.stderr) {
+  process.stderr.write(result.stderr);
+}
+process.exit(result.error ? 1 : result.status ?? 1);
+`,
+    { mode: 0o755 },
+  );
+  fs.chmodSync(binaryPath, 0o755);
+  return binaryPath;
+}
+
+function readLoggedSql(logPath) {
+  if (!fs.existsSync(logPath)) {
+    return [];
+  }
+
+  return fs
+    .readFileSync(logPath, "utf8")
+    .trim()
+    .split("\n")
+    .filter(Boolean)
+    .map((line) => JSON.parse(line).at(-1))
+    .filter((sql) => typeof sql === "string" && sql !== "-version");
+}
+
+function captureSqliteQueries(homeDirectory, callback) {
+  const Database = getUsableBetterSqlite3();
+  if (Database === null) {
+    const logPath = path.join(homeDirectory, "sqlite-query.log");
+    const loggingSqliteBinary = createLoggingSqliteBinary(
+      homeDirectory,
+      logPath,
+    );
+    return {
+      result: callback(loggingSqliteBinary),
+      queries: readLoggedSql(logPath),
+    };
+  }
+
+  const originalPrepare = Database.prototype.prepare;
+  const queries = [];
+  Database.prototype.prepare = function prepareWithTrace(sql) {
+    queries.push(sql);
+    return originalPrepare.call(this, sql);
+  };
+
+  try {
+    return { result: callback(sqliteBinary), queries };
+  } finally {
+    Database.prototype.prepare = originalPrepare;
+  }
+}
+
+function isFullIntegrityCheck(sql) {
+  return /^\s*PRAGMA\s+(?:integrity_check|foreign_key_check)\b/i.test(sql);
 }
 
 function createTempHome() {
@@ -55,6 +153,14 @@ function fileDigest(filePath) {
     .createHash("sha256")
     .update(fs.readFileSync(filePath))
     .digest("hex");
+}
+
+function initializationMarkerPath(homeDirectory) {
+  const paths = resolveDesktopStoragePaths({ homeDirectory });
+  return path.join(
+    paths.settingsDirectory,
+    DESKTOP_DATABASE_INITIALIZATION_MARKER_NAME,
+  );
 }
 
 function createFakePrismaBinary(homeDirectory) {
@@ -149,6 +255,12 @@ test("initializes the live SQLite database from the current migrations", () => {
     ).map((migration) => migration.name);
 
     assert.equal(fs.existsSync(result.databasePath), true);
+    const markerPath = initializationMarkerPath(homeDirectory);
+    assert.equal(fs.statSync(markerPath).isFile(), true);
+    assert.deepEqual(
+      fs.readFileSync(markerPath, "utf8"),
+      DESKTOP_DATABASE_INITIALIZATION_MARKER_CONTENT,
+    );
     assert.deepEqual(result.appliedMigrations, migrationNames);
     assert.equal(result.migrationState, DESKTOP_MIGRATION_STATE.COMPLETE);
     for (const directoryPath of [
@@ -160,6 +272,35 @@ test("initializes the live SQLite database from the current migrations", () => {
     ]) {
       assert.equal(fs.statSync(directoryPath).isDirectory(), true);
     }
+  });
+});
+
+test("runs the initial migration through the explicit Node executable without Node on PATH", () => {
+  withTempHome((homeDirectory) => {
+    const pathWithoutNode = path.join(homeDirectory, "empty-path");
+    fs.mkdirSync(pathWithoutNode);
+
+    const result = bootstrapDesktopStorage({
+      homeDirectory,
+      sqliteBinary,
+      nodeExecutable: process.execPath,
+      prismaBinary: path.join(
+        projectRoot,
+        "node_modules",
+        ".bin",
+        process.platform === "win32" ? "prisma.cmd" : "prisma",
+      ),
+      prismaConfigPath: path.join(projectRoot, "prisma.config.ts"),
+      prismaProjectRoot: projectRoot,
+      environment: {
+        ...process.env,
+        PATH: pathWithoutNode,
+      },
+    });
+
+    assert.equal(result.status, DESKTOP_DATABASE_STATUS.READY);
+    assert.equal(result.created, true);
+    assert.equal(result.migrationState, DESKTOP_MIGRATION_STATE.COMPLETE);
   });
 });
 
@@ -198,6 +339,7 @@ test("retries initial migration after a claimed empty database migration fails",
       (error) => error.code === "INITIAL_MIGRATION_FAILED",
     );
     assert.equal(fs.existsSync(paths.databasePath), false);
+    assert.equal(fs.existsSync(initializationMarkerPath(homeDirectory)), false);
     assert.equal(
       inspectDesktopDatabase({ homeDirectory, sqliteBinary }).status,
       DESKTOP_DATABASE_STATUS.INITIALIZATION_REQUIRED,
@@ -244,6 +386,7 @@ test("keeps a migration-written database for recovery after process failure", ()
 
     const failedContent = Buffer.from("migration wrote data", "utf8");
     assert.deepEqual(fs.readFileSync(paths.databasePath), failedContent);
+    assert.equal(fs.existsSync(initializationMarkerPath(homeDirectory)), false);
 
     const result = bootstrapDesktopStorage(migrationOptions);
     assert.equal(result.status, DESKTOP_DATABASE_STATUS.UNUSABLE);
@@ -302,6 +445,232 @@ test("does not change an existing ready database on bootstrap rerun", {
       ),
       1,
     );
+  });
+});
+
+test("skips detailed integrity checks during lightweight bootstrap inspection", {
+  skip: !sqliteCliAvailable,
+}, () => {
+  withTempHome((homeDirectory) => {
+    const ready = bootstrapReadyDatabase(homeDirectory);
+    sqlite(
+      ready.databasePath,
+      `PRAGMA foreign_keys = OFF;
+       INSERT INTO notebook_tags (notebook_id, tag_id, "order")
+       VALUES ('missing-notebook', 'missing-tag', 0);`,
+    );
+
+    const lightweightBootstrapRun = captureSqliteQueries(
+      homeDirectory,
+      (inspectionSqliteBinary) =>
+        bootstrapDesktopStorage({
+          homeDirectory,
+          sqliteBinary: inspectionSqliteBinary,
+        }),
+    );
+    const lightweightBootstrap = lightweightBootstrapRun.result;
+    const lightweightInspection = inspectDesktopDatabase({
+      homeDirectory,
+      sqliteBinary,
+      integrityCheck: false,
+    });
+    const detailedInspectionRun = captureSqliteQueries(
+      homeDirectory,
+      (inspectionSqliteBinary) =>
+        inspectDesktopDatabase({
+          homeDirectory,
+          sqliteBinary: inspectionSqliteBinary,
+          integrityCheck: true,
+        }),
+    );
+    const detailedInspection = detailedInspectionRun.result;
+    const defaultInspection = inspectDesktopDatabase({
+      homeDirectory,
+      sqliteBinary,
+    });
+
+    assert.equal(lightweightBootstrap.status, DESKTOP_DATABASE_STATUS.READY);
+    assert.equal(lightweightBootstrap.created, false);
+    assert.equal(lightweightInspection.status, DESKTOP_DATABASE_STATUS.READY);
+    assert.equal(
+      detailedInspection.status,
+      DESKTOP_DATABASE_STATUS.UNUSABLE,
+    );
+    assert.equal(detailedInspection.reason, "foreign-key-check-failed");
+    assert.equal(defaultInspection.status, DESKTOP_DATABASE_STATUS.UNUSABLE);
+    assert.equal(defaultInspection.reason, "foreign-key-check-failed");
+
+    assert.deepEqual(
+      lightweightBootstrapRun.queries.filter(isFullIntegrityCheck),
+      [],
+    );
+    assert.deepEqual(
+      detailedInspectionRun.queries.filter(isFullIntegrityCheck),
+      ["PRAGMA integrity_check", "PRAGMA foreign_key_check"],
+    );
+  });
+});
+
+test("creates the marker for a pre-marker ready database without changing it", {
+  skip: !sqliteCliAvailable,
+}, () => {
+  withTempHome((homeDirectory) => {
+    const first = bootstrapReadyDatabase(homeDirectory);
+    const markerPath = initializationMarkerPath(homeDirectory);
+    fs.unlinkSync(markerPath);
+    const beforeDigest = fileDigest(first.databasePath);
+
+    const result = bootstrapDesktopStorage({
+      homeDirectory,
+      sqliteBinary,
+    });
+
+    assert.equal(result.status, DESKTOP_DATABASE_STATUS.READY);
+    assert.equal(result.created, false);
+    assert.equal(fileDigest(result.databasePath), beforeDigest);
+    assert.deepEqual(
+      fs.readFileSync(markerPath, "utf8"),
+      DESKTOP_DATABASE_INITIALIZATION_MARKER_CONTENT,
+    );
+  });
+});
+
+test("stops recovery when the marker remains after the live database disappears", () => {
+  withTempHome((homeDirectory) => {
+    const ready = bootstrapReadyDatabase(homeDirectory);
+    const paths = resolveDesktopStoragePaths({ homeDirectory });
+    const markerPath = initializationMarkerPath(homeDirectory);
+    const backupPath = path.join(paths.backupsDirectory, "notebook.sqlite.bak");
+    const settingsPath = path.join(paths.settingsDirectory, "user-settings.json");
+    const backupContent = Buffer.from("backup preserved", "utf8");
+    const settingsContent = Buffer.from("settings preserved", "utf8");
+    const fakePrismaBinary = createFakePrismaBinary(homeDirectory);
+    const migrationLog = path.join(homeDirectory, "migration.log");
+
+    fs.writeFileSync(backupPath, backupContent, { flag: "wx" });
+    fs.writeFileSync(settingsPath, settingsContent, { flag: "wx" });
+    fs.unlinkSync(ready.databasePath);
+
+    const result = bootstrapDesktopStorage({
+      homeDirectory,
+      sqliteBinary,
+      prismaBinary: fakePrismaBinary,
+      environment: {
+        ...process.env,
+        FAKE_PRISMA_LOG: migrationLog,
+        FAKE_PRISMA_MODE: "success",
+      },
+    });
+
+    assert.equal(result.status, DESKTOP_DATABASE_STATUS.UNUSABLE);
+    assert.equal(
+      result.reason,
+      DESKTOP_DATABASE_MISSING_AFTER_INITIALIZATION_REASON,
+    );
+    assert.equal(result.created, false);
+    assert.equal(fs.existsSync(paths.databasePath), false);
+    assert.deepEqual(
+      fs.readFileSync(markerPath, "utf8"),
+      DESKTOP_DATABASE_INITIALIZATION_MARKER_CONTENT,
+    );
+    assert.deepEqual(fs.readFileSync(backupPath), backupContent);
+    assert.deepEqual(fs.readFileSync(settingsPath), settingsContent);
+    assert.equal(fs.existsSync(migrationLog), false);
+  });
+});
+
+test("fails closed for an invalid initialization marker without changing the database", {
+  skip: !sqliteCliAvailable,
+}, () => {
+  withTempHome((homeDirectory) => {
+    const ready = bootstrapReadyDatabase(homeDirectory);
+    const markerPath = initializationMarkerPath(homeDirectory);
+    fs.unlinkSync(markerPath);
+    fs.writeFileSync(markerPath, "invalid marker", { flag: "wx" });
+    const beforeDigest = fileDigest(ready.databasePath);
+
+    const result = bootstrapDesktopStorage({
+      homeDirectory,
+      sqliteBinary,
+    });
+
+    assert.equal(result.status, DESKTOP_DATABASE_STATUS.UNUSABLE);
+    assert.equal(
+      result.reason,
+      DESKTOP_DATABASE_INITIALIZATION_MARKER_INVALID_REASON,
+    );
+    assert.equal(fileDigest(result.databasePath), beforeDigest);
+    assert.equal(fs.readFileSync(markerPath, "utf8"), "invalid marker");
+  });
+});
+
+test("fails closed when the live database path is a symlink to a valid SQLite database", () => {
+  withTempHome((homeDirectory) => {
+    const ready = bootstrapReadyDatabase(homeDirectory);
+    const paths = resolveDesktopStoragePaths({ homeDirectory });
+    const markerPath = initializationMarkerPath(homeDirectory);
+    const backupPath = path.join(paths.backupsDirectory, "preserved.sqlite.bak");
+    const settingsPath = path.join(paths.settingsDirectory, "user-settings.json");
+    const targetPath = path.join(homeDirectory, "external-notebook.sqlite");
+    const markerContent = fs.readFileSync(markerPath);
+    const backupContent = Buffer.from("backup preserved", "utf8");
+    const settingsContent = Buffer.from("settings preserved", "utf8");
+
+    fs.copyFileSync(ready.databasePath, targetPath);
+    fs.writeFileSync(backupPath, backupContent, { flag: "wx" });
+    fs.writeFileSync(settingsPath, settingsContent, { flag: "wx" });
+    const targetDigest = fileDigest(targetPath);
+
+    fs.unlinkSync(ready.databasePath);
+    fs.symlinkSync(targetPath, ready.databasePath);
+
+    assert.equal(fs.lstatSync(ready.databasePath).isSymbolicLink(), true);
+    assert.equal(fs.statSync(ready.databasePath).isFile(), true);
+
+    const inspection = inspectDesktopDatabase({
+      homeDirectory,
+      sqliteBinary,
+    });
+    assert.equal(inspection.status, DESKTOP_DATABASE_STATUS.UNUSABLE);
+    assert.equal(inspection.reason, DESKTOP_DATABASE_NOT_A_FILE_REASON);
+
+    const result = bootstrapDesktopStorage({
+      homeDirectory,
+      sqliteBinary,
+    });
+    assert.equal(result.status, DESKTOP_DATABASE_STATUS.UNUSABLE);
+    assert.equal(result.reason, DESKTOP_DATABASE_NOT_A_FILE_REASON);
+    assert.equal(result.created, false);
+    assert.equal(fileDigest(targetPath), targetDigest);
+    assert.deepEqual(fs.readFileSync(markerPath), markerContent);
+    assert.deepEqual(fs.readFileSync(backupPath), backupContent);
+    assert.deepEqual(fs.readFileSync(settingsPath), settingsContent);
+    assert.equal(fs.readlinkSync(ready.databasePath), targetPath);
+  });
+});
+
+test("fails closed when the initialization marker is not a regular file", {
+  skip: !sqliteCliAvailable,
+}, () => {
+  withTempHome((homeDirectory) => {
+    const ready = bootstrapReadyDatabase(homeDirectory);
+    const markerPath = initializationMarkerPath(homeDirectory);
+    fs.unlinkSync(markerPath);
+    fs.mkdirSync(markerPath);
+    const beforeDigest = fileDigest(ready.databasePath);
+
+    const result = bootstrapDesktopStorage({
+      homeDirectory,
+      sqliteBinary,
+    });
+
+    assert.equal(result.status, DESKTOP_DATABASE_STATUS.UNUSABLE);
+    assert.equal(
+      result.reason,
+      DESKTOP_DATABASE_INITIALIZATION_MARKER_INVALID_REASON,
+    );
+    assert.equal(fileDigest(result.databasePath), beforeDigest);
+    assert.equal(fs.statSync(markerPath).isDirectory(), true);
   });
 });
 

@@ -19,6 +19,10 @@ import {
   AppChromeIcon,
   AppChromeNavigation,
 } from "./app-chrome-parts";
+import { DesktopCloseCoordinator } from "./desktop-close-coordinator";
+import { SettingsEntrypoint } from "./settings/settings-entrypoint";
+import settingsStyles from "./settings/settings-modal.module.css";
+import { sendDesktopSettingsRequest } from "@/shared/desktop/desktop-settings-bridge";
 
 type AppChromeProps = {
   children: ReactNode;
@@ -335,6 +339,7 @@ export function AppChrome({ children }: AppChromeProps) {
             variant="desktop"
           />
         </div>
+        <SettingsEntrypoint isCollapsed={!isRailOpen} />
       </aside>
 
       <div className="app-chrome-content">
@@ -358,6 +363,21 @@ export function AppChrome({ children }: AppChromeProps) {
                 onClick={() => setIsMobileNavOpen(true)}
               >
                 <AppChromeIcon name="menu" />
+              </button>
+            )}
+            {!isMobileNavOpen && (
+              <button
+                id="app-chrome-mobile-settings-button"
+                type="button"
+                className={`app-chrome-menu-button ${settingsStyles.mobileTrigger}`}
+                aria-label="設定を開く"
+                aria-haspopup="dialog"
+                onClick={() => sendDesktopSettingsRequest()}
+              >
+                <AppChromeIcon
+                  name="settings"
+                  className={settingsStyles.mobileTriggerIcon}
+                />
               </button>
             )}
           </div>
@@ -429,6 +449,7 @@ export function AppChrome({ children }: AppChromeProps) {
       </div>
 
       <AppChromeDesktopTooltip anchor={desktopTooltipAnchor} />
+      <DesktopCloseCoordinator />
     </div>
   );
 }

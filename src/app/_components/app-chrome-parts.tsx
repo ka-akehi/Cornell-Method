@@ -9,7 +9,8 @@ type AppChromeIconName =
   | "notes"
   | "panel-left-close"
   | "panel-left-open"
-  | "plus";
+  | "plus"
+  | "settings";
 
 type AppChromeNavItem = {
   href: "/notes";
@@ -70,6 +71,14 @@ export function AppChromeIcon({
       break;
     case "plus":
       iconContent = <path d="M12 5v14M5 12h14" />;
+      break;
+    case "settings":
+      iconContent = (
+        <>
+          <path d="M12 8.25a3.75 3.75 0 1 0 0 7.5 3.75 3.75 0 0 0 0-7.5Z" />
+          <path d="m19.4 15 .1-.25a7.9 7.9 0 0 0 0-5.5l-.1-.25 1.4-1.1-2.1-2.1-1.1 1.4-.25-.1a7.9 7.9 0 0 0-5.5 0l-.25.1-1.1-1.4-2.1 2.1 1.4 1.1-.1.25a7.9 7.9 0 0 0 0 5.5l.1.25-1.4 1.1 2.1 2.1 1.1-1.4.25.1a7.9 7.9 0 0 0 5.5 0l.25-.1 1.1 1.4 2.1-2.1L19.4 15Z" />
+        </>
+      );
       break;
     case "notes":
       iconContent = (

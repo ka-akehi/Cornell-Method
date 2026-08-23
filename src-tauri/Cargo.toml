@@ -1,0 +1,26 @@
+[package]
+name = "cornell-method-notebook"
+version = "0.1.0"
+description = "Cornell Method Notebook Desktop Alpha shell"
+authors = ["Cornell Method Notebook"]
+edition = "2021"
+build = "build.rs"
+
+[build-dependencies]
+tauri-build = "=2.2.0"
+
+[dependencies]
+base64 = "=0.22.1"
+flate2 = "=1.1.9"
+libc = "=0.2.189"
+plist = "=1.8.0"
+reqwest = { version = "=0.12.28", default-features = false, features = ["blocking", "rustls-tls"] }
+ring = "=0.17.14"
+serde = { version = "=1.0.219", features = ["derive"] }
+serde_json = "=1.0.140"
+tar = { version = "=0.4.40", default-features = false }
+tauri = "=2.5.1"
+# Keep tauri-build 2.2.0 and the Tauri runtime on the same utils API. The
+# product lockfile is generated independently of the comparison PoC.
+tauri-utils = "=2.4.0"
+tokio = { version = "=1.53.1", features = ["net", "rt", "time"] }

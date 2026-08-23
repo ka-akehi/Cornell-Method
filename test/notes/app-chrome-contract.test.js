@@ -68,7 +68,7 @@ test("desktop AppChrome は same-DOM sidebar と canonical route を共有する
   const desktopMarkup = appChrome.slice(desktopStart, desktopEnd);
   assert.match(
     compact(desktopMarkup),
-    /<aside id="app-chrome-sidebar" ref=\{desktopSidebarRef\}[\s\S]*<header className="app-chrome-sidebar-identity"> <AppChromeDesktopIdentity \/> <button[\s\S]*id=\{desktopRailToggleId\}[\s\S]*<\/button> <\/header> <AppChromeCreateLink[\s\S]*variant="desktop"[\s\S]*\/> <div className="app-chrome-navigation-scroll"> <AppChromeNavigation[\s\S]*variant="desktop"[\s\S]*\/> <\/div> <\/aside>/,
+    /<aside id="app-chrome-sidebar" ref=\{desktopSidebarRef\}[\s\S]*<header className="app-chrome-sidebar-identity"> <AppChromeDesktopIdentity \/> <button[\s\S]*id=\{desktopRailToggleId\}[\s\S]*<\/button> <\/header> <AppChromeCreateLink[\s\S]*variant="desktop"[\s\S]*\/> <div className="app-chrome-navigation-scroll"> <AppChromeNavigation[\s\S]*variant="desktop"[\s\S]*\/> <\/div> <SettingsEntrypoint isCollapsed=\{!isRailOpen\} \/> <\/aside>/,
   );
   assert.match(
     desktopMarkup,
@@ -124,7 +124,7 @@ test("desktop AppChrome は same-DOM sidebar と canonical route を共有する
 
   assert.doesNotMatch(
     appChrome,
-    /app-chrome-state-badge|app-chrome-state-slot|APP_CHROME_MODE_LABELS|AppChromeModeReporter|useAppChromeState|作成中|編集中|閲覧中|復習中/,
+    /app-chrome-state-badge|app-chrome-state-slot|APP_CHROME_MODE_LABELS|AppChromeModeReporter|useAppChromeState|作成中|閲覧中|復習中/,
   );
   assert.doesNotMatch(detailModes, /AppChromeModeReporter|app-chrome-state/);
   assert.doesNotMatch(editor, /AppChromeModeReporter|app-chrome-state/);
@@ -138,6 +138,151 @@ test("desktop AppChrome は same-DOM sidebar と canonical route を共有する
   assert.match(
     appChrome,
     /<main[\s\S]*id="app-main-content"[\s\S]*className="app-main"[\s\S]*>[\s\S]*\{children\}[\s\S]*<\/main>/,
+  );
+});
+
+test("desktop close coordinator は AppChrome の composition から独立して close 契約を保持する", () => {
+  const appChrome = readSource("src/app/_components/app-chrome.tsx");
+  const closeCoordinator = readSource(
+    "src/app/_components/desktop-close-coordinator.tsx",
+  );
+
+  assert.match(
+    appChrome,
+    /import \{ DesktopCloseCoordinator \} from "\.\/desktop-close-coordinator";/,
+  );
+  assert.equal(
+    (appChrome.match(/<DesktopCloseCoordinator \/>/g) ?? []).length,
+    1,
+  );
+  assert.doesNotMatch(
+    appChrome,
+    /DESKTOP_CLOSE_REQUEST_EVENT|getDesktopDirtyController|sendDesktopCloseDecision|desktopCloseOpen|desktopCloseBusy|desktopCloseError|desktop-close-dialog|保存して終了|保存せず終了|未保存の変更があります/,
+  );
+
+  assert.match(closeCoordinator, /^"use client";/m);
+  assert.match(
+    closeCoordinator,
+    /DESKTOP_CLOSE_REQUEST_EVENT[\s\S]*getDesktopDirtyController[\s\S]*sendDesktopCloseDecision[\s\S]*from "@\/shared\/desktop\/desktop-close-bridge";/,
+  );
+  assert.match(
+    closeCoordinator,
+    /window\.addEventListener\([\s\S]*DESKTOP_CLOSE_REQUEST_EVENT[\s\S]*window\.removeEventListener\([\s\S]*DESKTOP_CLOSE_REQUEST_EVENT/,
+  );
+  assert.match(closeCoordinator, /sendDesktopCloseDecision\("clean"\)/);
+  assert.match(closeCoordinator, /sendDesktopCloseDecision\("save"\)/);
+  assert.match(closeCoordinator, /sendDesktopCloseDecision\("discard"\)/);
+  assert.match(closeCoordinator, /sendDesktopCloseDecision\("cancel"\)/);
+  assert.match(
+    closeCoordinator,
+    /role="dialog"[\s\S]*aria-modal="true"[\s\S]*aria-labelledby="desktop-close-dialog-title"/,
+  );
+  assert.match(
+    closeCoordinator,
+    /保存して終了[\s\S]*保存せず終了[\s\S]*戻る/,
+  );
+  assert.match(closeCoordinator, /event\.key !== "Escape"/);
+  assert.match(
+    closeCoordinator,
+    /event\.target === event\.currentTarget[\s\S]*cancelDesktopClose\(\)/,
+  );
+  assert.match(
+    closeCoordinator,
+    /終了処理へ応答できませんでした。編集内容を保持しています。/,
+  );
+});
+
+test("desktop close dialog は open、Tab、cancel の focus 契約を維持する", () => {
+  const closeCoordinator = readSource(
+    "src/app/_components/desktop-close-coordinator.tsx",
+  );
+
+  assert.match(closeCoordinator, /const focusableSelector/);
+  assert.match(closeCoordinator, /function getFocusableElements/);
+  assert.match(
+    closeCoordinator,
+    /const returnFocusRef = useRef<HTMLElement \| null>\(null\);/,
+  );
+  assert.match(
+    closeCoordinator,
+    /activeElement instanceof HTMLElement[\s\S]*activeElement\.isConnected/,
+  );
+  assert.match(
+    closeCoordinator,
+    /ref=\{desktopCloseDialogRef\}[\s\S]*role="dialog"[\s\S]*tabIndex=\{-1\}/,
+  );
+  assert.match(
+    closeCoordinator,
+    /saveButtonRef\.current && !saveButtonRef\.current\.disabled[\s\S]*focusableElements\[0\] \?\? dialog[\s\S]*focus\(\{ preventScroll: true \}\)/,
+  );
+
+  const keydownStart = closeCoordinator.indexOf(
+    'if (event.key !== "Escape" && event.key !== "Tab")',
+  );
+  const keydownEnd = closeCoordinator.indexOf(
+    'window.addEventListener("keydown", handleKeyDown)',
+    keydownStart,
+  );
+  assert.ok(keydownStart >= 0 && keydownEnd > keydownStart);
+  const keydown = closeCoordinator.slice(keydownStart, keydownEnd);
+  assert.match(keydown, /event\.key !== "Escape" && event\.key !== "Tab"/);
+  assert.match(
+    keydown,
+    /currentFocusableElements\.length === 0[\s\S]*dialog\.focus\(\{ preventScroll: true \}\)/,
+  );
+  assert.match(
+    keydown,
+    /event\.shiftKey[\s\S]*lastFocusableElement\.focus\(\{ preventScroll: true \}\)/,
+  );
+  assert.match(
+    keydown,
+    /!event\.shiftKey[\s\S]*firstFocusableElement\.focus\(\{ preventScroll: true \}\)/,
+  );
+
+  assert.match(
+    closeCoordinator,
+    /elementToFocus\?\.isConnected[\s\S]*elementToFocus\.focus\(\{ preventScroll: true \}\)/,
+  );
+  assert.match(
+    closeCoordinator,
+    /getFocusableElements\(document\.body\)\[0\][\s\S]*document\.body\.focus\(\{ preventScroll: true \}\)/,
+  );
+
+  const cancelStart = closeCoordinator.indexOf(
+    "const cancelDesktopClose =",
+  );
+  const saveStart = closeCoordinator.indexOf(
+    "async function saveAndCloseDesktop()",
+  );
+  const discardStart = closeCoordinator.indexOf(
+    "async function discardAndCloseDesktop()",
+  );
+  const renderStart = closeCoordinator.indexOf("\n  return (", discardStart);
+  assert.ok(
+    cancelStart >= 0 &&
+      saveStart > cancelStart &&
+      discardStart > saveStart &&
+      renderStart > discardStart,
+  );
+  assert.match(
+    closeCoordinator.slice(cancelStart, saveStart),
+    /restoreDesktopCloseFocus\(\)/,
+  );
+  assert.match(
+    closeCoordinator.slice(saveStart, discardStart),
+    /completeDesktopClose\(\)/,
+  );
+  assert.doesNotMatch(
+    closeCoordinator.slice(saveStart, discardStart),
+    /restoreDesktopCloseFocus\(\)/,
+  );
+  assert.match(
+    closeCoordinator.slice(discardStart, renderStart),
+    /completeDesktopClose\(\)/,
+  );
+  assert.doesNotMatch(
+    closeCoordinator.slice(discardStart, renderStart),
+    /restoreDesktopCloseFocus\(\)/,
   );
 });
 

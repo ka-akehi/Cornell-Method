@@ -1,5 +1,13 @@
 export const DESKTOP_APPLICATION_ID: "com.cornellmethod.notebook";
 
+export const DESKTOP_DATABASE_INITIALIZATION_MARKER_NAME: ".database-initialized";
+export const DESKTOP_DATABASE_INITIALIZATION_MARKER_CONTENT: "v1\n";
+export const DESKTOP_DATABASE_INITIALIZATION_MARKER_INVALID_REASON:
+  "database-initialization-marker-invalid";
+export const DESKTOP_DATABASE_MISSING_AFTER_INITIALIZATION_REASON:
+  "database-missing-after-initialization";
+export const DESKTOP_DATABASE_NOT_A_FILE_REASON: "database-not-a-file";
+
 export const DESKTOP_STORAGE_LAYOUT: {
   readonly root: ".";
   readonly live: "live";
@@ -56,6 +64,7 @@ export type DesktopDatabaseInspection = DesktopStoragePaths & {
 
 export function resolveDesktopStoragePaths(options?: {
   homeDirectory?: string;
+  applicationId?: string;
 }): DesktopStoragePaths;
 
 export function ensureDesktopStorageDirectories(
@@ -80,6 +89,7 @@ export function inspectDesktopDatabase(options?: {
   homeDirectory?: string;
   migrationsDirectory?: string;
   sqliteBinary?: string;
+  integrityCheck?: boolean;
 }): DesktopDatabaseInspection;
 
 export function bootstrapDesktopStorage(options?: {
@@ -87,6 +97,7 @@ export function bootstrapDesktopStorage(options?: {
   storagePaths?: DesktopStoragePaths;
   migrationsDirectory?: string;
   sqliteBinary?: string;
+  nodeExecutable?: string;
   prismaBinary?: string;
   prismaConfigPath?: string;
   prismaProjectRoot?: string;

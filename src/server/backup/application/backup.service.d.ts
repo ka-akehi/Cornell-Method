@@ -5,9 +5,11 @@ import type {
 
 export function listBackupEntries(options?: {
   projectRoot?: string;
+  backupsDirectory?: string;
 }): BackupEntry[];
 
 export function createBackupEntry(options?: {
   projectRoot?: string;
   databaseUrl?: string;
+  backupsDirectory?: string;
 }): CreatedBackup;

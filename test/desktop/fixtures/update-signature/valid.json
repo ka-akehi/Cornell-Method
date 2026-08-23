@@ -1,0 +1,22 @@
+{
+  "fixtureVersion": 1,
+  "manifestSchemaVersion": 1,
+  "payloadVersion": 1,
+  "release": {
+    "productId": "com.cornellmethod.notebook",
+    "version": "1.2.3+build.7",
+    "channel": "stable",
+    "architecture": "aarch64-apple-darwin",
+    "minVersion": "14.0",
+    "maxVersionExclusive": "15.0",
+    "artifactId": "com.cornellmethod.notebook-1.2.3",
+    "format": "app-archive",
+    "sizeBytes": 12345,
+    "sha256": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
+  },
+  "keyId": "cmn-ed25519-v1-0e5cbefe2edd050de7d2cad2ebff1e757b0d5f0ade109410e0e853596f275a78",
+  "publicKeyHex": "e8610cc668cd1e083107bc47f0d6386c6677829725229e2027d4a00f161a01f8",
+  "canonicalPayloadHex": "636f6d2e636f726e656c6c6d6574686f642e6e6f7465626f6f6b2f6465736b746f702d7570646174652d7369676e61747572652f656432353531390001000000010000001a636f6d2e636f726e656c6c6d6574686f642e6e6f7465626f6f6b0000000d312e322e332b6275696c642e3700000006737461626c6500000014616172636836342d6170706c652d64617277696e0000000231340100000002313500000020636f6d2e636f726e656c6c6d6574686f642e6e6f7465626f6f6b2d312e322e330000000b6170702d617263686976650000000000003039000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+  "proof": "ASjsCFtYCKaglKE9jUZTTw7Yvv0-8aiYmdNQx7-fPO14YncJClcibS9NAy3LA8aYafFn2KrFmXBxO7L49PzrBg",
+  "expected": "valid"
+}

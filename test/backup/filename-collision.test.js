@@ -13,7 +13,10 @@ const {
 
 function withTemporaryProject(callback) {
   const projectRoot = fs.mkdtempSync(
-    path.join(os.tmpdir(), "cornell-backup-filename-collision-"),
+    path.join(
+      fs.realpathSync(os.tmpdir()),
+      "cornell-backup-filename-collision-",
+    ),
   );
 
   try {

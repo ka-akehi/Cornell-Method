@@ -1,5 +1,7 @@
 # MVP テストシナリオ（1 項目 1 チェック）
 
+更新日: 2026-08-22
+
 ## 位置づけ
 
 このドキュメントは、Cornell Method Notebook MVP の最終検証項目を定めます。
@@ -699,7 +701,7 @@ NTE-030 の `summary/20260715/0107-implement-nte030-review-shared-detail-shell-e
 
 ## Desktop Alpha / Phase 2 / 将来確認
 
-次の項目は現行 MVP 外です。すべて未実装・未実施であり、現行 MVP の PASS 集計に含めません。Desktop PoC と Desktop Alpha を先に完了し、その後に Canvas PNG、検索サジェスト、大規模一覧を確認します。未採用候補は、発注者が採用するまで実装シナリオとして確定しません。
+次の項目は現行 MVP 外です。Desktop Alpha の更新契約は承認済みですが、provider normalization、manifest validation、compatible selection、download / apply、署名検証、staging migration、rollback は未実装で、packaged Apple Silicon GUI の結合確認も未実施です。single-instance recovery、既存 primary lifecycle、Settings shell / bridge / entrypoint だけは製品コードと static contract test の範囲で部分実装済みです。更新契約の未実装項目と Settings の操作機能を含む残りの Desktop Alpha 機能は現行 MVP の PASS 集計に含めません。static contract test や Rust unit test の PASS を packaged GUI や browser runtime の PASS へ繰り上げません。Desktop PoC と Desktop Alpha の packaged QA 後に Canvas PNG、検索サジェスト、大規模一覧を確認します。未採用候補は、発注者が採用するまで実装シナリオとして確定しません。
 
 ### 1. Desktop PoC 比較
 
@@ -713,11 +715,34 @@ NTE-030 の `summary/20260715/0107-implement-nte030-review-shared-detail-shell-e
 - [ ] shell が必要とする main / core、renderer / WebView、local runtime、Node.js sidecar、framework helper、関連子 process の存在を許容している
 - [ ] OS process が複数存在することだけを候補の blocker または不合格理由にしていない
 - [ ] DMG、静的 manifest、architecture / OS compatibility の端末内判定、background download、明示再起動による更新の成立見通しを比較している
+- [ ] Desktop Alpha の artifact / QA 対象を Apple Silicon `aarch64-apple-darwin` に限定し、Intel を Public Mac Release の別判断としている
+- [ ] 初期配布 DMG とアプリ内更新用 `.app archive` の役割を分け、archive の具体的な拡張子をこのシナリオで固定していない
+- [ ] Developer ID / notarization を Desktop Alpha の必須条件や PoC blocker にしていない
 - [ ] 保守性、安全性、license、Apple 関連費用、配布 storage / bandwidth、CI、保守工数を含む総コストを比較している
 - [ ] 成功、失敗、未測定、blocker を候補ごとに同じ形式で記録し、発注者が shell を選定している
 - [ ] PDF export、packaged Playwright / Chromium、Canvas PNG、Intel、未検証の古い macOS を blocker または必須受け入れ条件にしていない
 
 ### 2. Desktop lifecycle / Settings
+
+#### 2.1 single-instance recovery（実装済み・packaged GUI 未検証）
+
+| シナリオ | 実装・Rust unit test の期待値 | 現時点の境界 |
+|---|---|---|
+| 正常な二重起動 | stable advisory lock が `WouldBlock` になり、focus socket の `focused` で既存 primary を前面化する。secondary は window / sidecar を作らない | packaged app の Dock / Finder 前面化は未検証 |
+| primary 起動途中、socket 未作成または `not-ready` | focus を bounded retry し、期限内に lock が解放された場合だけ acquire を再試行する。期限切れは sanitized な既存 owner / 準備中エラーで停止する | packaged GUI の起動時間・表示は未検証 |
+| crash 後の marker / socket | lock free 後に owner marker は atomic replace し、接続不能な stale socket だけ lock 保持中に再 bind する。stable `.instance.lock` は残す | SIGKILL 後の packaged app 再起動は未検証 |
+| 破損・空・schema / application id 不一致 marker | 別 owner marker は lock free のときだけ atomic replace する。stable lock に旧形式 JSON があれば legacy fail-safe error とし、marker/socket/DB/backup を削除しない | recovery UI は未実装 |
+| PID reuse 相当 | marker の PID、生存確認、socket pathname を ownership 判定に使わない。advisory lock の状態だけで primary / existing owner を決める | 実機での PID 再利用再現は未実施 |
+| concurrent acquire | 一方だけが stable advisory lock と primary state を取得し、他方は focus または bounded not-ready state になる | packaged process 起動競合は未検証 |
+| active / unknown protocol / permission endpoint | socket を削除せず、sanitized な bind / 起動失敗として停止する | macOS packaged permission 境界は未検証 |
+
+Rust unit test は production の `HOME` や Application Support を使わず temp directory と injected instance paths を使う。Node の `test/desktop/desktop-lifecycle.test.js` は製品 identifier、dynamic loopback、focus / recovery の静的契約を確認する補助であり、packaged app の代替ではない。
+
+#### 2.2 Settings shell / bridge / entrypoint（部分実装・操作未実施）
+
+`SettingsEntrypoint` は AppChrome の desktop rail と mobile trigger に接続され、shared event bridge を介して Mac menu からも既存 primary WebView の同じ modal を開く。Settings modal には General、Updates、Data and Backup の3カテゴリ、dialog / focus trap / keyboard navigation がある。General は読み取り専用、Updates は provider 未接続の準備中表示、Data and Backup は操作未実装で現行 `/backup` への入口を維持する。新しい window、runtime、sidecar、filesystem、API path は追加していない。
+
+`test/desktop/desktop-settings-shell.test.js` と `test/desktop/desktop-settings-ui.test.js` はこの shell / bridge / UI 境界を静的に確認する補助であり、Settings の実操作、browser runtime、packaged GUI の受け入れを PASS に繰り上げない。
 
 - [ ] packaged app が single application instance / 1 primary window で起動する
 - [ ] アプリを 2 回起動しても application instance と primary window が増えず、既存 primary window が前面へ出る
@@ -733,7 +758,26 @@ NTE-030 の `summary/20260715/0107-implement-nte030-review-shared-detail-shell-e
 
 ### 3. Desktop update / migration
 
+- [ ] GitHub Releases の provider response を provider-neutral な manifest へ正規化し、provider の並び順、文字列順、raw response、release notes を候補選択に使わない
+- [ ] root の `productId` が必須で `com.cornellmethod.notebook` と一致し、root の `schemaVersion: 1` が必須で、未知 schema version を fail closed にする
+- [ ] root、release、artifact、signature の未知 field を検出した manifest 全体を拒否する
+- [ ] manifest が必須の `releases[]` を持ち、空配列を有効な「更新なし」として扱う
+- [ ] release の `channel`、`version`、`architecture`、`minVersion`、任意の `maxVersionExclusive`、`artifact`、`signature` と、artifact / signature の許可 field を strict に検証する
+- [ ] version が SemVer precedence で比較され、prerelease を対象外とし、build metadata を大小判定に使わず、provider order / 文字列順を使わない
+- [ ] channel が `stable` 固定で、Desktop Alpha の architecture が `aarch64-apple-darwin` である
+- [ ] `minVersion` を必須の macOS 下限、`maxVersionExclusive` を任意の排他的上限として、macOS version を数値 component で比較する。実際の最低対応 macOS version は packaged PoC 後まで固定しない
+- [ ] `artifactId` が必須の opaque immutable ID で、同じ package に同じ ID を使う
+- [ ] `format` が抽象値 `app-archive`、`sizeBytes` が必須の正の整数 byte 数、`sha256` が 64 文字の lowercase hexadecimal である
+- [ ] artifact URL が公開 direct HTTPS で、HTTPS → HTTPS redirect だけを許可し、HTTP downgrade、credential、token、ユーザー固有 query を拒否する
+- [ ] signature の `keyId` と opaque `proof` が必須で、package digest と release metadata をまとめて署名する。署名アルゴリズム名、encoding、canonicalization、鍵値をこのシナリオで固定しない
+- [ ] 同じ channel・version・architecture・macOS target の重複が manifest 全体を拒否し、対象外 release の重複も除外処理前に検出される
+- [ ] `stable` 以外の channel、未知 architecture、未知 format はその release だけを対象外とし、他の有効な候補を評価する
+- [ ] root / field / type / range / URL / proof の不備や duplicate では manifest 全体を拒否し、非対象 release の値だけでは manifest 全体を拒否しない
+- [ ] 同一 channel の現行 version より新しい compatible version だけを選び、downgrade を行わない
+- [ ] 各 release の `keyId` がアプリに保持する現行鍵または次期鍵を参照し、manifest から新しい信頼根を追加しない
+- [ ] 更新 package の公開鍵署名と SHA-256 を検証し、検証失敗時に取得物を破棄して現行版を維持する
 - [ ] 初期インストール用 DMG を作成できる
+- [ ] アプリ内更新 package が Apple Silicon 向け `.app archive` で、DMG と役割を分けている
 - [ ] 起動完了後の更新確認は非同期で、最大 1 日 1 回に制限され、手動確認もできる
 - [ ] 更新確認の ON / OFF 設定が存在しない
 - [ ] 更新 package を background download し、自動適用せず、明示的な「再起動して更新」でだけ適用する
@@ -741,19 +785,24 @@ NTE-030 の `summary/20260715/0107-implement-nte030-review-shared-detail-shell-e
 - [ ] 同じ保留更新を modal で繰り返し通知せず、Settings から状態を確認できる
 - [ ] 複数版を飛ばす更新で、端末が利用できる最新の compatible version を選ぶ
 - [ ] package の署名・完全性検証に失敗した場合、取得物を破棄して現行版を維持する
-- [ ] manifest は version、architecture、OS compatibility 等の更新判定に必要な最小情報だけを扱う
-- [ ] manifest / package の送受信に端末固有 ID、利用状況、ノート本文、Cue、Summary、タイトル、タグ、学習元、検索内容、SQLite、backup、診断 log が含まれない
+- [ ] manifest は更新判定に必要な最小情報だけを扱い、端末固有 ID、利用状況、ノート本文、Cue、Summary、タイトル、タグ、学習元、検索内容、SQLite、backup、診断 log を含めない
+- [ ] 更新 package を Application Support 内の app 管理 staging に保管する
+- [ ] manifest root の `schemaVersion: 1` と local `settings/update-state.json` の schema version を分離する
+- [ ] `settings/update-state.json` が version、channel、architecture、`artifactId`、`sizeBytes`、`sha256`、`keyId`、verification state、app 管理 staging からの relative package path、時刻だけを atomic に保存し、URL、provider response 全体、token、DB、user path、user data を保存しない
 - [ ] pending migration がある更新だけ、適用直前に app 管理 safety backup を作る
 - [ ] pending migration がない更新で、migration 用 safety backup と migration を実行しない
-- [ ] migration を staging copy 上で古い順に適用し、schema、必須データ、Canvas、reopen を検証する
+- [ ] migration を DB staging copy 上で古い順に適用し、schema、必須データ、Canvas、reopen を検証する
+- [ ] 旧 app が新しい DB schema を検出した場合、live DB を変更せず、現行版への更新または backup restore を案内する
 - [ ] 検証成功後だけ新しい app と DB へ atomic switch し、失敗時は現行 app と live DB を維持する
-- [ ] migration 前 safety backup を含む app 管理 safety backup が最新 3 世代に保たれる
+- [ ] package / DB staging の検証と更新後の health check が成功するまで旧 app bundle を保持し、失敗時は現行 app、live DB、app 管理 backup を維持して rollback する
+- [ ] 新版の初回起動と health check 成功後にだけ旧 app bundle を削除する
+- [ ] app 管理 safety backup の retention policy の細則を、この契約やシナリオで未承認のまま固定していない
 - [ ] 定期・日次・通常起動時・データ変更時の自動 backup を Desktop Alpha の必須挙動として実装していない
 
 ### 4. Backup / restore / 完全なデータ削除
 
 - [ ] Data and Backup で、手動 SQLite export、app 管理 backup からの復元、外部 backup file からの復元を別操作として表示する
-- [ ] 手動 export はユーザーが保存先を選ぶ平文 SQLite で、app 管理 backup の 3 世代 retention を適用しない
+- [ ] 手動 export はユーザーが保存先を選ぶ平文 SQLite で、app 管理 backup の retention policy を適用しない
 - [ ] 2 つの restore 入口が staging validation、明示確認、atomic switch、restart の同じ pipeline を使う
 - [ ] restore の開始前に現在の live DB を app 管理 safety backup として保存する
 - [ ] restore file の SQLite integrity、foreign key、schema / migration compatibility、必須データ、全 `CanvasDocumentV1`、切替後 reopen を検証する
@@ -774,10 +823,13 @@ NTE-030 の `summary/20260715/0107-implement-nte030-review-shared-detail-shell-e
 - [ ] save 失敗時は編集内容と dirty 状態を保持し、保存成功扱い、自動終了、自動再起動を行わない
 - [ ] 異常終了後の次回手動起動で DB open と schema 確認が成功した場合、ノート一覧と一度だけの非 blocking 通知を表示する
 - [ ] 診断 bundle はユーザーの明示操作で local にだけ作成し、自動送信しない
-- [ ] Application Support の local log が最大 14 日かつ合計 20 MB に制限され、いずれかを超えると古いものから削除される
+- [ ] Application Support の local log は note data を含まず、保持期間・容量・世代整理の細則を未承認のまま固定していない
 - [ ] local log と診断 bundle にノート本文、Cue、Summary、タイトル、タグ、学習元、SQLite、backup、Canvas JSON、検索文字列、token、user path、crash dump が含まれない
 - [ ] 診断 bundle が error log、時刻、component、sanitized stack、app version、macOS version、CPU architecture、DB schema version の allowlist で構成される
 - [ ] ノート操作は offline で、network は更新 manifest と package の取得だけに使う
+- [ ] 通常のアンインストールでは live DB を削除せず、Settings の完全なデータ削除と分離している
+- [ ] Settings の完全なデータ削除は明示確認後に live DB、app 管理 backup、設定だけを対象とし、外部 SQLite export を削除しない
+- [ ] Developer ID / notarization は Desktop Alpha の必須条件にせず、Public Mac Release の判断へ残している
 - [ ] Full Disk Access を要求せず、Application Support とユーザーが明示選択した file だけへアクセスする
 - [ ] local SQLite は macOS の file permission と FileVault を前提とし、app 独自 DB encryption や専用 password / Touch ID lock を Desktop Alpha の必須条件にしていない
 
