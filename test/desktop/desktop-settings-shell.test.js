@@ -145,6 +145,54 @@ test("Mac Settings menu targets the existing primary WebView without creating sh
   );
 });
 
+test("Settings menu restores a minimized primary window before dispatch", () => {
+  const handler = settingsDispatchHandler(fs.readFileSync(menuPath, "utf8"));
+  const unminimizeIndex = handler.indexOf("window.unminimize()");
+  const showIndex = handler.indexOf("window.show()", unminimizeIndex);
+  const focusIndex = handler.indexOf("window.set_focus()", showIndex);
+  const evalIndex = handler.indexOf("window.eval(&script)", focusIndex);
+
+  assert.ok(unminimizeIndex >= 0);
+  assert.ok(showIndex > unminimizeIndex);
+  assert.ok(focusIndex > showIndex);
+  assert.ok(evalIndex > focusIndex);
+});
+
+test("Settings menu shows a hidden primary window before dispatch", () => {
+  const handler = settingsDispatchHandler(fs.readFileSync(menuPath, "utf8"));
+  const showIndex = handler.indexOf("if let Err(error) = window.show()");
+  const evalIndex = handler.indexOf("window.eval(&script)");
+
+  assert.ok(showIndex >= 0);
+  assert.ok(evalIndex > showIndex);
+  assert.match(handler, /if let Err\(error\) = window\.show\(\)/);
+});
+
+test("Settings menu focuses an already visible primary window before dispatch", () => {
+  const handler = settingsDispatchHandler(fs.readFileSync(menuPath, "utf8"));
+  const focusIndex = handler.indexOf("if let Err(error) = window.set_focus()");
+  const evalIndex = handler.indexOf("window.eval(&script)");
+
+  assert.ok(focusIndex >= 0);
+  assert.ok(evalIndex > focusIndex);
+  assert.match(handler, /if let Err\(error\) = window\.set_focus\(\)/);
+});
+
+test("Settings menu is a no-op when the primary window is absent", () => {
+  const handler = settingsDispatchHandler(fs.readFileSync(menuPath, "utf8"));
+  const windowLookupEnd = handler.indexOf("};", handler.indexOf("let Some(window)"));
+  const beforeWindowOperations = handler.slice(0, windowLookupEnd + 2);
+
+  assert.match(
+    beforeWindowOperations,
+    /let Some\(window\) = app\.get_webview_window\(PRIMARY_WINDOW_LABEL\) else \{\s*return;\s*\};/,
+  );
+  assert.doesNotMatch(
+    handler,
+    /WebviewWindowBuilder|start_sidecar|Command::new|create_window|sidecar|runtime/,
+  );
+});
+
 test("Settings request remains independent from the dirty close bridge", () => {
   const closeBridge = fs.readFileSync(closeBridgePath, "utf8");
   const settingsBridge = fs.readFileSync(settingsBridgePath, "utf8");

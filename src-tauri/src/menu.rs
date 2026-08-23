@@ -17,6 +17,16 @@ fn dispatch_desktop_settings_request(app: &AppHandle) {
         return;
     };
 
+    if let Err(error) = window.unminimize() {
+        eprintln!("desktop settings window could not be unminimized: {error}");
+    }
+    if let Err(error) = window.show() {
+        eprintln!("desktop settings window could not be shown: {error}");
+    }
+    if let Err(error) = window.set_focus() {
+        eprintln!("desktop settings window could not be focused: {error}");
+    }
+
     let script = desktop_settings_request_script();
     if let Err(error) = window.eval(&script) {
         eprintln!("desktop settings bridge could not be reached: {error}");
