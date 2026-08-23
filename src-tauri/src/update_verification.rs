@@ -954,7 +954,7 @@ mod tests {
             10,
         )
         .unwrap();
-        let state = UpdateStateStore::load_or_default(&directory);
+        let state = UpdateStateStore::load_or_default(&directory, &staging);
         state
             .begin_check(crate::update_state::CheckTrigger::Manual, 10)
             .unwrap();
@@ -1184,7 +1184,7 @@ mod tests {
     fn changed_fresh_candidate_is_saved_without_artifact_work() {
         let directory = test_directory("candidate-changed");
         let staging = directory.join("staging");
-        let state = UpdateStateStore::load_or_default(&directory);
+        let state = UpdateStateStore::load_or_default(&directory, &staging);
         state
             .begin_check(crate::update_state::CheckTrigger::Manual, 10)
             .unwrap();
@@ -1264,7 +1264,8 @@ mod tests {
     #[test]
     fn operation_lock_returns_busy_without_fetching_manifest() {
         let directory = test_directory("busy");
-        let state = UpdateStateStore::load_or_default(&directory);
+        let staging = directory.join("staging");
+        let state = UpdateStateStore::load_or_default(&directory, &staging);
         let operation = state.try_acquire_operation().unwrap().unwrap();
         let manifest = FakeManifestTransport {
             response: manifest_response("1.3.0", "new-artifact"),

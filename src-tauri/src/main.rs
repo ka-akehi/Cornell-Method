@@ -160,7 +160,9 @@ fn run_application(instance: InstanceGuard) -> AppResult<()> {
             let root = runtime_project_root(app.handle()).map_err(boxed_error)?;
             let storage = run_bootstrap(&root).map_err(boxed_error)?;
             app.manage(storage.clone());
-            let update_state = UpdateStateStore::load_or_default(storage.settings_directory());
+            let staging_directory = storage.staging_directory();
+            let update_state =
+                UpdateStateStore::load_or_default(storage.settings_directory(), &staging_directory);
             if let Some(issue) = update_state.load_issue() {
                 eprintln!("desktop update state unavailable: {}", issue.code());
             }

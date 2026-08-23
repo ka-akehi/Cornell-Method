@@ -35,6 +35,10 @@ test("update state keeps a provider-neutral, atomic settings boundary", () => {
   assert.match(productionSource, /canonical_package_path/);
   assert.match(productionSource, /canonical_extracted_app_path/);
   assert.match(productionSource, /symlink_metadata/);
+  assert.match(productionSource, /staging_directory: PathBuf/);
+  assert.match(productionSource, /state_path = settings_directory\.join\(UPDATE_STATE_FILE_NAME\)/);
+  assert.match(productionSource, /state\.validate_paths_at\(staging_directory\)/);
+  assert.match(productionSource, /pending_update\.validate_paths_at\(&self\.staging_directory\)/);
   assert.doesNotMatch(
     productionSource,
     /reqwest|ureq|hyper|http_client|package_url|provider_response|token|sqlite|backup|notes|signature|sha-256/i,
@@ -57,8 +61,25 @@ test("update state exposes daily/manual/retry/notification transitions without s
 
   assert.match(main, /mod update_state;/);
   assert.match(main, /run_bootstrap\(&root\)/);
-  assert.match(main, /UpdateStateStore::load_or_default\(storage\.settings_directory\(\)\)/);
+  assert.match(main, /let staging_directory = storage\.staging_directory\(\);/);
+  assert.match(
+    main,
+    /UpdateStateStore::load_or_default\([\s\S]*?storage\.settings_directory\(\),[\s\S]*?&staging_directory\)/
+  );
   assert.match(main, /if let Some\(issue\) = update_state\.load_issue\(\)/);
   assert.match(main, /app\.manage\(update_state\)/);
   assert.doesNotMatch(main, /load_or_default\([^\n]*\)\?/);
+});
+
+test("persistent checkpoint validation is rooted at staging and has a symlink regression test", () => {
+  const source = readSource("src-tauri/src/update_state.rs");
+
+  assert.match(
+    source,
+    /verified_checkpoint_is_not_restored_when_staging_component_becomes_symlink/
+  );
+  assert.match(source, /for component in \["packages", "extract"\]/);
+  assert.match(source, /symlink\(&target, staging_directory\.join\(component\)\)/);
+  assert.match(source, /UpdateStateLoadIssue::Invalid/);
+  assert.match(source, /VerificationState::Verified/);
 });

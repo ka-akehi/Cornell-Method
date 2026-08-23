@@ -231,17 +231,13 @@ impl PendingUpdate {
         Ok(())
     }
 
-    fn validate_paths_at(&self, settings_directory: &Path) -> Result<(), UpdateStateError> {
+    fn validate_paths_at(&self, staging_directory: &Path) -> Result<(), UpdateStateError> {
         self.validate()?;
         if let Some(package_path) = &self.package_path {
-            reject_symlink_components(settings_directory, package_path, "package path")?;
+            reject_symlink_components(staging_directory, package_path, "package path")?;
         }
         if let Some(extracted_app_path) = &self.extracted_app_path {
-            reject_symlink_components(
-                settings_directory,
-                extracted_app_path,
-                "extracted app path",
-            )?;
+            reject_symlink_components(staging_directory, extracted_app_path, "extracted app path")?;
         }
         Ok(())
     }
@@ -445,9 +441,9 @@ impl UpdateState {
         Ok(())
     }
 
-    fn validate_paths_at(&self, settings_directory: &Path) -> Result<(), UpdateStateError> {
+    fn validate_paths_at(&self, staging_directory: &Path) -> Result<(), UpdateStateError> {
         if let Some(pending_update) = &self.pending_update {
-            pending_update.validate_paths_at(settings_directory)?;
+            pending_update.validate_paths_at(staging_directory)?;
         }
         Ok(())
     }
@@ -522,6 +518,7 @@ impl From<&UpdateState> for UpdateStateSnapshot {
 
 pub(crate) struct UpdateStateStore {
     state_path: PathBuf,
+    staging_directory: PathBuf,
     state: Mutex<UpdateState>,
     transition: Mutex<()>,
     operation: Mutex<()>,
@@ -534,11 +531,11 @@ pub(crate) struct UpdateOperationGuard<'a> {
 }
 
 impl UpdateStateStore {
-    pub(crate) fn load_or_default(settings_directory: &Path) -> Self {
-        Self::load_or_default_at(settings_directory, current_timestamp())
+    pub(crate) fn load_or_default(settings_directory: &Path, staging_directory: &Path) -> Self {
+        Self::load_or_default_at(settings_directory, staging_directory, current_timestamp())
     }
 
-    fn load_or_default_at(settings_directory: &Path, now: u64) -> Self {
+    fn load_or_default_at(settings_directory: &Path, staging_directory: &Path, now: u64) -> Self {
         let state_path = settings_directory.join(UPDATE_STATE_FILE_NAME);
         let (mut state, mut load_issue, mut writes_blocked, needs_migration) =
             match fs::symlink_metadata(&state_path) {
@@ -577,7 +574,7 @@ impl UpdateStateStore {
             };
 
         if load_issue.is_none() {
-            if state.validate_paths_at(settings_directory).is_err() {
+            if state.validate_paths_at(staging_directory).is_err() {
                 state = UpdateState::initial();
                 load_issue = Some(UpdateStateLoadIssue::Invalid);
                 writes_blocked = false;
@@ -606,6 +603,7 @@ impl UpdateStateStore {
 
         Self {
             state_path,
+            staging_directory: staging_directory.to_path_buf(),
             state: Mutex::new(state),
             transition: Mutex::new(()),
             operation: Mutex::new(()),
@@ -1093,15 +1091,8 @@ impl UpdateStateStore {
         }
         pending_update.verification_state = VerificationState::Verified;
         pending_update.verified_at = Some(verified_at);
-        let settings_directory = self
-            .state_path
-            .parent()
-            .ok_or_else(|| {
-                UpdateStateError::Storage("update state has no parent directory".to_string())
-            })?
-            .to_path_buf();
         drop(state);
-        pending_update.validate_paths_at(&settings_directory)?;
+        pending_update.validate_paths_at(&self.staging_directory)?;
 
         let mut state = self.lock_state()?;
 
@@ -1683,8 +1674,16 @@ mod tests {
 
     fn store(label: &str) -> (PathBuf, UpdateStateStore) {
         let directory = test_directory(label);
-        let store = UpdateStateStore::load_or_default_at(&directory, 100);
+        let staging_directory = directory.join("staging");
+        fs::create_dir_all(&staging_directory).unwrap();
+        let store = UpdateStateStore::load_or_default_at(&directory, &staging_directory, 100);
         (directory, store)
+    }
+
+    fn load_at(settings_directory: &Path, now: u64) -> UpdateStateStore {
+        let staging_directory = settings_directory.join("staging");
+        fs::create_dir_all(&staging_directory).unwrap();
+        UpdateStateStore::load_or_default_at(settings_directory, &staging_directory, now)
     }
 
     fn cleanup(directory: &Path) {
@@ -1826,7 +1825,7 @@ mod tests {
         )
         .unwrap();
 
-        let store = UpdateStateStore::load_or_default_at(&directory, 200);
+        let store = load_at(&directory, 200);
         assert_eq!(store.load_issue(), None);
         let snapshot = store.snapshot();
         assert_eq!(snapshot.schema_version, 2);
@@ -1871,7 +1870,7 @@ mod tests {
         )
         .unwrap();
 
-        let store = UpdateStateStore::load_or_default_at(&directory, 200);
+        let store = load_at(&directory, 200);
         let snapshot = store.snapshot();
         assert_eq!(snapshot.schema_version, 2);
         assert_eq!(snapshot.status, UpdateStatus::Failed);
@@ -1909,7 +1908,7 @@ mod tests {
             fs::write(temporary_path, b"collision").unwrap();
         }
 
-        let store = UpdateStateStore::load_or_default_at(&directory, 200);
+        let store = load_at(&directory, 200);
         assert_eq!(
             store.load_issue(),
             Some(UpdateStateLoadIssue::MigrationWrite)
@@ -1956,7 +1955,7 @@ mod tests {
             )
             .unwrap();
 
-            let loaded = UpdateStateStore::load_or_default_at(&directory, 200);
+            let loaded = load_at(&directory, 200);
             assert_eq!(
                 loaded.load_issue(),
                 Some(UpdateStateLoadIssue::Invalid),
@@ -1982,7 +1981,7 @@ mod tests {
         .unwrap();
         symlink(&target, &path).unwrap();
 
-        let store = UpdateStateStore::load_or_default_at(&directory, 100);
+        let store = load_at(&directory, 100);
         assert_eq!(store.load_issue(), Some(UpdateStateLoadIssue::Symlink));
         assert_eq!(store.snapshot().status, UpdateStatus::NotChecked);
         assert!(store.begin_check(CheckTrigger::Manual, 101).is_err());
@@ -1993,6 +1992,47 @@ mod tests {
         );
 
         cleanup(&directory);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn verified_checkpoint_is_not_restored_when_staging_component_becomes_symlink() {
+        use std::os::unix::fs::symlink;
+
+        for component in ["packages", "extract"] {
+            let directory = test_directory(&format!("staging-{component}-symlink"));
+            let staging_directory = directory.join("staging");
+            fs::create_dir_all(&staging_directory).unwrap();
+            let store = UpdateStateStore::load_or_default_at(&directory, &staging_directory, 100);
+            store.begin_check(CheckTrigger::Manual, 100).unwrap();
+            store
+                .record_available(pending("1.2.3", "artifact", 100))
+                .unwrap();
+            store
+                .begin_package_verification(&pending("1.2.3", "artifact", 100), 101)
+                .unwrap();
+            record_test_verified(&store);
+
+            let state_path = directory.join(UPDATE_STATE_FILE_NAME);
+            assert_eq!(store.state_path(), state_path.as_path());
+            assert_eq!(store.snapshot().status, UpdateStatus::Available);
+            assert_eq!(
+                store.snapshot().pending_update.unwrap().verification_state,
+                VerificationState::Verified
+            );
+            drop(store);
+
+            let target = directory.join(format!("{component}-target"));
+            fs::create_dir_all(&target).unwrap();
+            symlink(&target, staging_directory.join(component)).unwrap();
+
+            let loaded = UpdateStateStore::load_or_default_at(&directory, &staging_directory, 200);
+            assert_eq!(loaded.load_issue(), Some(UpdateStateLoadIssue::Invalid));
+            assert_eq!(loaded.snapshot().status, UpdateStatus::NotChecked);
+            assert_eq!(loaded.snapshot().pending_update, None);
+
+            cleanup(&directory);
+        }
     }
 
     #[test]
@@ -2015,7 +2055,7 @@ mod tests {
             let path = directory.join(UPDATE_STATE_FILE_NAME);
             fs::write(&path, contents).unwrap();
 
-            let store = UpdateStateStore::load_or_default_at(&directory, 100);
+            let store = load_at(&directory, 100);
             assert_eq!(store.snapshot().status, UpdateStatus::NotChecked);
             assert_eq!(store.load_issue(), Some(expected_issue));
 
@@ -2035,7 +2075,7 @@ mod tests {
 "#;
         fs::write(&path, original).unwrap();
 
-        let store = UpdateStateStore::load_or_default_at(&directory, 100);
+        let store = load_at(&directory, 100);
         assert_eq!(
             store.load_issue(),
             Some(UpdateStateLoadIssue::UnsupportedSchema)
@@ -2065,7 +2105,7 @@ mod tests {
         let path = directory.join(UPDATE_STATE_FILE_NAME);
         fs::create_dir(&path).unwrap();
 
-        let store = UpdateStateStore::load_or_default_at(&directory, 100);
+        let store = load_at(&directory, 100);
         assert_eq!(store.snapshot().status, UpdateStatus::NotChecked);
         assert_eq!(store.load_issue(), Some(UpdateStateLoadIssue::Io));
 
@@ -2338,7 +2378,7 @@ mod tests {
         let (directory, first_store) = store("recovery");
         first_store.begin_check(CheckTrigger::Manual, 100).unwrap();
 
-        let second_store = UpdateStateStore::load_or_default_at(&directory, 200);
+        let second_store = load_at(&directory, 200);
         let snapshot = second_store.snapshot();
         assert_eq!(snapshot.status, UpdateStatus::Failed);
         assert_eq!(
@@ -2364,7 +2404,7 @@ mod tests {
             .unwrap();
         drop(first_store);
 
-        let second_store = UpdateStateStore::load_or_default_at(&directory, 200);
+        let second_store = load_at(&directory, 200);
         let snapshot = second_store.snapshot();
         assert_eq!(snapshot.status, UpdateStatus::Failed);
         assert_eq!(snapshot.phase, None);

@@ -312,7 +312,9 @@ mod tests {
 
     fn store(label: &str) -> (PathBuf, UpdateStateStore) {
         let directory = test_directory(label);
-        let store = UpdateStateStore::load_or_default(&directory);
+        let staging_directory = directory.join("staging");
+        fs::create_dir_all(&staging_directory).unwrap();
+        let store = UpdateStateStore::load_or_default(&directory, &staging_directory);
         (directory, store)
     }
 
@@ -627,7 +629,9 @@ mod tests {
             let directory = test_directory("state-write-failure");
             let state_path = directory.join(UPDATE_STATE_FILE_NAME);
             fs::create_dir(&state_path).unwrap();
-            let store = UpdateStateStore::load_or_default(&directory);
+            let staging_directory = directory.join("staging");
+            fs::create_dir_all(&staging_directory).unwrap();
+            let store = UpdateStateStore::load_or_default(&directory, &staging_directory);
             (directory, store)
         };
         let transport = FakeTransport::from_body(EMPTY_MANIFEST);
