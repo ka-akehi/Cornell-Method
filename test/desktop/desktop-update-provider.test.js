@@ -22,6 +22,12 @@ test("desktop update provider binds the fixed GitHub Releases manifest endpoint"
     /GITHUB_RELEASES_MANIFEST_URL: &str =\s*"https:\/\/github\.com\/ka-akehi\/Cornell-Method\/releases\/latest\/download\/cornell-method-notebook-update-manifest\.json"/,
   );
   assert.match(source, /trait ManifestHttpTransport/);
+  assert.match(source, /trait PublicAddressResolver/);
+  assert.match(source, /ToSocketAddrs/);
+  assert.match(source, /validate_public_address/);
+  assert.match(source, /PublicAddressError::Mixed/);
+  assert.match(source, /dns_resolver/);
+  assert.match(source, /PinnedDnsResolver/);
   assert.match(source, /fn get\(/);
   assert.match(source, /client\s*\.get\(current_url/);
   assert.match(source, /Policy::none\(\)/);
@@ -68,4 +74,17 @@ test("desktop update provider has no caller or update side effects", () => {
     /select_update|UpdateState|record_no_update|record_available|record_failure|signature|apply|rollback|package download|sha-256/i,
   );
   assert.doesNotMatch(read("src-tauri/src/main.rs"), /fetch_manifest|fetch_manifest_from_github/);
+});
+
+test("desktop update provider checks every resolved address through a deterministic seam", () => {
+  const source = fs.readFileSync(providerPath, "utf8");
+
+  assert.match(source, /validate_public_ip_literal/);
+  assert.match(source, /is_loopback/);
+  assert.match(source, /is_unspecified/);
+  assert.match(source, /is_multicast/);
+  assert.match(source, /ipv4_prefix/);
+  assert.match(source, /ipv6_prefix/);
+  assert.match(source, /\.any\(\|address\| !is_public_ip/);
+  assert.match(source, /map_err\(\|_\| ManifestHttpError::Network\)/);
 });

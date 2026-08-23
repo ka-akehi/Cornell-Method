@@ -3,6 +3,7 @@ use std::fmt;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read, Write};
 use std::path::{Component, Path, PathBuf};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use reqwest::header::{HeaderMap, CONTENT_TYPE, LOCATION};
@@ -10,6 +11,10 @@ use reqwest::{Client, Response, Url};
 use ring::digest::{Context, SHA256};
 
 use crate::update_manifest::{UpdateManifest, UpdateRelease, TARGET_ARTIFACT_FORMAT};
+use crate::update_provider::{
+    validate_public_address, validate_public_ip_literal, PinnedDnsResolver, PublicAddressResolver,
+    SystemPublicAddressResolver,
+};
 use crate::update_signature::{EmbeddedTrustedKeyStore, SignatureVerificationError};
 
 pub(crate) const PACKAGE_CONNECTION_TIMEOUT: Duration = Duration::from_secs(15);
@@ -154,10 +159,16 @@ impl ArtifactHttpResponse {
 
 pub(crate) trait ArtifactHttpTransport {
     fn get(&self, request: ArtifactHttpRequest) -> Result<ArtifactHttpResponse, ArtifactHttpError>;
+
+    fn validate_url(&self, url: &Url) -> Result<(), ArtifactHttpError> {
+        validate_public_ip_literal(url).map_err(|_| ArtifactHttpError::Network)
+    }
 }
 
 pub(crate) struct ReqwestArtifactHttpTransport {
     client: Client,
+    resolver: Arc<dyn PublicAddressResolver>,
+    pinned_resolver: PinnedDnsResolver,
 }
 
 struct AsyncResponseBody {
@@ -216,6 +227,11 @@ impl Read for AsyncResponseBody {
 
 impl ReqwestArtifactHttpTransport {
     pub(crate) fn new() -> Result<Self, ArtifactHttpError> {
+        Self::with_resolver(Arc::new(SystemPublicAddressResolver))
+    }
+
+    fn with_resolver(resolver: Arc<dyn PublicAddressResolver>) -> Result<Self, ArtifactHttpError> {
+        let pinned_resolver = PinnedDnsResolver::new();
         let client = Client::builder()
             .redirect(reqwest::redirect::Policy::none())
             // The blocking builder has no separate read-idle option. The async
@@ -223,13 +239,27 @@ impl ReqwestArtifactHttpTransport {
             // does not impose a total request deadline.
             .read_timeout(PACKAGE_READ_IDLE_TIMEOUT)
             .connect_timeout(PACKAGE_CONNECTION_TIMEOUT)
+            .dns_resolver(Arc::new(pinned_resolver.clone()))
             .build()
             .map_err(|_| ArtifactHttpError::Internal)?;
-        Ok(Self { client })
+        Ok(Self {
+            client,
+            resolver,
+            pinned_resolver,
+        })
     }
 }
 
 impl ArtifactHttpTransport for ReqwestArtifactHttpTransport {
+    fn validate_url(&self, url: &Url) -> Result<(), ArtifactHttpError> {
+        let addresses = validate_public_address(url, self.resolver.as_ref())
+            .map_err(|_| ArtifactHttpError::Network)?;
+        let host = crate::update_provider::canonical_host(url).ok_or(ArtifactHttpError::Network)?;
+        self.pinned_resolver
+            .pin(&host, &addresses)
+            .map_err(|_| ArtifactHttpError::Network)
+    }
+
     fn get(&self, request: ArtifactHttpRequest) -> Result<ArtifactHttpResponse, ArtifactHttpError> {
         if request.max_body_bytes != MAX_PACKAGE_BYTES
             || request.max_redirects != MAX_ARTIFACT_REDIRECT_HOPS
@@ -251,6 +281,7 @@ impl ArtifactHttpTransport for ReqwestArtifactHttpTransport {
         if !is_safe_artifact_url(&current_url) {
             return Err(ArtifactHttpError::Internal);
         }
+        self.validate_url(&current_url)?;
 
         let mut visited = HashSet::new();
         visited.insert(current_url.to_string());
@@ -273,6 +304,7 @@ impl ArtifactHttpTransport for ReqwestArtifactHttpTransport {
                     .ok_or(ArtifactHttpError::Redirect)?;
                 let next_url = resolve_artifact_redirect(&current_url, location)
                     .map_err(|_| ArtifactHttpError::Redirect)?;
+                self.validate_url(&next_url)?;
                 if !visited.insert(next_url.to_string()) {
                     return Err(ArtifactHttpError::Redirect);
                 }
@@ -392,10 +424,14 @@ pub(crate) fn download_and_verify_artifact(
     ensure_final_absent(&final_path)?;
 
     let request = ArtifactHttpRequest::fixed(selected_release);
+    let initial_url = Url::parse(&request.url).map_err(|_| PackageDownloadError::Network)?;
+    artifact_transport
+        .validate_url(&initial_url)
+        .map_err(map_artifact_http_error)?;
     let mut response = artifact_transport
         .get(request.clone())
         .map_err(map_artifact_http_error)?;
-    validate_artifact_response(&request, &response)?;
+    validate_artifact_response(artifact_transport, &request, &response)?;
 
     let mut package_file = OpenOptions::new()
         .write(true)
@@ -771,10 +807,11 @@ fn cleanup_part(path: &Path, error: PackageDownloadError) -> PackageDownloadErro
 }
 
 fn validate_artifact_response(
+    transport: &dyn ArtifactHttpTransport,
     request: &ArtifactHttpRequest,
     response: &ArtifactHttpResponse,
 ) -> Result<(), PackageDownloadError> {
-    validate_redirect_trace(request, response)?;
+    validate_redirect_trace(transport, request, response)?;
     if response.status != 200 {
         return Err(PackageDownloadError::HttpStatus);
     }
@@ -794,6 +831,7 @@ fn validate_artifact_response(
 }
 
 fn validate_redirect_trace(
+    transport: &dyn ArtifactHttpTransport,
     request: &ArtifactHttpRequest,
     response: &ArtifactHttpResponse,
 ) -> Result<(), PackageDownloadError> {
@@ -801,6 +839,9 @@ fn validate_redirect_trace(
     if !is_safe_artifact_url(&current_url) {
         return Err(PackageDownloadError::Redirect);
     }
+    transport
+        .validate_url(&current_url)
+        .map_err(map_artifact_http_error)?;
     if response.redirects.len() > request.max_redirects {
         return Err(PackageDownloadError::Redirect);
     }
@@ -817,6 +858,9 @@ fn validate_redirect_trace(
             .ok_or(PackageDownloadError::Redirect)?;
         let next_url = resolve_artifact_redirect(&current_url, location)
             .map_err(|_| PackageDownloadError::Redirect)?;
+        transport
+            .validate_url(&next_url)
+            .map_err(map_artifact_http_error)?;
         if !visited.insert(next_url.to_string()) {
             return Err(PackageDownloadError::Redirect);
         }
@@ -827,6 +871,9 @@ fn validate_redirect_trace(
     if !is_safe_artifact_url(&final_url) || final_url != current_url {
         return Err(PackageDownloadError::Redirect);
     }
+    transport
+        .validate_url(&final_url)
+        .map_err(map_artifact_http_error)?;
     Ok(())
 }
 
@@ -861,6 +908,7 @@ fn is_safe_artifact_url(url: &Url) -> bool {
         && !url
             .query_pairs()
             .any(|(key, _)| is_credential_or_token_query_key(&key))
+        && validate_public_ip_literal(url).is_ok()
 }
 
 fn resolve_artifact_redirect(current_url: &Url, location: &str) -> Result<Url, ()> {
@@ -957,10 +1005,14 @@ fn map_body_read_error(error: io::Error) -> PackageDownloadError {
 mod tests {
     use super::*;
     use crate::update_manifest::{parse_manifest, UpdateManifest};
+    use crate::update_provider::PublicAddressResolver;
     use std::cell::{Cell, RefCell};
+    use std::collections::HashMap;
     use std::io::Cursor;
+    use std::net::SocketAddr;
     use std::rc::Rc;
     use std::sync::atomic::{AtomicU64, Ordering};
+    use std::sync::Arc;
     use std::time::{SystemTime, UNIX_EPOCH};
 
     const TEST_URL: &str = "https://updates.example.test/package";
@@ -1027,6 +1079,81 @@ mod tests {
                 .borrow_mut()
                 .take()
                 .expect("fake transport called once")
+        }
+    }
+
+    #[derive(Default)]
+    struct FakeAddressResolver {
+        results: HashMap<String, Result<Vec<SocketAddr>, ()>>,
+    }
+
+    impl FakeAddressResolver {
+        fn addresses(mut self, host: &str, addresses: &[&str]) -> Self {
+            self.results.insert(
+                host.to_ascii_lowercase(),
+                Ok(addresses
+                    .iter()
+                    .map(|address| address.parse().unwrap())
+                    .collect()),
+            );
+            self
+        }
+
+        fn failure(mut self, host: &str) -> Self {
+            self.results.insert(host.to_ascii_lowercase(), Err(()));
+            self
+        }
+    }
+
+    impl PublicAddressResolver for FakeAddressResolver {
+        fn resolve(&self, host: &str, _port: u16) -> Result<Vec<SocketAddr>, ()> {
+            self.results
+                .get(&host.to_ascii_lowercase())
+                .cloned()
+                .unwrap_or(Err(()))
+        }
+    }
+
+    struct AddressCheckingTransport {
+        result: RefCell<Option<Result<ArtifactHttpResponse, ArtifactHttpError>>>,
+        resolver: FakeAddressResolver,
+        calls: Cell<u32>,
+    }
+
+    impl AddressCheckingTransport {
+        fn response(response: ArtifactHttpResponse, resolver: FakeAddressResolver) -> Self {
+            Self {
+                result: RefCell::new(Some(Ok(response))),
+                resolver,
+                calls: Cell::new(0),
+            }
+        }
+
+        fn error(error: ArtifactHttpError, resolver: FakeAddressResolver) -> Self {
+            Self {
+                result: RefCell::new(Some(Err(error))),
+                resolver,
+                calls: Cell::new(0),
+            }
+        }
+    }
+
+    impl ArtifactHttpTransport for AddressCheckingTransport {
+        fn get(
+            &self,
+            _request: ArtifactHttpRequest,
+        ) -> Result<ArtifactHttpResponse, ArtifactHttpError> {
+            self.calls.set(self.calls.get() + 1);
+            self.result
+                .borrow_mut()
+                .take()
+                .expect("address checking transport called once")
+        }
+
+        fn validate_url(&self, url: &Url) -> Result<(), ArtifactHttpError> {
+            validate_public_address(url, &self.resolver)
+                .map(|_| ())
+                .map_err(|_| ArtifactHttpError::Network)
         }
     }
 
@@ -1106,6 +1233,10 @@ mod tests {
     }
 
     fn manifest_and_release(bytes: &[u8]) -> (UpdateManifest, UpdateRelease) {
+        manifest_and_release_at(bytes, TEST_URL)
+    }
+
+    fn manifest_and_release_at(bytes: &[u8], url: &str) -> (UpdateManifest, UpdateRelease) {
         let digest = sha256_hex(bytes);
         let manifest_json = serde_json::json!({
             "productId": "com.cornellmethod.notebook",
@@ -1118,7 +1249,7 @@ mod tests {
                 "artifact": {
                     "artifactId": "opaque-artifact-id-without-path-use",
                     "format": "app-archive",
-                    "url": TEST_URL,
+                    "url": url,
                     "sizeBytes": bytes.len(),
                     "sha256": digest,
                 },
@@ -1166,6 +1297,115 @@ mod tests {
             .join("packages")
             .join(format!("{digest}.app.tar.gz"))
             .exists());
+    }
+
+    #[test]
+    fn rejects_private_resolving_artifacts_before_transport_get() {
+        for (host, addresses) in [
+            ("private.example.test", vec!["10.0.0.1:443"]),
+            (
+                "mixed.example.test",
+                vec!["93.184.216.34:443", "192.168.1.1:443"],
+            ),
+        ] {
+            let bytes = b"raw bytes".to_vec();
+            let artifact_url = format!("https://{host}/package");
+            let (_manifest, release) = manifest_and_release_at(&bytes, &artifact_url);
+            let resolver = FakeAddressResolver::default()
+                .addresses("updates.example.test", &["93.184.216.34:443"])
+                .addresses(host, &addresses);
+            let transport = AddressCheckingTransport::error(ArtifactHttpError::Network, resolver);
+            let verifier = FakeVerifier::success();
+            let root = TestRoot::new();
+
+            assert_error(
+                download_and_verify_artifact(&release, &root.path, &transport, &verifier),
+                "package-network",
+            );
+            assert_eq!(transport.calls.get(), 0);
+            assert_no_part_or_final(&root.path, &release.artifact.sha256);
+        }
+    }
+
+    #[test]
+    fn classifies_resolve_failure_and_rejects_private_redirect_hops_without_details() {
+        let bytes = b"raw bytes".to_vec();
+        let (_manifest, release) = manifest_and_release(&bytes);
+        let request = ArtifactHttpRequest::fixed(&release);
+
+        for (host, addresses) in [
+            ("private.example.test", vec!["10.0.0.1:443"]),
+            (
+                "mixed.example.test",
+                vec!["93.184.216.34:443", "192.168.1.1:443"],
+            ),
+        ] {
+            let final_url = format!("https://{host}/package");
+            let response = ArtifactHttpResponse::from_reader(
+                200,
+                Some("application/gzip"),
+                Some(bytes.len() as u64),
+                Cursor::new(bytes.clone()),
+                vec![ArtifactRedirect {
+                    status: 302,
+                    location: Some(final_url.clone()),
+                }],
+                &final_url,
+            );
+            let resolver = FakeAddressResolver::default()
+                .addresses("updates.example.test", &["93.184.216.34:443"])
+                .addresses(host, &addresses);
+            let transport = AddressCheckingTransport::error(ArtifactHttpError::Network, resolver);
+            assert_error(
+                validate_redirect_trace(&transport, &request, &response),
+                "package-network",
+            );
+        }
+
+        let resolver = FakeAddressResolver::default().failure("updates.example.test");
+        let transport = AddressCheckingTransport::error(ArtifactHttpError::Network, resolver);
+        let url = Url::parse(TEST_URL).unwrap();
+        assert_eq!(
+            transport.validate_url(&url),
+            Err(ArtifactHttpError::Network)
+        );
+    }
+
+    #[test]
+    fn accepts_public_https_artifact_with_ipv4_and_ipv6_resolution() {
+        let bytes = b"raw bytes".to_vec();
+        let (_manifest, release) = manifest_and_release(&bytes);
+        let resolver = FakeAddressResolver::default().addresses(
+            "updates.example.test",
+            &["93.184.216.34:443", "[2001:4860:4860::8888]:443"],
+        );
+        let transport = AddressCheckingTransport::response(
+            response(
+                bytes.clone(),
+                Some("application/gzip"),
+                Some(bytes.len() as u64),
+            ),
+            resolver,
+        );
+        let verifier = FakeVerifier::success();
+        let root = TestRoot::new();
+        let archive = download_and_verify_artifact(&release, &root.path, &transport, &verifier)
+            .expect("public resolved addresses should be accepted");
+        assert_eq!(archive.raw_size_bytes, bytes.len() as u64);
+        assert_eq!(transport.calls.get(), 1);
+    }
+
+    #[test]
+    fn reqwest_artifact_rejects_dns_failure_before_request() {
+        let bytes = b"raw bytes".to_vec();
+        let (_manifest, release) = manifest_and_release(&bytes);
+        let request = ArtifactHttpRequest::fixed(&release);
+        let resolver = FakeAddressResolver::default().failure("updates.example.test");
+        let transport = ReqwestArtifactHttpTransport::with_resolver(Arc::new(resolver)).unwrap();
+        assert!(matches!(
+            transport.get(request),
+            Err(ArtifactHttpError::Network)
+        ));
     }
 
     #[test]

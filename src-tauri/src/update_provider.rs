@@ -1,13 +1,208 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
+use std::future::ready;
 use std::io::{self, Read};
+use std::net::{IpAddr, SocketAddr, ToSocketAddrs};
+use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
 
 use reqwest::blocking::{Client, Response};
+use reqwest::dns::{Addrs, Name, Resolve, Resolving};
 use reqwest::header::{CONTENT_TYPE, LOCATION};
 use reqwest::Url;
 
 use crate::update_manifest::{parse_manifest, UpdateManifest};
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum PublicAddressError {
+    Resolve,
+    Unsafe,
+    Mixed,
+}
+
+pub(crate) trait PublicAddressResolver: Send + Sync {
+    fn resolve(&self, host: &str, port: u16) -> Result<Vec<SocketAddr>, ()>;
+}
+
+pub(crate) struct SystemPublicAddressResolver;
+
+impl PublicAddressResolver for SystemPublicAddressResolver {
+    fn resolve(&self, host: &str, port: u16) -> Result<Vec<SocketAddr>, ()> {
+        let addresses = (host, port)
+            .to_socket_addrs()
+            .map_err(|_| ())?
+            .collect::<Vec<_>>();
+        if addresses.is_empty() {
+            Err(())
+        } else {
+            Ok(addresses)
+        }
+    }
+}
+
+#[derive(Clone)]
+pub(crate) struct PinnedDnsResolver {
+    addresses: Arc<RwLock<HashMap<String, Vec<SocketAddr>>>>,
+}
+
+impl PinnedDnsResolver {
+    pub(crate) fn new() -> Self {
+        Self {
+            addresses: Arc::new(RwLock::new(HashMap::new())),
+        }
+    }
+
+    pub(crate) fn pin(&self, host: &str, addresses: &[SocketAddr]) -> Result<(), ()> {
+        if addresses.is_empty() {
+            return Err(());
+        }
+        let mut pinned = self.addresses.write().map_err(|_| ())?;
+        pinned.insert(host.to_ascii_lowercase(), addresses.to_vec());
+        Ok(())
+    }
+}
+
+impl Resolve for PinnedDnsResolver {
+    fn resolve(&self, name: Name) -> Resolving {
+        let result: Result<Addrs, Box<dyn std::error::Error + Send + Sync>> =
+            match self.addresses.read() {
+                Err(_) => Err(Box::new(io::Error::new(
+                    io::ErrorKind::Other,
+                    "pinned address state unavailable",
+                ))),
+                Ok(addresses) => addresses
+                    .get(&name.as_str().to_ascii_lowercase())
+                    .cloned()
+                    .map(|addresses| Box::new(addresses.into_iter()) as Addrs)
+                    .ok_or_else(|| {
+                        Box::new(io::Error::new(
+                            io::ErrorKind::NotFound,
+                            "host address was not pinned",
+                        )) as Box<dyn std::error::Error + Send + Sync>
+                    }),
+            };
+        Box::pin(ready(result))
+    }
+}
+
+pub(crate) fn validate_public_address(
+    url: &Url,
+    resolver: &dyn PublicAddressResolver,
+) -> Result<Vec<SocketAddr>, PublicAddressError> {
+    let host = canonical_host(url).ok_or(PublicAddressError::Resolve)?;
+    let port = url
+        .port_or_known_default()
+        .ok_or(PublicAddressError::Resolve)?;
+    let addresses = if let Ok(ip) = host.parse::<IpAddr>() {
+        vec![SocketAddr::new(ip, port)]
+    } else {
+        resolver
+            .resolve(&host, port)
+            .map_err(|_| PublicAddressError::Resolve)?
+    };
+    classify_public_addresses(&addresses)?;
+    Ok(addresses)
+}
+
+pub(crate) fn validate_public_ip_literal(url: &Url) -> Result<(), PublicAddressError> {
+    let Some(host) = canonical_host(url) else {
+        return Err(PublicAddressError::Resolve);
+    };
+    if let Ok(ip) = host.parse::<IpAddr>() {
+        classify_public_addresses(&[SocketAddr::new(
+            ip,
+            url.port_or_known_default()
+                .ok_or(PublicAddressError::Resolve)?,
+        )])?;
+    }
+    Ok(())
+}
+
+pub(crate) fn canonical_host(url: &Url) -> Option<String> {
+    let host = url.host_str()?;
+    Some(
+        host.strip_prefix('[')
+            .and_then(|host| host.strip_suffix(']'))
+            .unwrap_or(host)
+            .to_string(),
+    )
+}
+
+fn classify_public_addresses(addresses: &[SocketAddr]) -> Result<(), PublicAddressError> {
+    if addresses.is_empty() {
+        return Err(PublicAddressError::Resolve);
+    }
+
+    let has_safe = addresses.iter().any(|address| is_public_ip(address.ip()));
+    let has_unsafe = addresses.iter().any(|address| !is_public_ip(address.ip()));
+    match (has_safe, has_unsafe) {
+        (true, false) => Ok(()),
+        (true, true) => Err(PublicAddressError::Mixed),
+        (false, true) => Err(PublicAddressError::Unsafe),
+        (false, false) => Err(PublicAddressError::Resolve),
+    }
+}
+
+fn is_public_ip(ip: IpAddr) -> bool {
+    match ip {
+        IpAddr::V4(ip) => is_public_ipv4(ip),
+        IpAddr::V6(ip) => is_public_ipv6(ip),
+    }
+}
+
+fn is_public_ipv4(ip: std::net::Ipv4Addr) -> bool {
+    let value = u32::from_be_bytes(ip.octets());
+    let special = ip.is_unspecified()
+        || ip.is_loopback()
+        || ip.is_multicast()
+        || ipv4_prefix(value, 0, 8)
+        || ipv4_prefix(value, 0x0a00_0000, 8)
+        || ipv4_prefix(value, 0x6440_0000, 10)
+        || ipv4_prefix(value, 0x7f00_0000, 8)
+        || ipv4_prefix(value, 0xa9fe_0000, 16)
+        || ipv4_prefix(value, 0xac10_0000, 12)
+        || ipv4_prefix(value, 0xc000_0000, 24)
+        || ipv4_prefix(value, 0xc000_0200, 24)
+        || ipv4_prefix(value, 0xc058_6300, 24)
+        || ipv4_prefix(value, 0xc0a8_0000, 16)
+        || ipv4_prefix(value, 0xc612_0000, 15)
+        || ipv4_prefix(value, 0xc633_6400, 24)
+        || ipv4_prefix(value, 0xcb00_7100, 24)
+        || ipv4_prefix(value, 0xe000_0000, 4)
+        || ipv4_prefix(value, 0xf000_0000, 4);
+    !special
+}
+
+fn ipv4_prefix(value: u32, network: u32, prefix_length: u32) -> bool {
+    let mask = u32::MAX << (32 - prefix_length);
+    value & mask == network & mask
+}
+
+fn is_public_ipv6(ip: std::net::Ipv6Addr) -> bool {
+    let value = u128::from_be_bytes(ip.octets());
+    let special = ip.is_unspecified()
+        || ip.is_loopback()
+        || ip.is_multicast()
+        || ipv6_prefix(value, 0, 96)
+        || ipv6_prefix(value, 0x0000_0000_0000_0000_0000_ffff_0000_0000, 96)
+        || ipv6_prefix(value, 0x0100_0000_0000_0000_0000_0000_0000_0000, 64)
+        || ipv6_prefix(value, 0x2001_0000_0000_0000_0000_0000_0000_0000, 32)
+        || ipv6_prefix(value, 0x2001_0002_0000_0000_0000_0000_0000_0000, 48)
+        || ipv6_prefix(value, 0x2001_0003_0000_0000_0000_0000_0000_0000, 32)
+        || ipv6_prefix(value, 0x2001_0010_0000_0000_0000_0000_0000_0000, 28)
+        || ipv6_prefix(value, 0x2001_0020_0000_0000_0000_0000_0000_0000, 28)
+        || ipv6_prefix(value, 0x2001_0db8_0000_0000_0000_0000_0000_0000, 32)
+        || ipv6_prefix(value, 0x2002_0000_0000_0000_0000_0000_0000_0000, 16)
+        || ipv6_prefix(value, 0x3fff_0000_0000_0000_0000_0000_0000_0000, 20)
+        || ipv6_prefix(value, 0xfc00_0000_0000_0000_0000_0000_0000_0000, 7)
+        || ipv6_prefix(value, 0xfec0_0000_0000_0000_0000_0000_0000_0000, 10)
+        || ipv6_prefix(value, 0xfe80_0000_0000_0000_0000_0000_0000_0000, 10);
+    !special
+}
+
+fn ipv6_prefix(value: u128, network: u128, prefix_length: u32) -> bool {
+    value >> (128 - prefix_length) == network >> (128 - prefix_length)
+}
 
 pub(crate) const GITHUB_RELEASES_MANIFEST_URL: &str =
     "https://github.com/ka-akehi/Cornell-Method/releases/latest/download/cornell-method-notebook-update-manifest.json";
@@ -121,24 +316,51 @@ pub(crate) struct ManifestHttpResponse {
 
 pub(crate) trait ManifestHttpTransport {
     fn get(&self, request: ManifestHttpRequest) -> Result<ManifestHttpResponse, ManifestHttpError>;
+
+    fn validate_url(&self, url: &Url) -> Result<(), ManifestHttpError> {
+        validate_public_ip_literal(url).map_err(|_| ManifestHttpError::Network)
+    }
 }
 
 pub(crate) struct ReqwestManifestHttpTransport {
     client: Client,
+    resolver: Arc<dyn PublicAddressResolver>,
+    pinned_resolver: PinnedDnsResolver,
 }
 
 impl ReqwestManifestHttpTransport {
     pub(crate) fn new() -> Result<Self, ManifestProviderError> {
+        Self::with_resolver(Arc::new(SystemPublicAddressResolver))
+    }
+
+    fn with_resolver(
+        resolver: Arc<dyn PublicAddressResolver>,
+    ) -> Result<Self, ManifestProviderError> {
+        let pinned_resolver = PinnedDnsResolver::new();
         let client = Client::builder()
             .redirect(reqwest::redirect::Policy::none())
             .timeout(MANIFEST_FETCH_TIMEOUT)
+            .dns_resolver(Arc::new(pinned_resolver.clone()))
             .build()
             .map_err(|_| ManifestProviderError::Internal)?;
-        Ok(Self { client })
+        Ok(Self {
+            client,
+            resolver,
+            pinned_resolver,
+        })
     }
 }
 
 impl ManifestHttpTransport for ReqwestManifestHttpTransport {
+    fn validate_url(&self, url: &Url) -> Result<(), ManifestHttpError> {
+        let addresses = validate_public_address(url, self.resolver.as_ref())
+            .map_err(|_| ManifestHttpError::Network)?;
+        let host = canonical_host(url).ok_or(ManifestHttpError::Network)?;
+        self.pinned_resolver
+            .pin(&host, &addresses)
+            .map_err(|_| ManifestHttpError::Network)
+    }
+
     fn get(&self, request: ManifestHttpRequest) -> Result<ManifestHttpResponse, ManifestHttpError> {
         if !is_fixed_request(&request) {
             return Err(ManifestHttpError::Internal);
@@ -151,6 +373,7 @@ impl ManifestHttpTransport for ReqwestManifestHttpTransport {
         {
             return Err(ManifestHttpError::Internal);
         }
+        self.validate_url(&current_url)?;
 
         let deadline = Instant::now()
             .checked_add(request.timeout)
@@ -184,6 +407,7 @@ impl ManifestHttpTransport for ReqwestManifestHttpTransport {
                     .ok_or(ManifestHttpError::Redirect)?;
                 let next_url = resolve_redirect(&current_url, location)
                     .map_err(|_| ManifestHttpError::Redirect)?;
+                self.validate_url(&next_url)?;
                 if !visited.insert(next_url.to_string()) {
                     return Err(ManifestHttpError::Redirect);
                 }
@@ -238,7 +462,7 @@ pub(crate) fn fetch_manifest<T: ManifestHttpTransport + ?Sized>(
         .get(request.clone())
         .map_err(ManifestProviderError::from)?;
 
-    validate_redirect_trace(&request, &response)?;
+    validate_redirect_trace(transport, &request, &response)?;
     if response.status != 200 {
         return Err(ManifestProviderError::HttpStatus);
     }
@@ -298,7 +522,8 @@ fn resolve_redirect(current_url: &Url, location: &str) -> Result<Url, ()> {
     Ok(next_url)
 }
 
-fn validate_redirect_trace(
+fn validate_redirect_trace<T: ManifestHttpTransport + ?Sized>(
+    transport: &T,
     request: &ManifestHttpRequest,
     response: &ManifestHttpResponse,
 ) -> Result<(), ManifestProviderError> {
@@ -309,6 +534,9 @@ fn validate_redirect_trace(
     {
         return Err(ManifestProviderError::Internal);
     }
+    transport
+        .validate_url(&current_url)
+        .map_err(ManifestProviderError::from)?;
 
     if response.redirects.len() > request.max_redirects {
         return Err(ManifestProviderError::Redirect);
@@ -325,6 +553,9 @@ fn validate_redirect_trace(
             .ok_or(ManifestProviderError::Redirect)?;
         let next_url = resolve_redirect(&current_url, location)
             .map_err(|_| ManifestProviderError::Redirect)?;
+        transport
+            .validate_url(&next_url)
+            .map_err(ManifestProviderError::from)?;
         if !visited.insert(next_url.to_string()) {
             return Err(ManifestProviderError::Redirect);
         }
@@ -335,6 +566,9 @@ fn validate_redirect_trace(
     if !is_safe_https_url(&final_url) || final_url != current_url {
         return Err(ManifestProviderError::Redirect);
     }
+    transport
+        .validate_url(&final_url)
+        .map_err(ManifestProviderError::from)?;
     Ok(())
 }
 
@@ -401,7 +635,10 @@ fn map_io_error(error: io::Error, deadline: Instant) -> ManifestHttpError {
 mod tests {
     use super::*;
     use std::cell::RefCell;
+    use std::collections::HashMap;
     use std::io::Cursor;
+    use std::net::SocketAddr;
+    use std::sync::Arc;
 
     const VALID_MANIFEST: &[u8] = br#"{
       "productId":"com.cornellmethod.notebook",
@@ -490,6 +727,58 @@ mod tests {
         }
     }
 
+    #[derive(Default)]
+    struct FakeAddressResolver {
+        results: HashMap<String, Result<Vec<SocketAddr>, ()>>,
+    }
+
+    impl FakeAddressResolver {
+        fn addresses(mut self, host: &str, addresses: &[&str]) -> Self {
+            self.results.insert(
+                host.to_ascii_lowercase(),
+                Ok(addresses
+                    .iter()
+                    .map(|address| address.parse().unwrap())
+                    .collect()),
+            );
+            self
+        }
+
+        fn failure(mut self, host: &str) -> Self {
+            self.results.insert(host.to_ascii_lowercase(), Err(()));
+            self
+        }
+    }
+
+    impl PublicAddressResolver for FakeAddressResolver {
+        fn resolve(&self, host: &str, _port: u16) -> Result<Vec<SocketAddr>, ()> {
+            self.results
+                .get(&host.to_ascii_lowercase())
+                .cloned()
+                .unwrap_or(Err(()))
+        }
+    }
+
+    struct ResolverTransport {
+        response: ManifestHttpResponse,
+        resolver: FakeAddressResolver,
+    }
+
+    impl ManifestHttpTransport for ResolverTransport {
+        fn get(
+            &self,
+            _request: ManifestHttpRequest,
+        ) -> Result<ManifestHttpResponse, ManifestHttpError> {
+            Ok(self.response.clone())
+        }
+
+        fn validate_url(&self, url: &Url) -> Result<(), ManifestHttpError> {
+            validate_public_address(url, &self.resolver)
+                .map(|_| ())
+                .map_err(|_| ManifestHttpError::Network)
+        }
+    }
+
     fn assert_provider_error<T>(result: Result<T, ManifestProviderError>, code: &str) {
         let error = match result {
             Ok(_) => panic!("expected provider failure"),
@@ -497,6 +786,108 @@ mod tests {
         };
         assert_eq!(error.code(), code);
         assert_eq!(error.to_string(), code);
+    }
+
+    #[test]
+    fn rejects_loopback_private_link_local_multicast_and_reserved_ip_literals() {
+        for url in [
+            "https://127.0.0.1/manifest",
+            "https://10.0.0.1/manifest",
+            "https://172.16.0.1/manifest",
+            "https://192.168.1.1/manifest",
+            "https://169.254.1.1/manifest",
+            "https://0.0.0.0/manifest",
+            "https://224.0.0.1/manifest",
+            "https://192.0.2.1/manifest",
+            "https://[::1]/manifest",
+            "https://[::]/manifest",
+            "https://[fc00::1]/manifest",
+            "https://[fe80::1]/manifest",
+            "https://[ff02::1]/manifest",
+            "https://[2001:db8::1]/manifest",
+            "https://[::ffff:192.168.1.1]/manifest",
+        ] {
+            let url = Url::parse(url).unwrap();
+            assert_eq!(
+                validate_public_address(&url, &FakeAddressResolver::default()),
+                Err(PublicAddressError::Unsafe),
+                "address should be rejected: {url}"
+            );
+        }
+    }
+
+    #[test]
+    fn classifies_dns_failure_private_resolution_and_mixed_candidates_without_details() {
+        let private_url = Url::parse("https://private.example.test/manifest").unwrap();
+        let mixed_url = Url::parse("https://mixed.example.test/manifest").unwrap();
+        let resolver = FakeAddressResolver::default()
+            .addresses("private.example.test", &["10.0.0.1:443"])
+            .addresses(
+                "mixed.example.test",
+                &["93.184.216.34:443", "192.168.1.1:443"],
+            );
+
+        assert_eq!(
+            validate_public_address(&private_url, &resolver),
+            Err(PublicAddressError::Unsafe)
+        );
+        assert_eq!(
+            validate_public_address(&mixed_url, &resolver),
+            Err(PublicAddressError::Mixed)
+        );
+        assert_eq!(
+            validate_public_address(
+                &Url::parse("https://missing.example.test/manifest").unwrap(),
+                &resolver.failure("missing.example.test")
+            ),
+            Err(PublicAddressError::Resolve)
+        );
+    }
+
+    #[test]
+    fn accepts_public_https_ipv4_and_ipv6_candidates() {
+        let resolver = FakeAddressResolver::default().addresses(
+            "public.example.test",
+            &["93.184.216.34:443", "[2001:4860:4860::8888]:443"],
+        );
+        let url = Url::parse("https://public.example.test/manifest").unwrap();
+        assert!(validate_public_address(&url, &resolver).is_ok());
+    }
+
+    #[test]
+    fn reqwest_provider_rejects_dns_failure_before_request() {
+        let resolver = FakeAddressResolver::default().failure("github.com");
+        let transport = ReqwestManifestHttpTransport::with_resolver(Arc::new(resolver)).unwrap();
+        assert_eq!(
+            transport.get(ManifestHttpRequest::fixed()),
+            Err(ManifestHttpError::Network)
+        );
+    }
+
+    #[test]
+    fn rejects_private_and_mixed_redirect_hops_before_manifest_acceptance() {
+        for (host, addresses, expected_code) in [
+            (
+                "private.example.test",
+                vec!["10.0.0.1:443"],
+                "provider-network",
+            ),
+            (
+                "mixed.example.test",
+                vec!["93.184.216.34:443", "192.168.1.1:443"],
+                "provider-network",
+            ),
+        ] {
+            let final_url = format!("https://{host}/manifest");
+            let response = response_with_redirects(vec![(302, Some(&final_url))], &final_url);
+            let resolver = FakeAddressResolver::default()
+                .addresses("github.com", &["93.184.216.34:443"])
+                .addresses(host, &addresses);
+            assert_provider_error(
+                fetch_manifest(&ResolverTransport { response, resolver }),
+                expected_code,
+            );
+        }
     }
 
     #[test]

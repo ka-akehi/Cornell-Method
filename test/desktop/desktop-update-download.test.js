@@ -21,6 +21,11 @@ test("desktop update download keeps raw package verification before archive hand
   const main = fs.readFileSync(mainPath, "utf8");
 
   assert.match(source, /trait ArtifactHttpTransport/);
+  assert.match(source, /PublicAddressResolver/);
+  assert.match(source, /validate_public_address/);
+  assert.match(source, /validate_public_ip_literal/);
+  assert.match(source, /dns_resolver/);
+  assert.match(source, /PinnedDnsResolver/);
   assert.match(source, /struct ReqwestArtifactHttpTransport/);
   assert.match(source, /PACKAGE_CONNECTION_TIMEOUT: Duration = Duration::from_secs\(15\)/);
   assert.match(source, /PACKAGE_READ_IDLE_TIMEOUT: Duration = Duration::from_secs\(30\)/);
@@ -56,6 +61,16 @@ test("desktop update download keeps raw package verification before archive hand
   assert.match(source, /staging-rename/);
   assert.doesNotMatch(source, /flate2|tar::|tar_rs|Info\.plist|Mach-O|MachO|extract_archive/i);
   assert.match(main, /^mod update_download;$/m);
+});
+
+test("desktop update download validates the initial URL and every redirect hop", () => {
+  const source = fs.readFileSync(sourcePath, "utf8");
+
+  assert.match(source, /artifact_transport\s*\.validate_url\(&initial_url\)/);
+  assert.match(source, /self\.validate_url\(&current_url\)/);
+  assert.match(source, /self\.validate_url\(&next_url\)/);
+  assert.match(source, /validate_redirect_trace\(transport, request, response\)/);
+  assert.match(source, /validate_url\(&final_url\)/);
 });
 
 test("download returns only relative SHA-256 package paths and does not use locator metadata", () => {
