@@ -34,6 +34,8 @@ const INSTANCE_SOCKET_HASH_HEX_LENGTH: usize = 24;
 const INSTANCE_SCHEMA_VERSION: u32 = 1;
 const FOCUS_RETRY_COUNT: usize = 20;
 const FOCUS_RETRY_DELAY: Duration = Duration::from_millis(100);
+const FOCUS_REQUEST_READ_TIMEOUT: Duration = Duration::from_millis(250);
+const MAX_FOCUS_REQUEST_BYTES: usize = 1024;
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -114,6 +116,13 @@ enum FocusSocketStatus {
     Unknown,
     PermissionDenied,
     Unavailable,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum FocusRequestError {
+    RequestTooLarge,
+    InvalidUtf8,
+    IncompleteRead,
 }
 
 fn configured_home_directory() -> AppResult<PathBuf> {
@@ -326,6 +335,32 @@ fn stable_lock_file_must_be_empty(lock_file: &mut File) -> AppResult<()> {
     Err("existing single-instance lock uses a legacy marker format; close the previous desktop instance before retrying".to_string())
 }
 
+fn read_focus_request(stream: &mut UnixStream) -> Result<String, FocusRequestError> {
+    stream
+        .set_read_timeout(Some(FOCUS_REQUEST_READ_TIMEOUT))
+        .map_err(|_| FocusRequestError::IncompleteRead)?;
+
+    let mut request = Vec::with_capacity(MAX_FOCUS_REQUEST_BYTES);
+    let mut buffer = [0_u8; 256];
+    loop {
+        let remaining = MAX_FOCUS_REQUEST_BYTES.saturating_sub(request.len());
+        let read_size = remaining.min(buffer.len()).max(1);
+        match stream.read(&mut buffer[..read_size]) {
+            Ok(0) => break,
+            Ok(read) => {
+                request.extend_from_slice(&buffer[..read]);
+                if request.len() > MAX_FOCUS_REQUEST_BYTES {
+                    return Err(FocusRequestError::RequestTooLarge);
+                }
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(_) => return Err(FocusRequestError::IncompleteRead),
+        }
+    }
+
+    String::from_utf8(request).map_err(|_| FocusRequestError::InvalidUtf8)
+}
+
 fn focus_response(mut stream: UnixStream, timeout: Duration) -> FocusAttempt {
     let _ = stream.set_read_timeout(Some(timeout));
     let _ = stream.set_write_timeout(Some(timeout));
@@ -481,27 +516,35 @@ pub(crate) fn acquire_instance() -> AppResult<InstanceAcquire> {
     )
 }
 
+fn handle_focus_connection<F>(mut stream: UnixStream, focus: F)
+where
+    F: FnOnce() -> bool,
+{
+    let focused = match read_focus_request(&mut stream) {
+        Ok(request) if request.trim() == "focus" => focus(),
+        Ok(_) | Err(_) => false,
+    };
+    let _ = stream.write_all(if focused {
+        b"focused\n"
+    } else {
+        b"not-ready\n"
+    });
+}
+
 pub(crate) fn start_focus_listener(socket_path: PathBuf, app: AppHandle) -> AppResult<()> {
     let listener = bind_focus_listener(&socket_path)?;
     thread::spawn(move || {
         for connection in listener.incoming() {
-            let Ok(mut stream) = connection else {
+            let Ok(stream) = connection else {
                 continue;
             };
-            let mut request = String::new();
-            let focused = stream.read_to_string(&mut request).is_ok()
-                && request.trim() == "focus"
-                && app
-                    .get_webview_window(PRIMARY_WINDOW_LABEL)
+            handle_focus_connection(stream, || {
+                app.get_webview_window(PRIMARY_WINDOW_LABEL)
                     .is_some_and(|window| {
                         let _ = window.unminimize();
                         let _ = window.show();
                         window.set_focus().is_ok()
-                    });
-            let _ = stream.write_all(if focused {
-                b"focused\n"
-            } else {
-                b"not-ready\n"
+                    })
             });
         }
     });
@@ -512,7 +555,7 @@ pub(crate) fn start_focus_listener(socket_path: PathBuf, app: AppHandle) -> AppR
 mod tests {
     use super::*;
     use std::sync::{Arc, Barrier};
-    use std::time::{SystemTime, UNIX_EPOCH};
+    use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
     fn test_directory(_label: &str) -> PathBuf {
         let suffix = INSTANCE_OWNER_TEMP_COUNTER.fetch_add(1, Ordering::Relaxed);
@@ -645,6 +688,76 @@ mod tests {
         assert!(request_focus(&socket_path));
         thread.join().unwrap();
         fs::remove_file(socket_path).unwrap();
+    }
+
+    #[test]
+    fn malformed_focus_requests_use_fixed_errors() {
+        let (mut client, mut server) = UnixStream::pair().unwrap();
+        client
+            .write_all(&vec![b'x'; MAX_FOCUS_REQUEST_BYTES + 1])
+            .unwrap();
+        client.shutdown(Shutdown::Write).unwrap();
+        assert_eq!(
+            read_focus_request(&mut server),
+            Err(FocusRequestError::RequestTooLarge)
+        );
+
+        let (mut client, mut server) = UnixStream::pair().unwrap();
+        client.write_all(&[0xff]).unwrap();
+        client.shutdown(Shutdown::Write).unwrap();
+        assert_eq!(
+            read_focus_request(&mut server),
+            Err(FocusRequestError::InvalidUtf8)
+        );
+    }
+
+    #[test]
+    fn focus_request_without_eof_is_rejected_after_the_read_timeout() {
+        let (_client, mut server) = UnixStream::pair().unwrap();
+        let started = Instant::now();
+        assert_eq!(
+            read_focus_request(&mut server),
+            Err(FocusRequestError::IncompleteRead)
+        );
+        assert!(started.elapsed() < Duration::from_secs(2));
+    }
+
+    #[test]
+    fn hanging_focus_client_does_not_block_the_next_focus_request() {
+        let (directory, paths) = test_instance_paths("bounded-focus-request");
+        let Some(listener) = bind_test_socket(&paths.socket_path) else {
+            fs::remove_dir_all(directory).unwrap();
+            return;
+        };
+        let socket_path = paths.socket_path.clone();
+        let listener_thread = thread::spawn(move || {
+            for _ in 0..2 {
+                let (stream, _) = listener.accept().unwrap();
+                handle_focus_connection(stream, || true);
+            }
+        });
+
+        let mut hanging_client = UnixStream::connect(&socket_path).unwrap();
+        hanging_client
+            .set_read_timeout(Some(FOCUS_REQUEST_READ_TIMEOUT + Duration::from_secs(1)))
+            .unwrap();
+        let started = Instant::now();
+        let mut response = String::new();
+        hanging_client.read_to_string(&mut response).unwrap();
+        assert_eq!(response, "not-ready\n");
+        assert!(started.elapsed() < Duration::from_secs(2));
+        drop(hanging_client);
+
+        let mut normal_client = UnixStream::connect(&socket_path).unwrap();
+        normal_client.write_all(b"focus\n").unwrap();
+        normal_client.shutdown(Shutdown::Write).unwrap();
+        let mut response = String::new();
+        normal_client.read_to_string(&mut response).unwrap();
+        assert_eq!(response, "focused\n");
+
+        listener_thread.join().unwrap();
+        fs::remove_file(socket_path).unwrap();
+        fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]
