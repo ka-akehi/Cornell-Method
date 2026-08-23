@@ -266,3 +266,31 @@ test("save failure cancels the pending close before restoring focus", () => {
   );
   assert.doesNotMatch(discardFlow, /restoreDesktopCloseFocus\(\)/);
 });
+
+test("application-level exit requests are prevented and share one close bridge", () => {
+  const main = fs.readFileSync(
+    path.join(projectRoot, "src-tauri", "src", "main.rs"),
+    "utf8",
+  );
+  const lifecycle = fs.readFileSync(
+    path.join(projectRoot, "src-tauri", "src", "lifecycle.rs"),
+    "utf8",
+  );
+
+  assert.match(main, /tauri::RunEvent::ExitRequested\s*\{\s*api, \.\.,?\s*\}/);
+  assert.match(main, /api\.prevent_exit\(\)/);
+  assert.match(
+    main,
+    /WindowEvent::CloseRequested[\s\S]*api\.prevent_close\(\)[\s\S]*request_close\(/,
+  );
+  assert.match(
+    main,
+    /request_close\(window, app\.clone\(\), state\);/,
+  );
+  assert.match(main, /\.build\(tauri::generate_context!\(\)\)[\s\S]*\.run\(/);
+  assert.match(lifecycle, /exit_allowed: AtomicBool/);
+  assert.match(lifecycle, /if pending\.is_some\(\) \{[\s\S]*a close request is already pending/);
+  assert.match(lifecycle, /state\.allow_application_exit\(\);[\s\S]*app\.exit\(0\)/);
+  assert.match(lifecycle, /if self\.exit_allowed\.load\(Ordering::Acquire\)/);
+  assert.match(main, /if state\.application_exit_is_allowed\(\) \{\s*return;/);
+});

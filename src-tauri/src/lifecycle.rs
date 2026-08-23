@@ -3,6 +3,7 @@ use super::window_state::capture_window_state;
 use super::{manual_update_check_worker, AppResult, PRIMARY_WINDOW_LABEL};
 use crate::update_check::{ManualUpdateCheckCommandError, ManualUpdateCheckResponse};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
 use std::time::Duration;
@@ -40,12 +41,14 @@ impl CloseDecision {
 
 pub(crate) struct CloseCoordinator {
     pending: Mutex<Option<mpsc::Sender<CloseDecision>>>,
+    exit_allowed: AtomicBool,
 }
 
 impl CloseCoordinator {
     fn new() -> Self {
         Self {
             pending: Mutex::new(None),
+            exit_allowed: AtomicBool::new(false),
         }
     }
 
@@ -55,6 +58,9 @@ impl CloseCoordinator {
             .pending
             .lock()
             .map_err(|_| "close coordinator lock is poisoned".to_string())?;
+        if self.exit_allowed.load(Ordering::Acquire) {
+            return Err("application exit is already authorized".to_string());
+        }
         if pending.is_some() {
             return Err("a close request is already pending".to_string());
         }
@@ -81,6 +87,14 @@ impl CloseCoordinator {
             *pending = None;
         }
     }
+
+    fn allow_exit(&self) {
+        self.exit_allowed.store(true, Ordering::Release);
+    }
+
+    fn exit_is_allowed(&self) -> bool {
+        self.exit_allowed.load(Ordering::Acquire)
+    }
 }
 
 pub(crate) struct AppState {
@@ -100,6 +114,14 @@ impl AppState {
 
     pub(crate) fn close_coordinator(&self) -> Arc<CloseCoordinator> {
         self.close.clone()
+    }
+
+    pub(crate) fn allow_application_exit(&self) {
+        self.close.allow_exit();
+    }
+
+    pub(crate) fn application_exit_is_allowed(&self) -> bool {
+        self.close.exit_is_allowed()
     }
 
     pub(crate) fn window_state_path(&self) -> &Path {
@@ -126,6 +148,7 @@ fn finalize_close(window: WebviewWindow, app: AppHandle, state: Arc<AppState>) {
         }
     }
     *sidecar = None;
+    state.allow_application_exit();
     let _ = window.destroy();
     app.exit(0);
 }
@@ -295,6 +318,16 @@ mod tests {
         close.resolve(CloseDecision::Save).unwrap();
         assert_eq!(receiver.recv().unwrap(), CloseDecision::Save);
         assert!(close.resolve(CloseDecision::Cancel).is_err());
+    }
+
+    #[test]
+    fn approved_application_exit_remains_allowed_without_reopening_close_bridge() {
+        let close = CloseCoordinator::new();
+
+        assert!(!close.exit_is_allowed());
+        close.allow_exit();
+        assert!(close.exit_is_allowed());
+        assert!(close.begin().is_err());
     }
 
     #[test]

@@ -143,6 +143,25 @@ fn verify_pending_update_command_worker(
     .map_err(Into::into)
 }
 
+fn handle_exit_requested(app: &tauri::AppHandle, api: tauri::ExitRequestApi) {
+    let Some(state) = app.try_state::<Arc<AppState>>() else {
+        api.prevent_exit();
+        eprintln!("desktop exit request arrived before lifecycle state was ready");
+        return;
+    };
+    let state = state.inner().clone();
+    if state.application_exit_is_allowed() {
+        return;
+    }
+
+    api.prevent_exit();
+    let Some(window) = app.get_webview_window(PRIMARY_WINDOW_LABEL) else {
+        eprintln!("desktop exit request arrived without the primary window");
+        return;
+    };
+    request_close(window, app.clone(), state);
+}
+
 fn run_application(instance: InstanceGuard) -> AppResult<()> {
     tauri::Builder::default()
         .menu(build_desktop_menu)
@@ -219,8 +238,14 @@ fn run_application(instance: InstanceGuard) -> AppResult<()> {
             start_startup_update_check(app.handle().clone());
             Ok(())
         })
-        .run(tauri::generate_context!())
-        .map_err(|error| error.to_string())
+        .build(tauri::generate_context!())
+        .map_err(|error| error.to_string())?
+        .run(|app, event| {
+            if let tauri::RunEvent::ExitRequested { api, .. } = event {
+                handle_exit_requested(app, api);
+            }
+        });
+    Ok(())
 }
 
 fn main() {
