@@ -275,6 +275,35 @@ test("initializes the live SQLite database from the current migrations", () => {
   });
 });
 
+test("runs the initial migration through the explicit Node executable without Node on PATH", () => {
+  withTempHome((homeDirectory) => {
+    const pathWithoutNode = path.join(homeDirectory, "empty-path");
+    fs.mkdirSync(pathWithoutNode);
+
+    const result = bootstrapDesktopStorage({
+      homeDirectory,
+      sqliteBinary,
+      nodeExecutable: process.execPath,
+      prismaBinary: path.join(
+        projectRoot,
+        "node_modules",
+        ".bin",
+        process.platform === "win32" ? "prisma.cmd" : "prisma",
+      ),
+      prismaConfigPath: path.join(projectRoot, "prisma.config.ts"),
+      prismaProjectRoot: projectRoot,
+      environment: {
+        ...process.env,
+        PATH: pathWithoutNode,
+      },
+    });
+
+    assert.equal(result.status, DESKTOP_DATABASE_STATUS.READY);
+    assert.equal(result.created, true);
+    assert.equal(result.migrationState, DESKTOP_MIGRATION_STATE.COMPLETE);
+  });
+});
+
 test("retries initial migration after a claimed empty database migration fails", () => {
   withTempHome((homeDirectory) => {
     const paths = resolveDesktopStoragePaths({ homeDirectory });

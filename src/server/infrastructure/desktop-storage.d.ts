@@ -96,6 +96,7 @@ export function bootstrapDesktopStorage(options?: {
   storagePaths?: DesktopStoragePaths;
   migrationsDirectory?: string;
   sqliteBinary?: string;
+  nodeExecutable?: string;
   prismaBinary?: string;
   prismaConfigPath?: string;
   prismaProjectRoot?: string;

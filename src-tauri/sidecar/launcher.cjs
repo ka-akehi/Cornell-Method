@@ -36,10 +36,12 @@ function absoluteDatabaseUrl(value) {
 function storageOptions(root) {
   const storage = require(path.join(root, "src/server/infrastructure/desktop-storage.js"));
   const homeDirectory = process.env.CORNELL_DESKTOP_HOME?.trim() || os.homedir();
+  const nodeExecutable = process.execPath;
   const prismaBinary = path.join(root, "node_modules", ".bin", process.platform === "win32" ? "prisma.cmd" : "prisma");
   return {
     storage,
     homeDirectory,
+    nodeExecutable,
     migrationsDirectory: path.join(root, "prisma", "migrations"),
     prismaBinary,
     prismaConfigPath: path.join(root, "prisma.config.ts"),
@@ -52,6 +54,7 @@ function bootstrap() {
   const options = storageOptions(root);
   const result = options.storage.bootstrapDesktopStorage({
     homeDirectory: options.homeDirectory,
+    nodeExecutable: options.nodeExecutable,
     migrationsDirectory: options.migrationsDirectory,
     prismaBinary: options.prismaBinary,
     prismaConfigPath: options.prismaConfigPath,

@@ -67,6 +67,7 @@ const DEFAULT_PRISMA_BINARY = path.join(
   ".bin",
   process.platform === "win32" ? "prisma.cmd" : "prisma",
 );
+const DEFAULT_NODE_EXECUTABLE = process.execPath;
 
 class DesktopStorageError extends Error {
   constructor(message, options = {}) {
@@ -877,6 +878,7 @@ function claimNewDatabaseFile(databasePath) {
 function applyInitialMigrations({
   databasePath,
   claimedFile,
+  nodeExecutable = DEFAULT_NODE_EXECUTABLE,
   prismaBinary = DEFAULT_PRISMA_BINARY,
   prismaConfigPath = DEFAULT_PRISMA_CONFIG_PATH,
   prismaProjectRoot = DEFAULT_PROJECT_ROOT,
@@ -899,6 +901,10 @@ function applyInitialMigrations({
     prismaConfigPath,
     "Prisma config path",
   );
+  const absoluteNodeExecutable = assertAbsolutePath(
+    nodeExecutable,
+    "Node executable",
+  );
   const absoluteProjectRoot = assertAbsolutePath(
     prismaProjectRoot,
     "Prisma project root",
@@ -909,8 +915,8 @@ function applyInitialMigrations({
     PRISMA_PROVIDER: "sqlite",
   };
   const result = spawnSync(
-    prismaBinary,
-    ["migrate", "deploy", "--config", absoluteConfigPath],
+    absoluteNodeExecutable,
+    [prismaBinary, "migrate", "deploy", "--config", absoluteConfigPath],
     {
       cwd: absoluteProjectRoot,
       env: commandEnvironment,
@@ -952,6 +958,7 @@ function bootstrapDesktopStorage({
   storagePaths,
   migrationsDirectory = DEFAULT_MIGRATIONS_DIRECTORY,
   sqliteBinary,
+  nodeExecutable = DEFAULT_NODE_EXECUTABLE,
   prismaBinary = DEFAULT_PRISMA_BINARY,
   prismaConfigPath = DEFAULT_PRISMA_CONFIG_PATH,
   prismaProjectRoot = DEFAULT_PROJECT_ROOT,
@@ -996,6 +1003,7 @@ function bootstrapDesktopStorage({
     applyInitialMigrations({
       databasePath: paths.databasePath,
       claimedFile: claim,
+      nodeExecutable,
       prismaBinary,
       prismaConfigPath,
       prismaProjectRoot,
