@@ -53,16 +53,67 @@ function databaseUrlToPath(databaseUrl, projectRoot) {
     : path.resolve(projectRoot, sqlitePath);
 }
 
-function backupDir(projectRoot) {
-  return path.join(projectRoot, BACKUP_DIR_NAME);
-}
-
 function relativeBackupPath(file) {
   return path.join(BACKUP_DIR_NAME, file);
 }
 
 function hasErrorCode(error, code) {
   return error && typeof error === "object" && error.code === code;
+}
+
+function validateBackupDirectory(directoryPath) {
+  if (typeof directoryPath !== "string" || directoryPath.trim() === "") {
+    throw new BackupError("backup directory が空です");
+  }
+
+  if (!path.isAbsolute(directoryPath)) {
+    throw new BackupError("backup directory は絶対パスで指定してください");
+  }
+
+  const absolutePath = path.normalize(directoryPath);
+  let stats;
+
+  try {
+    stats = fs.lstatSync(absolutePath);
+  } catch (error) {
+    if (hasErrorCode(error, "ENOENT")) {
+      return absolutePath;
+    }
+
+    if (hasErrorCode(error, "ENOTDIR")) {
+      throw new BackupError(
+        `backup directory の親 path はディレクトリである必要があります: ${directoryPath}`,
+      );
+    }
+
+    throw error;
+  }
+
+  if (stats.isSymbolicLink()) {
+    throw new BackupError(
+      `backup directory に symlink は指定できません: ${directoryPath}`,
+    );
+  }
+
+  if (!stats.isDirectory()) {
+    throw new BackupError(
+      `backup directory はディレクトリである必要があります: ${directoryPath}`,
+    );
+  }
+
+  return absolutePath;
+}
+
+function resolveBackupDirectory(options = {}) {
+  const candidate =
+    options.backupsDirectory !== undefined
+      ? options.backupsDirectory
+      : path.join(
+          path.resolve(options.projectRoot || process.cwd()),
+          BACKUP_DIR_NAME,
+        );
+
+  return validateBackupDirectory(candidate);
 }
 
 function parseBackupFileName(file) {
@@ -132,8 +183,8 @@ function assertSourceOutsideBackupDirectory(dbPath, dir) {
   }
 }
 
-function backupEntry(projectRoot, file) {
-  const fullPath = path.join(backupDir(projectRoot), file);
+function backupEntry(dir, file) {
+  const fullPath = path.join(dir, file);
   let stats;
 
   try {
@@ -177,16 +228,31 @@ function backupEntry(projectRoot, file) {
   };
 }
 
-function allBackupEntries(projectRoot) {
-  const dir = backupDir(projectRoot);
-  if (!fs.existsSync(dir)) {
-    return [];
+function allBackupEntries(dir) {
+  let dirStats;
+
+  try {
+    dirStats = fs.lstatSync(dir);
+  } catch (error) {
+    if (hasErrorCode(error, "ENOENT")) {
+      return [];
+    }
+
+    throw error;
+  }
+
+  if (dirStats.isSymbolicLink()) {
+    throw new BackupError(`backup directory に symlink は指定できません: ${dir}`);
+  }
+
+  if (!dirStats.isDirectory()) {
+    throw new BackupError(`backup directory はディレクトリである必要があります: ${dir}`);
   }
 
   return fs
     .readdirSync(dir)
     .filter((file) => file.endsWith(".db"))
-    .map((file) => backupEntry(projectRoot, file))
+    .map((file) => backupEntry(dir, file))
     .filter(Boolean)
     .sort(
       (a, b) =>
@@ -211,21 +277,21 @@ function resolveDatabasePath(options = {}) {
 }
 
 function listBackups(options = {}) {
-  const projectRoot = options.projectRoot || process.cwd();
+  const dir = resolveBackupDirectory(options);
 
-  return allBackupEntries(projectRoot)
+  return allBackupEntries(dir)
     .slice(0, MAX_BACKUPS)
     .map(toPublicBackupEntry);
 }
 
 function pruneBackups(options = {}) {
-  const projectRoot = options.projectRoot || process.cwd();
-  const entries = allBackupEntries(projectRoot);
+  const dir = resolveBackupDirectory(options);
+  const entries = allBackupEntries(dir);
   const staleEntries = entries.slice(MAX_BACKUPS);
 
   staleEntries.forEach((entry) => {
     try {
-      fs.unlinkSync(path.join(backupDir(projectRoot), entry.file));
+      fs.unlinkSync(path.join(dir, entry.file));
     } catch (error) {
       if (!hasErrorCode(error, "ENOENT")) {
         throw error;
@@ -247,9 +313,9 @@ function backupFileName(timestamp, suffix) {
   return `${timestamp}${suffixPart}.db`;
 }
 
-function nextBackupSuffix(projectRoot, timestamp) {
+function nextBackupSuffix(dir, timestamp) {
   return (
-    allBackupEntries(projectRoot)
+    allBackupEntries(dir)
       .filter((entry) => entry.timestamp === timestamp)
       .reduce((maxSuffix, entry) => Math.max(maxSuffix, entry.suffix), -1) + 1
   );
@@ -318,11 +384,11 @@ function copyBackupExclusively(dbPath, dir, timestamp, initialSuffix) {
 
 function createBackup(options = {}) {
   const projectRoot = options.projectRoot || process.cwd();
+  let dir = resolveBackupDirectory(options);
   const dbPath = resolveDatabasePath({
     projectRoot,
     databaseUrl: options.databaseUrl,
   });
-  const dir = backupDir(projectRoot);
 
   assertSourceOutsideBackupDirectory(dbPath, dir);
 
@@ -336,15 +402,16 @@ function createBackup(options = {}) {
   }
 
   fs.mkdirSync(dir, { recursive: true });
+  dir = resolveBackupDirectory({ backupsDirectory: dir });
 
   const timestamp = timestampForFileName();
   const file = copyBackupExclusively(
     dbPath,
     dir,
     timestamp,
-    nextBackupSuffix(projectRoot, timestamp),
+    nextBackupSuffix(dir, timestamp),
   );
-  pruneBackups({ projectRoot });
+  pruneBackups({ backupsDirectory: dir });
 
   return {
     file,
@@ -357,5 +424,6 @@ module.exports = {
   createBackup,
   listBackups,
   pruneBackups,
+  resolveBackupDirectory,
   resolveDatabasePath,
 };
