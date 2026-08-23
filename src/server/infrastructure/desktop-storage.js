@@ -6,6 +6,12 @@ const path = require("node:path");
 const { execFileSync, spawnSync } = require("node:child_process");
 
 const DESKTOP_APPLICATION_ID = "com.cornellmethod.notebook";
+const DESKTOP_DATABASE_INITIALIZATION_MARKER_NAME = ".database-initialized";
+const DESKTOP_DATABASE_INITIALIZATION_MARKER_CONTENT = "v1\n";
+const DESKTOP_DATABASE_MISSING_AFTER_INITIALIZATION_REASON =
+  "database-missing-after-initialization";
+const DESKTOP_DATABASE_INITIALIZATION_MARKER_INVALID_REASON =
+  "database-initialization-marker-invalid";
 const DESKTOP_STORAGE_LAYOUT = Object.freeze({
   root: ".",
   live: "live",
@@ -386,6 +392,134 @@ function hasErrorCode(error, code) {
   return Boolean(error && typeof error === "object" && error.code === code);
 }
 
+function databaseInitializationMarkerPath(paths) {
+  return path.join(
+    paths.settingsDirectory,
+    DESKTOP_DATABASE_INITIALIZATION_MARKER_NAME,
+  );
+}
+
+function databaseInitializationMarkerError(message, code, cause) {
+  return new DesktopStorageError(message, { code, cause });
+}
+
+function readDatabaseInitializationMarker(paths) {
+  const markerPath = databaseInitializationMarkerPath(paths);
+  let stats;
+
+  try {
+    stats = fs.lstatSync(markerPath);
+  } catch (error) {
+    if (hasErrorCode(error, "ENOENT")) {
+      return { exists: false };
+    }
+
+    throw databaseInitializationMarkerError(
+      "SQLite 初期化 marker を読み取れません",
+      "DATABASE_INITIALIZATION_MARKER_READ_FAILED",
+      error,
+    );
+  }
+
+  if (!stats.isFile()) {
+    throw databaseInitializationMarkerError(
+      "SQLite 初期化 marker が regular file ではありません",
+      "DATABASE_INITIALIZATION_MARKER_INVALID",
+    );
+  }
+
+  let content;
+  try {
+    content = fs.readFileSync(markerPath);
+  } catch (error) {
+    throw databaseInitializationMarkerError(
+      "SQLite 初期化 marker の内容を読み取れません",
+      "DATABASE_INITIALIZATION_MARKER_READ_FAILED",
+      error,
+    );
+  }
+
+  if (
+    !content.equals(
+      Buffer.from(DESKTOP_DATABASE_INITIALIZATION_MARKER_CONTENT, "utf8"),
+    )
+  ) {
+    throw databaseInitializationMarkerError(
+      "SQLite 初期化 marker の内容が不正です",
+      "DATABASE_INITIALIZATION_MARKER_INVALID",
+    );
+  }
+
+  return { exists: true };
+}
+
+function writeDatabaseInitializationMarker(paths) {
+  const markerPath = databaseInitializationMarkerPath(paths);
+  let descriptor;
+
+  try {
+    descriptor = fs.openSync(markerPath, "wx", 0o600);
+  } catch (error) {
+    if (hasErrorCode(error, "EEXIST")) {
+      const existing = readDatabaseInitializationMarker(paths);
+      if (existing.exists) {
+        return;
+      }
+    }
+
+    throw databaseInitializationMarkerError(
+      "SQLite 初期化 marker を作成できません",
+      "DATABASE_INITIALIZATION_MARKER_WRITE_FAILED",
+      error,
+    );
+  }
+
+  try {
+    const content = Buffer.from(
+      DESKTOP_DATABASE_INITIALIZATION_MARKER_CONTENT,
+      "utf8",
+    );
+    let offset = 0;
+    while (offset < content.length) {
+      offset += fs.writeSync(
+        descriptor,
+        content,
+        offset,
+        content.length - offset,
+      );
+    }
+    fs.fsyncSync(descriptor);
+  } catch (error) {
+    throw databaseInitializationMarkerError(
+      "SQLite 初期化 marker に書き込めません",
+      "DATABASE_INITIALIZATION_MARKER_WRITE_FAILED",
+      error,
+    );
+  } finally {
+    try {
+      fs.closeSync(descriptor);
+    } catch (error) {
+      throw databaseInitializationMarkerError(
+        "SQLite 初期化 marker を閉じられません",
+        "DATABASE_INITIALIZATION_MARKER_WRITE_FAILED",
+        error,
+      );
+    }
+    descriptor = undefined;
+  }
+
+  readDatabaseInitializationMarker(paths);
+}
+
+function ensureDatabaseInitializationMarker(paths) {
+  const marker = readDatabaseInitializationMarker(paths);
+  if (marker.exists) {
+    return;
+  }
+
+  writeDatabaseInitializationMarker(paths);
+}
+
 function unusableResult(paths, reason) {
   return {
     ...paths,
@@ -424,6 +558,13 @@ function initializationRequiredResult(paths) {
   };
 }
 
+function databaseMissingAfterInitializationResult(paths) {
+  return unusableResult(
+    paths,
+    DESKTOP_DATABASE_MISSING_AFTER_INITIALIZATION_REASON,
+  );
+}
+
 function inspectDesktopDatabase({
   storagePaths,
   homeDirectory,
@@ -433,12 +574,27 @@ function inspectDesktopDatabase({
   const paths = validateStoragePaths(
     storagePaths ?? resolveDesktopStoragePaths({ homeDirectory }),
   );
+  let initializationMarker;
+
+  try {
+    initializationMarker = readDatabaseInitializationMarker(paths);
+  } catch {
+    return unusableResult(
+      paths,
+      DESKTOP_DATABASE_INITIALIZATION_MARKER_INVALID_REASON,
+    );
+  }
+
   let stats;
 
   try {
     stats = fs.statSync(paths.databasePath);
   } catch (error) {
     if (hasErrorCode(error, "ENOENT")) {
+      if (initializationMarker.exists) {
+        return databaseMissingAfterInitializationResult(paths);
+      }
+
       return initializationRequiredResult(paths);
     }
 
@@ -768,6 +924,23 @@ function applyInitialMigrations({
   }
 }
 
+function finalizeReadyDatabase(paths, inspection, created) {
+  try {
+    ensureDatabaseInitializationMarker(paths);
+  } catch {
+    return {
+      ...unusableResult(
+        paths,
+        DESKTOP_DATABASE_INITIALIZATION_MARKER_INVALID_REASON,
+      ),
+      created,
+      paths,
+    };
+  }
+
+  return { ...inspection, created, paths };
+}
+
 function bootstrapDesktopStorage({
   homeDirectory,
   storagePaths,
@@ -788,6 +961,10 @@ function bootstrapDesktopStorage({
   });
 
   if (current.status !== DESKTOP_DATABASE_STATUS.INITIALIZATION_REQUIRED) {
+    if (current.status === DESKTOP_DATABASE_STATUS.READY) {
+      return finalizeReadyDatabase(paths, current, false);
+    }
+
     return { ...current, created: false, paths };
   }
 
@@ -799,6 +976,11 @@ function bootstrapDesktopStorage({
       migrationsDirectory,
       sqliteBinary,
     });
+
+    if (raced.status === DESKTOP_DATABASE_STATUS.READY) {
+      return finalizeReadyDatabase(paths, raced, false);
+    }
+
     return { ...raced, created: false, paths };
   }
 
@@ -824,11 +1006,19 @@ function bootstrapDesktopStorage({
     sqliteBinary,
   });
 
+  if (initialized.status === DESKTOP_DATABASE_STATUS.READY) {
+    return finalizeReadyDatabase(paths, initialized, true);
+  }
+
   return { ...initialized, created: true, paths };
 }
 
 module.exports = {
   DESKTOP_APPLICATION_ID,
+  DESKTOP_DATABASE_INITIALIZATION_MARKER_CONTENT,
+  DESKTOP_DATABASE_INITIALIZATION_MARKER_INVALID_REASON,
+  DESKTOP_DATABASE_INITIALIZATION_MARKER_NAME,
+  DESKTOP_DATABASE_MISSING_AFTER_INITIALIZATION_REASON,
   DESKTOP_DATABASE_STATUS,
   DESKTOP_MIGRATION_STATE,
   DESKTOP_STORAGE_LAYOUT,
