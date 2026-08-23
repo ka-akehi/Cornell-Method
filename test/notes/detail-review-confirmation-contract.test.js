@@ -49,16 +49,23 @@ test("review completion starts disabled and requires both confirmations", () => 
     "async function submitReview()",
     "\n  async function deleteNote",
   );
-  const apiCallIndex = submitReview.indexOf("completeReview(note.id");
+  const reviewCompletion = sliceHandler(
+    modes,
+    "async function performReviewCompletion(",
+    "\n  async function saveReviewDateForClose",
+  );
 
   assert.match(submitReview, /!bodyConfirmed/);
   assert.match(submitReview, /!summaryConfirmed/);
+  assert.match(reviewCompletion, /!bodyConfirmedRef\.current/);
+  assert.match(reviewCompletion, /!summaryConfirmedRef\.current/);
+  const apiCallIndex = reviewCompletion.indexOf("completeReview(note.id");
   assert.ok(
-    submitReview.indexOf("!bodyConfirmed") < apiCallIndex,
+    reviewCompletion.indexOf("!bodyConfirmedRef.current") < apiCallIndex,
     "body confirmation must guard the review API call",
   );
   assert.ok(
-    submitReview.indexOf("!summaryConfirmed") < apiCallIndex,
+    reviewCompletion.indexOf("!summaryConfirmedRef.current") < apiCallIndex,
     "Summary confirmation must guard the review API call",
   );
 });
@@ -133,6 +140,13 @@ test("review confirmation resets on a new review, leaving review, and completion
   );
 
   for (const handler of [startReview, leaveReview, submitReview]) {
+    if (handler === submitReview) {
+      assert.match(
+        modes,
+        /setBodyConfirmed\(false\)[\s\S]*setSummaryConfirmed\(false\)/,
+      );
+      continue;
+    }
     assert.match(handler, /setBodyConfirmed\(false\)/);
     assert.match(handler, /setSummaryConfirmed\(false\)/);
   }

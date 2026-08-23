@@ -1,7 +1,7 @@
 "use client";
 
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { NoteDetailResponse } from "@/modules/notes/contracts";
 import {
   completeReview,
@@ -10,6 +10,7 @@ import {
 } from "@/modules/notes/remote";
 import { normalizeSourceType } from "@/modules/notes/model";
 import { addDaysToDateString, todayDateString } from "@/shared/date";
+import { registerDesktopDirtyController } from "@/shared/desktop/desktop-close-bridge";
 import { useNoteDetailSummaryDraft } from "@/modules/notes/ui/hooks/use-note-detail-summary-draft";
 import {
   NoteDetailEditActions,
@@ -31,6 +32,29 @@ export type NoteDetailModesProps = {
   initialNote: NoteDetailResponse;
   initialMode?: UrlMode;
 };
+
+type InFlightReviewCompletionRef = {
+  current: Promise<boolean> | null;
+};
+
+function shareInFlightReviewCompletion(
+  inFlightCompletionRef: InFlightReviewCompletionRef,
+  complete: () => Promise<boolean>,
+): Promise<boolean> {
+  if (inFlightCompletionRef.current) {
+    return inFlightCompletionRef.current;
+  }
+
+  const nextCompletion = complete();
+  inFlightCompletionRef.current = nextCompletion;
+  const clearInFlightCompletion = () => {
+    if (inFlightCompletionRef.current === nextCompletion) {
+      inFlightCompletionRef.current = null;
+    }
+  };
+  void nextCompletion.then(clearInFlightCompletion, clearInFlightCompletion);
+  return nextCompletion;
+}
 
 export function NoteDetailModes({
   initialNote,
@@ -54,7 +78,16 @@ export function NoteDetailModes({
   } = useNoteDetailSummaryDraft({
     mode,
     note,
-    onSavedNote: (savedNote) => setNote(savedNote),
+    onSavedNote: (savedNote) =>
+      setNote((current) =>
+        mode === "edit"
+          ? savedNote
+          : {
+              ...savedNote,
+              reviewedAt: current.reviewedAt,
+              nextReviewDate: current.nextReviewDate,
+            },
+      ),
   });
   const [showBody, setShowBody] = useState(false);
   const [showSummary, setShowSummary] = useState(false);
@@ -66,6 +99,17 @@ export function NoteDetailModes({
   const [error, setError] = useState<string | null>(null);
   const [reviewSuccess, setReviewSuccess] =
     useState<ReviewSuccessFeedback | null>(null);
+  const reviewNextDateRef = useRef(initialNote.nextReviewDate ?? "");
+  const reviewBaselineRef = useRef("");
+  const reviewDateDirtyRef = useRef(false);
+  const reviewCompletionInFlightRef = useRef<Promise<boolean> | null>(null);
+  const reviewSaveRef = useRef<() => Promise<boolean>>(() =>
+    Promise.resolve(false),
+  );
+  const reviewDiscardRef = useRef<() => boolean>(() => false);
+  const reviewingRef = useRef(false);
+  const bodyConfirmedRef = useRef(false);
+  const summaryConfirmedRef = useRef(false);
 
   function replaceModeUrl(nextMode: UrlMode) {
     const nextSearchParams = new URLSearchParams(searchParams.toString());
@@ -101,25 +145,21 @@ export function NoteDetailModes({
     setMode("view");
   }
 
-  async function submitReview() {
-    if (
-      isSummarySaving() ||
-      reviewing ||
-      !bodyConfirmed ||
-      !summaryConfirmed
-    ) {
-      return;
+  async function performReviewCompletion(
+    submittedNextReviewDate: string | null,
+  ): Promise<boolean> {
+    if (!bodyConfirmedRef.current || !summaryConfirmedRef.current) {
+      return false;
     }
 
-    const submittedNextReviewDate = reviewNextDate || null;
-
+    reviewingRef.current = true;
     setReviewing(true);
     setError(null);
     setReviewSuccess(null);
 
     try {
       const data = await completeReview(note.id, {
-        nextReviewDate: reviewNextDate || null,
+        nextReviewDate: submittedNextReviewDate,
       });
       const confirmedNextReviewDate =
         data.nextReviewDate !== undefined
@@ -129,26 +169,100 @@ export function NoteDetailModes({
       setNote((current) => ({
         ...current,
         reviewedAt: data?.reviewedAt ?? current.reviewedAt,
-        nextReviewDate: data?.nextReviewDate ?? null,
+        nextReviewDate: confirmedNextReviewDate,
       }));
-      setReviewNextDate(data?.nextReviewDate ?? "");
-      discardSummaryDraft(note.summary ?? "");
+      reviewBaselineRef.current = confirmedNextReviewDate ?? "";
+      reviewNextDateRef.current = confirmedNextReviewDate ?? "";
+      reviewDateDirtyRef.current = false;
+      setReviewNextDate(confirmedNextReviewDate ?? "");
+      discardSummaryDraft();
       setShowBody(false);
       setShowSummary(false);
       setBodyConfirmed(false);
       setSummaryConfirmed(false);
+      bodyConfirmedRef.current = false;
+      summaryConfirmedRef.current = false;
       setReviewSuccess({ nextReviewDate: confirmedNextReviewDate });
       setMode("view");
       router.refresh();
+      return true;
     } catch (caught) {
       if (caught instanceof NotesRemoteError) {
         setError(caught.message);
-        return;
+        return false;
       }
       setError("復習済み更新に失敗しました。通信状態またはAPIを確認してください。");
+      return false;
     } finally {
+      reviewingRef.current = false;
       setReviewing(false);
     }
+  }
+
+  async function saveReviewDateForClose(): Promise<boolean> {
+    if (reviewCompletionInFlightRef.current) {
+      return reviewCompletionInFlightRef.current;
+    }
+    if (!reviewDateDirtyRef.current) {
+      return true;
+    }
+    if (!bodyConfirmedRef.current || !summaryConfirmedRef.current) {
+      return false;
+    }
+
+    return shareInFlightReviewCompletion(
+      reviewCompletionInFlightRef,
+      () => performReviewCompletion(reviewNextDateRef.current || null),
+    );
+  }
+
+  function discardReviewDateDraft(): boolean {
+    if (reviewCompletionInFlightRef.current || reviewingRef.current) {
+      return false;
+    }
+
+    const baseline = reviewBaselineRef.current;
+    reviewNextDateRef.current = baseline;
+    reviewDateDirtyRef.current = false;
+    setReviewNextDate(baseline);
+    return true;
+  }
+
+  useEffect(() => {
+    reviewSaveRef.current = saveReviewDateForClose;
+    reviewDiscardRef.current = discardReviewDateDraft;
+  });
+
+  useEffect(() => {
+    if (mode !== "review") {
+      return;
+    }
+
+    return registerDesktopDirtyController({
+      isDirty: () => reviewDateDirtyRef.current,
+      save: () =>
+        reviewCompletionInFlightRef.current ?? reviewSaveRef.current(),
+      discard: () => reviewDiscardRef.current(),
+    });
+  }, [mode]);
+
+  async function submitReview() {
+    if (
+      isSummarySaving() ||
+      reviewing ||
+      reviewingRef.current ||
+      !bodyConfirmed ||
+      !summaryConfirmed
+    ) {
+      return;
+    }
+
+    const submittedNextReviewDate = reviewNextDate || null;
+
+    return shareInFlightReviewCompletion(
+      reviewCompletionInFlightRef,
+      () => performReviewCompletion(submittedNextReviewDate),
+    );
   }
 
   async function deleteNote() {
@@ -198,6 +312,8 @@ export function NoteDetailModes({
         onCancel={() => leaveEditMode()}
         onSaved={(savedNote) => {
           acceptSavedNote(savedNote);
+          reviewNextDateRef.current = savedNote.nextReviewDate ?? "";
+          reviewDateDirtyRef.current = false;
           setReviewNextDate(savedNote.nextReviewDate ?? "");
           setShowBody(false);
           setShowSummary(false);
@@ -225,6 +341,7 @@ export function NoteDetailModes({
         if (isSummarySaving()) {
           return;
         }
+        bodyConfirmedRef.current = true;
         setBodyConfirmed(true);
         setShowBody(true);
       }}
@@ -239,6 +356,7 @@ export function NoteDetailModes({
         if (isSummarySaving() || !bodyConfirmed) {
           return;
         }
+        summaryConfirmedRef.current = true;
         setSummaryConfirmed(true);
         setShowSummary(true);
       }}
@@ -265,6 +383,9 @@ export function NoteDetailModes({
               setShowSummary(false);
               setBodyConfirmed(false);
               setSummaryConfirmed(false);
+              bodyConfirmedRef.current = false;
+              summaryConfirmedRef.current = false;
+              reviewDateDirtyRef.current = false;
               setMode("view");
             }}
           />
@@ -282,7 +403,13 @@ export function NoteDetailModes({
               setShowSummary(false);
               setBodyConfirmed(false);
               setSummaryConfirmed(false);
-              setReviewNextDate(addDaysToDateString(todayDateString(), 7));
+              bodyConfirmedRef.current = false;
+              summaryConfirmedRef.current = false;
+              const reviewBaseline = addDaysToDateString(todayDateString(), 7);
+              reviewBaselineRef.current = reviewBaseline;
+              reviewNextDateRef.current = reviewBaseline;
+              reviewDateDirtyRef.current = false;
+              setReviewNextDate(reviewBaseline);
               setMode("review");
             }}
           />
@@ -295,7 +422,12 @@ export function NoteDetailModes({
           reviewing={reviewing}
           disabled={summarySaving}
           reviewConfirmationComplete={bodyConfirmed && summaryConfirmed}
-          onReviewNextDateChange={setReviewNextDate}
+          onReviewNextDateChange={(value) => {
+            reviewNextDateRef.current = value;
+            reviewDateDirtyRef.current =
+              value !== reviewBaselineRef.current;
+            setReviewNextDate(value);
+          }}
           onSubmitReview={() => void submitReview()}
         />
       ) : (

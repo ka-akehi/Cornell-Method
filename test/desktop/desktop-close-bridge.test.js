@@ -241,7 +241,14 @@ test("summary and editor close owners use the shared bridge without changing the
   );
 
   assert.match(modes, /useNoteDetailSummaryDraft/);
-  assert.doesNotMatch(modes, /registerDesktopDirtyController/);
+  assert.match(modes, /registerDesktopDirtyController/);
+  assert.match(modes, /if \(mode !== "review"\)/);
+  assert.match(modes, /isDirty: \(\) => reviewDateDirtyRef\.current/);
+  assert.match(
+    modes,
+    /reviewCompletionInFlightRef\.current \?\? reviewSaveRef\.current\(\)/,
+  );
+  assert.match(modes, /discard: \(\) => reviewDiscardRef\.current\(\)/);
   assert.match(summaryDraftController, /registerDesktopDirtyController/);
   assert.match(summaryDraftController, /if \(mode === "edit"\)/);
   assert.match(summaryDraftController, /isDirty: \(\) => summaryDirtyRef\.current/);

@@ -28,15 +28,23 @@ test("successful review completion exposes persistent accessible feedback", () =
   const submitStart = modes.indexOf("async function submitReview()");
   const submitEnd = modes.indexOf("\n  async function deleteNote", submitStart);
   const submitReview = modes.slice(submitStart, submitEnd);
+  const completionStart = modes.indexOf("async function performReviewCompletion(");
+  const completionEnd = modes.indexOf(
+    "\n  async function saveReviewDateForClose",
+    completionStart,
+  );
+  const completion = modes.slice(completionStart, completionEnd);
   assert.notEqual(submitStart, -1);
   assert.notEqual(submitEnd, -1);
+  assert.notEqual(completionStart, -1);
+  assert.notEqual(completionEnd, -1);
   assert.match(submitReview, /const submittedNextReviewDate = reviewNextDate \|\| null;/);
-  assert.match(submitReview, /nextReviewDate: reviewNextDate \|\| null/);
+  assert.match(completion, /nextReviewDate: submittedNextReviewDate/);
   assert.match(
-    submitReview,
+    completion,
     /const confirmedNextReviewDate =\s*data\.nextReviewDate !== undefined[\s\S]*setReviewSuccess\(\{ nextReviewDate: confirmedNextReviewDate \}\);/,
   );
-  assert.match(submitReview, /setReviewSuccess\(null\);/);
+  assert.match(completion, /setReviewSuccess\(null\);/);
 
   const enterEditStart = modes.indexOf("function enterEditMode()");
   const enterEditEnd = modes.indexOf("\n  function leaveEditMode", enterEditStart);

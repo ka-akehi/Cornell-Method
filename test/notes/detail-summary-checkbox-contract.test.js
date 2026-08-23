@@ -179,11 +179,14 @@ test("detail Summary toggle is draft-only and explicit save uses the existing no
   );
 
   assert.match(modes, /useNoteDetailSummaryDraft/);
-  assert.match(modes, /onSavedNote: \(savedNote\) => setNote\(savedNote\)/);
+  assert.match(
+    modes,
+    /onSavedNote: \(savedNote\) =>[\s\S]*mode === "edit"[\s\S]*reviewedAt: current\.reviewedAt[\s\S]*nextReviewDate: current\.nextReviewDate/,
+  );
   assert.match(modes, /onSummaryTaskToggle=\{handleSummaryTaskToggle\}/);
   assert.match(modes, /onSaveSummary=\{\(\) => void saveSummary\(\)\}/);
   assert.match(modes, /onDiscardSummary=\{\(\) => discardSummaryDraft\(\)\}/);
-  assert.doesNotMatch(modes, /registerDesktopDirtyController/);
+  assert.match(modes, /registerDesktopDirtyController/);
   assert.doesNotMatch(modes, /updateMarkdownTaskMarker/);
   assert.doesNotMatch(modes, /noteDetailToSummaryUpdatePayload/);
   assert.match(summaryDraft, /const \[summaryDraft, setSummaryDraft\] = useState\(note\.summary \?\? ""\);/);
@@ -422,12 +425,12 @@ test("Summary payload preserves valid and null source types and rejects unknown 
 
 test("review completion remains separate from Summary save and leaves unsaved Summary discarded", () => {
   const reviewBody = modes.slice(
-    modes.indexOf("async function submitReview()"),
+    modes.indexOf("async function performReviewCompletion("),
     modes.indexOf("async function deleteNote()"),
   );
 
   assert.match(reviewBody, /completeReview\(note\.id/);
-  assert.match(reviewBody, /discardSummaryDraft\(note\.summary \?\? ""\)/);
+  assert.match(reviewBody, /discardSummaryDraft\(\)/);
   assert.doesNotMatch(reviewBody, /updateNote\(/);
   assert.match(actions, /未保存の変更があります/);
   assert.match(actions, />\s*破棄\s*</);
