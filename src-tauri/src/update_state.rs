@@ -582,16 +582,7 @@ impl UpdateStateStore {
         };
 
         if state.status == UpdateStatus::Checking {
-            let interrupted_code = interrupted_failure_code(state.phase);
-            state.status = UpdateStatus::Failed;
-            state.phase = None;
-            state.check_started_at = None;
-            state.pending_update = None;
-            state.notification = None;
-            state.failure = Some(UpdateFailure {
-                code: interrupted_code.to_string(),
-                retry_at: now,
-            });
+            recover_interrupted_check(&mut state, now);
         }
 
         if needs_migration && load_issue.is_none() {
@@ -1216,6 +1207,28 @@ fn interrupted_failure_code(phase: Option<UpdatePhase>) -> &'static str {
         }
         Some(UpdatePhase::Rollback) => INTERRUPTED_ROLLBACK_ERROR_CODE,
     }
+}
+
+fn recover_interrupted_check(state: &mut UpdateState, now: u64) {
+    let preserve_manifest_candidate =
+        state.phase == Some(UpdatePhase::ManifestCheck) && state.pending_update.is_some();
+    let interrupted_code = interrupted_failure_code(state.phase);
+
+    state.status = if preserve_manifest_candidate {
+        UpdateStatus::Available
+    } else {
+        UpdateStatus::Failed
+    };
+    state.phase = None;
+    state.check_started_at = None;
+    if !preserve_manifest_candidate {
+        state.pending_update = None;
+        state.notification = None;
+    }
+    state.failure = Some(UpdateFailure {
+        code: interrupted_code.to_string(),
+        retry_at: now,
+    });
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -2388,6 +2401,59 @@ mod tests {
         assert_eq!(snapshot.failure.as_ref().unwrap().retry_at, 200);
         assert!(second_store
             .can_start_check(CheckTrigger::Manual, 201)
+            .unwrap());
+
+        cleanup(&directory);
+    }
+
+    #[test]
+    fn manifest_check_recovery_preserves_verified_candidate_and_notification() {
+        let (directory, first_store) = store("manifest-check-recovery");
+        first_store.begin_check(CheckTrigger::Manual, 100).unwrap();
+        let candidate = pending("1.2.3", "artifact", 100);
+        first_store.record_available(candidate.clone()).unwrap();
+        first_store
+            .begin_package_verification(&candidate, 110)
+            .unwrap();
+        record_test_verified(&first_store);
+        assert!(first_store.claim_pending_notification(120).unwrap());
+
+        let verified_before = first_store.snapshot().pending_update.clone().unwrap();
+        let notification_before = first_store.snapshot().notification.clone();
+        first_store.begin_check(CheckTrigger::Manual, 200).unwrap();
+        assert_eq!(
+            first_store.snapshot().phase,
+            Some(UpdatePhase::ManifestCheck)
+        );
+        drop(first_store);
+
+        let second_store = load_at(&directory, 300);
+        let snapshot = second_store.snapshot();
+        assert_eq!(snapshot.status, UpdateStatus::Available);
+        assert_eq!(snapshot.phase, None);
+        assert_eq!(snapshot.check_started_at, None);
+        assert_eq!(snapshot.pending_update, Some(verified_before));
+        assert_eq!(snapshot.notification, notification_before);
+        assert_eq!(
+            snapshot.failure.as_ref().unwrap().code,
+            INTERRUPTED_CHECK_ERROR_CODE
+        );
+        assert_eq!(snapshot.failure.as_ref().unwrap().retry_at, 300);
+
+        let ui_snapshot = serde_json::to_value(UpdateStateSnapshot::from(&snapshot)).unwrap();
+        assert_eq!(ui_snapshot["status"], "available");
+        assert_eq!(
+            ui_snapshot["pendingUpdate"]["verificationState"],
+            "verified"
+        );
+        assert!(!second_store
+            .can_start_check(
+                CheckTrigger::Automatic,
+                200 + AUTO_CHECK_INTERVAL_SECONDS - 1,
+            )
+            .unwrap());
+        assert!(second_store
+            .can_start_check(CheckTrigger::Manual, 301)
             .unwrap());
 
         cleanup(&directory);

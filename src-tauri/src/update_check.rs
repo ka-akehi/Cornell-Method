@@ -544,6 +544,33 @@ mod tests {
     }
 
     #[test]
+    fn manifest_check_recovery_preserves_existing_candidate_and_notification() {
+        let (directory, store) = store("manifest-check-recovery");
+        let transport = FakeTransport::from_body(VALID_MANIFEST);
+
+        assert_eq!(
+            run(&store, &transport, CheckTrigger::Manual, 100, "1.0.0"),
+            Ok(UpdateCheckResult::Started(UpdateCheckOutcome::Available))
+        );
+        let candidate_before = store.snapshot().pending_update.clone();
+        assert!(store.claim_pending_notification(110).unwrap());
+        let notification_before = store.snapshot().notification.clone();
+
+        store.begin_check(CheckTrigger::Manual, 200).unwrap();
+        drop(store);
+
+        let staging_directory = directory.join("staging");
+        let recovered = UpdateStateStore::load_or_default(&directory, &staging_directory);
+        let snapshot = recovered.snapshot();
+        assert_eq!(snapshot.status, UpdateStatus::Available);
+        assert_eq!(snapshot.pending_update, candidate_before);
+        assert_eq!(snapshot.notification, notification_before);
+        assert_eq!(snapshot.failure.as_ref().unwrap().code, "check-interrupted");
+
+        cleanup(&directory);
+    }
+
+    #[test]
     fn manual_response_mapping_keeps_terminal_outcomes_and_sanitized_errors() {
         let state = UpdateState::initial();
         for (result, expected) in [

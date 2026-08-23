@@ -32,6 +32,12 @@ test("update state keeps a provider-neutral, atomic settings boundary", () => {
   assert.match(productionSource, /UpdatePhase/);
   assert.match(productionSource, /ManifestCheck/);
   assert.match(productionSource, /PackageVerification/);
+  assert.match(productionSource, /fn recover_interrupted_check/);
+  assert.match(productionSource, /preserve_manifest_candidate/);
+  assert.match(
+    productionSource,
+    /if !preserve_manifest_candidate\s*\{[\s\S]*?state\.pending_update = None;[\s\S]*?state\.notification = None;/
+  );
   assert.match(productionSource, /canonical_package_path/);
   assert.match(productionSource, /canonical_extracted_app_path/);
   assert.match(productionSource, /symlink_metadata/);
@@ -78,6 +84,8 @@ test("persistent checkpoint validation is rooted at staging and has a symlink re
     source,
     /verified_checkpoint_is_not_restored_when_staging_component_becomes_symlink/
   );
+  assert.match(source, /manifest_check_recovery_preserves_verified_candidate_and_notification/);
+  assert.match(source, /package_verification_phase_recovers_with_a_distinct_sanitized_failure_code/);
   assert.match(source, /for component in \["packages", "extract"\]/);
   assert.match(source, /symlink\(&target, staging_directory\.join\(component\)\)/);
   assert.match(source, /UpdateStateLoadIssue::Invalid/);
