@@ -160,3 +160,48 @@ test("Settings request remains independent from the dirty close bridge", () => {
     /CloseDecision|handle_navigation|cornell-desktop-close/,
   );
 });
+
+test("external manual update bridge is fixed-contract and keeps remote IPC disabled", () => {
+  const main = fs.readFileSync(mainPath, "utf8");
+  const lifecycle = fs.readFileSync(lifecyclePath, "utf8");
+  const configText = fs.readFileSync(configPath, "utf8");
+  const config = JSON.parse(configText);
+
+  assert.equal(config.app.withGlobalTauri, false);
+  assert.doesNotMatch(
+    `${main}\n${lifecycle}\n${configText}`,
+    /dangerousRemoteDomainIpcAccess|enableTauriAPI|window\.invoke|fetch\(/,
+  );
+  assert.match(main, /let primary_url_for_navigation = runtime_url\.clone\(\)/);
+  assert.match(
+    main,
+    /\.on_navigation\(move \|url\| \{[\s\S]*handle_navigation\([\s\S]*&app_for_navigation,[\s\S]*&primary_url_for_navigation,[\s\S]*\)\s*\}\)/,
+  );
+  assert.match(
+    lifecycle,
+    /MANUAL_UPDATE_CHECK_REQUEST_FRAGMENT: &str = "cornell-desktop-manual-update-check"/,
+  );
+  assert.match(
+    lifecycle,
+    /MANUAL_UPDATE_CHECK_RESULT_EVENT: &str = "cornell:desktop-manual-update-check-result"/,
+  );
+  assert.match(lifecycle, /url\.fragment\(\) == Some\(MANUAL_UPDATE_CHECK_REQUEST_FRAGMENT\)/);
+  assert.match(
+    lifecycle,
+    /fragment == MANUAL_UPDATE_CHECK_REQUEST_FRAGMENT/,
+  );
+  assert.doesNotMatch(
+    lifecycle,
+    /fragment\.starts_with\(MANUAL_UPDATE_CHECK_REQUEST_FRAGMENT\)/,
+  );
+  assert.match(lifecycle, /is_manual_update_check_navigation\(url, primary_url\)/);
+  assert.match(lifecycle, /is_manual_update_check_primary_page/);
+  assert.match(lifecycle, /spawn_blocking\(move \|\|/);
+  assert.match(lifecycle, /manual_update_check_worker\(app\.clone\(\)\)/);
+  assert.match(lifecycle, /get_webview_window\(PRIMARY_WINDOW_LABEL\)/);
+  assert.match(lifecycle, /window\.eval\(&script\)/);
+  assert.match(lifecycle, /history\.replaceState/);
+  assert.match(lifecycle, /JSON\.parse/);
+  assert.doesNotMatch(lifecycle, /window\.location\.hash\s*===/);
+  assert.doesNotMatch(lifecycle, /verify_pending_update/);
+});

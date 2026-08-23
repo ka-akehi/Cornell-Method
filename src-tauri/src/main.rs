@@ -170,6 +170,8 @@ fn run_application(instance: InstanceGuard) -> AppResult<()> {
             let window_state_path = window_state_path(storage.settings_directory());
             let state = Arc::new(AppState::new(sidecar, window_state_path));
             let close_for_navigation = state.close_coordinator();
+            let app_for_navigation = app.handle().clone();
+            let primary_url_for_navigation = runtime_url.clone();
             let window = match WebviewWindowBuilder::new(
                 app,
                 PRIMARY_WINDOW_LABEL,
@@ -179,7 +181,14 @@ fn run_application(instance: InstanceGuard) -> AppResult<()> {
             .inner_size(DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT)
             .resizable(true)
             .visible(false)
-            .on_navigation(move |url| handle_navigation(url, &close_for_navigation))
+            .on_navigation(move |url| {
+                handle_navigation(
+                    url,
+                    &close_for_navigation,
+                    &app_for_navigation,
+                    &primary_url_for_navigation,
+                )
+            })
             .build()
             {
                 Ok(window) => window,

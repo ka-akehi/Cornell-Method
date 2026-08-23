@@ -77,6 +77,102 @@ function availableResponse(artifact, pendingUpdate = {}) {
   };
 }
 
+function createExternalWindow({
+  protocol = "http:",
+  hostname = "127.0.0.1",
+  port = "43127",
+  pathname = "/notes",
+  search = "",
+} = {}) {
+  const listeners = new Map();
+  const timers = new Map();
+  let nextTimerId = 1;
+  let currentHash = "";
+  let hashAssignments = 0;
+  let historyReplacements = 0;
+  let timerCreations = 0;
+  let hashChangeHandler = null;
+
+  const location = {
+    protocol,
+    hostname,
+    port,
+    pathname,
+    search,
+    get hash() {
+      return currentHash;
+    },
+    set hash(value) {
+      hashAssignments += 1;
+      currentHash = value.startsWith("#") ? value : `#${value}`;
+      hashChangeHandler?.(currentHash);
+    },
+  };
+
+  const externalWindow = {
+    location,
+    history: {
+      replaceState(_state, _title, nextUrl) {
+        historyReplacements += 1;
+        currentHash = nextUrl.includes("#")
+          ? nextUrl.slice(nextUrl.indexOf("#"))
+          : "";
+      },
+    },
+    addEventListener(type, handler) {
+      const handlers = listeners.get(type) ?? new Set();
+      handlers.add(handler);
+      listeners.set(type, handlers);
+    },
+    removeEventListener(type, handler) {
+      listeners.get(type)?.delete(handler);
+    },
+    dispatchEvent(event) {
+      for (const handler of listeners.get(event.type) ?? []) {
+        handler(event);
+      }
+      return true;
+    },
+    setTimeout(handler) {
+      timerCreations += 1;
+      const id = nextTimerId;
+      nextTimerId += 1;
+      timers.set(id, handler);
+      return id;
+    },
+    clearTimeout(id) {
+      timers.delete(id);
+    },
+  };
+
+  return {
+    window: externalWindow,
+    setHashChangeHandler(handler) {
+      hashChangeHandler = handler;
+    },
+    runNextTimer() {
+      const [id, handler] = timers.entries().next().value ?? [];
+      assert.notEqual(id, undefined);
+      handler();
+    },
+    get hashAssignments() {
+      return hashAssignments;
+    },
+    get historyReplacements() {
+      return historyReplacements;
+    },
+    get timerCreations() {
+      return timerCreations;
+    },
+    get activeTimerCount() {
+      return timers.size;
+    },
+    listenerCount(type) {
+      return listeners.get(type)?.size ?? 0;
+    },
+  };
+}
+
 test("manual update bridge returns unsupported-web without invoking Tauri", async () => {
   const originalWindow = global.window;
   delete global.window;
@@ -91,6 +187,206 @@ test("manual update bridge returns unsupported-web without invoking Tauri", asyn
       kind: "unsupported-web",
     });
     assert.equal(calls, 0);
+  } finally {
+    if (originalWindow === undefined) {
+      delete global.window;
+    } else {
+      global.window = originalWindow;
+    }
+  }
+});
+
+test("manual update bridge returns unsupported-web for non-loopback browsers without bridge setup", async () => {
+  const originalWindow = global.window;
+  const pages = [
+    {
+      protocol: "https:",
+      hostname: "example.test",
+      port: "",
+    },
+    {
+      protocol: "http:",
+      hostname: "localhost",
+      port: "3000",
+    },
+    {
+      protocol: "http:",
+      hostname: "127.0.0.1",
+      port: "43127",
+      search: "?query=1",
+    },
+    {
+      protocol: "http:",
+      hostname: "127.0.0.1",
+      port: "0",
+    },
+  ];
+
+  try {
+    for (const page of pages) {
+      const external = createExternalWindow(page);
+      global.window = external.window;
+      let invokeCalls = 0;
+      const bridge = loadBridge(() => {
+        invokeCalls += 1;
+        return Promise.resolve(response());
+      });
+
+      assert.deepEqual(await bridge.requestManualUpdateCheck(), {
+        kind: "unsupported-web",
+      });
+      assert.equal(invokeCalls, 0);
+      assert.equal(external.hashAssignments, 0);
+      assert.equal(external.historyReplacements, 0);
+      assert.equal(
+        external.listenerCount("cornell:desktop-manual-update-check-result"),
+        0,
+      );
+      assert.equal(external.timerCreations, 0);
+      assert.equal(external.activeTimerCount, 0);
+    }
+  } finally {
+    if (originalWindow === undefined) {
+      delete global.window;
+    } else {
+      global.window = originalWindow;
+    }
+  }
+});
+
+test("external loopback bridge sends one fixed fragment and receives a sanitized result event", async () => {
+  const originalWindow = global.window;
+  const external = createExternalWindow();
+  global.window = external.window;
+  let invokeCalls = 0;
+  const bridge = loadBridge(() => {
+    invokeCalls += 1;
+    return Promise.resolve(response());
+  });
+
+  external.setHashChangeHandler(() => {
+    external.window.dispatchEvent({
+      type: "cornell:desktop-manual-update-check-result",
+      detail: response(),
+    });
+  });
+
+  try {
+    assert.deepEqual(await bridge.requestManualUpdateCheck(), {
+      kind: "no-update",
+      response: response(),
+    });
+    assert.equal(invokeCalls, 0);
+    assert.equal(external.hashAssignments, 1);
+    assert.equal(
+      external.window.location.hash,
+      "",
+    );
+    assert.equal(external.historyReplacements, 1);
+    assert.equal(external.timerCreations, 1);
+    assert.equal(external.activeTimerCount, 0);
+    assert.equal(
+      external.listenerCount("cornell:desktop-manual-update-check-result"),
+      0,
+    );
+  } finally {
+    if (originalWindow === undefined) {
+      delete global.window;
+    } else {
+      global.window = originalWindow;
+    }
+  }
+});
+
+test("external loopback bridge coalesces duplicate requests and removes its listener", async () => {
+  const originalWindow = global.window;
+  const external = createExternalWindow();
+  global.window = external.window;
+  const bridge = loadBridge(() => Promise.resolve(response()));
+
+  try {
+    const first = bridge.requestManualUpdateCheck();
+    const duplicate = bridge.requestManualUpdateCheck();
+    assert.strictEqual(duplicate, first);
+    assert.equal(external.hashAssignments, 1);
+    assert.equal(
+      external.listenerCount("cornell:desktop-manual-update-check-result"),
+      1,
+    );
+
+    external.window.dispatchEvent({
+      type: "cornell:desktop-manual-update-check-result",
+      detail: response(),
+    });
+    assert.deepEqual(await first, {
+      kind: "no-update",
+      response: response(),
+    });
+    assert.equal(
+      external.listenerCount("cornell:desktop-manual-update-check-result"),
+      0,
+    );
+  } finally {
+    if (originalWindow === undefined) {
+      delete global.window;
+    } else {
+      global.window = originalWindow;
+    }
+  }
+});
+
+test("external loopback bridge normalizes malformed events and timeout to command-unavailable", async () => {
+  const originalWindow = global.window;
+  const external = createExternalWindow();
+  global.window = external.window;
+  const bridge = loadBridge(() => Promise.resolve(response()));
+
+  try {
+    const malformed = bridge.requestManualUpdateCheck();
+    external.window.dispatchEvent({
+      type: "cornell:desktop-manual-update-check-result",
+      detail: {
+        kind: "command-error",
+        code: "secret-provider-error",
+        message: "private response body",
+        source: "https://private.example.test",
+      },
+    });
+    assert.deepEqual(await malformed, {
+      kind: "command-error",
+      code: "command-unavailable",
+    });
+    assert.equal(external.window.location.hash, "");
+
+    for (const [detail, expected] of [
+      [
+        { kind: "command-error", code: "provider-internal" },
+        { kind: "command-error", code: "provider-internal" },
+      ],
+      [
+        { kind: "state-error", code: "update-state" },
+        { kind: "state-error", code: "update-state" },
+      ],
+    ]) {
+      const fixedError = bridge.requestManualUpdateCheck();
+      external.window.dispatchEvent({
+        type: "cornell:desktop-manual-update-check-result",
+        detail,
+      });
+      assert.deepEqual(await fixedError, expected);
+    }
+
+    const timedOut = bridge.requestManualUpdateCheck();
+    external.runNextTimer();
+    assert.deepEqual(await timedOut, {
+      kind: "command-error",
+      code: "command-unavailable",
+    });
+    assert.equal(external.window.location.hash, "");
+    assert.equal(
+      external.listenerCount("cornell:desktop-manual-update-check-result"),
+      0,
+    );
   } finally {
     if (originalWindow === undefined) {
       delete global.window;
@@ -235,8 +531,20 @@ test("manual update bridge keeps the command and sanitized response contract loc
 
   assert.match(source, /@tauri-apps\/api\/core/);
   assert.match(source, /const MANUAL_UPDATE_CHECK_COMMAND = "manual_update_check"/);
+  assert.match(source, /cornell-desktop-manual-update-check/);
+  assert.match(source, /cornell:desktop-manual-update-check-result/);
   assert.match(source, /requestManualUpdateCheck\(\): Promise<DesktopManualUpdateCheckResult>/);
   assert.match(source, /invoke<unknown>\(MANUAL_UPDATE_CHECK_COMMAND\)/);
+  assert.match(source, /window\.location\.hash = DESKTOP_MANUAL_UPDATE_CHECK_REQUEST_FRAGMENT/);
+  assert.match(source, /window\.location\.protocol === "http:"/);
+  assert.match(source, /window\.location\.hostname === "127\.0\.0\.1"/);
+  assert.match(source, /window\.location\.pathname === "\/notes"/);
+  assert.match(source, /window\.location\.search === ""/);
+  assert.match(source, /isValidDynamicPort/);
+  assert.match(source, /window\.addEventListener\(/);
+  assert.match(source, /MANUAL_UPDATE_CHECK_TIMEOUT_MS/);
+  assert.match(source, /history\.replaceState/);
+  assert.match(source, /normalizeExternalResult/);
   assert.match(source, /unsupported-web/);
   assert.match(source, /manualUpdateCheckInFlight/);
   assert.match(source, /command-unavailable/);

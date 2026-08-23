@@ -3,9 +3,16 @@
 import { invoke } from "@tauri-apps/api/core";
 
 export const DESKTOP_SETTINGS_REQUEST_EVENT = "cornell:desktop-settings-request";
+export const DESKTOP_MANUAL_UPDATE_CHECK_REQUEST_FRAGMENT =
+  "cornell-desktop-manual-update-check";
+export const DESKTOP_MANUAL_UPDATE_CHECK_RESULT_EVENT =
+  "cornell:desktop-manual-update-check-result";
 
 const MANUAL_UPDATE_CHECK_COMMAND = "manual_update_check";
 const UPDATE_STATE_SNAPSHOT_VERSION = 1;
+const MANUAL_UPDATE_CHECK_TIMEOUT_MS = 30_000;
+const MIN_DYNAMIC_PORT = 1;
+const MAX_DYNAMIC_PORT = 65_535;
 
 type DesktopUpdateStatus =
   | "not-checked"
@@ -238,6 +245,121 @@ function normalizeInvokeError(value: unknown): DesktopManualUpdateCheckResult {
   return { kind: "command-error", code: "command-unavailable" };
 }
 
+function normalizeExternalResult(value: unknown): DesktopManualUpdateCheckResult {
+  if (isRecord(value) && "outcome" in value) {
+    return normalizeResponse(value);
+  }
+
+  return normalizeInvokeError(value);
+}
+
+function isValidDynamicPort(value: unknown): value is string {
+  if (typeof value !== "string" || !/^\d+$/.test(value)) {
+    return false;
+  }
+
+  const port = Number(value);
+  return (
+    Number.isSafeInteger(port) &&
+    port >= MIN_DYNAMIC_PORT &&
+    port <= MAX_DYNAMIC_PORT
+  );
+}
+
+function isExternalLoopbackPage() {
+  if (typeof window === "undefined") {
+    return false;
+  }
+
+  return (
+    window.location.protocol === "http:" &&
+    window.location.hostname === "127.0.0.1" &&
+    isValidDynamicPort(window.location.port) &&
+    window.location.pathname === "/notes" &&
+    window.location.search === ""
+  );
+}
+
+function clearExternalRequestFragment() {
+  try {
+    if (
+      window.location.hash ===
+      `#${DESKTOP_MANUAL_UPDATE_CHECK_REQUEST_FRAGMENT}`
+    ) {
+      window.history.replaceState(
+        null,
+        "",
+        `${window.location.pathname}${window.location.search}`,
+      );
+    }
+  } catch {
+    // A closed or partially initialized WebView is already unavailable.
+  }
+}
+
+function requestManualUpdateCheckFromExternalWeb(): Promise<DesktopManualUpdateCheckResult> {
+  return new Promise((resolve) => {
+    let settled = false;
+    let timeoutId: number | undefined;
+
+    const cleanup = () => {
+      try {
+        window.removeEventListener(
+          DESKTOP_MANUAL_UPDATE_CHECK_RESULT_EVENT,
+          handleResult,
+        );
+      } catch {
+        // The WebView may be closing while the request is settling.
+      }
+
+      if (timeoutId !== undefined) {
+        try {
+          window.clearTimeout(timeoutId);
+        } catch {
+          // The WebView may be closing while the request is settling.
+        }
+      }
+      clearExternalRequestFragment();
+    };
+
+    const settle = (result: DesktopManualUpdateCheckResult) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      cleanup();
+      resolve(result);
+    };
+
+    const handleResult = (event: Event) => {
+      settle(
+        normalizeExternalResult((event as CustomEvent<unknown>).detail),
+      );
+    };
+
+    try {
+      window.addEventListener(
+        DESKTOP_MANUAL_UPDATE_CHECK_RESULT_EVENT,
+        handleResult,
+      );
+      timeoutId = window.setTimeout(
+        () =>
+          settle({
+            kind: "command-error",
+            code: "command-unavailable",
+          }),
+        MANUAL_UPDATE_CHECK_TIMEOUT_MS,
+      );
+      window.location.hash = DESKTOP_MANUAL_UPDATE_CHECK_REQUEST_FRAGMENT;
+    } catch {
+      settle({
+        kind: "command-error",
+        code: "command-unavailable",
+      });
+    }
+  });
+}
+
 function hasTauriRuntime() {
   if (typeof window === "undefined") {
     return false;
@@ -247,7 +369,12 @@ function hasTauriRuntime() {
 }
 
 export function requestManualUpdateCheck(): Promise<DesktopManualUpdateCheckResult> {
-  if (!hasTauriRuntime()) {
+  if (typeof window === "undefined") {
+    return Promise.resolve({ kind: "unsupported-web" });
+  }
+
+  const nativeRuntime = hasTauriRuntime();
+  if (!nativeRuntime && !isExternalLoopbackPage()) {
     return Promise.resolve({ kind: "unsupported-web" });
   }
 
@@ -255,13 +382,16 @@ export function requestManualUpdateCheck(): Promise<DesktopManualUpdateCheckResu
     return manualUpdateCheckInFlight;
   }
 
-  const request = Promise.resolve()
-    .then(() => invoke<unknown>(MANUAL_UPDATE_CHECK_COMMAND))
-    .then(normalizeResponse, normalizeInvokeError)
-    .catch(() => ({
-      kind: "command-error" as const,
-      code: "command-unavailable" as const,
-    }));
+  const request = (
+    nativeRuntime
+      ? Promise.resolve()
+          .then(() => invoke<unknown>(MANUAL_UPDATE_CHECK_COMMAND))
+          .then(normalizeResponse, normalizeInvokeError)
+      : requestManualUpdateCheckFromExternalWeb()
+  ).catch(() => ({
+    kind: "command-error" as const,
+    code: "command-unavailable" as const,
+  }));
   manualUpdateCheckInFlight = request;
   request.then(() => {
     if (manualUpdateCheckInFlight === request) {
