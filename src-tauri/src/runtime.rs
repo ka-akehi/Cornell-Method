@@ -132,12 +132,12 @@ fn packaged_node_binary(root: &Path) -> AppResult<PathBuf> {
 }
 
 fn node_binary(_root: &Path) -> AppResult<PathBuf> {
-    if let Some(configured) = env::var_os("CORNELL_DESKTOP_NODE_BINARY") {
-        return Ok(PathBuf::from(configured));
-    }
-
     #[cfg(debug_assertions)]
     {
+        if let Some(configured) = env::var_os("CORNELL_DESKTOP_NODE_BINARY") {
+            return Ok(PathBuf::from(configured));
+        }
+
         Ok(PathBuf::from(PACKAGED_NODE_BINARY_NAME))
     }
 
@@ -626,6 +626,28 @@ mod tests {
         }
     }
 
+    struct EnvironmentVariableGuard {
+        key: &'static str,
+        previous: Option<std::ffi::OsString>,
+    }
+
+    impl EnvironmentVariableGuard {
+        fn set(key: &'static str, value: &Path) -> Self {
+            let previous = env::var_os(key);
+            env::set_var(key, value);
+            Self { key, previous }
+        }
+    }
+
+    impl Drop for EnvironmentVariableGuard {
+        fn drop(&mut self) {
+            match self.previous.as_ref() {
+                Some(value) => env::set_var(self.key, value),
+                None => env::remove_var(self.key),
+            }
+        }
+    }
+
     #[test]
     fn sidecar_database_url_must_be_absolute() {
         assert!(database_url_path("file:/tmp/notebook.sqlite").is_ok());
@@ -704,5 +726,33 @@ mod tests {
         }
 
         assert_eq!(packaged_node_binary(directory.path()).unwrap(), node_path);
+    }
+
+    #[cfg(debug_assertions)]
+    #[test]
+    fn debug_node_binary_honors_the_environment_override() {
+        let directory = TestDirectory::new();
+        let configured = directory.path().join("external-node");
+        let _environment =
+            EnvironmentVariableGuard::set("CORNELL_DESKTOP_NODE_BINARY", &configured);
+
+        assert_eq!(node_binary(directory.path()).unwrap(), configured);
+    }
+
+    #[cfg(not(debug_assertions))]
+    #[test]
+    fn release_node_binary_ignores_the_environment_override() {
+        let directory = TestDirectory::new();
+        let node_path = directory.path().join(PACKAGED_NODE_BINARY_NAME);
+        let configured = directory.path().join("external-node");
+        fs::write(&node_path, b"node").expect("create packaged node file");
+        #[cfg(unix)]
+        fs::set_permissions(&node_path, fs::Permissions::from_mode(0o755))
+            .expect("make packaged node executable");
+
+        let _environment =
+            EnvironmentVariableGuard::set("CORNELL_DESKTOP_NODE_BINARY", &configured);
+
+        assert_eq!(node_binary(directory.path()).unwrap(), node_path);
     }
 }

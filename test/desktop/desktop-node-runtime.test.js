@@ -102,16 +102,41 @@ test("copied build Node keeps executable permissions and launches with an empty 
   }
 });
 
-test("release runtime resolves node only from the packaged resource root", () => {
+test("runtime keeps the debug override separate from release packaged-node selection", () => {
   const runtime = fs.readFileSync(
     path.join(projectRoot, "src-tauri", "src", "runtime.rs"),
     "utf8",
   );
+  const nodeBinaryStart = runtime.indexOf("fn node_binary");
+  const launcherStart = runtime.indexOf("fn launcher_path", nodeBinaryStart);
+  assert.notEqual(nodeBinaryStart, -1);
+  assert.notEqual(launcherStart, -1);
+
+  const nodeBinary = runtime.slice(nodeBinaryStart, launcherStart);
+  const debugBranchStart = nodeBinary.indexOf("#[cfg(debug_assertions)]");
+  const releaseBranchStart = nodeBinary.indexOf(
+    "#[cfg(not(debug_assertions))]",
+  );
+  const overrideReference = nodeBinary.indexOf(
+    'env::var_os("CORNELL_DESKTOP_NODE_BINARY")',
+  );
+  assert.notEqual(debugBranchStart, -1);
+  assert.notEqual(releaseBranchStart, -1);
+  assert.ok(
+    debugBranchStart < overrideReference &&
+      overrideReference < releaseBranchStart,
+    "the Node binary environment override must be debug-only",
+  );
+
+  const debugBranch = nodeBinary.slice(debugBranchStart, releaseBranchStart);
+  const releaseBranch = nodeBinary.slice(releaseBranchStart);
+  assert.match(debugBranch, /Ok\(PathBuf::from\(PACKAGED_NODE_BINARY_NAME\)\)/);
+  assert.match(releaseBranch, /packaged_node_binary\(_root\)/);
+  assert.doesNotMatch(releaseBranch, /CORNELL_DESKTOP_NODE_BINARY/);
 
   assert.match(runtime, /root\.join\(PACKAGED_NODE_BINARY_NAME\)/);
   assert.match(runtime, /metadata\.is_file\(\)/);
   assert.match(runtime, /permissions\(\)\.mode\(\) & 0o111/);
-  assert.match(runtime, /#\[cfg\(not\(debug_assertions\)\)\]/);
   assert.equal((runtime.match(/Command::new\(&node\)/g) ?? []).length, 2);
   assert.doesNotMatch(runtime, /unwrap_or_else\(\|_\| "node"/);
 });
