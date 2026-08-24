@@ -32,10 +32,17 @@ pub(crate) enum ArchiveExtractionError {
     ArchiveSymlink,
     ArchiveSpecialFile,
     ArchivePermission,
+    ArchiveTree,
     StagingPath,
     StagingRead,
     StagingWrite,
     StagingRename,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum SafeSymlinkPathError {
+    InvalidTarget,
+    EscapesRoot,
 }
 
 impl ArchiveExtractionError {
@@ -51,6 +58,7 @@ impl ArchiveExtractionError {
             Self::ArchiveSymlink => "archive-symlink",
             Self::ArchiveSpecialFile => "archive-special-file",
             Self::ArchivePermission => "archive-permission",
+            Self::ArchiveTree => "archive-tree",
             Self::StagingPath => "staging-path",
             Self::StagingRead => "staging-read",
             Self::StagingWrite => "staging-write",
@@ -459,6 +467,56 @@ pub(crate) fn revalidate_verified_archive(
         .map_err(map_package_verification_error)
 }
 
+pub(crate) fn revalidate_extracted_archive_tree(
+    verified_archive: &VerifiedArchiveHandle,
+    extracted_archive: &ExtractedArchive,
+    staging_root: &Path,
+) -> Result<(), ArchiveExtractionError> {
+    // The package is checked before and after the tree comparison so a package
+    // replacement or in-place mutation cannot silently change the comparison
+    // source while apply preparation is being assembled.
+    revalidate_verified_archive(verified_archive, staging_root)?;
+
+    let digest = validate_digest(&extracted_archive.raw_sha256)?;
+    if extracted_archive.artifact_id != verified_archive.archive.artifact_id
+        || extracted_archive.raw_sha256 != verified_archive.archive.raw_sha256
+        || extracted_archive.version != verified_archive.archive.version
+        || extracted_archive.architecture != verified_archive.archive.architecture
+        || extracted_archive.relative_app_path
+            != PathBuf::from("extract").join(&digest).join(ROOT_NAME)
+    {
+        return Err(ArchiveExtractionError::ArchiveTree);
+    }
+
+    let extract_directory = staging_root.join("extract");
+    let extract_metadata = fs::symlink_metadata(&extract_directory)
+        .map_err(|_| ArchiveExtractionError::StagingRead)?;
+    if extract_metadata.file_type().is_symlink() || !extract_metadata.is_dir() {
+        return Err(ArchiveExtractionError::StagingPath);
+    }
+    let tree_root = extract_directory.join(&digest);
+    let tree_metadata = fs::symlink_metadata(&tree_root).map_err(|error| {
+        if error.kind() == io::ErrorKind::NotFound {
+            ArchiveExtractionError::ArchiveTree
+        } else {
+            ArchiveExtractionError::StagingRead
+        }
+    })?;
+    if tree_metadata.file_type().is_symlink() || !tree_metadata.is_dir() {
+        return Err(ArchiveExtractionError::ArchiveTree);
+    }
+
+    let preflight_file = verified_archive
+        .package_file
+        .try_clone()
+        .map_err(|_| ArchiveExtractionError::StagingRead)?;
+    let (specs, package_file) = preflight_archive(preflight_file)?;
+    compare_extracted_tree_shape(&tree_root, &specs)?;
+    compare_archive_to_extracted_tree(package_file, &specs, &tree_root)?;
+    compare_extracted_tree_shape(&tree_root, &specs)?;
+    revalidate_verified_archive(verified_archive, staging_root)
+}
+
 pub(crate) fn revalidate_verified_archive_path(
     verified_archive: &VerifiedArchiveHandle,
     staging_root: &Path,
@@ -492,6 +550,209 @@ fn map_package_verification_error(error: PackageDownloadError) -> ArchiveExtract
         | PackageDownloadError::SignatureKey
         | PackageDownloadError::SignatureProof => ArchiveExtractionError::ArchiveTar,
     }
+}
+
+fn compare_extracted_tree_shape(
+    tree_root: &Path,
+    expected_specs: &[ArchiveEntrySpec],
+) -> Result<(), ArchiveExtractionError> {
+    let expected_paths = expected_specs
+        .iter()
+        .map(|spec| spec.path.clone())
+        .collect::<HashSet<_>>();
+    let mut actual_paths = HashSet::with_capacity(expected_paths.len());
+    collect_extracted_tree_paths(tree_root, "", &expected_paths, &mut actual_paths)?;
+    if actual_paths != expected_paths {
+        return Err(ArchiveExtractionError::ArchiveTree);
+    }
+
+    for spec in expected_specs {
+        let path = archive_path_to_filesystem(tree_root, &spec.path);
+        let metadata = fs::symlink_metadata(&path).map_err(|error| {
+            if error.kind() == io::ErrorKind::NotFound {
+                ArchiveExtractionError::ArchiveTree
+            } else {
+                ArchiveExtractionError::StagingRead
+            }
+        })?;
+        let file_type = metadata.file_type();
+        match spec.kind {
+            MaterialKind::Directory => {
+                if file_type.is_symlink() || !file_type.is_dir() {
+                    return Err(ArchiveExtractionError::ArchiveTree);
+                }
+                validate_extracted_mode(&metadata, spec)?;
+            }
+            MaterialKind::Regular => {
+                if file_type.is_symlink() || !file_type.is_file() {
+                    return Err(ArchiveExtractionError::ArchiveTree);
+                }
+                if metadata.len() != spec.size {
+                    return Err(ArchiveExtractionError::ArchiveTree);
+                }
+                validate_extracted_mode(&metadata, spec)?;
+            }
+            MaterialKind::Symlink => {
+                if !file_type.is_symlink() {
+                    return Err(ArchiveExtractionError::ArchiveTree);
+                }
+                let actual_target =
+                    fs::read_link(&path).map_err(|_| ArchiveExtractionError::StagingRead)?;
+                let actual_target = actual_target
+                    .to_str()
+                    .ok_or(ArchiveExtractionError::ArchiveTree)?;
+                if spec.link_target.as_deref() != Some(actual_target) {
+                    return Err(ArchiveExtractionError::ArchiveTree);
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+fn collect_extracted_tree_paths(
+    directory: &Path,
+    relative_directory: &str,
+    expected_paths: &HashSet<String>,
+    actual_paths: &mut HashSet<String>,
+) -> Result<(), ArchiveExtractionError> {
+    let entries = fs::read_dir(directory).map_err(|_| ArchiveExtractionError::StagingRead)?;
+    for entry in entries {
+        let entry = entry.map_err(|_| ArchiveExtractionError::StagingRead)?;
+        let name = entry
+            .file_name()
+            .into_string()
+            .map_err(|_| ArchiveExtractionError::ArchiveTree)?;
+        let relative_path = if relative_directory.is_empty() {
+            name
+        } else {
+            format!("{relative_directory}/{name}")
+        };
+        if !expected_paths.contains(&relative_path) || !actual_paths.insert(relative_path.clone()) {
+            return Err(ArchiveExtractionError::ArchiveTree);
+        }
+
+        let path = entry.path();
+        let metadata =
+            fs::symlink_metadata(&path).map_err(|_| ArchiveExtractionError::StagingRead)?;
+        if metadata.file_type().is_dir() {
+            collect_extracted_tree_paths(&path, &relative_path, expected_paths, actual_paths)?;
+        } else if !metadata.file_type().is_file() && !metadata.file_type().is_symlink() {
+            return Err(ArchiveExtractionError::ArchiveTree);
+        }
+    }
+    Ok(())
+}
+
+fn validate_extracted_mode(
+    metadata: &fs::Metadata,
+    spec: &ArchiveEntrySpec,
+) -> Result<(), ArchiveExtractionError> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+
+        let expected_mode = match spec.kind {
+            MaterialKind::Directory => 0o700,
+            MaterialKind::Regular if spec.mode & 0o100 != 0 => 0o700,
+            MaterialKind::Regular => 0o600,
+            MaterialKind::Symlink => return Ok(()),
+        };
+        if metadata.permissions().mode() & 0o7777 != expected_mode {
+            return Err(ArchiveExtractionError::ArchiveTree);
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = (metadata, spec);
+    }
+    Ok(())
+}
+
+fn compare_archive_to_extracted_tree(
+    package_file: File,
+    expected_specs: &[ArchiveEntrySpec],
+    tree_root: &Path,
+) -> Result<(), ArchiveExtractionError> {
+    let reader = LimitedArchiveReader::new(package_file)?;
+    let mut archive = Archive::new(reader);
+    let mut entry_index = 0_usize;
+    {
+        let mut entries = archive.entries().map_err(|error| map_tar_error(&error))?;
+        for result in &mut entries {
+            let mut entry = result.map_err(|error| map_tar_error(&error))?;
+            let observed = inspect_entry(&mut entry)?;
+            let expected = expected_specs
+                .get(entry_index)
+                .ok_or(ArchiveExtractionError::ArchiveTar)?;
+            if &observed != expected {
+                return Err(ArchiveExtractionError::ArchiveTar);
+            }
+            if observed.kind == MaterialKind::Regular {
+                let path = archive_path_to_filesystem(tree_root, &observed.path);
+                compare_regular_entry(&mut entry, observed.size, &path)?;
+            }
+            entry_index += 1;
+        }
+    }
+
+    if entry_index != expected_specs.len() {
+        return Err(ArchiveExtractionError::ArchiveTar);
+    }
+    let mut reader = archive.into_inner();
+    finish_tar_stream(&mut reader)?;
+    let _ = reader.finish_file()?;
+    Ok(())
+}
+
+fn compare_regular_entry(
+    entry: &mut tar::Entry<'_, LimitedArchiveReader>,
+    expected_size: u64,
+    path: &Path,
+) -> Result<(), ArchiveExtractionError> {
+    let mut file = open_read_only_no_follow(path)?;
+    let mut archive_buffer = [0_u8; IO_BUFFER_BYTES];
+    let mut file_buffer = [0_u8; IO_BUFFER_BYTES];
+    let mut actual_size = 0_u64;
+
+    loop {
+        let bytes_read = entry
+            .read(&mut archive_buffer)
+            .map_err(|error| map_archive_reader_error(&error))?;
+        if bytes_read == 0 {
+            break;
+        }
+        let mut offset = 0_usize;
+        while offset < bytes_read {
+            let chunk_size = (bytes_read - offset).min(file_buffer.len());
+            let file_bytes_read = file
+                .read(&mut file_buffer[..chunk_size])
+                .map_err(|_| ArchiveExtractionError::StagingRead)?;
+            if file_bytes_read == 0
+                || file_buffer[..file_bytes_read]
+                    != archive_buffer[offset..offset + file_bytes_read]
+            {
+                return Err(ArchiveExtractionError::ArchiveTree);
+            }
+            offset += file_bytes_read;
+            actual_size = actual_size
+                .checked_add(file_bytes_read as u64)
+                .ok_or(ArchiveExtractionError::ArchiveTree)?;
+        }
+    }
+
+    if actual_size != expected_size {
+        return Err(ArchiveExtractionError::ArchiveTar);
+    }
+    let mut extra_byte = [0_u8; 1];
+    if file
+        .read(&mut extra_byte)
+        .map_err(|_| ArchiveExtractionError::StagingRead)?
+        != 0
+    {
+        return Err(ArchiveExtractionError::ArchiveTree);
+    }
+    Ok(())
 }
 
 fn same_file_identity(left: &File, right: &File) -> bool {
@@ -874,20 +1135,36 @@ fn resolve_relative_target(
     link_path: &str,
     target: &str,
 ) -> Result<String, ArchiveExtractionError> {
+    resolve_relative_symlink_path(link_path, target, ROOT_NAME)
+        .map_err(|_| ArchiveExtractionError::ArchiveSymlink)
+}
+
+pub(crate) fn resolve_relative_symlink_path(
+    link_path: &str,
+    target: &str,
+    root_name: &str,
+) -> Result<String, SafeSymlinkPathError> {
+    let target = normalize_relative_symlink_target(target)?;
     let mut components = split_path(link_path);
+    if components.len() < 2
+        || components.first().copied() != Some(root_name)
+        || components.iter().any(|component| component.is_empty())
+    {
+        return Err(SafeSymlinkPathError::InvalidTarget);
+    }
     components.pop();
     for component in target.split('/') {
         if component == ".." {
             if components.len() <= 1 {
-                return Err(ArchiveExtractionError::ArchiveSymlink);
+                return Err(SafeSymlinkPathError::EscapesRoot);
             }
             components.pop();
         } else {
             components.push(component);
         }
     }
-    if components.first().copied() != Some(ROOT_NAME) {
-        return Err(ArchiveExtractionError::ArchiveSymlink);
+    if components.first().copied() != Some(root_name) {
+        return Err(SafeSymlinkPathError::EscapesRoot);
     }
     Ok(components.join("/"))
 }
@@ -913,27 +1190,33 @@ fn normalize_archive_path(bytes: &[u8]) -> Result<(String, bool), ArchiveExtract
 }
 
 fn normalize_symlink_target(bytes: &[u8]) -> Result<String, ArchiveExtractionError> {
-    validate_path_bytes(bytes).map_err(|_| ArchiveExtractionError::ArchiveSymlink)?;
-    if bytes.first() == Some(&b'/') {
-        return Err(ArchiveExtractionError::ArchiveSymlink);
+    let text = std::str::from_utf8(bytes).map_err(|_| ArchiveExtractionError::ArchiveSymlink)?;
+    normalize_relative_symlink_target(text).map_err(|_| ArchiveExtractionError::ArchiveSymlink)
+}
+
+pub(crate) fn normalize_relative_symlink_target(
+    target: &str,
+) -> Result<String, SafeSymlinkPathError> {
+    let bytes = target.as_bytes();
+    if bytes.is_empty()
+        || bytes.len() > MAX_PATH_BYTES
+        || bytes
+            .iter()
+            .any(|byte| *byte == b'\\' || *byte == 0 || *byte < 0x20 || *byte == 0x7f)
+        || bytes.first() == Some(&b'/')
+        || target.chars().any(char::is_control)
+    {
+        return Err(SafeSymlinkPathError::InvalidTarget);
     }
-    let had_trailing_slash = bytes.last() == Some(&b'/');
-    let end = if had_trailing_slash {
-        bytes.len() - 1
-    } else {
-        bytes.len()
-    };
-    let text =
-        std::str::from_utf8(&bytes[..end]).map_err(|_| ArchiveExtractionError::ArchiveSymlink)?;
-    let components: Vec<&str> = text.split('/').collect();
+    let components: Vec<&str> = target.split('/').collect();
     if components.is_empty()
         || components
             .iter()
             .any(|component| component.is_empty() || *component == ".")
     {
-        return Err(ArchiveExtractionError::ArchiveSymlink);
+        return Err(SafeSymlinkPathError::InvalidTarget);
     }
-    Ok(text.to_owned())
+    Ok(target.to_owned())
 }
 
 fn validate_path_bytes(bytes: &[u8]) -> Result<(), ArchiveExtractionError> {
@@ -1510,6 +1793,88 @@ mod tests {
         assert_error(
             extract_verified_archive(&traversal_archive, &root.path),
             "archive-path",
+        );
+    }
+
+    #[test]
+    fn revalidates_the_complete_extracted_tree_and_preserves_internal_symlinks() {
+        let root = TestRoot::new();
+        let bytes = valid_archive();
+        let verified_archive = verified(&root.path, &bytes);
+        let extracted = extract_verified_archive(&verified_archive, &root.path).expect("extract");
+
+        revalidate_extracted_archive_tree(&verified_archive, &extracted, &root.path)
+            .expect("unchanged extracted tree");
+
+        let app_path = root.path.join(&extracted.relative_app_path);
+        assert!(app_path.join("Contents/current").is_symlink());
+        fs::write(
+            app_path.join("Contents/MacOS/notebook"),
+            b"mutated runtime bytes",
+        )
+        .expect("mutate runtime");
+        assert_eq!(
+            revalidate_extracted_archive_tree(&verified_archive, &extracted, &root.path),
+            Err(ArchiveExtractionError::ArchiveTree)
+        );
+
+        let root = TestRoot::new();
+        let verified_archive = verified(&root.path, &bytes);
+        let extracted = extract_verified_archive(&verified_archive, &root.path).expect("extract");
+        fs::write(
+            root.path
+                .join(&extracted.relative_app_path)
+                .join("Contents/Info.plist"),
+            b"mutated configuration bytes",
+        )
+        .expect("mutate configuration");
+        assert_eq!(
+            revalidate_extracted_archive_tree(&verified_archive, &extracted, &root.path),
+            Err(ArchiveExtractionError::ArchiveTree)
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn rejects_extracted_tree_mode_extra_entry_and_symlink_mutations() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let root = TestRoot::new();
+        let bytes = valid_archive();
+        let verified_archive = verified(&root.path, &bytes);
+        let extracted = extract_verified_archive(&verified_archive, &root.path).expect("extract");
+        let app_path = root.path.join(&extracted.relative_app_path);
+
+        fs::set_permissions(
+            app_path.join("Contents/Info.plist"),
+            fs::Permissions::from_mode(0o700),
+        )
+        .expect("mutate mode");
+        assert_eq!(
+            revalidate_extracted_archive_tree(&verified_archive, &extracted, &root.path),
+            Err(ArchiveExtractionError::ArchiveTree)
+        );
+
+        let root = TestRoot::new();
+        let verified_archive = verified(&root.path, &bytes);
+        let extracted = extract_verified_archive(&verified_archive, &root.path).expect("extract");
+        let app_path = root.path.join(&extracted.relative_app_path);
+        fs::write(app_path.join("Contents/unexpected"), b"extra").expect("extra entry");
+        assert_eq!(
+            revalidate_extracted_archive_tree(&verified_archive, &extracted, &root.path),
+            Err(ArchiveExtractionError::ArchiveTree)
+        );
+
+        let root = TestRoot::new();
+        let verified_archive = verified(&root.path, &bytes);
+        let extracted = extract_verified_archive(&verified_archive, &root.path).expect("extract");
+        let app_path = root.path.join(&extracted.relative_app_path);
+        fs::remove_file(app_path.join("Contents/current")).expect("remove link");
+        std::os::unix::fs::symlink("MacOS/notebook", app_path.join("Contents/current"))
+            .expect("wrong link");
+        assert_eq!(
+            revalidate_extracted_archive_tree(&verified_archive, &extracted, &root.path),
+            Err(ArchiveExtractionError::ArchiveTree)
         );
     }
 

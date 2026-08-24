@@ -4,7 +4,7 @@ use std::env;
 use std::fs;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpStream;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::mpsc;
 use std::thread;
@@ -21,6 +21,11 @@ const PACKAGED_NODE_BINARY_NAME: &str = "node";
 const SIDECAR_HEALTH_PATH: &str = "/api/desktop/health";
 const SIDECAR_HEALTH_KIND: &str = "cornell-desktop-health";
 const MAX_HEALTH_RESPONSE_BYTES: usize = 8 * 1024;
+const STAGED_MIGRATION_FAILURE_CODE: &str = "staged-migration-failed";
+const PACKAGED_APP_BUNDLE_NAME: &str = "Cornell Method Notebook.app";
+const PACKAGED_CONTENTS_DIRECTORY_NAME: &str = "Contents";
+const PACKAGED_RESOURCES_DIRECTORY_NAME: &str = "Resources";
+const PACKAGED_RUNTIME_DIRECTORY_NAME: &str = "runtime";
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -38,6 +43,22 @@ struct BootstrapMessage {
     reason: Option<String>,
 }
 
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct StagedMigrationMessage {
+    kind: String,
+    status: String,
+    code: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct DatabaseValidationMessage {
+    kind: String,
+    status: String,
+    reason: Option<String>,
+}
+
 #[derive(Clone, Debug)]
 pub(crate) struct StorageLayout {
     application_support_root: PathBuf,
@@ -51,12 +72,32 @@ pub(crate) struct StorageLayout {
 }
 
 impl StorageLayout {
+    pub(crate) fn application_support_root(&self) -> &Path {
+        &self.application_support_root
+    }
+
     pub(crate) fn settings_directory(&self) -> &Path {
         &self.settings_directory
     }
 
     pub(crate) fn staging_directory(&self) -> PathBuf {
         self.application_support_root.join("staging")
+    }
+
+    pub(crate) fn live_directory(&self) -> &Path {
+        &self.live_directory
+    }
+
+    pub(crate) fn database_path(&self) -> &Path {
+        &self.database_path
+    }
+
+    pub(crate) fn backups_directory(&self) -> &Path {
+        &self.backups_directory
+    }
+
+    pub(crate) fn database_url(&self) -> &str {
+        &self.database_url
     }
 }
 
@@ -105,6 +146,26 @@ pub(crate) fn runtime_project_root(app: &AppHandle) -> AppResult<PathBuf> {
         .resource_dir()
         .map(|path| path.join("runtime"))
         .map_err(|error| format!("cannot resolve packaged runtime resources: {error}"))
+}
+
+pub(crate) fn packaged_runtime_root(bundle_root: &Path) -> AppResult<PathBuf> {
+    if !bundle_root.is_absolute()
+        || bundle_root
+            .components()
+            .any(|component| matches!(component, Component::ParentDir))
+    {
+        return Err(
+            "packaged app bundle root must be an absolute path without parent traversal"
+                .to_string(),
+        );
+    }
+    if bundle_root.file_name() != Some(std::ffi::OsStr::new(PACKAGED_APP_BUNDLE_NAME)) {
+        return Err("packaged app bundle root has an unexpected name".to_string());
+    }
+    Ok(bundle_root
+        .join(PACKAGED_CONTENTS_DIRECTORY_NAME)
+        .join(PACKAGED_RESOURCES_DIRECTORY_NAME)
+        .join(PACKAGED_RUNTIME_DIRECTORY_NAME))
 }
 
 fn packaged_node_binary(root: &Path) -> AppResult<PathBuf> {
@@ -206,47 +267,48 @@ fn database_url_path(database_url: &str) -> AppResult<PathBuf> {
 }
 
 pub(crate) fn run_bootstrap(root: &Path) -> AppResult<StorageLayout> {
+    let storage = resolve_storage_layout(root)?;
+    run_bootstrap_with_storage(root, &storage)
+}
+
+fn launcher_command(
+    root: &Path,
+    command_name: &str,
+    storage: Option<&StorageLayout>,
+) -> AppResult<Command> {
     let launcher = launcher_path(root)?;
     let node = node_binary(root)?;
-    let output = Command::new(&node)
+    let mut command = Command::new(&node);
+    command
         .arg(&launcher)
-        .arg("bootstrap")
+        .arg(command_name)
         .current_dir(root)
         .env("CORNELL_DESKTOP_PROJECT_ROOT", root)
         .env(
             "CORNELL_DESKTOP_APPLICATION_ID",
             instance::desktop_application_id(),
         )
-        .env("PRISMA_PROVIDER", "sqlite")
+        .env("PRISMA_PROVIDER", "sqlite");
+    if let Some(storage) = storage {
+        command.env(
+            "CORNELL_DESKTOP_APPLICATION_SUPPORT_ROOT",
+            storage.application_support_root(),
+        );
+    }
+    Ok(command)
+}
+
+fn launch_command(
+    root: &Path,
+    command_name: &str,
+    storage: Option<&StorageLayout>,
+) -> AppResult<std::process::Output> {
+    launcher_command(root, command_name, storage)?
         .output()
-        .map_err(|error| format!("desktop storage bootstrap process could not start: {error}"))?;
-    let message = parse_bootstrap_message(&output.stdout).ok();
+        .map_err(|error| format!("desktop launcher process could not start: {error}"))
+}
 
-    if let Some(message) = message.as_ref() {
-        if message.kind != "bootstrap" {
-            return Err("desktop storage bootstrap returned an unknown message".to_string());
-        }
-        if message.status != "ready" {
-            return Err(format!(
-                "desktop storage is {} ({}); startup stopped without migration or repair",
-                message.status,
-                message.reason.as_deref().unwrap_or("no reason")
-            ));
-        }
-    }
-
-    if !output.status.success() {
-        return Err(format!(
-            "desktop storage bootstrap failed with status {}",
-            output
-                .status
-                .code()
-                .map_or_else(|| "unknown".to_string(), |code| code.to_string())
-        ));
-    }
-
-    let message =
-        message.ok_or_else(|| "desktop storage bootstrap did not return a result".to_string())?;
+fn storage_layout_from_message(message: BootstrapMessage) -> AppResult<StorageLayout> {
     let database_url = message
         .database_url
         .ok_or_else(|| "desktop storage bootstrap omitted databaseUrl".to_string())?;
@@ -273,7 +335,138 @@ pub(crate) fn run_bootstrap(root: &Path) -> AppResult<StorageLayout> {
     if layout.database_path != database_path {
         return Err("desktop storage databaseUrl does not match databasePath".to_string());
     }
+    let expected_live = layout.application_support_root.join("live");
+    let expected_database = expected_live.join("notebook.sqlite");
+    let expected_backups = layout.application_support_root.join("backups");
+    let expected_settings = layout.application_support_root.join("settings");
+    let expected_logs = layout.application_support_root.join("logs");
+    let expected_pending_restore = layout.application_support_root.join("pending-restore");
+    if layout.live_directory != expected_live
+        || layout.database_path != expected_database
+        || layout.backups_directory != expected_backups
+        || layout.settings_directory != expected_settings
+        || layout.logs_directory != expected_logs
+        || layout.pending_restore_directory != expected_pending_restore
+    {
+        return Err(
+            "desktop storage paths are outside the approved Application Support layout".to_string(),
+        );
+    }
     Ok(layout)
+}
+
+pub(crate) fn resolve_storage_layout(root: &Path) -> AppResult<StorageLayout> {
+    let output = launch_command(root, "paths", None)?;
+    let message = parse_bootstrap_message(&output.stdout)?;
+    if message.kind != "storage-paths" || message.status != "paths" {
+        return Err("desktop storage path resolver returned an invalid result".to_string());
+    }
+    if !output.status.success() {
+        return Err("desktop storage path resolver failed".to_string());
+    }
+    storage_layout_from_message(message)
+}
+
+pub(crate) fn run_bootstrap_with_storage(
+    root: &Path,
+    storage: &StorageLayout,
+) -> AppResult<StorageLayout> {
+    let output = launch_command(root, "bootstrap", Some(storage))?;
+    let message = parse_bootstrap_message(&output.stdout).ok();
+
+    if let Some(message) = message.as_ref() {
+        if message.kind != "bootstrap" {
+            return Err("desktop storage bootstrap returned an unknown message".to_string());
+        }
+        if message.status != "ready" {
+            return Err(format!(
+                "desktop storage is {} ({}); startup stopped without migration or repair",
+                message.status,
+                message.reason.as_deref().unwrap_or("no reason")
+            ));
+        }
+    }
+
+    if !output.status.success() {
+        return Err(format!(
+            "desktop storage bootstrap failed with status {}",
+            output
+                .status
+                .code()
+                .map_or_else(|| "unknown".to_string(), |code| code.to_string())
+        ));
+    }
+    let message =
+        message.ok_or_else(|| "desktop storage bootstrap did not return a result".to_string())?;
+    let returned = storage_layout_from_message(message)?;
+    if returned.application_support_root != storage.application_support_root
+        || returned.database_path != storage.database_path
+        || returned.settings_directory != storage.settings_directory
+    {
+        return Err("desktop storage bootstrap changed the resolved layout".to_string());
+    }
+    Ok(storage.clone())
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum StagedMigrationOutcome {
+    NoPending,
+    Switched,
+    Failed { code: String },
+}
+
+pub(crate) fn run_staged_migration_command(
+    root: &Path,
+    storage: &StorageLayout,
+) -> AppResult<StagedMigrationOutcome> {
+    let output = launch_command(root, "staged-migrate", Some(storage))?;
+    let message = parse_staged_migration_message(&output.stdout)?;
+    if message.kind != "staged-migration" {
+        return Err("staged migration returned an unknown message".to_string());
+    }
+    if message.status == "failed" || !output.status.success() {
+        return Ok(StagedMigrationOutcome::Failed {
+            code: message
+                .code
+                .unwrap_or_else(|| STAGED_MIGRATION_FAILURE_CODE.to_string()),
+        });
+    }
+    match message.status.as_str() {
+        "no-pending" => Ok(StagedMigrationOutcome::NoPending),
+        "switched" => Ok(StagedMigrationOutcome::Switched),
+        _ => Err("staged migration returned an invalid status".to_string()),
+    }
+}
+
+pub(crate) fn validate_database_command(root: &Path, storage: &StorageLayout) -> AppResult<()> {
+    let output = launch_command(root, "validate-database", Some(storage))?;
+    let message = parse_database_validation_message(&output.stdout)?;
+    if message.kind != "database-validation" {
+        return Err("database validation returned an unknown message".to_string());
+    }
+    if message.status != "ready" || !output.status.success() {
+        return Err(format!(
+            "database validation failed: {}",
+            message.reason.as_deref().unwrap_or("unknown reason")
+        ));
+    }
+    Ok(())
+}
+
+fn parse_staged_migration_message(output: &[u8]) -> AppResult<StagedMigrationMessage> {
+    String::from_utf8_lossy(output)
+        .lines()
+        .rev()
+        .find_map(|line| serde_json::from_str::<StagedMigrationMessage>(line).ok())
+        .ok_or_else(|| "staged migration did not return a result".to_string())
+}
+
+fn parse_database_validation_message(output: &[u8]) -> AppResult<DatabaseValidationMessage> {
+    String::from_utf8_lossy(output)
+        .lines()
+        .rev()
+        .find_map(|line| serde_json::from_str::<DatabaseValidationMessage>(line).ok())
+        .ok_or_else(|| "database validation did not return a result".to_string())
 }
 
 fn validate_ready_message(message: &ReadyMessage) -> AppResult<tauri::Url> {
@@ -469,11 +662,17 @@ pub(crate) fn start_sidecar(root: &Path, storage: &StorageLayout) -> AppResult<S
             "CORNELL_DESKTOP_PENDING_RESTORE_DIRECTORY",
             &storage.pending_restore_directory,
         )
+        .env(
+            "CORNELL_DESKTOP_APPLICATION_SUPPORT_ROOT",
+            storage.application_support_root(),
+        )
         .env("DATABASE_URL", &storage.database_url)
         .env("PRISMA_PROVIDER", "sqlite")
         .env("NODE_ENV", "production")
         .stdout(Stdio::piped())
         .stderr(Stdio::null());
+    #[cfg(debug_assertions)]
+    command.env("CORNELL_DESKTOP_ALLOW_RUNTIME_OVERRIDE", "1");
     #[cfg(unix)]
     command.process_group(0);
 

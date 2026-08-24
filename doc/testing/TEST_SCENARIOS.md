@@ -1,6 +1,6 @@
 # MVP テストシナリオ（1 項目 1 チェック）
 
-更新日: 2026-08-22
+更新日: 2026-08-24
 
 ## 位置づけ
 
@@ -657,7 +657,7 @@ Postgres target へ接続せず、現行 MVP schema の isolated frozen SQLite f
 
 | ID | 対象シナリオ | route と画面状態 | viewport / 実行形態 | 確認日 | fixture / 検証用データの扱い | 判定 | 参照 summary / 根拠ファイル |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| MVP-GATE0-MANUAL-20260811 | 現行 MVP の人力結合テスト。テスト中の問題修正と修正後の再確認を含む | `/notes`、`/notes/new`、`/notes/[id]`、`/backup`。明示保存、閲覧・編集・復習、検索、確認付き物理削除、手動 SQLite backup | 発注者実施の人力結合テスト | 2026-08-11 | テスト中に見つかった問題を修正し、修正後に再確認したうえで完了と判断。追加の Browser / DB / E2E / Postgres / build / Prisma 証跡は Gate 0 の条件にしない | PASS（Gate 0 最終判定完了） | 発注者報告、`HANDOFF_2026-08-08.md`、本節「現行 MVP Gate 0 の最終判定」、`doc/implementation/MVP_CONTRACT.md` §1 |
+| MVP-GATE0-MANUAL-20260811 | 現行 MVP の人力結合テスト。テスト中の問題修正と修正後の再確認を含む | `/notes`、`/notes/new`、`/notes/[id]`、`/backup`。明示保存、閲覧・編集・復習、検索、確認付き物理削除、手動 SQLite backup | 発注者実施の人力結合テスト | 2026-08-11 | テスト中に見つかった問題を修正し、修正後に再確認したうえで完了と判断。追加の Browser / DB / E2E / Postgres / build / Prisma 証跡は Gate 0 の条件にしない | PASS（Gate 0 最終判定完了） | 発注者報告、本節「現行 MVP Gate 0 の最終判定」、`doc/implementation/MVP_CONTRACT.md` §1、現行状態の照合として `HANDOFF_2026-08-22.md` |
 | MVP-UI-001 | 主要 UI フロー（redirect、一覧、作成、タグ、編集保存、復習、検索、削除、バックアップ） | `/` → `/notes`（redirect / 一覧）、`/notes/new`（作成）、`/notes/[id]`（閲覧・編集・復習・削除）、`/backup`（一覧・作成） | Playwright Chromium runtime。viewport は summary に記録なし | 2026-07-05 | UI 検証用の一時ノート、既存タグ候補、新規タグを作成。API / SQLite cleanup 後に query `UI検証` の `totalCount=0`、一時タグ 0 件を確認 | PASS | `summary/20260705/mvp-ui-flow-reverification-report.md` |
 | MVP-API-001 | Notes CRUD、review、一覧検索、タグ、validation、not found、backup API | `/api/notes`、`/api/notes/:id`、`/api/notes/:id/review`、`/api/tags`、`/api/backups` | API / CLI runtime（`127.0.0.1:3000`）。viewport は対象外 | 2026-07-05 | `dev.db` に API 検証用ノート / タグを作成し、API 削除と SQLite cleanup。検証タグ 0 件を確認。backup 最新 3 世代は検証結果として保持 | PASS | `summary/20260705/manager-mvp-api-crud-validation-backup-reverification-report.md` |
 | MVP-MD-001 | GFM checkbox、編集画面 Markdown Preview checkbox の表示専用挙動、閲覧 / 復習時の Markdown sanitize（詳細 Summary checkbox の操作は対象外） | `/notes/new`（編集 Preview）、`/notes/[id]`（閲覧・復習） | Playwright Chromium runtime。viewport は summary に記録なし | 2026-07-05 | `MD検証` 接頭辞の一時ノートに危険な Markdown と checkbox を入力。確認後に API cleanup し残存 0 件を確認 | PASS | `summary/20260705/manager-markdown-sanitize-checkbox-verification-report.md` |
@@ -701,7 +701,37 @@ NTE-030 の `summary/20260715/0107-implement-nte030-review-shared-detail-shell-e
 
 ## Desktop Alpha / Phase 2 / 将来確認
 
-次の項目は現行 MVP 外です。Desktop Alpha の更新契約は承認済みですが、provider normalization、manifest validation、compatible selection、download / apply、署名検証、staging migration、rollback は未実装で、packaged Apple Silicon GUI の結合確認も未実施です。single-instance recovery、既存 primary lifecycle、Settings shell / bridge / entrypoint だけは製品コードと static contract test の範囲で部分実装済みです。更新契約の未実装項目と Settings の操作機能を含む残りの Desktop Alpha 機能は現行 MVP の PASS 集計に含めません。static contract test や Rust unit test の PASS を packaged GUI や browser runtime の PASS へ繰り上げません。Desktop PoC と Desktop Alpha の packaged QA 後に Canvas PNG、検索サジェスト、大規模一覧を確認します。未採用候補は、発注者が採用するまで実装シナリオとして確定しません。
+次の項目は現行 MVP 外です。Desktop Alpha は全体として未完了です。更新確認・取得・検証・state・pending verification、verified artifact の明示 apply preparation、persisted `ApplyPreparation` を起点とする staged migration、read-back、candidate health、bundle switch、rollback / recovery、checkpoint persistence、cleanup には backend 実装と static / disposable test 証跡があります。PR #159 の Code Review Issue #164〜#175 では、候補 safety backup の再利用・曖昧性、failed bundle marker cleanup、restart handoff、同一 startup recovery、全 application table read-back、restart 後の signed archive / staging tree 再検証、restore proof、schema compatibility、durable rename、cleanup / retry safety を対象にした回帰観点を追加しています。staged migration suite は 22/22 PASS、`node --test test/desktop/desktop-update-*.test.js` は 77/77 PASS、desktop recovery suite は 14/14 PASS ですが、これは実際の macOS packaged app による更新完了の PASS ではありません。自動 apply / 自動 restart は行わず、Settings の操作機能は未実装であり、packaged Apple Silicon GUI、実 provider / package runtime、実 health / switch / rollback / cleanup は未検証です。これらを含む Desktop Alpha の判定は現行 MVP の PASS 集計に含めません。static / disposable test の PASS を packaged GUI、provider / package runtime、browser runtime、DB read-back の PASS へ繰り上げません。Desktop PoC と Desktop Alpha の packaged QA 後に Canvas PNG、検索サジェスト、大規模一覧を確認します。未採用候補は、発注者が採用するまで実装シナリオとして確定しません。
+
+#### 0.1 2026-08-24 Desktop Alpha 検証証跡と境界
+
+| 証跡 | 判定 | 現時点の境界 |
+|---|---|---|
+| staged migration suite（`test/desktop/desktop-update-migration.test.js`） | PASS（22/22） | candidate digest ごとの safety backup 再利用、内容・file identity 検証、複数件の曖昧性 fail-closed、全 application table の read-back、`sqlite_*` / `_prisma_migrations` の除外、table / column / row の消失・変更検出、#174 candidate schema gate、#175 post-rename sync failure を含む static / disposable 証跡。実 packaged runtime の代替ではない。 |
+| Desktop update Node suite（`test/desktop/desktop-update-*.test.js`） | PASS（77/77） | provider response の runtime 取得、実 package download、packaged `.app` / DMG、Apple Silicon GUI、更新完了の確認ではない。apply command の no-argument / explicit invoke、restart 後の #169 再検証、handoff 永続化順序、staged migration、read-back、checkpoint、health / switch / rollback / cleanup、#170〜#173 の retry / restore safety、#174 / #175 の migration boundary、archive と extracted tree の全 entry 照合の disposable / static 境界を含む。 |
+| desktop recovery suite（`test/desktop/desktop-update-recovery.test.js`） | PASS（14/14、上記 suite に含む） | candidate health、runtime root、checkpoint、rollback / SQLite restore、failed bundle marker cleanup の順序と安全境界、#170 partial cleanup retry、#171 exact temp cleanup、#172 `Some(true)` restore proof、#173 partial `switch_temp` discard / rebuild、safe internal symlink の switch / cleanup、同一 startup の migration recovery の static / disposable 証跡であり、実際の packaged app の代替ではない。 |
+| lifecycle/runtime tests | PASS（15） / SKIP（7） | SKIP は loopback / packaged runtime 依存で、dynamic sidecar health / process cleanup と packaged runtime を確認できないため。 |
+| `cargo fmt --manifest-path src-tauri/Cargo.toml -- --check` | PASS | Rust unit/build の実行結果ではない。 |
+| `git diff --check` | PASS | 文書・作業ツリーの whitespace 検査であり、runtime QA ではない。 |
+| Rust unit/build | 未検証 | offline cache に `base64 0.22.1` crate がなく compile 前に停止した。 |
+| full build | 未検証 | 今回の確認範囲に full build は含めていない。packaged macOS runtime と packaged DMG の配信可否も未検証である。 |
+| 対象 ESLint / Node syntax | PASS | 対象 ESLint、対象 Desktop test / launcher / runtime helper の `node --check` を確認した。repo-wide lint の結果とは分けて扱う。 |
+
+#### 0.2 Issue #169〜#175 回帰シナリオ
+
+各行は、既存の Desktop update test の Issue 番号に対応する再現条件と受け入れ境界です。`PASS` は static / disposable test の結果であり、packaged macOS runtime の受け入れを意味しません。
+
+| Issue | 再現条件 | 受け入れ観点 | 現状 |
+|---|---|---|---|
+| #169 | restart 後、署名済み archive または extracted staging tree の bytes、type、mode、size、追加・欠落、internal symlink target のいずれかを変更する。 | staged migration、candidate health、bundle switch の前に archive と staging tree 全体を再検証し、不一致なら claim / health / switch を起動せず fail-closed にする。 | PASS（Issue focused 6/6、全体 77/77 に含む） |
+| #170 | candidate bundle / package / migration / backup の一部だけが cleanup 済みの状態で、cleanup retry を実行する。 | missing leaf は canonical managed root と existing component の no-follow 検証後に idempotent success とし、残りを cleanup して completion へ進む。root escape、parent / leaf symlink、special file は fail-closed にする。 | PASS（recovery 14/14、全体 77/77 に含む） |
+| #171 | rollback restore の validation failure、retry、token / candidate digest mismatch、または前回中断で temporary DB が残った状態を再実行する。 | 作成した exact temp path と managed live directory 内の stale temp だけを安全に cleanup し、別 restore の temp や live DB を削除・上書きしない。 | PASS（recovery 14/14、全体 77/77 に含む） |
+| #172 | DB switch 前に failure を発生させた後、live DB を別編集してから rollback recovery を実行する。 | 実切替 proof が `Some(true)` の場合だけ safety backup restore を許可し、`Some(false)` / `None` では restore せず live DB の後続編集を保持する。 | PASS（migration / recovery、全体 77/77 に含む） |
+| #173 | bundle copy / recovery interruption で partial `switch_temp` を残し、candidate source から switch retry を行う。 | partial temp を candidate として再利用せず、完全 tree 検証済み source から no-follow cleanup 後に再構築する。safe internal symlink の target string と path boundary を維持する。 | PASS（recovery 14/14、全体 77/77 に含む） |
+| #174 | migration history は一致しているが、pending migration がない候補 Prisma schema に新規 column / constraint 等の差分がある状態で起動する。 | `NO_PENDING`、safety backup、switch、cleanup の前に candidate schema と live / staged SQLite schema を比較し、不一致なら live DB と candidate artifact を変更せず fail-closed にする。 | PASS（migration 22/22、全体 77/77 に含む） |
+| #175 | staged DB rename 自体は成功した後、live directory の sync を失敗させる。 | post-rename sync failure を `STAGED_MIGRATION_SWITCH_FAILED` として扱い、durable switch の成功へ進めず、backup / live DB の安全境界を保持する。 | PASS（migration 22/22、全体 77/77 に含む） |
+
+上記 focused test の PASS は、provider / manifest / selection / 公開 URL 境界 / download / signature・SHA-256 / archive・bundle validation / update state / pending verification、`apply_verified_update` の explicit no-argument command、verified candidate の再検証、`ApplyPreparation` の atomic state transition、handoff の atomic 永続化後にだけ行う exit allowance / restart request、明示 handoff がない `ApplyPreparation` の interruption 扱い、persisted `ApplyPreparation` を起点とする staged migration の claim / failure、candidate digest ごとの safety backup 再利用、複数 backup の曖昧性 fail-closed、runner / read-back / switch failure の typed rollback checkpoint、同じ startup の recovery と成功時だけの bootstrap、SQLite 全 application table の read-back、`sqlite_*` / `_prisma_migrations` の除外、既存 table / column / row の消失・変更検出、candidate health、bundle switch、rollback / SQLite restore、failed bundle marker の safe cleanup、rollback 成功時の `Available + failure + pending candidate`、rollback 失敗時の `RollbackPending` 保持、archive と extracted candidate tree の全 entry（bytes、type、mode、size、追加・欠落、safe internal symlink target）照合、safe internal symlink の switch / cleanup、automatic path からの非起動境界を示す static / disposable 証跡である。browser / DB read-back、dynamic loopback / sidecar runtime、GUI の dirty close、実 provider / package runtime、実際の macOS packaged `.app` / DMG、packaged Apple Silicon GUI、full build、packaged DMG の配信可否は未検証である。これらの結果は現行 MVP の PASS 集計や Desktop Alpha の packaged acceptance へ繰り上げない。
 
 ### 1. Desktop PoC 比較
 
@@ -736,11 +766,11 @@ NTE-030 の `summary/20260715/0107-implement-nte030-review-shared-detail-shell-e
 | concurrent acquire | 一方だけが stable advisory lock と primary state を取得し、他方は focus または bounded not-ready state になる | packaged process 起動競合は未検証 |
 | active / unknown protocol / permission endpoint | socket を削除せず、sanitized な bind / 起動失敗として停止する | macOS packaged permission 境界は未検証 |
 
-Rust unit test は production の `HOME` や Application Support を使わず temp directory と injected instance paths を使う。Node の `test/desktop/desktop-lifecycle.test.js` は製品 identifier、dynamic loopback、focus / recovery の静的契約を確認する補助であり、packaged app の代替ではない。
+2026-08-24 の確認では lifecycle static test が 8 PASS、dynamic loopback 関連が 7 SKIP だった。Rust unit test は production の `HOME` や Application Support を使わず temp directory と injected instance paths を使う設計だが、今回の環境では offline cache の `base64` 不足で未検証である。Node の `test/desktop/desktop-lifecycle.test.js` は製品 identifier、dynamic loopback、focus / recovery の静的契約を確認する補助であり、packaged app の代替ではない。
 
 #### 2.2 Settings shell / bridge / entrypoint（部分実装・操作未実施）
 
-`SettingsEntrypoint` は AppChrome の desktop rail と mobile trigger に接続され、shared event bridge を介して Mac menu からも既存 primary WebView の同じ modal を開く。Settings modal には General、Updates、Data and Backup の3カテゴリ、dialog / focus trap / keyboard navigation がある。General は読み取り専用、Updates は provider 未接続の準備中表示、Data and Backup は操作未実装で現行 `/backup` への入口を維持する。新しい window、runtime、sidecar、filesystem、API path は追加していない。
+`SettingsEntrypoint` は AppChrome の desktop rail と mobile trigger に接続され、shared event bridge を介して Mac menu からも既存 primary WebView の同じ modal を開く。Settings modal には General、Updates、Data and Backup の3カテゴリ、dialog / focus trap / keyboard navigation がある。General は読み取り専用、Updates は update backend の部分実装とは未接続の準備中表示、Data and Backup は操作未実装で現行 `/backup` への入口を維持する。新しい window、runtime、sidecar、filesystem、API path は追加していない。
 
 `test/desktop/desktop-settings-shell.test.js` と `test/desktop/desktop-settings-ui.test.js` はこの shell / bridge / UI 境界を静的に確認する補助であり、Settings の実操作、browser runtime、packaged GUI の受け入れを PASS に繰り上げない。
 
@@ -756,7 +786,19 @@ Rust unit test は production の `HOME` や Application Support を使わず te
 - [ ] Settings modal に General、Updates、Data and Backup があり、Mac は Settings menu、開発用 Web は gear から開ける
 - [ ] 現行 `/backup` は Data and Backup が代替して受け入れ確認を通るまで維持され、確認後の Desktop UI だけで段階的に廃止される
 
-### 3. Desktop update / migration
+### 3. Desktop update / migration（backend 実装済み、packaged runtime 未検証）
+
+下表は既存コードと focused static contract test の現状であり、下記チェックリストは Desktop Alpha 完了条件である。static `PASS` の行も runtime の受け入れ済みとは扱わず、未完了の行は未チェックのまま保持する。
+
+| 範囲 | 現状 | 検証境界 |
+|---|---|---|
+| provider / manifest / compatible selection / 公開 URL 境界 | backend 実装済み、static / disposable PASS | GitHub Releases provider response の実取得、dynamic network、browser / GUI 経由の確認は未検証。 |
+| package download / signature・SHA-256 / archive・bundle validation | backend 実装済み、static / disposable PASS | disposable fixture と source contract の確認であり、実 package、packaged `.app`、Apple Silicon GUI の検証ではない。 |
+| update state / pending verification | backend 実装済み、static / disposable PASS | atomic state と staging revalidation、`ApplyPreparation` / restart health / rollback / cleanup checkpoint の境界を持つ。実 runtime は未検証。 |
+| verified artifact の update apply preparation | backend 実装済み、static / disposable PASS（77/77） | `apply_verified_update` は引数なしの明示 command。manifest / candidate identity、signature・digest、canonical staging path、archive、bundle ID / version / architecture / arm64 Mach-O を再検証し、`ApplyPreparation` の atomic state transition 後に explicit restart handoff へ渡す。handoff の atomic 永続化が成功した後にだけ exit allowance と restart request を行い、永続化失敗時は restart しない。明示 handoff のない persisted `ApplyPreparation` は interruption として扱い、自動 apply / restart しない。apply 直前に署名済み archive と extracted candidate tree の全 entry（bytes、type、mode、size、追加・欠落、safe internal symlink target）を照合する。実 provider / package runtime、packaged `.app` / DMG、Apple Silicon GUI は未検証。 |
+| staged migration | backend 実装済み、migration suite 22/22 PASS | persisted `ApplyPreparation` と explicit restart handoff だけを起点とし、migration claim を永続化する。pending migration 時だけ safety backup、DB staging copy の migration / reopen を行う。同じ candidate digest の既存 safety backup は内容・file identity 検証後にだけ再利用し、複数件は選択・削除せず fail-closed とする。pending migration がない場合も `NO_PENDING` 前に candidate Prisma schema と live / staged SQLite schema の compatibility を検証する。全 application table を動的に read-back 比較し、`sqlite_*` / `_prisma_migrations` だけを除外して既存 table / column / row の消失・変更を switch 前に検出する。runner / read-back / switch failure は typed rollback checkpoint として保存し、同じ startup で recovery を実行する。recovery 成功時だけ bootstrap へ進み、recovery failure は fail-closed とする。failure / interruption 後は staged migration を自動再実行しない。rename 後の live directory sync failure も switch failure として扱う。実 packaged runtime は未検証。 |
+| rollback / recovery / candidate health / cleanup | backend 実装済み、desktop recovery 14/14 PASS（77/77 に含む） | `HealthPending`、`BundleSwitching`、`BundleSwitched`、`CleanupPending`、`RollbackPending` の checkpoint、candidate health、bundle switch、SQLite restore、旧 bundle 復帰、成功後だけの cleanup を実装。DB / bundle rollback と restore の成功後、terminal rollback state の記録前に managed root / safe-tree 検証付きで failed bundle marker を削除し、cleanup failure 時は `RollbackPending` と typed failure を保持する。rollback / restore 成功時は `Available + failure + pending candidate` へ遷移し、失敗時は `RollbackPending` と typed failure を保持する。candidate health は `Contents/Resources/runtime` を使用し、safe internal symlink のみを許可する。実 macOS packaged `.app` / DMG の sidecar health / switch / rollback / cleanup は未検証。 |
+| runtime QA | 未検証 | dynamic loopback / sidecar runtime、browser / DB read-back、GUI の dirty close、実 provider / package runtime、実際の macOS packaged `.app` / DMG、packaged Apple Silicon GUI は未確認。 |
 
 - [ ] GitHub Releases の provider response を provider-neutral な manifest へ正規化し、provider の並び順、文字列順、raw response、release notes を候補選択に使わない
 - [ ] root の `productId` が必須で `com.cornellmethod.notebook` と一致し、root の `schemaVersion: 1` が必須で、未知 schema version を fail closed にする
@@ -781,6 +823,8 @@ Rust unit test は production の `HOME` や Application Support を使わず te
 - [ ] 起動完了後の更新確認は非同期で、最大 1 日 1 回に制限され、手動確認もできる
 - [ ] 更新確認の ON / OFF 設定が存在しない
 - [ ] 更新 package を background download し、自動適用せず、明示的な「再起動して更新」でだけ適用する
+- [ ] `apply_verified_update` が `Available` かつ `Verified` の candidate に対する引数なしの明示 invoke だけで起動し、manifest / signature・digest / canonical staging path / archive / bundle を再検証してから `ApplyPreparation` を atomic に保存し、explicit restart handoff へ渡す。明示 handoff のない persisted `ApplyPreparation` は interruption として扱い、自動 apply / restart しない
+- [ ] explicit restart handoff の atomic 永続化成功後にだけ exit allowance と restart request を行い、永続化失敗時は restart も exit allowance も行わない
 - [ ] 更新確認または download に失敗しても現行版を利用でき、次回の定期確認または手動確認で manifest 確認から更新処理全体を再試行する
 - [ ] 同じ保留更新を modal で繰り返し通知せず、Settings から状態を確認できる
 - [ ] 複数版を飛ばす更新で、端末が利用できる最新の compatible version を選ぶ
@@ -791,11 +835,22 @@ Rust unit test は production の `HOME` や Application Support を使わず te
 - [ ] `settings/update-state.json` が version、channel、architecture、`artifactId`、`sizeBytes`、`sha256`、`keyId`、verification state、app 管理 staging からの relative package path、時刻だけを atomic に保存し、URL、provider response 全体、token、DB、user path、user data を保存しない
 - [ ] pending migration がある更新だけ、適用直前に app 管理 safety backup を作る
 - [ ] pending migration がない更新で、migration 用 safety backup と migration を実行しない
+- [ ] 同じ candidate digest の既存 safety backup を、内容と file identity の検証後にだけ再利用する
+- [ ] 同一 candidate digest の safety backup が複数ある場合、選択・削除せず fail-closed にする
 - [ ] migration を DB staging copy 上で古い順に適用し、schema、必須データ、Canvas、reopen を検証する
+- [ ] migration の read-back で既存 table の列・row、Notebook の legacy Markdown、NotebookCanvas の `CanvasDocumentV1` を保持していることを検証する
+- [ ] SQLite の全既存 application table を動的に read-back 比較し、`sqlite_*` system table と `_prisma_migrations` だけを除外する。既存 table、column、row の消失・変更を switch 前に検出する
+- [ ] staged migration の runner / read-back / switch failure を typed rollback checkpoint として保存し、同じ startup で recovery を実行する。recovery 成功時だけ bootstrap へ進み、recovery failure は fail-closed にする
 - [ ] 旧 app が新しい DB schema を検出した場合、live DB を変更せず、現行版への更新または backup restore を案内する
 - [ ] 検証成功後だけ新しい app と DB へ atomic switch し、失敗時は現行 app と live DB を維持する
 - [ ] package / DB staging の検証と更新後の health check が成功するまで旧 app bundle を保持し、失敗時は現行 app、live DB、app 管理 backup を維持して rollback する
 - [ ] 新版の初回起動と health check 成功後にだけ旧 app bundle を削除する
+- [ ] DB / bundle rollback と restore の成功後、terminal rollback state の記録前に、managed root / safe-tree 検証付きで対象 failed bundle marker を削除する。cleanup failure 時は `RollbackPending` と typed failure を保持する
+- [ ] `RestartHealthCheck` の `HealthPending` / `BundleSwitching` / `BundleSwitched` / `CleanupPending` / `RollbackPending` checkpoint を再起動後も保持し、failure / interruption 後に staged migration を自動再実行しない。rollback / restore 成功時は `Available + failure + pending candidate` へ遷移し、失敗時は `RollbackPending` と typed failure を保持する
+- [ ] candidate/current の path、bundle identity、version、architecture を検証し、candidate health に app bundle root ではなく `Contents/Resources/runtime` を渡す。apply 直前に署名済み archive と extracted candidate tree の全 entry（bytes、type、mode、size、追加・欠落、safe internal symlink target）を照合する
+- [ ] archive extraction と recovery の symlink policy が一致し、相対 target、bundle root 内、存在する終端、cycle なし、`MAX_SYMLINK_HOPS` 内の internal symlink だけを許可する
+- [ ] absolute path、backslash、control byte、空 component、`.`、bundle root 外 traversal、dangling、cycle、hop 超過、special file を recovery が typed error で fail closed にし、current app と live DB を変更しない
+- [ ] switch / rollback の temporary copy が安全な internal symlink を target string のまま再作成し、target file の内容を辿らず、cleanup が link 自体だけを unlink する
 - [ ] app 管理 safety backup の retention policy の細則を、この契約やシナリオで未承認のまま固定していない
 - [ ] 定期・日次・通常起動時・データ変更時の自動 backup を Desktop Alpha の必須挙動として実装していない
 

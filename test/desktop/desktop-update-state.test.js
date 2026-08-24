@@ -32,6 +32,12 @@ test("update state keeps a provider-neutral, atomic settings boundary", () => {
   assert.match(productionSource, /UpdatePhase/);
   assert.match(productionSource, /ManifestCheck/);
   assert.match(productionSource, /PackageVerification/);
+  assert.match(productionSource, /UpdateRestartHandoff/);
+  assert.match(productionSource, /Requested/);
+  assert.match(productionSource, /MigrationStarted/);
+  assert.match(productionSource, /record_explicit_restart_handoff/);
+  assert.match(productionSource, /claim_staged_migration/);
+  assert.match(productionSource, /record_rollback_completed/);
   assert.match(productionSource, /fn recover_interrupted_check/);
   assert.match(productionSource, /preserve_manifest_candidate/);
   assert.match(
@@ -58,6 +64,7 @@ test("update state keeps a provider-neutral, atomic settings boundary", () => {
 test("update state exposes daily/manual/retry/notification transitions without starting provider work", () => {
   const source = readSource("src-tauri/src/update_state.rs");
   const main = readSource("src-tauri/src/main.rs");
+  const migration = readSource("src-tauri/src/update_migration.rs");
 
   assert.match(source, /UpdateStatus[\s\S]*Checking[\s\S]*NoUpdate[\s\S]*Available[\s\S]*Failed/);
   assert.match(source, /enum CheckTrigger[\s\S]*Automatic[\s\S]*Manual/);
@@ -68,9 +75,23 @@ test("update state exposes daily/manual/retry/notification transitions without s
   assert.match(source, /claim_pending_notification/);
   assert.match(source, /candidate_identity_matches/);
   assert.match(source, /check-interrupted/);
+  assert.match(source, /UpdatePhase::Rollback/);
+  assert.match(source, /recover_persisted_staged_migration_failure/);
+  assert.match(source, /state\.restart_handoff == Some\(UpdateRestartHandoff::Requested\)/);
+  assert.match(source, /state\.restart_handoff\.is_some\(\)/);
+  assert.match(source, /state\.phase = Some\(UpdatePhase::RestartHealthCheck\)/);
+  assert.match(source, /state\.failure\.is_none\(\)/);
 
   assert.match(main, /mod update_state;/);
-  assert.match(main, /run_bootstrap\(&root\)/);
+  assert.match(main, /mod update_migration;/);
+  assert.match(main, /let storage = resolve_storage_layout\(&root\)\.map_err\(boxed_error\)\?;/);
+  assert.match(main, /run_startup_staged_migration\(&root, &storage, &update_state\)/);
+  assert.match(main, /run_bootstrap_with_storage\(&root, &storage\)/);
+  assert.ok(
+    main.indexOf("run_startup_staged_migration(&root, &storage, &update_state)")
+      < main.indexOf("run_bootstrap_with_storage(&root, &storage)"),
+    "explicit ApplyPreparation handoff must precede sidecar bootstrap",
+  );
   assert.match(main, /let staging_directory = storage\.staging_directory\(\);/);
   assert.match(
     main,
@@ -79,6 +100,88 @@ test("update state exposes daily/manual/retry/notification transitions without s
   assert.match(main, /if let Some\(issue\) = update_state\.load_issue\(\)/);
   assert.match(main, /app\.manage\(update_state\)/);
   assert.doesNotMatch(main, /load_or_default\([^\n]*\)\?/);
+  assert.match(migration, /if !state_store\.has_pending_apply_preparation\(\)/);
+  assert.match(migration, /record_staged_migration_failure/);
+  assert.match(migration, /record_staged_migration_no_pending/);
+  assert.match(migration, /record_staged_migration_switched/);
+  assert.match(migration, /StagedMigrationOutcome::Failed \{ code \}/);
+  assert.match(migration, /claim_staged_migration/);
+});
+
+test("Issue #167: migration failures keep a typed checkpoint and return control to startup recovery", () => {
+  const main = readSource("src-tauri/src/main.rs");
+  const migration = readSource("src-tauri/src/update_migration.rs");
+  const setup = main.slice(main.indexOf(".setup(move |app|"), main.indexOf("\n        .run("));
+  const migrationCall = setup.indexOf("run_startup_staged_migration");
+  const recoveryCall = setup.indexOf("run_startup_update_recovery");
+  const bootstrapCall = setup.indexOf("run_bootstrap_with_storage");
+
+  assert.match(migration, /enum StartupStagedMigrationOutcome/);
+  assert.match(
+    migration,
+    /Err\(error\)\s*=>\s*\{[\s\S]*?record_staged_migration_failure\([\s\S]*?error,[\s\S]*?\);/,
+  );
+  assert.match(
+    migration,
+    /record_staged_migration_failure\([\s\S]*?Ok\(StartupStagedMigrationOutcome::Failed/s,
+  );
+  assert.match(migration, /failed to persist staged migration rollback checkpoint/);
+  assert.match(setup, /let migration_outcome\s*=\s*run_startup_staged_migration/);
+  assert.match(setup, /let recovery_outcome = match run_startup_update_recovery/);
+  assert.ok(migrationCall >= 0);
+  assert.ok(recoveryCall > migrationCall);
+  assert.ok(bootstrapCall > recoveryCall);
+});
+
+test("Issue #166: explicit restart handoff is persisted before restart is requested", () => {
+  const source = readSource("src-tauri/src/update_state.rs");
+  const lifecycle = readSource("src-tauri/src/lifecycle.rs");
+  const migration = readSource("src-tauri/src/update_migration.rs");
+  const lifecycleStart = lifecycle.indexOf(
+    "pub(crate) fn request_explicit_update_restart",
+  );
+  const lifecycleEnd = lifecycle.indexOf("\nfn finalize_close", lifecycleStart);
+  const restartFlow = lifecycle.slice(lifecycleStart, lifecycleEnd);
+  const restart = restartFlow.indexOf("app.request_restart()");
+  const persist = restartFlow.indexOf("record_explicit_restart_handoff()?");
+  const allow = restartFlow.indexOf("state.allow_application_exit()");
+
+  assert.ok(lifecycleStart >= 0);
+  assert.ok(lifecycleEnd > lifecycleStart);
+  assert.ok(restart >= 0);
+  assert.ok(persist >= 0);
+  assert.ok(persist < allow, "handoff must persist before exit is authorized");
+  assert.ok(persist < restart, "handoff must persist before restart is requested");
+  assert.match(
+    restartFlow,
+    /record_explicit_restart_handoff\(\)\?;[\s\S]*?state\.allow_application_exit\(\);[\s\S]*?app\.request_restart\(\);/,
+    "handoff persistence failure must not authorize close or request restart",
+  );
+  assert.match(source, /restart_handoff: Option<UpdateRestartHandoff>/);
+  assert.match(source, /UpdateRestartHandoff::MigrationStarted/);
+  assert.match(source, /state\.phase = Some\(UpdatePhase::Rollback\)/);
+  assert.match(source, /INTERRUPTED_UPDATE_ERROR_CODE/);
+  assert.match(migration, /if !state_store\.has_pending_apply_preparation\(\)/);
+  assert.match(migration, /state_store\s*\.claim_staged_migration\(\)/);
+});
+
+test("rollback completion retains failure and candidate without leaving a checking state", () => {
+  const source = readSource("src-tauri/src/update_state.rs");
+  const start = source.indexOf("pub(crate) fn record_rollback_completed");
+  const end = source.indexOf("pub(crate) fn complete_update", start);
+  const completion = source.slice(start, end);
+
+  assert.ok(start >= 0);
+  assert.ok(end > start);
+  assert.match(completion, /state\.status = UpdateStatus::Available/);
+  assert.match(completion, /pending_update[\s\S]*is_none_or/);
+  assert.match(completion, /state\.failure = Some\(UpdateFailure/);
+  assert.match(completion, /state\.phase = None/);
+  assert.match(completion, /state\.recovery = None/);
+  assert.match(completion, /state\.restart_handoff = None/);
+  assert.match(source, /rollback_completion_reloads_as_failure_retained_terminal_state/);
+  assert.match(source, /UpdateRecoveryStage::RollbackPending/);
+  assert.match(source, /CheckStart::Started/);
 });
 
 test("persistent checkpoint validation is rooted at staging and has a symlink regression test", () => {

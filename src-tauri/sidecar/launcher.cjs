@@ -38,12 +38,17 @@ function storageOptions(root) {
   const homeDirectory = process.env.CORNELL_DESKTOP_HOME?.trim() || os.homedir();
   const applicationId = process.env.CORNELL_DESKTOP_APPLICATION_ID?.trim()
     || storage.DESKTOP_APPLICATION_ID;
+  const resolvedPaths = storage.resolveDesktopStoragePaths({ homeDirectory, applicationId });
+  const configuredSupportRoot = process.env.CORNELL_DESKTOP_APPLICATION_SUPPORT_ROOT?.trim();
+  if (configuredSupportRoot && path.resolve(configuredSupportRoot) !== resolvedPaths.applicationSupportRoot) {
+    throw new Error("CORNELL_DESKTOP_APPLICATION_SUPPORT_ROOT does not match the approved Application Support path");
+  }
   const nodeExecutable = process.execPath;
   const prismaBinary = path.join(root, "node_modules", ".bin", process.platform === "win32" ? "prisma.cmd" : "prisma");
   return {
     storage,
     homeDirectory,
-    storagePaths: storage.resolveDesktopStoragePaths({ homeDirectory, applicationId }),
+    storagePaths: resolvedPaths,
     nodeExecutable,
     migrationsDirectory: path.join(root, "prisma", "migrations"),
     prismaBinary,
@@ -86,6 +91,79 @@ function bootstrap() {
     throw error;
   }
 
+  return result;
+}
+
+function storagePathMessage(options, kind = "storage-paths") {
+  const paths = options.storagePaths;
+  return {
+    kind,
+    status: "paths",
+    applicationSupportRoot: paths.applicationSupportRoot,
+    liveDirectory: paths.liveDirectory,
+    databasePath: paths.databasePath,
+    databaseUrl: paths.databaseUrl,
+    backupsDirectory: paths.backupsDirectory,
+    settingsDirectory: paths.settingsDirectory,
+    logsDirectory: paths.logsDirectory,
+    pendingRestoreDirectory: paths.pendingRestoreDirectory,
+  };
+}
+
+function printStoragePaths() {
+  const root = projectRoot();
+  const options = storageOptions(root);
+  process.stdout.write(`${JSON.stringify(storagePathMessage(options))}\n`);
+  return options.storagePaths;
+}
+
+function stagedMigrate() {
+  const root = projectRoot();
+  const options = storageOptions(root);
+  try {
+    const result = options.storage.runStagedUpdateMigration({
+      storagePaths: options.storagePaths,
+      sqliteBinary: process.env.SQLITE3_BIN,
+      environment: process.env,
+    });
+    process.stdout.write(`${JSON.stringify({
+      kind: "staged-migration",
+      status: result.status,
+      pendingMigrations: result.pendingMigrations,
+    })}\n`);
+    return result;
+  } catch (error) {
+    const code = error && typeof error === "object" && typeof error.code === "string"
+      ? error.code
+      : "STAGED_MIGRATION_FAILED";
+    process.stdout.write(`${JSON.stringify({
+      kind: "staged-migration",
+      status: "failed",
+      code,
+    })}\n`);
+    process.exitCode = 1;
+    return null;
+  }
+}
+
+function validateDatabase() {
+  const root = projectRoot();
+  const options = storageOptions(root);
+  const result = options.storage.inspectDesktopDatabase({
+    storagePaths: options.storagePaths,
+    migrationsDirectory: options.migrationsDirectory,
+    sqliteBinary: process.env.SQLITE3_BIN,
+    integrityCheck: true,
+  });
+  process.stdout.write(`${JSON.stringify({
+    kind: "database-validation",
+    status: result.status,
+    reason: result.reason,
+  })}\n`);
+  if (result.status !== options.storage.DESKTOP_DATABASE_STATUS.READY) {
+    process.exitCode = 1;
+    return null;
+  }
   return result;
 }
 
@@ -292,7 +370,10 @@ function waitForHttpReady(port, readyNonce, options = {}) {
 
 function runtimeEntry(root) {
   const configured = process.env.CORNELL_DESKTOP_RUNTIME_ENTRY?.trim();
-  if (configured) return path.resolve(configured);
+  const debugOverride = process.env.CORNELL_DESKTOP_ALLOW_RUNTIME_OVERRIDE === "1";
+  if (configured && (process.env.NODE_ENV !== "production" || debugOverride)) {
+    return path.resolve(configured);
+  }
   return path.join(root, "node_modules", ".bin", process.platform === "win32" ? "next.cmd" : "next");
 }
 
@@ -403,8 +484,20 @@ async function shutdown(code = 0) {
 
 async function main() {
   const command = process.argv[2] || "serve";
+  if (command === "paths") {
+    printStoragePaths();
+    return;
+  }
   if (command === "bootstrap") {
     bootstrap();
+    return;
+  }
+  if (command === "staged-migrate") {
+    stagedMigrate();
+    return;
+  }
+  if (command === "validate-database") {
+    validateDatabase();
     return;
   }
   if (command === "serve") {
@@ -433,6 +526,9 @@ module.exports = {
   READY_HEALTH_KIND,
   READY_HEALTH_PATH,
   serve,
+  stagedMigrate,
+  validateDatabase,
   stopRuntime,
+  printStoragePaths,
   waitForHttpReady,
 };

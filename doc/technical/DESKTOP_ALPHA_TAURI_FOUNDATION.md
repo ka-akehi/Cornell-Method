@@ -1,16 +1,18 @@
 # Desktop Alpha の Tauri 基盤境界
 
 作成日: 2026-08-17
-最終更新: 2026-08-22
+最終更新: 2026-08-24
 
-状態: 基盤は選定済み。製品側 `src-tauri/` は作成済みで、user data / SQLite bootstrap、single-instance recovery、既存 primary lifecycle、Settings shell / bridge / entrypoint の部分実装と責務 audit が完了している。Desktop Alpha の更新契約は確定したが、provider normalization、manifest validation、compatible selection、download、signature verification、staging migration、apply / rollback は未実装である。Desktop Alpha 全体は未完了で、Settings の操作機能、backup / restore、完全なデータ削除、診断、packaged Apple Silicon GUI QA も残っている。
+状態: 基盤は選定済み。Desktop Alpha のシェルは Tauri + Node.js サイドカーである。製品側 `src-tauri/` は作成済みで、user data / SQLite bootstrap、single-instance recovery、既存 primary lifecycle、Settings shell / bridge / entrypoint の部分実装と責務 audit が完了している。更新確認・取得・検証・state・pending verification、verified artifact の明示 apply preparation、persisted `ApplyPreparation` を起点とする staged migration、candidate health、bundle switch、rollback / recovery、checkpoint persistence、旧 bundle cleanup の backend 実装も完了している。実際の macOS packaged app による health / switch / rollback / cleanup、packaged Apple Silicon GUI QA は未検証である。Desktop Alpha 全体は未完了で、Settings の操作機能、backup / restore、完全なデータ削除、診断も残っている。
 
-## 現在地（2026-08-22）
+## 現在地（2026-08-24）
 
 - 製品側 `src-tauri/` に Tauri shell、dynamic loopback を使う sidecar 起動、user data / SQLite bootstrap、single-instance recovery、window state、dirty close bridge、sidecar cleanup の実装がある。Rust unit test と静的 contract test で確認できる範囲を実装済みとする。
 - Settings は、既存 primary WebView へ届く Mac menu bridge、Web gear / mobile trigger の shared bridge、3カテゴリ modal、focus / keyboard 制御までが実装済みである。General は読み取り専用、Updates と Data and Backup の操作は準備中で、現行 `/backup` を維持する。
 - UI / Rust の責務抽出と 2026-08-21 の最終 audit は完了し、現時点で追加の責務分割 coding task はない。Desktop Alpha 全体の完了とは扱わない。
-- dynamic loopback の実 runtime、browser / DB read-back、packaged Apple Silicon GUI、更新 provider の normalization、manifest validation、compatible selection、download / apply、署名検証、staging migration、rollback、backup / restore、完全なデータ削除、startup failure / 診断は未確認または未実装である。
+- 更新系には provider / manifest / compatible selection / 公開 URL 境界 / download / signature・SHA-256 / archive・bundle validation / update state / pending verification、明示 apply、staged migration、read-back、candidate health、bundle switch、rollback / recovery、checkpoint persistence、cleanup の実装がある。`apply_verified_update`（引数なしの明示 command）は verified candidate を再検証して `ApplyPreparation` の atomic state transition と explicit restart handoff へ渡す。persisted `ApplyPreparation` からだけ staged migration を起動し、candidate health 成功前は current app / live DB / safety backup を保持する。`node --test test/desktop/desktop-update-*.test.js` は 54/54 PASS、rollback/recovery focused tests は 6/6 PASS（同 suite に含む）だが、これは source contract と disposable fixture の証跡であり、実 provider / package runtime、browser / DB read-back、dynamic loopback / sidecar runtime、packaged Apple Silicon GUI の PASS ではない。
+- 2026-08-24 の lifecycle/runtime tests は 15 PASS、7 SKIP（loopback / packaged runtime 依存）。対象 ESLint、対象 Desktop test / launcher / runtime helper の `node --check`、`cargo fmt --manifest-path src-tauri/Cargo.toml -- --check`、`git diff --check` は PASS。Rust `cargo test --offline` は環境に `base64 0.22.1` crate がなく compile 前に実行不能だった。実際の macOS packaged app による sidecar health / bundle switch / rollback / cleanup は未検証である。
+- dynamic loopback の実 runtime、browser / DB read-back、packaged Apple Silicon GUI、backup / restore、完全なデータ削除、startup failure / 診断は未確認または未実装である。
 
 ## 選定結果
 
@@ -89,7 +91,7 @@ PoC の識別子を製品へ昇格させると、macOS が管理するアプリ�
 | `~/Library/Application Support/com.cornellmethod.notebook/` | `APPROVED` | 製品のユーザーデータのルート。製品識別子と同じ名前空間を使う。 |
 | `live/notebook.sqlite` | `APPROVED` | 稼働中の SQLite。ノートデータの唯一の正本とする。 |
 | `backups/` | `APPROVED` | マイグレーション前と復元前に作る管理用バックアップ。保持世代数などの retention policy は未決定とする。 |
-| `staging/` | `APPROVED` | 更新 package と DB staging copy を一時保管する app 管理領域。package の file layout は未決定とする。 |
+| `staging/` | `APPROVED` | 更新 package と DB staging copy を一時保管する app 管理領域。verified package は `packages/<sha256>.app.tar.gz`、展開済み candidate は `extract/<sha256>/Cornell Method Notebook.app`、DB migration 作業領域は `database-migrations/` を使い、各 path は state と validator で canonical に検証する。 |
 | `settings/` | `APPROVED` | ウィンドウ状態、更新状態、アプリ設定を保存する。`update-state.json` に保存する再起動後の検証用 artifact metadata は承認済みの項目だけとし、manifest root の schema version とは分離する。 |
 | `logs/` | `APPROVED` | ノート本文等を含まないローカルログ。保持期間、容量、世代整理の細則は未決定とする。 |
 | `pending-restore/` | `APPROVED` | 更新後に明示確認して復元を再開するための隔離したコピーを置く。起動時に自動復元しない。 |
@@ -108,8 +110,8 @@ PoC の識別子を製品へ昇格させると、macOS が管理するアプリ�
 | Application Support のルート | `~/Library/Application Support/com.cornellmethod.notebook/` | 承認済み。保存先解決処理の入力とする |
 | 稼働 SQLite | `<root>/live/notebook.sqlite` | 承認済み。稼働 DB の唯一の正本とする |
 | 管理用バックアップ | `<root>/backups/` | 承認済み。マイグレーション前と復元前に限定し、retention policy の細則は未決定とする |
-| 更新 package / DB staging | `<root>/staging/` | 承認済み。package の file layout と staging metadata の詳細は実装 task で決める |
-| 設定、ログ、保留中の復元 | `<root>/settings/`、`<root>/logs/`、`<root>/pending-restore/` | `settings/update-state.json` は version、channel、architecture、`artifactId`、`sizeBytes`、`sha256`、`keyId`、verification state、app 管理 staging からの relative package path、時刻を atomic に保存する。state の lifecycle/status、file layout、保持条件は実装 task で決める |
+| 更新 package / DB staging | `<root>/staging/` | 承認済み。package は `packages/<sha256>.app.tar.gz`、candidate は `extract/<sha256>/Cornell Method Notebook.app`、DB migration 作業領域は `database-migrations/`。state の相対 path と symlink を validator が検証する |
+| 設定、ログ、保留中の復元 | `<root>/settings/`、`<root>/logs/`、`<root>/pending-restore/` | `settings/update-state.json` は version、channel、architecture、`artifactId`、`sizeBytes`、`sha256`、`keyId`、verification state、app 管理 staging からの relative package path、時刻、recovery checkpoint、typed failure を atomic に保存する。manifest root の schema version とは分離する |
 | 開発用実行環境 | 製品と分離した識別子と保存先 | 具体値は未決定 |
 
 ## 識別子と保存先を変更する場合のリスク
@@ -188,14 +190,30 @@ WebView の画面
 
 ## Desktop Alpha の更新契約と基盤責務
 
-更新契約は確定済みである。製品側の更新 provider normalization、manifest validation、compatible selection、download / apply、署名検証、staging migration、rollback の実装と、packaged Apple Silicon GUI の検証は未完了である。
+更新契約は確定済みである。製品側の provider normalization、manifest validation、compatible selection、公開 URL 境界、download、signature・SHA-256、archive・bundle validation、update state、pending verification、verified artifact の apply preparation、staged migration、read-back、candidate health、bundle switch、rollback / recovery、checkpoint persistence、旧 bundle cleanup は backend 実装済みである。実 provider / package runtime、実際の macOS packaged app による health / switch / rollback / cleanup、packaged Apple Silicon GUI の検証は未実施である。focused static / disposable test の PASS を provider / package runtime、browser / DB read-back、packaged GUI の PASS へ繰り上げない。
+
+### Manifest / package の実装状態
+
+| 範囲 | 現状 | 検証境界 |
+|---|---|---|
+| provider / manifest / compatible selection / 公開 URL 境界 | backend 実装済み、focused static contract test PASS（54/54） | GitHub Releases provider response の実取得、dynamic network、browser / GUI 経由の確認は未検証。 |
+| package download / signature・SHA-256 / archive・bundle validation | backend 実装済み、focused static contract test PASS（54/54） | disposable fixture と source contract の確認であり、実 package、packaged `.app`、Apple Silicon GUI の検証ではない。 |
+| update state / pending verification | backend 実装済み、focused static contract test PASS（54/54） | atomic state と staging revalidation を持つ。apply / migration / recovery の checkpoint は typed state として永続化する。実 runtime は未検証。 |
+| verified artifact の update apply preparation | backend 実装済み、focused static contract test PASS（54/54） | `apply_verified_update` は引数なしの明示 command。manifest / candidate identity、signature・digest、canonical staging path、archive、bundle ID / version / architecture / arm64 Mach-O を再検証し、`ApplyPreparation` の atomic state transition 後に explicit restart handoff へ渡す。自動 check、startup check、download 完了、pending notification からは apply / restart しない。実 provider / package runtime、packaged GUI は未検証。 |
+| staged migration | backend 実装済み、read-back / switch fixture PASS | persisted `ApplyPreparation` だけを起点とし、pending migration 時だけ safety backup、DB staging copy の migration / reopen、既存列・Notebook / Canvas / legacy Markdown の read-back、atomic switch、failure / interruption の fail-closed state を実装。実 packaged runtime は未検証。 |
+| rollback / recovery / candidate health / cleanup | backend 実装済み、rollback/recovery focused tests 6/6 PASS（54/54 に含む） | `HealthPending`、`BundleSwitching`、`BundleSwitched`、`CleanupPending`、`RollbackPending` を永続化し、candidate health 成功前の current app / live DB / backup 保持、成功後だけの cleanup、SQLite restore、旧 bundle 復帰を実装。candidate health は `Contents/Resources/runtime` を使用。実 macOS bundle の sidecar health / switch / rollback / cleanup は未検証。 |
+| runtime QA / packaged Apple Silicon GUI | 未検証 | dynamic loopback / sidecar runtime、browser / DB read-back、GUI の dirty close、packaged GUI は未確認。 |
 
 - 初期配布は DMG とする。アプリ内更新は Apple Silicon の `aarch64-apple-darwin` 向け `.app archive` とする。Intel の artifact と QA は Desktop Alpha の対象にせず、Public Mac Release で別途判断する。archive の具体的な拡張子は固定しない。
 - 初期 provider は GitHub Releases とする。Tauri 側は provider 固有の response へ直接依存せず、provider adapter が `releases[]` を持つ provider-neutral な manifest interface へ正規化した結果を受け取る。provider の並び順、文字列順、raw response、release notes は候補選択に使わない。
 - 端末側で channel、version、architecture、macOS compatibility を判定し、同一 channel の新しい compatible version だけを選択する。downgrade は行わない。
 - 各 release の `keyId` はアプリに保持する現行鍵または次期鍵を参照する。package は公開鍵署名と SHA-256 の両方を検証し、manifest を信頼根の追加経路にしない。署名アルゴリズム名、encoding、canonicalization、鍵値、承認済み field allowlist 以外の wire-level details は未決定とする。
 - 更新 package は Application Support の app 管理 `staging/` に保管する。DB compatibility はユーザー固有情報を manifest に載せず、端末内の DB staging copy で migration と reopen を検証する。
-- `settings/update-state.json` に保存する再起動後の検証用 artifact metadata は承認済みの項目だけとする。ノート本文、SQLite、backup、診断情報を保存せず、state の lifecycle/status と file layout は実装 task で決める。
+- `settings/update-state.json` に保存する再起動後の検証用 artifact metadata は承認済みの項目だけとする。ノート本文、SQLite、backup、診断情報を保存せず、manifest root の schema version と local state schema を分離する。`ApplyPreparation`、`RestartHealthCheck`、`Rollback`、`Cleanup` と recovery checkpoint / typed failure は atomic に保持する。
+- `apply_verified_update` は引数なしの明示 invoke command とし、verified candidate の manifest / candidate identity、signature・digest、canonical staging path、archive、bundle（bundle ID / version / architecture / arm64 Mach-O）を再検証する。検証後に `ApplyPreparation` を atomic に保存し、explicit restart handoff へ渡す。自動 check、startup check、download 完了、pending notification だけでは apply / restart しない。
+- staged migration は persisted `ApplyPreparation` からだけ起動し、pending migration がある場合だけ safety backup を作成する。DB staging copy 上で古い順に migration、schema / integrity / foreign key / reopen、既存列・Notebook / Canvas / legacy Markdown の read-back を確認し、成功後だけ atomic switch する。failure / interruption 後に自動 migration を再実行しない。
+- candidate/current の path、symlink、bundle identity、version、architecture を検証する。candidate health には packaged app bundle root ではなく固定 runtime root `Contents/Resources/runtime` を渡し、health 成功前は current app / live DB / backup を保持する。
+- `HealthPending`、`BundleSwitching`、`BundleSwitched`、`CleanupPending`、`RollbackPending` の checkpoint を atomic に永続化する。rollback、SQLite restore、旧 bundle 復帰、typed failure は fail-closed に扱い、cleanup は `BundleSwitched` 後だけ行う。成功後にだけ旧 bundle、staged artifact、migration safety backup を削除する。
 - package と DB staging の検証に成功した場合だけ明示的な再起動で切り替える。旧 app が新しい DB schema を検出した場合は live DB を変更せず、現行版への更新または backup restore を案内する。
 - 切り替え後の新版の初回起動と health check が成功するまで旧 app bundle を保持する。検証または health check に失敗した場合は現行 app、live DB、app 管理 backup を維持して rollback し、成功後にだけ旧 bundle を削除する。
 - Developer ID と notarization は Desktop Alpha の必須条件にしない。Public Mac Release で判断する。
@@ -229,10 +247,12 @@ manifest root の `schemaVersion: 1` は manifest の version namespace であ�
 1. `ユーザーデータ / SQLite 初期化`（実装済み）: 保存先の決定、初回 DB、スキーマ状態、実行環境への絶対パスの受け渡し。
 2. `単一ウィンドウのライフサイクル`（single-instance recovery、primary lifecycle、window state、close bridge、sidecar cleanup の実装済み。packaged QA は未確認）: 単一インスタンス、二重起動時の表示、ウィンドウ状態、サイドカーの所有権、終了処理。
 3. `Settings`（shell / bridge / entrypoint / 3カテゴリ modal は実装済み。操作機能は未実装）: General、Updates、Data and Backup の入口と、現行 `/backup` からの段階移行。
-4. `更新 / マイグレーション`: `releases[]` の端末内選択、package の署名・SHA-256 検証、Application Support 内の staging、明示的な再起動、マイグレーション前の安全確保用バックアップ、隔離環境での migration / reopen、失敗時の rollback。
-5. `バックアップ / 復元`: 手動 SQLite 書き出し、管理用バックアップと外部ファイルの別入口、検証、アトミックな切り替え、再オープン。
-6. `削除 / 診断`: 完全なデータ削除、ローカルログの保持、診断 ZIP、起動失敗時の画面。
-7. `パッケージ済み Desktop Alpha の品質確認`: Apple Silicon のパッケージ済みアプリで、現行 MVP と Desktop Alpha 契約を結合確認する。
+4. `更新 apply preparation`: provider / manifest / `releases[]` の端末内選択、公開 URL 境界、package download、署名・SHA-256 / archive・bundle 検証、update state、pending verification、verified artifact の明示再検証、`ApplyPreparation` の atomic state transition、explicit restart handoff まで backend 実装済み。自動経路から apply / restart しない。
+5. `staged migration`: persisted `ApplyPreparation` を起点に、pending migration の有無を判定し、必要な場合だけ migration 前 safety backup、DB staging copy の migration / read-back / reopen、既存列・Notebook / Canvas / legacy Markdown の保持確認、atomic switch、failure / interruption の typed checkpoint を実装済み。
+6. `rollback / recovery`: package / DB staging、candidate health、切替、更新後 health check、interrupted state の失敗時に、現行 app、live DB、app 管理 backup を維持して rollback / SQLite restore / 旧 bundle 復帰し、成功後だけ cleanup する backend を実装済み。candidate health には `Contents/Resources/runtime` を渡す。実 packaged runtime は未検証。
+7. `バックアップ / 復元`: 手動 SQLite 書き出し、管理用バックアップと外部ファイルの別入口、検証、アトミックな切り替え、再オープン。
+8. `削除 / 診断`: 完全なデータ削除、ローカルログの保持、診断 ZIP、起動失敗時の画面。
+9. `パッケージ済み Desktop Alpha の品質確認`: Apple Silicon のパッケージ済みアプリで、現行 MVP と Desktop Alpha 契約を結合確認する。
 
 この順序に Phase 2 の Canvas PNG、検索サジェスト、大規模一覧、自動保存、Undo、専用復習 task、NoteCard / D&D を追加しない。
 
@@ -262,8 +282,8 @@ manifest root の `schemaVersion: 1` は manifest の version namespace であ�
 | Node.js サイドカーの同梱方式 | `UNDECIDED` | パッケージ済み実行環境とネイティブ依存関係の配布設計 |
 | 最低対応 macOS | `UNDECIDED` | Tauri の実行環境と Apple Silicon の結合確認 |
 | 更新 provider | `APPROVED`: 初期 provider は GitHub Releases。取得側は provider-neutral な manifest interface とし、provider response を正規化してから strict validation する | 具体的な URL、provider adapter の実装詳細は更新実装 task で決める |
-| manifest / package の判定と配置 | `APPROVED`: `productId`、root `schemaVersion: 1`、strict field allowlist、`releases[]`、SemVer / stable / macOS range / Apple Silicon / artifact / URL / duplicate / non-target release の境界、Application Support 内の app 管理 staging | staging file layout、package archive の具体的な拡張子は未決定。manifest validation、compatible selection、provider normalization、download、apply は未実装 |
-| package の署名・完全性検証 | `APPROVED`: 公開鍵署名と SHA-256 を併用し、`keyId` と opaque proof で package digest / release metadata を検証する | 署名アルゴリズム名、encoding、canonicalization、秘密鍵・公開鍵の値、manifest から信頼根を追加しない検証実装は未実装 |
+| manifest / package の判定と配置 | `APPROVED`: `productId`、root `schemaVersion: 1`、strict field allowlist、`releases[]`、SemVer / stable / macOS range / Apple Silicon / artifact / URL / duplicate / non-target release の境界、Application Support 内の app 管理 staging | package archive の wire-level 拡張子は契約で固定しないが、現行 validator の canonical staging path は実装済み。manifest validation、compatible selection、provider normalization、download、apply preparation、staged migration / full apply の backend を static / disposable test で確認し、packaged runtime は未検証 |
+| package の署名・完全性検証 | `APPROVED`: 公開鍵署名と SHA-256 を併用し、`keyId` と opaque proof で package digest / release metadata を検証する | 署名アルゴリズム名、encoding、canonicalization、秘密鍵・公開鍵の値、manifest から信頼根を追加しない検証実装の wire-level details は未決定。signature verification、apply 時の再検証、candidate health / rollback / cleanup の backend は実装済み、packaged runtime は未検証 |
 | Developer ID / notarization | `UNDECIDED`、Desktop Alpha の必須条件ではない | Public Mac Release で判断する |
 | 画面操作の自動化 | PoC `BLOCKED` | パッケージ済み画面の Alpha 品質確認で使う検証方法 |
 
