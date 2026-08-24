@@ -153,6 +153,68 @@ impl From<UpdateVerificationError> for VerifyPendingUpdateCommandError {
     }
 }
 
+#[derive(Debug)]
+pub(crate) enum VerifiedCandidateRevalidationError {
+    Revalidation,
+    CandidateChanged,
+    Package(PackageDownloadError),
+}
+
+pub(crate) struct RevalidatedVerifiedCandidate {
+    pub(crate) release: UpdateRelease,
+    pub(crate) archive: VerifiedArchiveHandle,
+}
+
+pub(crate) fn revalidate_verified_candidate(
+    candidate: &PendingUpdate,
+    target_context: &UpdateTargetContext,
+    staging_root: &Path,
+    manifest_transport: &dyn ManifestHttpTransport,
+    signature_verifier_factory: &dyn ArtifactSignatureVerifierFactory,
+) -> Result<RevalidatedVerifiedCandidate, VerifiedCandidateRevalidationError> {
+    let manifest = fetch_manifest(manifest_transport)
+        .map_err(|_| VerifiedCandidateRevalidationError::Revalidation)?;
+    let selection = select_update(
+        &manifest,
+        &target_context.current_app_version.to_string(),
+        target_context.target_channel,
+        target_context.target_architecture,
+        &target_context.current_macos_version.to_string(),
+    )
+    .map_err(|_| VerifiedCandidateRevalidationError::Revalidation)?;
+    let selected_release = match selection {
+        UpdateSelection::NoUpdate => {
+            return Err(VerifiedCandidateRevalidationError::CandidateChanged)
+        }
+        UpdateSelection::Selected(release) => release,
+    };
+
+    if !candidate_identity_matches_release(candidate, &manifest, selected_release) {
+        return Err(VerifiedCandidateRevalidationError::CandidateChanged);
+    }
+
+    let signature_verifier = signature_verifier_factory.create(&manifest);
+    let cached_artifact =
+        revalidate_cached_artifact(selected_release, staging_root, signature_verifier.as_ref())
+            .map_err(VerifiedCandidateRevalidationError::Package)?;
+    let archive = match cached_artifact {
+        CachedArtifact::Verified(archive) => archive,
+        CachedArtifact::Missing => {
+            return Err(VerifiedCandidateRevalidationError::Package(
+                PackageDownloadError::StagingRead,
+            ));
+        }
+        CachedArtifact::Invalid { error, .. } => {
+            return Err(VerifiedCandidateRevalidationError::Package(error));
+        }
+    };
+
+    Ok(RevalidatedVerifiedCandidate {
+        release: selected_release.clone(),
+        archive,
+    })
+}
+
 pub(crate) struct UpdateVerificationCoordinator<'a> {
     state_store: &'a UpdateStateStore,
     target_context: &'a UpdateTargetContext,

@@ -1,7 +1,7 @@
 # MVP 技術選定・実装方針
 
 作成日: 2026-07-04
-現行照合日: 2026-08-08
+現行照合日: 2026-08-24
 状態: 設計方針・比較資料。現行の受け入れ判定と作業指示は本書では管理しない。
 
 ## 位置づけ
@@ -14,15 +14,18 @@
 
 ## 現行の照合入口と作業制約
 
-現行の実装状態は [`IMPLEMENTATION_STATUS.md`](../implementation/IMPLEMENTATION_STATUS.md)、受け入れ項目と証跡は [`TEST_SCENARIOS.md`](../testing/TEST_SCENARIOS.md)、再開条件は [`HANDOFF_2026-08-08.md`](../../HANDOFF_2026-08-08.md) を参照します。
+現行の実装状態は [`IMPLEMENTATION_STATUS.md`](../implementation/IMPLEMENTATION_STATUS.md)、受け入れ項目と証跡は [`TEST_SCENARIOS.md`](../testing/TEST_SCENARIOS.md)、再開条件は [`HANDOFF_2026-08-22.md`](../../HANDOFF_2026-08-22.md) を参照します。
 
-Gate 0（人力 MVP 結合テスト）は未通過です。
+Gate 0（人力 MVP 結合テスト）は完了済みです。現行 MVP の route、API、明示保存、確認後の物理削除、詳細画面内復習、CanvasDocumentV1、legacy Markdown、`/backup` の契約は維持します。
 
-最新の handoff では Browser runtime QA の必須範囲に `BLOCKED` または `NOT RUN` が残っているため、静的確認や過去の部分的な runtime 証跡を Gate 0 の通過と扱いません。
+Browser runtime QA の一部には `BLOCKED` または `NOT RUN` が残っています。
+該当範囲は未確認として各 Desktop Alpha / runtime QA の受け入れ条件に残します。
+静的確認や過去の部分的な runtime 証跡を Browser runtime の PASS に繰り上げず、未確認範囲を理由に完了済みの Gate 0 を未通過扱いしません。
 
-Gate 0 通過後の依存関係と実装順は [`POST_MVP_IMPLEMENTATION_PLAN.md`](../implementation/POST_MVP_IMPLEMENTATION_PLAN.md) を参照します。
+Gate 0 通過後の依存関係と実装順は [`POST_MVP_IMPLEMENTATION_PLAN.md`](../implementation/POST_MVP_IMPLEMENTATION_PLAN.md) を参照します。Desktop Alpha の update pipeline はこの後段の opt-in 実装です。
 
-Gate 0 を発注者が明示的に閉じるまで、Phase 2、Mac desktop、PDF export、部分消しゴムの coding task は投入しません。
+Gate 0 の未通過を理由にした coding task の投入停止は解除済みです。
+未検証の Browser runtime、実 DB read-back、E2E、packaged GUI などは、各 Desktop Alpha / runtime QA の受け入れ条件として維持します。
 
 ## 参照した公式情報
 
@@ -53,7 +56,7 @@ Gate 0 を発注者が明示的に閉じるまで、Phase 2、Mac desktop、PDF 
 | Markdown 表示 | Cue、Summary、legacy Markdown 本文を `react-markdown` + `remark-gfm` + `rehype-sanitize` で安全に表示する |
 | テスト | ESLint、TypeScript build、必要に応じて Playwright |
 | バックアップ | Node.js script で SQLite DB をコピー |
-| 配布 | 開発時は Next.js Web 起動を維持。将来は Mac desktop shell を比較する。Electron-first candidate、Tauri + Node.js sidecar alternative の採用は PoC 後 |
+| 配布 | 開発時は Next.js Web 起動を維持。Desktop Alpha は Tauri + Node.js sidecar を採用済み（2026-08-17）。Electron は PoC の比較・履歴上の候補として扱う |
 | デスクトップ保存 | SQLite を唯一の正本として user data directory に置く local-first。`app bundle` 内に live DB を置かず、`Downloads` を既定にしない |
 
 ## Desktop 配布 / local-first 保存方針
@@ -62,7 +65,7 @@ Gate 0 を発注者が明示的に閉じるまで、Phase 2、Mac desktop、PDF 
 
 将来の製品主経路は Mac のデスクトップアプリ配布とします。ただし、開発と検証に使う Next.js Web 起動形態は残します。現行 MVP は Prisma + SQLite の local-first 構成であり、ノートデータの唯一の正本は SQLite です。デスクトップ化に伴ってクラウド DB、クラウド同期、オンラインサービスを追加したり、現行の route、API、Prisma schema、手動保存、物理削除を作り替えたりしません。
 
-Desktop shell は未決定です。Electron は Next.js / Node.js / Prisma / Playwright の組み合わせをまとめて配布しやすい候補、Tauri + Node.js sidecar は軽量 shell の代替候補として扱います。Apple Silicon / Intel の配布差、native runtime / driver、Playwright / Chromium、署名、notarization、更新、process lifecycle、filesystem 権限を Desktop PoC で比較してから採用案を決めます。
+Desktop shell は 2026-08-17 に Tauri + Node.js sidecar を選定済みです。Electron は Next.js / Node.js / Prisma / Playwright の組み合わせをまとめて配布しやすい比較・履歴上の候補として残します。Apple Silicon / Intel の配布差、native runtime / driver、Playwright / Chromium、署名、notarization、更新、process lifecycle、filesystem 権限のうち、未確認の配布・品質境界は Desktop Alpha と Public Mac Release の別判断で扱います。
 
 ### 配布物と書き込み可能データの境界
 
@@ -72,9 +75,9 @@ Desktop shell は未決定です。Electron は Next.js / Node.js / Prisma / Pla
 | `user data directory` | SQLite live DB（唯一の正本）、DB backup、アプリ設定、ログ、runtime state | macOS の OS 管理ユーザーデータ領域。Desktop shell が path を解決し、初回起動時に作成する。`Downloads` は既定保存先にしない |
 | `PDF output destination` | SQLite から生成する PDF | user data directory や `app bundle` とは別の外部出力境界。具体的な保存先は未決定で、既存仕様の確定前に固定しない |
 
-SQLite の live file は `.app` 内に置きません。Desktop shell または local runtime が初回起動時に user data directory と必要なサブディレクトリを作成し、bundle に含めた migration を適用してからアプリを利用可能にする案を PoC で検証します。
+SQLite の live file は `.app` 内に置きません。選定済みの Tauri + Node.js sidecar 経路で user data directory と必要なサブディレクトリを作成する bootstrap は実装済みである。初回起動時の migration と、既存 DB の staged migration / reopen、更新後の切り替えは backend 実装済みであるが、実際の macOS packaged runtime による検証範囲として残す。
 
-アプリ更新では bundle の更新と user data migration を分離し、既存 DB、backup、設定を削除しません。アンインストールとユーザーデータ削除も別操作として扱います。
+アプリ更新では bundle の更新と user data migration を分離し、既存 DB、backup、設定を削除しません。`apply_verified_update` は verified artifact を明示 invoke から再検証して `ApplyPreparation` と explicit restart handoff へ渡す。persisted `ApplyPreparation` を起点に staged migration、read-back、candidate health、bundle switch、rollback / recovery、checkpoint persistence、旧 bundle cleanup を行う backend も実装済みである。自動 apply / 自動 restart は行わず、実際の macOS packaged app による sidecar health / switch / rollback / cleanup は未検証である。アンインストールとユーザーデータ削除も別操作として扱います。
 
 開発用 Web 起動では、既存の `.env` / `DATABASE_URL`、プロジェクト内の `dev.db`、論理的な `backup/` の扱いを維持します。配布版では同じ DB / backup adapter が user data directory の絶対 path を解決する形を比較し、`/backup` の UI と手動バックアップの MVP 契約を変更しません。
 
@@ -86,7 +89,7 @@ PDF output は SQLite から生成する派生出力です。PDF を編集して
 
 | 項目 | 現行 MVP | Desktop 化後の追加候補 |
 | --- | --- | --- |
-| 起動時初期化 | 開発手順で Prisma migration を適用 | 初回起動時に user data directory を作成し、migration を適用する。既存 DB の更新と初期化を分ける |
+| 起動時初期化 | 開発手順で Prisma migration を適用 | 初回起動時に user data directory を作成し、migration を適用する。既存 DB の更新と初期化を分ける。既存 DB の staged migration / read-back / reopen は backend 実装済み、packaged runtime 未検証 |
 | DB backup | 手動で SQLite DB ファイルを `backup/` へコピー、最新 3 世代を保持 | user data 内の DB backup、バックアップ対象・保持・復元手順を PoC で定義する |
 | PDF output | 現行 MVP の対象外、未実装 | SQLite から PDF を生成する。PDF は編集用データ形式・復元用正本ではなく、具体的な出力先は別途決める |
 | restore / corruption detection | 自動復元なし。必要時は手動で DB を戻す | SQLite DB の整合性検査、復元、途中書き込みからの回復を別途設計する |
@@ -229,9 +232,9 @@ MVP は SQLite file URL だけをサポートします。
 | 実行時 fallback | `src/lib/prisma.ts` と `src/lib/backup/index.js` は未指定時に `file:./dev.db` を使う |
 | Prisma CLI fallback | `prisma.config.ts` は未指定時に `file:./dev.db` を使う |
 
-上表は開発用 Web 起動形態の MVP 契約です。Desktop 配布では、`DATABASE_URL` を user data directory 内の SQLite absolute path に解決する adapter を用意する案を検証します。`app bundle` 内の `.db` を live DB にしたり、更新時に bundle から DB を再コピーしたりしません。初回起動時に user data directory を作成し、同梱 migration を適用します。アプリ更新では migration の適用と bundle 更新を分け、既存データを削除しません。アンインストールとデータ削除も別操作とします。
+上表は開発用 Web 起動形態の MVP 契約です。Desktop 配布では、`DATABASE_URL` を user data directory 内の SQLite absolute path に解決する adapter を用意します。`app bundle` 内の `.db` を live DB にしたり、更新時に bundle から DB を再コピーしたりしません。初回起動時の migration、既存 DB の staged migration / reopen、アプリ更新時の migration と bundle 更新の分離は backend 実装済みで、実際の macOS packaged runtime による検証を残します。既存データを削除せず、アンインストールとデータ削除も別操作とします。
 
-Desktop shell の候補は Electron-first、Tauri + Node.js sidecar alternative であり、両候補とも未採用で未実装です。Apple Silicon / Intel の native runtime、Prisma driver、Playwright / Chromium の同梱、ローカル Next.js process の起動と終了を PoC で確認してから、`DATABASE_URL` の path resolver と migration runner の実装方法を決めます。
+Desktop shell は Tauri + Node.js sidecar を選定済みです。製品側には user data / SQLite bootstrap、single-instance recovery、primary lifecycle、Settings shell / bridge / entrypoint、provider / manifest / compatible selection / 公開 URL 境界 / download / signature・SHA-256 / archive・bundle validation / update state / pending verification、明示 apply、staged migration、read-back、candidate health、bundle switch、rollback / recovery、checkpoint persistence、cleanup の backend 実装があります。`apply_verified_update`（引数なしの明示 command）は verified candidate の manifest / signature・digest / canonical staging path / archive / bundle を再検証し、`ApplyPreparation` の atomic state transition 後に explicit restart handoff へ渡す。自動 check、startup check、download 完了、pending notification だけでは apply / restart しない。実 provider / package runtime、browser / DB read-back、dynamic loopback / sidecar runtime、actual packaged app health / switch / rollback / cleanup、packaged Apple Silicon GUI は未検証です。`DATABASE_URL` の path resolver と migration runner は、選定済み shell の user data 境界に従って実装・検証します。
 
 README 化時の推奨（作成時の履歴メモ）:
 
@@ -315,7 +318,7 @@ MVP は物理削除です。
 
 ここでいう `backup/` は開発用 Web 起動形態における現行 MVP の論理保存先であり、手動の SQLite DB コピーという契約を表す。Desktop 配布では、同じバックアップ処理を user data directory 内の backup 領域へ解決する候補を検討する。DB backup は PDF output と別の保全単位であり、PDF をバックアップや復元用の正本とはみなさない。
 
-アプリ起動時の migration / 初期化、DB の復元、破損検出、PDF 生成は Desktop 化または Phase 2 の追加候補である。現行 MVP の自動バックアップ、Undo、soft delete、復元 API、`BackupLog`、PDF export を実装済みとは扱わない。
+アプリ起動時の初期化、DB の復元、破損検出、PDF 生成は Desktop 化または Phase 2 の追加候補である。Desktop Alpha の既存 DB staged migration、read-back、reopen、更新後 health / rollback pipeline は backend 実装済みだが、実際の packaged runtime は未検証である。現行 MVP の自動バックアップ、Undo、soft delete、復元 API、`BackupLog`、PDF export を実装済みとは扱わない。
 
 ### 実装単位
 
@@ -462,7 +465,7 @@ npm run prisma:migrate
 | Q-003 | Route Handler API を採用し、Server Actions は MVP 外でよいか | はい |
 | Q-004 | バックアップスクリプトは TypeScript ではなく Node.js script でもよいか | はい |
 | Q-005 | Rust API は MVP では採用せず、Phase 2 検討事項でよいか | はい |
-| Q-006 | Desktop shell を Electron と Tauri + Node.js sidecar のどちらにするか | Electron-first candidate と Tauri alternative の最小 PoC を比較して決める |
+| Q-006 | 【解決済み 2026-08-17】Desktop shell を Electron と Tauri + Node.js sidecar のどちらにするか | Tauri + Node.js sidecar を採用。Electron は比較・履歴上の候補として残す |
 | Q-007 | user data directory と PDF output destination の path をどう決めるか | live DB・DB backup は user data directory。PDF の具体的な出力先は別途決める |
 | Q-008 | PDF export の生成 provider、レイアウト、エラー処理をどう定義するか | Phase 2 の PDF export 設計で決める。PDF import / 双方向同期は設計しない |
 | Q-009 | Mac 配布・署名・更新をどう検証するか | Apple Silicon / Intel、native runtime / driver、Playwright / Chromium、migration、データ保持を含む PoC を行う |
@@ -470,15 +473,16 @@ npm run prisma:migrate
 
 ## 現行の作業案内
 
-最初に、[`HANDOFF_2026-08-08.md`](../../HANDOFF_2026-08-08.md) の再開条件と [`TEST_SCENARIOS.md`](../testing/TEST_SCENARIOS.md) の必須シナリオを確認します。
+最初に、[`HANDOFF_2026-08-22.md`](../../HANDOFF_2026-08-22.md) の再開条件と [`TEST_SCENARIOS.md`](../testing/TEST_SCENARIOS.md) の必須シナリオを確認します。
 
-Gate 0（人力 MVP 結合テスト）が未通過で、Browser runtime QA に `BLOCKED` または `NOT RUN` が残る間は、UI を含む新しい coding task を投入しません。
+Gate 0 の未通過を理由に UI を含む新しい coding task の投入を停止する制約は解除済みです。
+Browser runtime QA の `BLOCKED` / `NOT RUN`、実 DB read-back、E2E、packaged GUI などの未検証範囲は、各 Desktop Alpha / runtime QA の受け入れ条件として維持します。
 
-Gate 0 の finding 修正、再テスト、品質コマンド、証跡更新、発注者の明示承認がそろった後に、[`POST_MVP_IMPLEMENTATION_PLAN.md`](../implementation/POST_MVP_IMPLEMENTATION_PLAN.md) の Stage 1 から採用範囲を決めます。
+Gate 0 完了後の現行 task 順と採用範囲は、[`HANDOFF_2026-08-22.md`](../../HANDOFF_2026-08-22.md) と [`POST_MVP_IMPLEMENTATION_PLAN.md`](../implementation/POST_MVP_IMPLEMENTATION_PLAN.md) の Stage 1 を確認して決めます。
 
 ### 作成時の「次に決めること」（履歴）
 
-当初は、Desktop shell の選定、`user data directory` と PDF output destination の境界、PDF export 契約、配布、署名、更新に関する PoC の順に判断し、Electron / Tauri の実装と PDF 生成を別 task に分ける案を記録しました。
+当初は、Desktop shell の選定、`user data directory` と PDF output destination の境界、PDF export 契約、配布、署名、更新に関する PoC の順に判断し、Electron / Tauri の実装と PDF 生成を別 task に分ける案を記録しました。この段落は作成時の履歴であり、現行の shell 選定は Tauri + Node.js sidecar です。
 
 この順序は Gate 0 通過後の候補です。
 

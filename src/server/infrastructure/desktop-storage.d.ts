@@ -7,6 +7,10 @@ export const DESKTOP_DATABASE_INITIALIZATION_MARKER_INVALID_REASON:
 export const DESKTOP_DATABASE_MISSING_AFTER_INITIALIZATION_REASON:
   "database-missing-after-initialization";
 export const DESKTOP_DATABASE_NOT_A_FILE_REASON: "database-not-a-file";
+export const DESKTOP_STAGED_MIGRATION_STATUS: {
+  readonly NO_PENDING: "no-pending";
+  readonly SWITCHED: "switched";
+};
 
 export const DESKTOP_STORAGE_LAYOUT: {
   readonly root: ".";
@@ -91,6 +95,18 @@ export function inspectDesktopDatabase(options?: {
   sqliteBinary?: string;
   integrityCheck?: boolean;
 }): DesktopDatabaseInspection;
+
+export type StagedUpdateMigrationResult = {
+  status: "no-pending" | "switched";
+  pendingMigrations: string[];
+};
+
+export function runStagedUpdateMigration(options: {
+  storagePaths: DesktopStoragePaths;
+  sqliteBinary?: string;
+  environment?: NodeJS.ProcessEnv;
+  now?: number;
+}): StagedUpdateMigrationResult;
 
 export function bootstrapDesktopStorage(options?: {
   homeDirectory?: string;

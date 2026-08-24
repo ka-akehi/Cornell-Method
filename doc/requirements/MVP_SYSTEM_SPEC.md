@@ -1,6 +1,6 @@
 # MVP システム仕様書
 
-確認日: 2026-08-12
+確認日: 2026-08-24
 
 ## 文書の位置づけ
 
@@ -65,7 +65,7 @@ Cornell Method Notebook は、ローカル個人利用向けの学習ノート�
 | `user data directory` | SQLite DB、DB backup、アプリ設定、ログ等の書き込み可能データを置く。OS のユーザーデータ領域を基本とし、初回起動時に作成・初期化する。`Downloads` を既定にしない |
 | `Canvas PNG output destination` | Desktop Alpha 後に実装する Canvas PNG の外部出力領域。具体的な保存先は未決定で、この文書では固定しない |
 
-アプリ更新では app bundle の更新と user data の migration を分離し、ユーザーデータを保持します。アンインストールとデータ削除も別の操作とします。Desktop shell は Electron と Tauri + Node.js sidecar を、同じ現行 MVP、同じ deterministic な 10,000 note fixture、同じ Apple Silicon Mac、同じ測定軸で比較してから選定します。
+アプリ更新では app bundle の更新と user data の migration を分離し、ユーザーデータを保持します。アンインストールとデータ削除も別の操作とします。Desktop PoC の比較を経て、Desktop Alpha の shell は 2026-08-17 に Tauri + Node.js sidecar を選定済みです。
 
 ユーザーは、コーネルメソッドの形式に沿って、学習内容を以下の単位で記録します。
 
@@ -190,8 +190,8 @@ MVP スコープは、既存 MVP 設計書で発注者承認済みの判断に�
 
 | 段階 | 現在の判断 | 現行 MVP との境界 |
 | --- | --- | --- |
-| Desktop PoC | Electron と Tauri + Node.js sidecar を同条件で比較して shell を選定する | 製品機能を追加せず、PDF / Playwright / Chromium を blocker や必須受け入れ条件にしない |
-| Desktop Alpha | lifecycle、Settings、更新、migration、backup / restore、完全なデータ削除、診断、障害時挙動、privacy の契約を採用済み | 現行 MVP を Mac アプリとして包み、route、API、明示保存等を維持する |
+| Desktop PoC | Electron と Tauri + Node.js sidecar の同条件比較・shell 選定は完了（2026-08-17）。現行の選定は Tauri + Node.js sidecar | 製品機能を追加せず、PDF / Playwright / Chromium を blocker や必須受け入れ条件にしない |
+| Desktop Alpha | Tauri + Node.js sidecar を shell に採用済み。lifecycle、Settings、更新、migration、backup / restore、完全なデータ削除、診断、障害時挙動、privacy の契約を採用済み。更新 backend は provider / manifest / compatible selection / 公開 URL 境界 / download / signature・SHA-256 / archive・bundle validation / update state / pending verification、`apply_verified_update`（引数なしの明示 command）と `ApplyPreparation` / explicit restart handoff、staged migration / read-back / atomic DB switch、candidate health、bundle switch、rollback / SQLite restore / recovery、checkpoint、cleanup まで実装済み。実 provider / package runtime、macOS packaged app、packaged Apple Silicon GUI による runtime acceptance は未検証。Settings UI の更新接続、backup / restore、完全なデータ削除、診断の操作は未完了 | 現行 MVP を Mac アプリとして包み、route、API、明示保存等を維持する |
 | Desktop Alpha 後 | Canvas PNG と検索サジェスト・大規模一覧対応を採用済み | 実装・検証は未着手。現行 MVP の検索 API と 1 ページ 50 件の契約はこの文書同期で変更しない |
 | 採否未決 | autosave、Undo / soft delete、専用復習タスク、NoteCard / D&D、定期 backup、PDF export 等 | 発注者が採用するまで仕様・実装 task を開始しない |
 
@@ -487,7 +487,7 @@ MVP の API 詳細は `doc/api/MVP_API_DESIGN.md` を正とします。
 - 最新 3 世代を保持する。
 - バックアップからの自動復元は MVP 範囲外とし、必要な場合は手動復元手順を README 等へ記載する。
 - デスクトップ配布時は `.app` の app bundle と user data directory を分離し、live DB は user data directory に置く。
-- Desktop Alpha では user data directory の初期化、app bundle と DB migration の分離、migration / restore 前 safety backup、staging validation、失敗時の現行版・live DB 維持、アンインストールと完全なデータ削除の分離を要件とする。具体的な path と provider は shell 選定後に決める。
+- Desktop Alpha では user data directory の初期化、app bundle と DB migration の分離、migration / restore 前 safety backup、staging validation、失敗時の現行版・live DB 維持、アンインストールと完全なデータ削除の分離を要件とする。Tauri + Node.js sidecar は選定済みで、初期 provider は GitHub Releases、取得側は provider-neutral manifest とする。具体的な path、provider adapter の詳細、artifact 方式は実装契約で定める。
 - `Downloads` を既定の DB / backup 保存先にしない。Canvas PNG の保存先も未決定のため、この文書で固定しない。
 - SQLite の live DB を iCloud / Dropbox 等の同期フォルダへ置かない。クラウド同期やオンラインサービスは製品スコープ外とする。
 
@@ -533,7 +533,7 @@ npm run prisma:migrate
 - Prisma schema と migration で DB 構造を管理する。
 - 実装タスクでは作業前後に `git status --short` を確認する。
 
-Desktop PoC では、Electron と Tauri + Node.js sidecar を、同じ現行 MVP baseline、同じ deterministic な 10,000 note fixture、同じ Apple Silicon Mac で比較します。起動速度、操作反応、shell の main / core、renderer / WebView、local runtime、Node.js sidecar、framework helper、関連子 process の合計メモリ、成果物サイズ、SQLite / Prisma / migration / lifecycle の成立性、保守性、安全性、DMG・更新の成立見通し、総コストを同じ条件で記録します。framework が必要とする内部 process を許容し、OS process が複数存在することだけを blocker や不合格理由にしません。PDF / Playwright / Chromium、Intel、未検証の古い macOS も blocker や必須受け入れ条件にしません。shell は未選定で、Desktop Alpha も未実装です。
+Desktop PoC では、Electron と Tauri + Node.js sidecar を、同じ現行 MVP baseline、同じ deterministic な 10,000 note fixture、同じ Apple Silicon Mac で比較しました。起動速度、操作反応、shell の main / core、renderer / WebView、local runtime、Node.js sidecar、framework helper、関連子 process の合計メモリ、成果物サイズ、SQLite / Prisma / migration / lifecycle の成立性、保守性、安全性、DMG・更新の成立見通し、総コストを同じ条件で記録し、2026-08-17 に Tauri + Node.js sidecar を選定済みです。framework が必要とする内部 process を許容し、OS process が複数存在することだけを blocker や不合格理由にしません。PDF / Playwright / Chromium、Intel、未検証の古い macOS も blocker や必須受け入れ条件にしません。製品側の update backend は、provider / manifest / compatible selection / 公開 URL 境界 / download / signature・SHA-256 / archive・bundle validation / update state / pending verification、`apply_verified_update`（引数なしの明示 command）、`ApplyPreparation` / explicit restart handoff、staged migration / read-back / atomic DB switch、candidate health、bundle switch、checkpoint、rollback / SQLite restore / recovery、cleanup まで実装済みです。実 provider / package runtime、macOS packaged app による candidate health / bundle switch / rollback / cleanup、packaged Apple Silicon GUI、browser runtime の DB read-back は未検証です。自動 check、startup check、download 完了、pending notification だけでは apply / restart しません。
 
 ### バックアップ運用
 
@@ -543,7 +543,7 @@ Desktop PoC では、Electron と Tauri + Node.js sidecar を、同じ現行 MVP
 - 最新 3 世代を保持し、4 世代目以降は古いものから削除する。
 - MVP ではバックアップログを DB 管理しない。
 
-上記は現行の開発用 Web 起動形態における手動 SQLite DB backup の契約です。Desktop Alpha では Data and Backup に、手動 SQLite export、app 管理 backup からの復元、外部 backup file からの復元を分けて配置します。restore 前に現行 DB の safety backup を作り、schema、integrity、semantic validation、reopen に成功した file だけを適用します。現行 app より新しい schema の backup は更新後に復元を再開する pending restore とします。これらは承認済みの将来契約ですが、まだ実装していません。
+上記は現行の開発用 Web 起動形態における手動 SQLite DB backup の契約です。Desktop Alpha では Data and Backup に、手動 SQLite export、app 管理 backup からの復元、外部 backup file からの復元を分けて配置します。restore 前に現行 DB の safety backup を作り、schema、integrity、semantic validation、reopen に成功した file だけを適用します。現行 app より新しい schema の backup は更新後に復元を再開する pending restore とします。これらは承認済みの将来契約で、Settings UI からの backup / restore 操作はまだ実装していません。update apply backend では、verified artifact の再検証、`ApplyPreparation` の atomic state transition、explicit restart handoff、pending migration がある場合の migration 前 safety backup、DB staging copy 上の migration / read-back / reopen、atomic DB switch、candidate health、bundle switch、rollback / SQLite restore / recovery、checkpoint、cleanup を実装済みです。実 provider / package runtime と packaged app による health / switch / rollback / cleanup の runtime acceptance は未検証です。
 
 ### 障害時運用
 
@@ -598,7 +598,7 @@ Desktop PoC では、Electron と Tauri + Node.js sidecar を、同じ現行 MVP
 - ノート削除は物理削除とし、Undo は実装しない。
 - 学習日と `nextReviewDate` は独立して扱う。`nextReviewDate` は独立して変更でき、保存済みの値を学習日から自動再計算しない。保存後の通常編集では学習日は表示専用とする。復習履歴に基づく間隔も継続計算せず、新規作成画面と復習画面の固定初期値は表示する。
 - PDF export は実装せず、現在は採用しない。再検討するかも未決定とする。
-- `.app` の app bundle 内に SQLite の live DB を置かない。Desktop Alpha の migration、更新、restore の安全境界は承認済みで、具体的な path、provider、artifact 方式は別 task で決める。
+- `.app` の app bundle 内に SQLite の live DB を置かない。Desktop Alpha の migration、更新、restore の安全境界は承認済みで、具体的な path、provider adapter の詳細、artifact 方式は別 task で決める。
 - SQLite はノートデータの唯一の正本とする。クラウド DB、クラウド同期、オンラインサービスは製品スコープ外であり、Vercel / Supabase / Postgres を将来実装予定として扱わない。
 - `Downloads` を既定の DB / backup 保存先にしない。Desktop Alpha 後の Canvas PNG の保存先も未決定のまま残す。
 - Canvas PNG は保存済み Canvas の用紙を画像として持ち出す派生出力であり、編集用データ形式や復元用正本には使わない。PNG 生成は未実装である。
@@ -610,8 +610,8 @@ MVP 関連設計書上、主要なスコープ判断は発注者承認済みで�
 
 | ID | 未決事項 | 判断が必要になるタイミング |
 | --- | --- | --- |
-| U-001 | Desktop shell を Electron と Tauri + Node.js sidecar のどちらにするか | 同条件の Desktop PoC 比較後 |
-| U-002 | bundle ID、user data、backup、設定、log の具体的な path、更新 provider、manifest / package の配置と署名・完全性検証方式 | shell 選定後の Desktop Alpha 実装 task |
+| U-001 | Desktop shell を Electron と Tauri + Node.js sidecar のどちらにするか | 解決済み（2026-08-17）。Tauri + Node.js sidecar を選定 |
+| U-002 | bundle ID、user data、backup、設定、log の具体的な path、provider adapter の詳細、manifest / package の配置、承認済み境界以外の署名・完全性検証方式 | Tauri 選定済み。初期 provider は GitHub Releases、provider-neutral manifest、公開鍵署名と SHA-256 の境界を承認済み。具体的な path、URL、archive 方式、署名 wire-level details は Desktop Alpha 実装 task で決める |
 | U-003 | Canvas PNG の使用不可文字、同名 file、保存先、失敗時 UI、色管理。PDF を将来再検討するか | Desktop Alpha 後の PNG 仕様 task |
 | U-004 | 検索の Summary 分類、tokenization、同順位、API / index、取得単位、仮想化方式 | Desktop Alpha 後の検索・一覧仕様 task |
 | U-005 | 定期 backup、暗号化 backup、autosave、Undo、専用復習タスク、NoteCard / D&D の採否と詳細 | Desktop Alpha 後の個別仕様 task |

@@ -4,12 +4,15 @@ mod instance;
 mod lifecycle;
 mod menu;
 mod runtime;
+mod update_apply;
 mod update_archive;
 mod update_bundle;
 mod update_check;
 mod update_download;
 mod update_manifest;
+mod update_migration;
 mod update_provider;
+mod update_recovery;
 mod update_selection;
 mod update_signature;
 mod update_state;
@@ -22,14 +25,20 @@ use std::sync::Arc;
 use instance::{acquire_instance, start_focus_listener, InstanceAcquire, InstanceGuard};
 use lifecycle::{handle_navigation, request_close, AppState};
 use menu::{build_desktop_menu, handle_desktop_menu_event};
-use runtime::{run_bootstrap, runtime_project_root, start_sidecar, StorageLayout};
+use runtime::{
+    resolve_storage_layout, run_bootstrap_with_storage, runtime_project_root, start_sidecar,
+    StorageLayout,
+};
 use tauri::{Manager, WebviewUrl, WebviewWindowBuilder, WindowEvent};
+use update_apply::{apply_verified_update_worker, ApplyUpdateCommandError, ApplyUpdateResponse};
 use update_check::{
     manual_update_check_response, run_update_check, ManualUpdateCheckCommandError,
     ManualUpdateCheckResponse,
 };
 use update_download::ReqwestArtifactHttpTransport;
+use update_migration::run_startup_staged_migration;
 use update_provider::ReqwestManifestHttpTransport;
+use update_recovery::{run_startup_update_recovery, RecoveryOutcome};
 use update_signature::EmbeddedTrustedKeyStore;
 use update_state::{current_timestamp, CheckTrigger, UpdateStateSnapshot, UpdateStateStore};
 use update_target::load_update_target_context;
@@ -136,6 +145,15 @@ async fn verify_pending_update(
         .map_err(|_| VerifyPendingUpdateCommandError::worker_failed())?
 }
 
+#[tauri::command]
+async fn apply_verified_update(
+    app: tauri::AppHandle,
+) -> Result<ApplyUpdateResponse, ApplyUpdateCommandError> {
+    tauri::async_runtime::spawn_blocking(move || apply_verified_update_worker(app))
+        .await
+        .map_err(|_| ApplyUpdateCommandError::worker_failed())?
+}
+
 fn verify_pending_update_command_worker(
     app: tauri::AppHandle,
 ) -> Result<VerifyPendingUpdateResponse, VerifyPendingUpdateCommandError> {
@@ -187,7 +205,8 @@ fn run_application(instance: InstanceGuard) -> AppResult<()> {
         .invoke_handler(tauri::generate_handler![
             manual_update_check,
             read_update_state,
-            verify_pending_update
+            verify_pending_update,
+            apply_verified_update
         ])
         .setup(move |app| {
             let mut instance = instance;
@@ -196,7 +215,7 @@ fn run_application(instance: InstanceGuard) -> AppResult<()> {
             instance.mark_socket_owned();
             app.manage(instance);
             let root = runtime_project_root(app.handle()).map_err(boxed_error)?;
-            let storage = run_bootstrap(&root).map_err(boxed_error)?;
+            let storage = resolve_storage_layout(&root).map_err(boxed_error)?;
             app.manage(storage.clone());
             let staging_directory = storage.staging_directory();
             let update_state =
@@ -204,6 +223,10 @@ fn run_application(instance: InstanceGuard) -> AppResult<()> {
             if let Some(issue) = update_state.load_issue() {
                 eprintln!("desktop update state unavailable: {}", issue.code());
             }
+            run_startup_staged_migration(&root, &storage, &update_state).map_err(boxed_error)?;
+            let recovery_outcome =
+                run_startup_update_recovery(&root, &storage, &update_state).map_err(boxed_error)?;
+            let storage = run_bootstrap_with_storage(&root, &storage).map_err(boxed_error)?;
             app.manage(update_state);
             let sidecar = start_sidecar(&root, &storage).map_err(boxed_error)?;
             let runtime_url = sidecar.runtime_url();
@@ -254,7 +277,12 @@ fn run_application(instance: InstanceGuard) -> AppResult<()> {
             window
                 .set_focus()
                 .map_err(|error| boxed_error(error.to_string()))?;
-            start_startup_update_check(app.handle().clone());
+            if recovery_outcome == RecoveryOutcome::RestartRequired {
+                state.allow_application_exit();
+                app.request_restart();
+            } else {
+                start_startup_update_check(app.handle().clone());
+            }
             Ok(())
         })
         .build(tauri::generate_context!())

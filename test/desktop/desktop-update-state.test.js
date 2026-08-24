@@ -58,6 +58,7 @@ test("update state keeps a provider-neutral, atomic settings boundary", () => {
 test("update state exposes daily/manual/retry/notification transitions without starting provider work", () => {
   const source = readSource("src-tauri/src/update_state.rs");
   const main = readSource("src-tauri/src/main.rs");
+  const migration = readSource("src-tauri/src/update_migration.rs");
 
   assert.match(source, /UpdateStatus[\s\S]*Checking[\s\S]*NoUpdate[\s\S]*Available[\s\S]*Failed/);
   assert.match(source, /enum CheckTrigger[\s\S]*Automatic[\s\S]*Manual/);
@@ -68,9 +69,21 @@ test("update state exposes daily/manual/retry/notification transitions without s
   assert.match(source, /claim_pending_notification/);
   assert.match(source, /candidate_identity_matches/);
   assert.match(source, /check-interrupted/);
+  assert.match(source, /UpdatePhase::Rollback/);
+  assert.match(source, /recover_persisted_staged_migration_failure/);
+  assert.match(source, /state\.phase = Some\(UpdatePhase::RestartHealthCheck\)/);
+  assert.match(source, /state\.failure\.is_none\(\)/);
 
   assert.match(main, /mod update_state;/);
-  assert.match(main, /run_bootstrap\(&root\)/);
+  assert.match(main, /mod update_migration;/);
+  assert.match(main, /let storage = resolve_storage_layout\(&root\)\.map_err\(boxed_error\)\?;/);
+  assert.match(main, /run_startup_staged_migration\(&root, &storage, &update_state\)/);
+  assert.match(main, /run_bootstrap_with_storage\(&root, &storage\)/);
+  assert.ok(
+    main.indexOf("run_startup_staged_migration(&root, &storage, &update_state)")
+      < main.indexOf("run_bootstrap_with_storage(&root, &storage)"),
+    "explicit ApplyPreparation handoff must precede sidecar bootstrap",
+  );
   assert.match(main, /let staging_directory = storage\.staging_directory\(\);/);
   assert.match(
     main,
@@ -79,6 +92,11 @@ test("update state exposes daily/manual/retry/notification transitions without s
   assert.match(main, /if let Some\(issue\) = update_state\.load_issue\(\)/);
   assert.match(main, /app\.manage\(update_state\)/);
   assert.doesNotMatch(main, /load_or_default\([^\n]*\)\?/);
+  assert.match(migration, /if !state_store\.has_pending_apply_preparation\(\)/);
+  assert.match(migration, /record_staged_migration_failure/);
+  assert.match(migration, /record_staged_migration_no_pending/);
+  assert.match(migration, /record_staged_migration_switched/);
+  assert.match(migration, /StagedMigrationOutcome::Failed \{ code \}/);
 });
 
 test("persistent checkpoint validation is rooted at staging and has a symlink regression test", () => {

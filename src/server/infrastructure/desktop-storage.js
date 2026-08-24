@@ -13,6 +13,17 @@ const DESKTOP_DATABASE_MISSING_AFTER_INITIALIZATION_REASON =
 const DESKTOP_DATABASE_INITIALIZATION_MARKER_INVALID_REASON =
   "database-initialization-marker-invalid";
 const DESKTOP_DATABASE_NOT_A_FILE_REASON = "database-not-a-file";
+const DESKTOP_UPDATE_STATE_FILE_NAME = "update-state.json";
+const DESKTOP_STAGED_MIGRATION_DIRECTORY_NAME = "database-migrations";
+const DESKTOP_STAGED_MIGRATION_APP_RUNTIME_PATH = Object.freeze([
+  "Contents",
+  "Resources",
+  "runtime",
+]);
+const DESKTOP_STAGED_MIGRATION_STATUS = Object.freeze({
+  NO_PENDING: "no-pending",
+  SWITCHED: "switched",
+});
 const DESKTOP_STORAGE_LAYOUT = Object.freeze({
   root: ".",
   live: "live",
@@ -165,6 +176,7 @@ function validateStoragePaths(storagePaths) {
   }
 
   for (const [key, label] of [
+    ["applicationSupportRoot", "Application Support root"],
     ["root", "Desktop user data root"],
     ["liveDirectory", "live directory"],
     ["databasePath", "SQLite path"],
@@ -235,7 +247,7 @@ function readMigrationManifest(
 
       let stats;
       try {
-        stats = fs.statSync(migrationPath);
+        stats = fs.lstatSync(migrationPath);
       } catch (error) {
         if (error && typeof error === "object" && error.code === "ENOENT") {
           return null;
@@ -244,6 +256,13 @@ function readMigrationManifest(
         throw new DesktopStorageError(
           `SQLite migration SQL を検査できません: ${name}`,
           { code: "MIGRATIONS_UNAVAILABLE", cause: error },
+        );
+      }
+
+      if (stats.isSymbolicLink()) {
+        throw new DesktopStorageError(
+          `SQLite migration SQL が symlink です: ${name}`,
+          { code: "MIGRATIONS_UNAVAILABLE" },
         );
       }
 
@@ -949,6 +968,908 @@ function applyInitialMigrations({
   }
 }
 
+function stagedMigrationError(message, code, cause) {
+  return new DesktopStorageError(message, { code, cause });
+}
+
+function requireExistingDirectory(directoryPath, label, code = "STAGED_MIGRATION_PATH") {
+  let stats;
+  try {
+    stats = fs.lstatSync(directoryPath);
+  } catch (error) {
+    throw stagedMigrationError(
+      `${label} を検査できません`,
+      code,
+      error,
+    );
+  }
+
+  if (stats.isSymbolicLink() || !stats.isDirectory()) {
+    throw stagedMigrationError(`${label} が directory ではありません`, code);
+  }
+  return stats;
+}
+
+function requireExistingRegularFile(
+  filePath,
+  label,
+  code = "STAGED_MIGRATION_PATH",
+  { executable = false } = {},
+) {
+  let stats;
+  try {
+    stats = fs.lstatSync(filePath);
+  } catch (error) {
+    throw stagedMigrationError(
+      `${label} を検査できません`,
+      code,
+      error,
+    );
+  }
+
+  if (stats.isSymbolicLink() || !stats.isFile()) {
+    throw stagedMigrationError(`${label} が regular file ではありません`, code);
+  }
+  if (executable && process.platform !== "win32" && (stats.mode & 0o111) === 0) {
+    throw stagedMigrationError(`${label} が executable ではありません`, code);
+  }
+  return stats;
+}
+
+function requireDirectoryTree(root, components, label) {
+  let current = root;
+  requireExistingDirectory(current, label);
+  for (const component of components) {
+    if (
+      typeof component !== "string"
+      || component === ""
+      || component === "."
+      || component === ".."
+      || component.includes("/")
+      || component.includes("\\")
+    ) {
+      throw stagedMigrationError(`${label} の path component が不正です`, "STAGED_MIGRATION_PATH");
+    }
+    current = path.join(current, component);
+    requireExistingDirectory(current, label);
+  }
+  return current;
+}
+
+function requireSafeStagingRoot(stagingDirectory) {
+  if (!path.isAbsolute(stagingDirectory) || stagingDirectory.includes("\0")) {
+    throw stagedMigrationError("update staging path が不正です", "STAGED_MIGRATION_PATH");
+  }
+  requireExistingDirectory(stagingDirectory, "update staging directory");
+  const parent = path.dirname(stagingDirectory);
+  requireExistingDirectory(parent, "update staging parent directory");
+  return stagingDirectory;
+}
+
+function requireCanonicalStagedStorageDirectories(storagePaths) {
+  const root = path.resolve(storagePaths.applicationSupportRoot);
+  const expectedPaths = new Map([
+    ["root", root],
+    ["liveDirectory", path.join(root, DESKTOP_STORAGE_LAYOUT.live)],
+    ["backupsDirectory", path.join(root, DESKTOP_STORAGE_LAYOUT.backups)],
+    ["settingsDirectory", path.join(root, DESKTOP_STORAGE_LAYOUT.settings)],
+    ["logsDirectory", path.join(root, DESKTOP_STORAGE_LAYOUT.logs)],
+    [
+      "pendingRestoreDirectory",
+      path.join(root, DESKTOP_STORAGE_LAYOUT.pendingRestore),
+    ],
+    ["databasePath", path.join(root, DESKTOP_STORAGE_LAYOUT.database)],
+  ]);
+  for (const [key, expectedPath] of expectedPaths) {
+    if (path.resolve(storagePaths[key]) !== expectedPath) {
+      throw stagedMigrationError(
+        `Application Support path の ${key} が canonical ではありません`,
+        "STAGED_MIGRATION_PATH",
+      );
+    }
+  }
+  requireExistingDirectory(root, "Application Support root");
+  requireExistingDirectory(storagePaths.liveDirectory, "live directory");
+  requireExistingDirectory(storagePaths.backupsDirectory, "managed backup directory");
+  requireExistingDirectory(storagePaths.settingsDirectory, "settings directory");
+  return root;
+}
+
+function rejectSqliteSidecars(databasePath, code) {
+  for (const suffix of ["-wal", "-shm", "-journal"]) {
+    const sidecarPath = `${databasePath}${suffix}`;
+    try {
+      fs.lstatSync(sidecarPath);
+    } catch (error) {
+      if (hasErrorCode(error, "ENOENT")) continue;
+      throw stagedMigrationError(
+        `SQLite sidecar を検査できません: ${suffix}`,
+        code,
+        error,
+      );
+    }
+    throw stagedMigrationError(
+      `SQLite sidecar が残っています: ${suffix}`,
+      code,
+    );
+  }
+}
+
+function validateStagedCandidateIdentifier(value, label) {
+  if (
+    typeof value !== "string"
+    || value.length === 0
+    || value.length > 256
+    || value.includes("/")
+    || value.includes("\\")
+    || value.includes("://")
+    || /[\u0000-\u001f\u007f]/u.test(value)
+  ) {
+    throw stagedMigrationError(`${label} が不正です`, "STAGED_MIGRATION_STATE_INVALID");
+  }
+  return value;
+}
+
+function validateStagedDigest(value) {
+  if (typeof value !== "string" || !/^[0-9a-f]{64}$/u.test(value)) {
+    throw stagedMigrationError(
+      "verified update digest が不正です",
+      "STAGED_MIGRATION_STATE_INVALID",
+    );
+  }
+  return value;
+}
+
+function canonicalStagedPackagePath(digest) {
+  return path.join("packages", `${digest}.app.tar.gz`);
+}
+
+function canonicalStagedExtractedAppPath(digest) {
+  return path.join(
+    "extract",
+    digest,
+    "Cornell Method Notebook.app",
+  );
+}
+
+function readApplyPreparationCandidate(storagePaths) {
+  requireExistingDirectory(
+    storagePaths.settingsDirectory,
+    "update state settings directory",
+  );
+  const statePath = path.join(storagePaths.settingsDirectory, DESKTOP_UPDATE_STATE_FILE_NAME);
+  requireExistingRegularFile(statePath, "update state", "STAGED_MIGRATION_STATE_INVALID");
+
+  let parsed;
+  try {
+    parsed = JSON.parse(fs.readFileSync(statePath, "utf8"));
+  } catch (error) {
+    throw stagedMigrationError(
+      "update state を読み取れません",
+      "STAGED_MIGRATION_STATE_INVALID",
+      error,
+    );
+  }
+
+  if (
+    parsed === null
+    || typeof parsed !== "object"
+    || Array.isArray(parsed)
+    || parsed.schemaVersion !== 2
+    || parsed.status !== "checking"
+    || parsed.phase !== "apply-preparation"
+  ) {
+    throw stagedMigrationError(
+      "update state は ApplyPreparation ではありません",
+      "STAGED_MIGRATION_NOT_PENDING",
+    );
+  }
+
+  const pending = parsed.pendingUpdate;
+  if (
+    pending === null
+    || typeof pending !== "object"
+    || Array.isArray(pending)
+    || pending.verificationState !== "verified"
+  ) {
+    throw stagedMigrationError(
+      "ApplyPreparation に verified candidate がありません",
+      "STAGED_MIGRATION_STATE_INVALID",
+    );
+  }
+
+  const digest = validateStagedDigest(pending.sha256);
+  validateStagedCandidateIdentifier(pending.version, "update version");
+  validateStagedCandidateIdentifier(pending.channel, "update channel");
+  validateStagedCandidateIdentifier(pending.architecture, "update architecture");
+  validateStagedCandidateIdentifier(pending.artifact, "update artifact");
+  if (!Number.isSafeInteger(pending.sizeBytes) || pending.sizeBytes <= 0) {
+    throw stagedMigrationError(
+      "verified update size が不正です",
+      "STAGED_MIGRATION_STATE_INVALID",
+    );
+  }
+
+  const expectedPackagePath = canonicalStagedPackagePath(digest);
+  const expectedExtractedAppPath = canonicalStagedExtractedAppPath(digest);
+  if (pending.packagePath !== expectedPackagePath || pending.extractedAppPath !== expectedExtractedAppPath) {
+    throw stagedMigrationError(
+      "verified update staging path が canonical ではありません",
+      "STAGED_MIGRATION_STATE_INVALID",
+    );
+  }
+
+  const stagingDirectory = requireSafeStagingRoot(
+    path.join(storagePaths.applicationSupportRoot, "staging"),
+  );
+  const packagePath = path.join(stagingDirectory, expectedPackagePath);
+  const extractedAppPath = path.join(stagingDirectory, expectedExtractedAppPath);
+  const packageStats = requireExistingRegularFile(
+    packagePath,
+    "verified update package",
+    "STAGED_MIGRATION_STAGING_INVALID",
+  );
+  if (packageStats.size !== pending.sizeBytes) {
+    throw stagedMigrationError(
+      "verified update package size が state と一致しません",
+      "STAGED_MIGRATION_STAGING_INVALID",
+    );
+  }
+  requireDirectoryTree(
+    stagingDirectory,
+    ["extract", digest, "Cornell Method Notebook.app"],
+    "verified extracted app",
+  );
+
+  return Object.freeze({
+    digest,
+    version: pending.version,
+    channel: pending.channel,
+    architecture: pending.architecture,
+    artifact: pending.artifact,
+    packagePath,
+    extractedAppPath,
+    stagingDirectory,
+  });
+}
+
+function resolveStagedMigrationSource(candidate) {
+  const runtimeDirectory = requireDirectoryTree(
+    candidate.extractedAppPath,
+    DESKTOP_STAGED_MIGRATION_APP_RUNTIME_PATH,
+    "verified app runtime",
+  );
+  const migrationsDirectory = requireDirectoryTree(
+    runtimeDirectory,
+    ["prisma", "migrations"],
+    "verified app migration source",
+  );
+  requireExistingRegularFile(
+    path.join(migrationsDirectory, "migration_lock.toml"),
+    "verified app migration lock",
+    "STAGED_MIGRATION_SOURCE_INVALID",
+  );
+  requireExistingRegularFile(
+    path.join(runtimeDirectory, "prisma.config.ts"),
+    "verified app Prisma config",
+    "STAGED_MIGRATION_SOURCE_INVALID",
+  );
+  const configDirectory = requireDirectoryTree(
+    runtimeDirectory,
+    ["config"],
+    "verified app project environment directory",
+  );
+  requireExistingRegularFile(
+    path.join(configDirectory, "project-env.js"),
+    "verified app project environment helper",
+    "STAGED_MIGRATION_SOURCE_INVALID",
+  );
+  requireExistingRegularFile(
+    path.join(runtimeDirectory, "prisma", "schema.prisma"),
+    "verified app Prisma schema",
+    "STAGED_MIGRATION_SOURCE_INVALID",
+  );
+
+  let migrationEntries;
+  try {
+    migrationEntries = fs.readdirSync(migrationsDirectory, { withFileTypes: true });
+  } catch (error) {
+    throw stagedMigrationError(
+      "verified app migration source を読み取れません",
+      "STAGED_MIGRATION_SOURCE_INVALID",
+      error,
+    );
+  }
+  for (const entry of migrationEntries) {
+    if (entry.isSymbolicLink()) {
+      throw stagedMigrationError(
+        "verified app migration source に symlink があります",
+        "STAGED_MIGRATION_SOURCE_INVALID",
+      );
+    }
+    if (!entry.isDirectory()) continue;
+    requireExistingRegularFile(
+      path.join(migrationsDirectory, entry.name, "migration.sql"),
+      "verified app migration SQL",
+      "STAGED_MIGRATION_SOURCE_INVALID",
+    );
+  }
+
+  let manifest;
+  try {
+    manifest = readMigrationManifest(migrationsDirectory);
+  } catch (error) {
+    throw stagedMigrationError(
+      "verified app migration manifest が不正です",
+      "STAGED_MIGRATION_SOURCE_INVALID",
+      error,
+    );
+  }
+
+  const nodeExecutable = path.join(runtimeDirectory, "node");
+  const prismaBuildDirectory = requireDirectoryTree(
+    runtimeDirectory,
+    ["node_modules", "prisma", "build"],
+    "verified app Prisma runtime directory",
+  );
+  const prismaBinary = path.join(prismaBuildDirectory, "index.js");
+  requireExistingRegularFile(
+    nodeExecutable,
+    "verified app Node executable",
+    "STAGED_MIGRATION_SOURCE_INVALID",
+    { executable: true },
+  );
+  requireExistingRegularFile(
+    prismaBinary,
+    "verified app Prisma executable",
+    "STAGED_MIGRATION_SOURCE_INVALID",
+  );
+
+  return Object.freeze({
+    runtimeDirectory,
+    migrationsDirectory,
+    manifest,
+    nodeExecutable,
+    prismaBinary,
+    prismaConfigPath: path.join(runtimeDirectory, "prisma.config.ts"),
+    prismaProjectRoot: runtimeDirectory,
+  });
+}
+
+function quoteSqlIdentifier(identifier) {
+  return `"${identifier.replaceAll("\"", "\"\"")}"`;
+}
+
+function readSqliteDataSnapshot(databasePath, sqliteBinary) {
+  let reader;
+  try {
+    reader = createSqliteReader(databasePath, sqliteBinary);
+  } catch (error) {
+    throw stagedMigrationError(
+      "SQLite read-back を開始できません",
+      "STAGED_MIGRATION_REOPEN_FAILED",
+      error,
+    );
+  }
+
+  try {
+    const tableRows = reader.all(
+      `SELECT "name" FROM "sqlite_master"
+       WHERE "type" = 'table' AND "name" NOT LIKE 'sqlite_%'`,
+    );
+    const tableNames = new Set(tableRows.map((row) => row.name));
+    const tables = {};
+    for (const table of [
+      "notebooks",
+      "cues",
+      "tags",
+      "notebook_tags",
+      "notebook_canvases",
+    ]) {
+      if (!tableNames.has(table)) {
+        tables[table] = null;
+        continue;
+      }
+      const columns = reader
+        .all(`PRAGMA table_info(${quoteSqlIdentifier(table)})`)
+        .map((row) => row.name);
+      if (columns.length === 0) {
+        throw stagedMigrationError(
+          "SQLite table の columns を読み取れません",
+          "STAGED_MIGRATION_READ_BACK_FAILED",
+        );
+      }
+      const selectedColumns = columns.map(quoteSqlIdentifier).join(", ");
+      const rows = reader.all(
+        `SELECT ${selectedColumns} FROM ${quoteSqlIdentifier(table)}`,
+      );
+      if (table === "notebooks") {
+        for (const row of rows) {
+          if (typeof row.body !== "string") {
+            throw stagedMigrationError(
+              "legacy Markdown body の read-back が不正です",
+              "STAGED_MIGRATION_READ_BACK_FAILED",
+            );
+          }
+        }
+      }
+      if (table === "notebook_canvases") {
+        for (const row of rows) {
+          if (typeof row.document_json !== "string") {
+            throw stagedMigrationError(
+              "CanvasDocumentV1 の read-back が不正です",
+              "STAGED_MIGRATION_READ_BACK_FAILED",
+            );
+          }
+          let document;
+          try {
+            document = JSON.parse(row.document_json);
+          } catch (error) {
+            throw stagedMigrationError(
+              "CanvasDocumentV1 が JSON ではありません",
+              "STAGED_MIGRATION_READ_BACK_FAILED",
+              error,
+            );
+          }
+          if (
+            document === null
+            || typeof document !== "object"
+            || document.schemaVersion !== 1
+            || document.page === null
+            || typeof document.page !== "object"
+            || !Array.isArray(document.elements)
+          ) {
+            throw stagedMigrationError(
+              "CanvasDocumentV1 の schema が不正です",
+              "STAGED_MIGRATION_READ_BACK_FAILED",
+            );
+          }
+        }
+      }
+      const normalizedRows = rows
+        .map((row) => JSON.stringify(row))
+        .sort((left, right) => left.localeCompare(right));
+      tables[table] = { columns, rows: normalizedRows };
+    }
+    return tables;
+  } catch (error) {
+    if (error instanceof DesktopStorageError) throw error;
+    throw stagedMigrationError(
+      "SQLite data read-back に失敗しました",
+      "STAGED_MIGRATION_READ_BACK_FAILED",
+      error,
+    );
+  } finally {
+    reader.close();
+  }
+}
+
+function compareSqliteDataSnapshots(before, after) {
+  for (const table of Object.keys(before)) {
+    const beforeTable = before[table];
+    if (beforeTable === null) continue;
+    const afterTable = after[table];
+    if (afterTable === null) {
+      throw stagedMigrationError(
+        "SQLite required data table が migration 後にありません",
+        "STAGED_MIGRATION_READ_BACK_FAILED",
+      );
+    }
+    const afterColumns = new Set(afterTable.columns);
+    const missingColumns = beforeTable.columns.filter((column) => !afterColumns.has(column));
+    if (missingColumns.length > 0) {
+      const missingColumnLabels = missingColumns
+        .map((column) => `${table}.${column}`)
+        .join(", ");
+      throw stagedMigrationError(
+        `SQLite required data table の既存 columns が migration 後にありません: ${missingColumnLabels}`,
+        "STAGED_MIGRATION_READ_BACK_FAILED",
+      );
+    }
+    const preservedColumns = beforeTable.columns;
+    const beforeRows = beforeTable.rows.map((row) => {
+      const parsed = JSON.parse(row);
+      return JSON.stringify(Object.fromEntries(preservedColumns.map((column) => [column, parsed[column]])));
+    }).sort((left, right) => left.localeCompare(right));
+    const afterRows = afterTable.rows.map((row) => {
+      const parsed = JSON.parse(row);
+      return JSON.stringify(Object.fromEntries(preservedColumns.map((column) => [column, parsed[column]])));
+    }).sort((left, right) => left.localeCompare(right));
+    if (JSON.stringify(beforeRows) !== JSON.stringify(afterRows)) {
+      throw stagedMigrationError(
+        "SQLite existing data の read-back が一致しません",
+        "STAGED_MIGRATION_READ_BACK_FAILED",
+      );
+    }
+  }
+}
+
+function validateMigrationSourceDatabase(
+  databasePath,
+  sqliteBinary,
+  failureCode = "STAGED_MIGRATION_LIVE_DATABASE_INVALID",
+  subject = "live",
+) {
+  let reader;
+  try {
+    reader = createSqliteReader(databasePath, sqliteBinary);
+    const integrityRows = reader.all("PRAGMA integrity_check");
+    if (integrityRows.length !== 1 || integrityRows[0].integrity_check !== "ok") {
+      throw stagedMigrationError(
+        `${subject} SQLite integrity check に失敗しました`,
+        failureCode,
+      );
+    }
+    const foreignKeyRows = reader.all("PRAGMA foreign_key_check");
+    if (foreignKeyRows.length > 0) {
+      throw stagedMigrationError(
+        `${subject} SQLite foreign key check に失敗しました`,
+        failureCode,
+      );
+    }
+  } catch (error) {
+    if (error instanceof DesktopStorageError) throw error;
+    throw stagedMigrationError(
+      `${subject} SQLite validation に失敗しました`,
+      failureCode,
+      error,
+    );
+  } finally {
+    if (reader) reader.close();
+  }
+}
+
+function syncDirectory(directoryPath) {
+  let descriptor;
+  try {
+    descriptor = fs.openSync(directoryPath, "r");
+    fs.fsyncSync(descriptor);
+  } catch (error) {
+    throw stagedMigrationError(
+      "staged migration directory を同期できません",
+      "STAGED_MIGRATION_STORAGE_FAILED",
+      error,
+    );
+  } finally {
+    if (descriptor !== undefined) {
+      try {
+        fs.closeSync(descriptor);
+      } catch {
+        // Preserve the original storage result.
+      }
+    }
+  }
+}
+
+function randomStagedName(prefix) {
+  return `${prefix}-${Date.now()}-${crypto.randomBytes(12).toString("hex")}`;
+}
+
+function assertSameFilesystem(leftStats, rightStats, label) {
+  if (typeof leftStats.dev !== "number" || typeof rightStats.dev !== "number" || leftStats.dev !== rightStats.dev) {
+    throw stagedMigrationError(`${label} が同一 filesystem ではありません`, "STAGED_MIGRATION_STORAGE_FAILED");
+  }
+}
+
+function copyRegularFileAtomically(
+  sourcePath,
+  destinationDirectory,
+  destinationName,
+  failureCode = "STAGED_MIGRATION_COPY_FAILED",
+) {
+  const sourceStats = requireExistingRegularFile(
+    sourcePath,
+    "SQLite source",
+    failureCode,
+  );
+  const destinationStats = requireExistingDirectory(
+    destinationDirectory,
+    "SQLite destination directory",
+    failureCode,
+  );
+  assertSameFilesystem(sourceStats, destinationStats, "SQLite source and destination");
+  try {
+    fs.accessSync(destinationDirectory, fs.constants.W_OK);
+  } catch (error) {
+    throw stagedMigrationError(
+      "SQLite destination directory に書き込めません",
+      failureCode,
+      error,
+    );
+  }
+
+  const destinationPath = path.join(destinationDirectory, destinationName);
+  let destinationExists = false;
+  try {
+    fs.lstatSync(destinationPath);
+    destinationExists = true;
+  } catch (error) {
+    if (!hasErrorCode(error, "ENOENT")) {
+      throw stagedMigrationError(
+        "SQLite destination を検査できません",
+        failureCode,
+        error,
+      );
+    }
+  }
+  if (destinationExists) {
+    throw stagedMigrationError(
+      "SQLite destination は既に存在します",
+      failureCode,
+    );
+  }
+
+  let temporaryPath;
+  let renamed = false;
+  try {
+    for (let attempt = 0; attempt < 16; attempt += 1) {
+      const candidatePath = path.join(
+        destinationDirectory,
+        `.${destinationName}.${crypto.randomBytes(12).toString("hex")}.tmp`,
+      );
+      try {
+        const descriptor = fs.openSync(candidatePath, "wx", 0o600);
+        fs.closeSync(descriptor);
+        temporaryPath = candidatePath;
+        break;
+      } catch (error) {
+        if (!hasErrorCode(error, "EEXIST")) throw error;
+      }
+    }
+    if (!temporaryPath) {
+      throw new Error("temporary SQLite destination could not be allocated");
+    }
+    fs.copyFileSync(sourcePath, temporaryPath);
+    const copiedDescriptor = fs.openSync(temporaryPath, "r+");
+    try {
+      fs.fsyncSync(copiedDescriptor);
+    } finally {
+      fs.closeSync(copiedDescriptor);
+    }
+    const sourceAfterCopy = requireExistingRegularFile(
+      sourcePath,
+      "SQLite source after copy",
+      failureCode,
+    );
+    if (!sameFileIdentity(sourceStats, sourceAfterCopy) || sourceStats.size !== sourceAfterCopy.size) {
+      throw stagedMigrationError(
+        "SQLite source が copy 中に変更されました",
+        failureCode,
+      );
+    }
+    fs.renameSync(temporaryPath, destinationPath);
+    renamed = true;
+    syncDirectory(destinationDirectory);
+    return destinationPath;
+  } catch (error) {
+    if (error instanceof DesktopStorageError) throw error;
+    throw stagedMigrationError(
+      "SQLite atomic copy に失敗しました",
+      failureCode,
+      error,
+    );
+  } finally {
+    if (!renamed && temporaryPath) {
+      try {
+        fs.unlinkSync(temporaryPath);
+      } catch {
+        // Preserve the original copy failure.
+      }
+    }
+  }
+}
+
+function createSafetyBackup(storagePaths, candidate, now) {
+  const liveStats = requireExistingRegularFile(
+    storagePaths.databasePath,
+    "live SQLite database",
+    "STAGED_MIGRATION_LIVE_DATABASE_INVALID",
+  );
+  const backupDirectoryStats = requireExistingDirectory(
+    storagePaths.backupsDirectory,
+    "managed backup directory",
+    "STAGED_MIGRATION_BACKUP_FAILED",
+  );
+  assertSameFilesystem(liveStats, backupDirectoryStats, "live SQLite and managed backup");
+  const backupName = `notebook-${candidate.digest}-${now}-${crypto.randomBytes(12).toString("hex")}.sqlite.bak`;
+  return copyRegularFileAtomically(
+    storagePaths.databasePath,
+    storagePaths.backupsDirectory,
+    backupName,
+    "STAGED_MIGRATION_BACKUP_FAILED",
+  );
+}
+
+function createStagedDatabaseCopy(candidate) {
+  const migrationDirectory = path.join(
+    candidate.stagingDirectory,
+    DESKTOP_STAGED_MIGRATION_DIRECTORY_NAME,
+  );
+  try {
+    requireExistingDirectory(candidate.stagingDirectory, "update staging directory");
+    if (fs.existsSync(migrationDirectory)) {
+      requireExistingDirectory(migrationDirectory, "database migration staging directory");
+    } else {
+      fs.mkdirSync(migrationDirectory, { mode: 0o700 });
+    }
+    requireExistingDirectory(migrationDirectory, "database migration staging directory");
+    fs.accessSync(migrationDirectory, fs.constants.W_OK);
+    const runDirectory = path.join(migrationDirectory, randomStagedName("run"));
+    fs.mkdirSync(runDirectory, { mode: 0o700 });
+    requireExistingDirectory(runDirectory, "database migration run directory");
+    const stagedPath = copyRegularFileAtomically(
+      path.join(candidate.stagingDirectory, "..", "live", "notebook.sqlite"),
+      runDirectory,
+      "notebook.sqlite",
+    );
+    return { runDirectory, stagedPath };
+  } catch (error) {
+    if (error instanceof DesktopStorageError) throw error;
+    throw stagedMigrationError(
+      "DB staging copy を作成できません",
+      "STAGED_MIGRATION_COPY_FAILED",
+      error,
+    );
+  }
+}
+
+function runStagedPrismaMigration(source, stagedDatabasePath, environment = process.env) {
+  const result = spawnSync(
+    source.nodeExecutable,
+    [
+      source.prismaBinary,
+      "migrate",
+      "deploy",
+      "--config",
+      source.prismaConfigPath,
+    ],
+    {
+      cwd: source.prismaProjectRoot,
+      env: {
+        ...environment,
+        DATABASE_URL: databasePathToUrl(stagedDatabasePath),
+        PRISMA_PROVIDER: "sqlite",
+      },
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+    },
+  );
+  if (result.error || result.status !== 0) {
+    throw stagedMigrationError(
+      "staged SQLite migration に失敗しました",
+      "STAGED_MIGRATION_RUNNER_FAILED",
+      result.error,
+    );
+  }
+}
+
+function switchStagedDatabase(storagePaths, stagedDatabasePath, liveBefore, backupPath) {
+  const liveStats = requireExistingRegularFile(
+    storagePaths.databasePath,
+    "live SQLite database before switch",
+    "STAGED_MIGRATION_SWITCH_FAILED",
+  );
+  if (!sameFileIdentity(liveStats, liveBefore) || liveStats.size !== liveBefore.size) {
+    throw stagedMigrationError(
+      "live SQLite file identity が switch 前に変わりました",
+      "STAGED_MIGRATION_SWITCH_FAILED",
+    );
+  }
+  const backupStats = requireExistingRegularFile(
+    backupPath,
+    "migration safety backup",
+    "STAGED_MIGRATION_SWITCH_FAILED",
+  );
+  const stagedStats = requireExistingRegularFile(
+    stagedDatabasePath,
+    "staged SQLite database",
+    "STAGED_MIGRATION_SWITCH_FAILED",
+  );
+  assertSameFilesystem(stagedStats, liveStats, "staged SQLite and live SQLite");
+  assertSameFilesystem(backupStats, liveStats, "migration safety backup and live SQLite");
+  try {
+    fs.accessSync(storagePaths.liveDirectory, fs.constants.W_OK);
+    syncDirectory(storagePaths.liveDirectory);
+    fs.renameSync(stagedDatabasePath, storagePaths.databasePath);
+  } catch (error) {
+    throw stagedMigrationError(
+      "staged SQLite atomic switch に失敗しました",
+      "STAGED_MIGRATION_SWITCH_FAILED",
+      error,
+    );
+  }
+}
+
+function runStagedUpdateMigration({
+  storagePaths,
+  sqliteBinary,
+  environment = process.env,
+  now = Math.floor(Date.now() / 1000),
+} = {}) {
+  if (!Number.isSafeInteger(now) || now < 0) {
+    throw stagedMigrationError(
+      "staged migration timestamp が不正です",
+      "STAGED_MIGRATION_STATE_INVALID",
+    );
+  }
+  const paths = validateStoragePaths(storagePaths ?? resolveDesktopStoragePaths());
+  requireCanonicalStagedStorageDirectories(paths);
+  rejectSqliteSidecars(paths.databasePath, "STAGED_MIGRATION_LIVE_DATABASE_INVALID");
+  const candidate = readApplyPreparationCandidate(paths);
+  const source = resolveStagedMigrationSource(candidate);
+  const inspection = inspectDesktopDatabase({
+    storagePaths: paths,
+    migrationsDirectory: source.migrationsDirectory,
+    sqliteBinary,
+    integrityCheck: true,
+  });
+
+  if (inspection.status === DESKTOP_DATABASE_STATUS.READY) {
+    return Object.freeze({
+      status: DESKTOP_STAGED_MIGRATION_STATUS.NO_PENDING,
+      pendingMigrations: [],
+    });
+  }
+  if (
+    inspection.status !== DESKTOP_DATABASE_STATUS.MIGRATION_REQUIRED
+    || inspection.migrationState !== DESKTOP_MIGRATION_STATE.MISSING
+    || !Array.isArray(inspection.pendingMigrations)
+    || inspection.pendingMigrations.length === 0
+  ) {
+    throw stagedMigrationError(
+      "live SQLite schema は staged app と互換性がありません",
+      "STAGED_MIGRATION_LIVE_DATABASE_INVALID",
+    );
+  }
+
+  validateMigrationSourceDatabase(paths.databasePath, sqliteBinary);
+  const beforeSnapshot = readSqliteDataSnapshot(paths.databasePath, sqliteBinary);
+  const liveBefore = requireExistingRegularFile(
+    paths.databasePath,
+    "live SQLite database before migration",
+    "STAGED_MIGRATION_LIVE_DATABASE_INVALID",
+  );
+  const backupPath = createSafetyBackup(paths, candidate, now);
+  const staged = createStagedDatabaseCopy(candidate);
+  runStagedPrismaMigration(source, staged.stagedPath, environment);
+  rejectSqliteSidecars(staged.stagedPath, "STAGED_MIGRATION_REOPEN_FAILED");
+  validateMigrationSourceDatabase(
+    staged.stagedPath,
+    sqliteBinary,
+    "STAGED_MIGRATION_REOPEN_FAILED",
+    "staged",
+  );
+
+  const stagedPaths = {
+    ...paths,
+    databasePath: staged.stagedPath,
+    databaseUrl: databasePathToUrl(staged.stagedPath),
+  };
+  const migratedInspection = inspectDesktopDatabase({
+    storagePaths: stagedPaths,
+    migrationsDirectory: source.migrationsDirectory,
+    sqliteBinary,
+    integrityCheck: true,
+  });
+  if (
+    migratedInspection.status !== DESKTOP_DATABASE_STATUS.READY
+    || migratedInspection.migrationState !== DESKTOP_MIGRATION_STATE.COMPLETE
+  ) {
+    throw stagedMigrationError(
+      "staged SQLite migration 後の schema validation に失敗しました",
+      "STAGED_MIGRATION_REOPEN_FAILED",
+    );
+  }
+  const afterSnapshot = readSqliteDataSnapshot(staged.stagedPath, sqliteBinary);
+  compareSqliteDataSnapshots(beforeSnapshot, afterSnapshot);
+  switchStagedDatabase(paths, staged.stagedPath, liveBefore, backupPath);
+
+  return Object.freeze({
+    status: DESKTOP_STAGED_MIGRATION_STATUS.SWITCHED,
+    pendingMigrations: inspection.pendingMigrations,
+  });
+}
+
 function finalizeReadyDatabase(paths, inspection, created) {
   try {
     ensureDatabaseInitializationMarker(paths);
@@ -1052,6 +1973,7 @@ module.exports = {
   DESKTOP_DATABASE_NOT_A_FILE_REASON,
   DESKTOP_DATABASE_STATUS,
   DESKTOP_MIGRATION_STATE,
+  DESKTOP_STAGED_MIGRATION_STATUS,
   DESKTOP_STORAGE_LAYOUT,
   DesktopStorageError,
   bootstrapDesktopStorage,
@@ -1061,4 +1983,5 @@ module.exports = {
   inspectDesktopDatabase,
   readMigrationManifest,
   resolveDesktopStoragePaths,
+  runStagedUpdateMigration,
 };

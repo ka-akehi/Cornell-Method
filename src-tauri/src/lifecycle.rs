@@ -244,6 +244,16 @@ impl AppState {
     }
 }
 
+pub(crate) fn request_explicit_update_restart(app: &AppHandle, state: &AppState) {
+    // The update dialog has already resolved the user's save/discard choice.
+    // Allow Tauri's restart event through without reopening the ordinary close
+    // bridge. The persisted ApplyPreparation state is the handoff boundary;
+    // startup recovery keeps the current app when a later staging step is not
+    // available yet.
+    state.allow_application_exit();
+    app.request_restart();
+}
+
 fn finalize_close(window: WebviewWindow, app: AppHandle, state: Arc<AppState>) {
     if let Err(error) = capture_window_state(&window, state.window_state_path()) {
         eprintln!("{error}");
