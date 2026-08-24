@@ -7,7 +7,8 @@ use tauri::Manager;
 use crate::lifecycle::{request_explicit_update_restart, AppState};
 use crate::runtime::StorageLayout;
 use crate::update_archive::{
-    revalidate_verified_archive, ArchiveExtractionError, ExtractedArchive,
+    revalidate_extracted_archive_tree, revalidate_verified_archive, ArchiveExtractionError,
+    ExtractedArchive,
 };
 use crate::update_bundle::{validate_extracted_app_bundle, BundleValidationError};
 use crate::update_download::{PackageDownloadError, VerifiedArchiveHandle};
@@ -204,7 +205,7 @@ pub(crate) fn apply_verified_update_worker(
         state: UpdateStateSnapshot::from(&state_store.snapshot()),
     };
     let lifecycle_state = app.state::<Arc<AppState>>();
-    request_explicit_update_restart(&app, lifecycle_state.inner().as_ref());
+    request_explicit_update_restart(&app, lifecycle_state.inner().as_ref())?;
     Ok(response)
 }
 
@@ -277,6 +278,10 @@ fn validate_extracted_bundle(
             code: ApplyUpdateCommandCode::UpdateBundle,
         });
     }
+
+    revalidate_extracted_archive_tree(archive, &extracted_archive, staging_root)
+        .map_err(map_archive_error)
+        .map_err(|code| ApplyUpdateCommandError::CommandError { code })?;
     Ok(())
 }
 
@@ -330,7 +335,8 @@ fn map_archive_error(error: ArchiveExtractionError) -> ApplyUpdateCommandCode {
         | ArchiveExtractionError::ArchiveLimit
         | ArchiveExtractionError::ArchiveSymlink
         | ArchiveExtractionError::ArchiveSpecialFile
-        | ArchiveExtractionError::ArchivePermission => ApplyUpdateCommandCode::UpdateArchive,
+        | ArchiveExtractionError::ArchivePermission
+        | ArchiveExtractionError::ArchiveTree => ApplyUpdateCommandCode::UpdateArchive,
     }
 }
 

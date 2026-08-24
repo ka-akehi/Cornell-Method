@@ -5,7 +5,7 @@ use super::{
     AppResult, PRIMARY_WINDOW_LABEL,
 };
 use crate::update_check::{ManualUpdateCheckCommandError, ManualUpdateCheckResponse};
-use crate::update_state::UpdateStateSnapshot;
+use crate::update_state::{UpdateStateError, UpdateStateSnapshot, UpdateStateStore};
 use crate::update_verification::{VerifyPendingUpdateCommandError, VerifyPendingUpdateResponse};
 use serde::Serialize;
 use std::path::{Path, PathBuf};
@@ -244,14 +244,19 @@ impl AppState {
     }
 }
 
-pub(crate) fn request_explicit_update_restart(app: &AppHandle, state: &AppState) {
+pub(crate) fn request_explicit_update_restart(
+    app: &AppHandle,
+    state: &AppState,
+) -> Result<(), UpdateStateError> {
     // The update dialog has already resolved the user's save/discard choice.
     // Allow Tauri's restart event through without reopening the ordinary close
-    // bridge. The persisted ApplyPreparation state is the handoff boundary;
-    // startup recovery keeps the current app when a later staging step is not
-    // available yet.
+    // bridge. Persist the handoff only after request_restart has been invoked:
+    // if the process stops between ApplyPreparation and this boundary, startup
+    // treats the unhanded preparation as an interrupted update and rolls back.
     state.allow_application_exit();
     app.request_restart();
+    app.state::<UpdateStateStore>()
+        .record_explicit_restart_handoff()
 }
 
 fn finalize_close(window: WebviewWindow, app: AppHandle, state: Arc<AppState>) {

@@ -56,6 +56,7 @@ test("recovery persists typed checkpoints and separates health, switch, rollback
     "record_bundle_switched",
     "record_cleanup_pending",
     "record_recovery_failure",
+    "record_rollback_completed",
     "complete_update",
   ]) {
     assert.match(state, new RegExp(marker));
@@ -93,6 +94,60 @@ test("candidate health precedes bundle switch and cleanup, while failures stay f
   assert.match(recovery, /update-restore-failed/);
   assert.match(recovery, /update-cleanup-failed/);
   assert.doesNotMatch(recovery, /remove_dir_all/);
+});
+
+test("recovery shares archive safe-symlink policy and never follows links during copy or cleanup", () => {
+  const recovery = read("src-tauri/src/update_recovery.rs");
+  const archive = read("src-tauri/src/update_archive.rs");
+
+  for (const marker of [
+    "normalize_relative_symlink_target",
+    "resolve_relative_symlink_path",
+    "MAX_SYMLINK_HOPS",
+    "metadata_no_follow_inside_bundle",
+    "fs::symlink_metadata",
+    "fs::read_link",
+    "create_recovery_symlink",
+    "copy_tree_preserving_safe_symlinks",
+    "copy_regular_file_no_follow",
+    "fs::remove_file(path)",
+  ]) {
+    assert.match(recovery, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  }
+  assert.match(archive, /pub\(crate\) fn normalize_relative_symlink_target/);
+  assert.match(archive, /pub\(crate\) fn resolve_relative_symlink_path/);
+  assert.doesNotMatch(recovery, /validate_tree_no_symlinks/);
+  assert.match(recovery, /SafeSymlinkPathError::InvalidTarget/);
+  assert.match(recovery, /SafeSymlinkPathError::EscapesRoot/);
+  assert.match(recovery, /symlink chain contains a cycle/);
+  assert.match(recovery, /maximum hop count/);
+  assert.match(recovery, /candidate app bundle/);
+  assert.match(recovery, /bundle switch temporary parent/);
+  assert.match(recovery, /live database directory/);
+});
+
+test("successful rollback leaves a reloadable failure terminal state while rollback errors stay pending", () => {
+  const state = read("src-tauri/src/update_state.rs");
+  const recovery = read("src-tauri/src/update_recovery.rs");
+  const completionStart = state.indexOf("pub(crate) fn record_rollback_completed");
+  const completionEnd = state.indexOf("pub(crate) fn complete_update", completionStart);
+  const completion = state.slice(completionStart, completionEnd);
+  const rollbackStart = recovery.indexOf("fn recover_rollback");
+  const rollbackEnd = recovery.indexOf("fn rollback_after_health_failure", rollbackStart);
+  const rollback = recovery.slice(rollbackStart, rollbackEnd);
+
+  assert.ok(completionStart >= 0);
+  assert.ok(completionEnd > completionStart);
+  assert.match(
+    completion,
+    /state\.status = UpdateStatus::Available[\s\S]*state\.phase = None[\s\S]*state\.failure = Some[\s\S]*state\.restart_handoff = None[\s\S]*state\.recovery = None/,
+  );
+  assert.match(completion, /pending_update[\s\S]*is_none_or/);
+  assert.match(recovery, /record_recovery_failure[\s\S]*update-rollback-failed/);
+  assert.ok(rollback.indexOf("restore_database_if_needed") < rollback.indexOf("record_rollback_completed"));
+  assert.match(rollback, /record_rollback_completed\(failure_code, retry_at\)/);
+  assert.match(recovery, /rollback_after_health_failure[\s\S]*record_rollback_completed\("candidate-health-failed"/);
+  assert.match(recovery, /handle_health_failure[\s\S]*record_rollback_completed\("candidate-health-failed"/);
 });
 
 test("candidate health derives the fixed packaged runtime root after bundle validation", () => {

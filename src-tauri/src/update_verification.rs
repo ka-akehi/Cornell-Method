@@ -700,7 +700,8 @@ fn map_archive_error(error: ArchiveExtractionError) -> &'static str {
         | ArchiveExtractionError::ArchiveLimit
         | ArchiveExtractionError::ArchiveSymlink
         | ArchiveExtractionError::ArchiveSpecialFile
-        | ArchiveExtractionError::ArchivePermission => UPDATE_ARCHIVE,
+        | ArchiveExtractionError::ArchivePermission
+        | ArchiveExtractionError::ArchiveTree => UPDATE_ARCHIVE,
     }
 }
 

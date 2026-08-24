@@ -13,6 +13,9 @@ pub(crate) fn run_startup_staged_migration(
     if !state_store.has_pending_apply_preparation() {
         return Ok(());
     }
+    state_store
+        .claim_staged_migration()
+        .map_err(map_state_error)?;
 
     let outcome = match run_staged_migration_command(root, storage) {
         Ok(outcome) => outcome,

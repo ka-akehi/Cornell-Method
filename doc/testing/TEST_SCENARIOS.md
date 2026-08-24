@@ -701,21 +701,21 @@ NTE-030 の `summary/20260715/0107-implement-nte030-review-shared-detail-shell-e
 
 ## Desktop Alpha / Phase 2 / 将来確認
 
-次の項目は現行 MVP 外です。Desktop Alpha は全体として未完了です。更新確認・取得・検証・state・pending verification、verified artifact の明示 apply preparation、persisted `ApplyPreparation` を起点とする staged migration、read-back、candidate health、bundle switch、rollback / recovery、checkpoint persistence、cleanup には backend 実装と static / disposable test 証跡があります。`node --test test/desktop/desktop-update-*.test.js` は 54/54 PASS ですが、これは実際の macOS packaged app による更新完了の PASS ではありません。自動 apply / 自動 restart は行わず、Settings の操作機能は未実装であり、packaged Apple Silicon GUI、実 provider / package runtime、実 health / switch / rollback / cleanup は未検証です。これらを含む Desktop Alpha の判定は現行 MVP の PASS 集計に含めません。static / disposable test の PASS を packaged GUI、provider / package runtime、browser runtime、DB read-back の PASS へ繰り上げません。Desktop PoC と Desktop Alpha の packaged QA 後に Canvas PNG、検索サジェスト、大規模一覧を確認します。未採用候補は、発注者が採用するまで実装シナリオとして確定しません。
+次の項目は現行 MVP 外です。Desktop Alpha は全体として未完了です。更新確認・取得・検証・state・pending verification、verified artifact の明示 apply preparation、persisted `ApplyPreparation` を起点とする staged migration、read-back、candidate health、bundle switch、rollback / recovery、checkpoint persistence、cleanup には backend 実装と static / disposable test 証跡があります。`node --test test/desktop/desktop-update-*.test.js` は 59/59 PASS、rollback/recovery focused tests は 8/8 PASS（同 suite に含む）ですが、これは実際の macOS packaged app による更新完了の PASS ではありません。自動 apply / 自動 restart は行わず、Settings の操作機能は未実装であり、packaged Apple Silicon GUI、実 provider / package runtime、実 health / switch / rollback / cleanup は未検証です。これらを含む Desktop Alpha の判定は現行 MVP の PASS 集計に含めません。static / disposable test の PASS を packaged GUI、provider / package runtime、browser runtime、DB read-back の PASS へ繰り上げません。Desktop PoC と Desktop Alpha の packaged QA 後に Canvas PNG、検索サジェスト、大規模一覧を確認します。未採用候補は、発注者が採用するまで実装シナリオとして確定しません。
 
 #### 0.1 2026-08-24 Desktop Alpha 検証証跡と境界
 
 | 証跡 | 判定 | 現時点の境界 |
 |---|---|---|
-| Desktop update Node suite（`test/desktop/desktop-update-*.test.js`） | PASS（54/54） | provider response の runtime 取得、実 package download、packaged GUI、更新完了の確認ではない。apply command の no-argument / explicit invoke、再検証、staged migration、read-back、checkpoint、health / switch / rollback / cleanup の disposable / static 境界を含む。 |
-| rollback/recovery focused tests | PASS（6/6、上記 suite に含む） | candidate health、runtime root、checkpoint、bundle switch、rollback / SQLite restore / cleanup の static / disposable 証跡であり、実際の packaged app の代替ではない。 |
+| Desktop update Node suite（`test/desktop/desktop-update-*.test.js`） | PASS（59/59） | provider response の runtime 取得、実 package download、packaged `.app` / DMG、Apple Silicon GUI、更新完了の確認ではない。apply command の no-argument / explicit invoke、再検証、staged migration、read-back、checkpoint、health / switch / rollback / cleanup、archive と extracted tree の全 entry 照合の disposable / static 境界を含む。 |
+| rollback/recovery focused tests | PASS（8/8、上記 suite に含む） | candidate health、runtime root、checkpoint、rollback / SQLite restore、成功 rollback の terminal state、safe internal symlink の switch / cleanup の static / disposable 証跡であり、実際の packaged app の代替ではない。 |
 | lifecycle/runtime tests | PASS（15） / SKIP（7） | SKIP は loopback / packaged runtime 依存で、dynamic sidecar health / process cleanup と packaged runtime を確認できないため。 |
 | `cargo fmt --manifest-path src-tauri/Cargo.toml -- --check` | PASS | Rust unit/build の実行結果ではない。 |
 | `git diff --check` | PASS | 文書・作業ツリーの whitespace 検査であり、runtime QA ではない。 |
 | Rust unit/build | 未検証 | offline cache に `base64 0.22.1` crate がなく compile 前に停止した。 |
 | 対象 ESLint / Node syntax | PASS | 対象 ESLint、対象 Desktop test / launcher / runtime helper の `node --check` を確認した。repo-wide lint の結果とは分けて扱う。 |
 
-上記 focused test の PASS は、provider / manifest / selection / 公開 URL 境界 / download / signature・SHA-256 / archive・bundle validation / update state / pending verification、`apply_verified_update` の explicit no-argument command、verified candidate の再検証、`ApplyPreparation` の atomic state transition、explicit restart handoff、persisted `ApplyPreparation` を起点とする staged migration、read-back、checkpoint、candidate health、bundle switch、rollback / SQLite restore / cleanup、automatic path からの非起動境界を示す static / disposable 証跡である。browser / DB read-back、dynamic loopback / sidecar runtime、GUI の dirty close、実 provider / package runtime、実際の macOS packaged app、packaged Apple Silicon GUI は未検証である。これらの結果は現行 MVP の PASS 集計や Desktop Alpha の packaged acceptance へ繰り上げない。
+上記 focused test の PASS は、provider / manifest / selection / 公開 URL 境界 / download / signature・SHA-256 / archive・bundle validation / update state / pending verification、`apply_verified_update` の explicit no-argument command、verified candidate の再検証、`ApplyPreparation` の atomic state transition、explicit restart handoff、明示 handoff がない `ApplyPreparation` の interruption 扱い、persisted `ApplyPreparation` を起点とする staged migration の claim / failure、read-back、checkpoint、candidate health、bundle switch、rollback / SQLite restore / rollback 成功時の `Available + failure + pending candidate`、rollback 失敗時の `RollbackPending` 保持、archive と extracted candidate tree の全 entry（bytes、type、mode、size、追加・欠落、safe internal symlink target）照合、safe internal symlink の switch / cleanup、automatic path からの非起動境界を示す static / disposable 証跡である。browser / DB read-back、dynamic loopback / sidecar runtime、GUI の dirty close、実 provider / package runtime、実際の macOS packaged `.app` / DMG、packaged Apple Silicon GUI は未検証である。これらの結果は現行 MVP の PASS 集計や Desktop Alpha の packaged acceptance へ繰り上げない。
 
 ### 1. Desktop PoC 比較
 
@@ -779,10 +779,10 @@ NTE-030 の `summary/20260715/0107-implement-nte030-review-shared-detail-shell-e
 | provider / manifest / compatible selection / 公開 URL 境界 | backend 実装済み、static / disposable PASS | GitHub Releases provider response の実取得、dynamic network、browser / GUI 経由の確認は未検証。 |
 | package download / signature・SHA-256 / archive・bundle validation | backend 実装済み、static / disposable PASS | disposable fixture と source contract の確認であり、実 package、packaged `.app`、Apple Silicon GUI の検証ではない。 |
 | update state / pending verification | backend 実装済み、static / disposable PASS | atomic state と staging revalidation、`ApplyPreparation` / restart health / rollback / cleanup checkpoint の境界を持つ。実 runtime は未検証。 |
-| verified artifact の update apply preparation | backend 実装済み、static / disposable PASS（54/54） | `apply_verified_update` は引数なしの明示 command。manifest / candidate identity、signature・digest、canonical staging path、archive、bundle ID / version / architecture / arm64 Mach-O を再検証し、`ApplyPreparation` の atomic state transition 後に explicit restart handoff へ渡す。自動 check、startup check、download 完了、pending notification だけでは apply / restart しない。実 provider / package runtime、packaged GUI は未検証。 |
-| staged migration | backend 実装済み、read-back / switch fixture PASS | persisted `ApplyPreparation` だけを起点とし、pending migration 時だけ safety backup、DB staging copy の migration / reopen、既存列・Notebook / Canvas / legacy Markdown の read-back、atomic switch、failure / interruption の fail-closed state を実装。実 packaged runtime は未検証。 |
-| rollback / recovery / candidate health / cleanup | backend 実装済み、focused 6/6 PASS（54/54 に含む） | `HealthPending`、`BundleSwitching`、`BundleSwitched`、`CleanupPending`、`RollbackPending` の checkpoint、candidate health、bundle switch、SQLite restore、旧 bundle 復帰、成功後だけの cleanup を実装。candidate health は `Contents/Resources/runtime` を使用。実 macOS bundle の sidecar health / switch / rollback / cleanup は未検証。 |
-| runtime QA | 未検証 | dynamic loopback / sidecar runtime、browser / DB read-back、GUI の dirty close、packaged Apple Silicon GUI は未確認。 |
+| verified artifact の update apply preparation | backend 実装済み、static / disposable PASS（59/59） | `apply_verified_update` は引数なしの明示 command。manifest / candidate identity、signature・digest、canonical staging path、archive、bundle ID / version / architecture / arm64 Mach-O を再検証し、`ApplyPreparation` の atomic state transition 後に explicit restart handoff へ渡す。明示 handoff のない persisted `ApplyPreparation` は interruption として扱い、自動 apply / restart しない。apply 直前に署名済み archive と extracted candidate tree の全 entry（bytes、type、mode、size、追加・欠落、safe internal symlink target）を照合する。実 provider / package runtime、packaged `.app` / DMG、Apple Silicon GUI は未検証。 |
+| staged migration | backend 実装済み、read-back / switch fixture PASS | persisted `ApplyPreparation` と explicit restart handoff だけを起点とし、migration claim を永続化する。pending migration 時だけ safety backup、DB staging copy の migration / reopen、既存列・Notebook / Canvas / legacy Markdown の read-back、atomic switch を行い、failure / interruption 後は自動再実行しない。実 packaged runtime は未検証。 |
+| rollback / recovery / candidate health / cleanup | backend 実装済み、focused 8/8 PASS（59/59 に含む） | `HealthPending`、`BundleSwitching`、`BundleSwitched`、`CleanupPending`、`RollbackPending` の checkpoint、candidate health、bundle switch、SQLite restore、旧 bundle 復帰、成功後だけの cleanup を実装。rollback / restore 成功時は `Available + failure + pending candidate` へ遷移し、失敗時は `RollbackPending` と typed failure を保持する。candidate health は `Contents/Resources/runtime` を使用し、safe internal symlink のみを許可する。実 macOS packaged `.app` / DMG の sidecar health / switch / rollback / cleanup は未検証。 |
+| runtime QA | 未検証 | dynamic loopback / sidecar runtime、browser / DB read-back、GUI の dirty close、実 provider / package runtime、実際の macOS packaged `.app` / DMG、packaged Apple Silicon GUI は未確認。 |
 
 - [ ] GitHub Releases の provider response を provider-neutral な manifest へ正規化し、provider の並び順、文字列順、raw response、release notes を候補選択に使わない
 - [ ] root の `productId` が必須で `com.cornellmethod.notebook` と一致し、root の `schemaVersion: 1` が必須で、未知 schema version を fail closed にする
@@ -807,7 +807,7 @@ NTE-030 の `summary/20260715/0107-implement-nte030-review-shared-detail-shell-e
 - [ ] 起動完了後の更新確認は非同期で、最大 1 日 1 回に制限され、手動確認もできる
 - [ ] 更新確認の ON / OFF 設定が存在しない
 - [ ] 更新 package を background download し、自動適用せず、明示的な「再起動して更新」でだけ適用する
-- [ ] `apply_verified_update` が `Available` かつ `Verified` の candidate に対する引数なしの明示 invoke だけで起動し、manifest / signature・digest / canonical staging path / archive / bundle を再検証してから `ApplyPreparation` を atomic に保存し、explicit restart handoff へ渡す
+- [ ] `apply_verified_update` が `Available` かつ `Verified` の candidate に対する引数なしの明示 invoke だけで起動し、manifest / signature・digest / canonical staging path / archive / bundle を再検証してから `ApplyPreparation` を atomic に保存し、explicit restart handoff へ渡す。明示 handoff のない persisted `ApplyPreparation` は interruption として扱い、自動 apply / restart しない
 - [ ] 更新確認または download に失敗しても現行版を利用でき、次回の定期確認または手動確認で manifest 確認から更新処理全体を再試行する
 - [ ] 同じ保留更新を modal で繰り返し通知せず、Settings から状態を確認できる
 - [ ] 複数版を飛ばす更新で、端末が利用できる最新の compatible version を選ぶ
@@ -824,8 +824,11 @@ NTE-030 の `summary/20260715/0107-implement-nte030-review-shared-detail-shell-e
 - [ ] 検証成功後だけ新しい app と DB へ atomic switch し、失敗時は現行 app と live DB を維持する
 - [ ] package / DB staging の検証と更新後の health check が成功するまで旧 app bundle を保持し、失敗時は現行 app、live DB、app 管理 backup を維持して rollback する
 - [ ] 新版の初回起動と health check 成功後にだけ旧 app bundle を削除する
-- [ ] `RestartHealthCheck` の `HealthPending` / `BundleSwitching` / `BundleSwitched` / `CleanupPending` / `RollbackPending` checkpoint を再起動後も保持し、failure / interruption 後に staged migration を自動再実行しない
-- [ ] candidate/current の path、symlink、bundle identity、version、architecture を検証し、candidate health に app bundle root ではなく `Contents/Resources/runtime` を渡す
+- [ ] `RestartHealthCheck` の `HealthPending` / `BundleSwitching` / `BundleSwitched` / `CleanupPending` / `RollbackPending` checkpoint を再起動後も保持し、failure / interruption 後に staged migration を自動再実行しない。rollback / restore 成功時は `Available + failure + pending candidate` へ遷移し、失敗時は `RollbackPending` と typed failure を保持する
+- [ ] candidate/current の path、bundle identity、version、architecture を検証し、candidate health に app bundle root ではなく `Contents/Resources/runtime` を渡す。apply 直前に署名済み archive と extracted candidate tree の全 entry（bytes、type、mode、size、追加・欠落、safe internal symlink target）を照合する
+- [ ] archive extraction と recovery の symlink policy が一致し、相対 target、bundle root 内、存在する終端、cycle なし、`MAX_SYMLINK_HOPS` 内の internal symlink だけを許可する
+- [ ] absolute path、backslash、control byte、空 component、`.`、bundle root 外 traversal、dangling、cycle、hop 超過、special file を recovery が typed error で fail closed にし、current app と live DB を変更しない
+- [ ] switch / rollback の temporary copy が安全な internal symlink を target string のまま再作成し、target file の内容を辿らず、cleanup が link 自体だけを unlink する
 - [ ] app 管理 safety backup の retention policy の細則を、この契約やシナリオで未承認のまま固定していない
 - [ ] 定期・日次・通常起動時・データ変更時の自動 backup を Desktop Alpha の必須挙動として実装していない
 

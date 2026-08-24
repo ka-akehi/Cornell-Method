@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::ffi::OsStr;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Write};
@@ -7,7 +8,10 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use crate::runtime::{
     packaged_runtime_root, start_sidecar, validate_database_command, StorageLayout,
 };
-use crate::update_archive::ExtractedArchive;
+use crate::update_archive::{
+    normalize_relative_symlink_target, resolve_relative_symlink_path, ExtractedArchive,
+    SafeSymlinkPathError, MAX_SYMLINK_HOPS,
+};
 use crate::update_bundle::{validate_extracted_app_bundle, VerifiedAppBundle};
 use crate::update_state::{
     PendingUpdate, UpdatePhase, UpdateRecoveryStage, UpdateState, UpdateStateError,
@@ -376,6 +380,16 @@ fn recover_rollback(
         return Err(error);
     }
 
+    let (failure_code, retry_at) = state
+        .failure
+        .as_ref()
+        .map_or(("update-rollback", current_timestamp()), |failure| {
+            (failure.code.as_str(), failure.retry_at)
+        });
+    state_store
+        .record_rollback_completed(failure_code, retry_at)
+        .map_err(|error| state_transition_error("rollback completion", error))?;
+
     if bundle_changed && current_was_candidate {
         Ok(RecoveryOutcome::RestartRequired)
     } else {
@@ -427,13 +441,7 @@ fn rollback_after_health_failure(
     }
 
     state_store
-        .record_recovery_failure(
-            UpdatePhase::Rollback,
-            UpdateRecoveryStage::RollbackPending,
-            Some(false),
-            "candidate-health-failed",
-            current_timestamp(),
-        )
+        .record_rollback_completed("candidate-health-failed", current_timestamp())
         .map_err(|error| state_transition_error("health failure", error))?;
     eprintln!("desktop update candidate health failed: {health_error}");
     if bundle_changed && current_was_candidate {
@@ -466,13 +474,7 @@ fn handle_health_failure(
         return Err(error);
     }
     state_store
-        .record_recovery_failure(
-            UpdatePhase::Rollback,
-            UpdateRecoveryStage::RollbackPending,
-            Some(false),
-            "candidate-health-failed",
-            current_timestamp(),
-        )
+        .record_rollback_completed("candidate-health-failed", current_timestamp())
         .map_err(|error| state_transition_error("health failure", error))?;
     eprintln!("desktop update candidate health failed: {health_error}");
     Ok(RecoveryOutcome::Continue)
@@ -699,6 +701,7 @@ fn require_candidate_bundle_at(
             "candidate bundle identity, version, or architecture changed",
         ));
     }
+    require_safe_bundle_tree(app_path, "candidate app bundle")?;
     Ok(verified)
 }
 
@@ -735,9 +738,11 @@ fn switch_bundle(paths: &BundlePaths, candidate: &CandidateBundle) -> Result<(),
     }
     if path_exists(&paths.switch_temp)? {
         require_candidate_bundle_at(&paths.switch_temp, &candidate.pending)?;
+        require_safe_bundle_tree(&paths.switch_temp, "bundle switch temporary")?;
     } else {
         copy_bundle_tree(&candidate.source_path, &paths.switch_temp)?;
         require_candidate_bundle_at(&paths.switch_temp, &candidate.pending)?;
+        require_safe_bundle_tree(&paths.switch_temp, "bundle switch temporary")?;
     }
 
     fs::rename(&paths.current, &paths.rollback)
@@ -765,6 +770,7 @@ fn switch_bundle(paths: &BundlePaths, candidate: &CandidateBundle) -> Result<(),
             .ok_or_else(|| recovery_error("update-switch-failed", "current app has no parent"))?,
     )?;
     require_candidate_bundle_at(&paths.current, &candidate.pending)?;
+    require_safe_bundle_tree(&paths.current, "current app bundle")?;
     require_safe_bundle_tree(&paths.rollback, "rollback app bundle")?;
     Ok(())
 }
@@ -1043,6 +1049,9 @@ fn remove_candidate_artifact(path: &Path, root: &Path, label: &str) -> Result<()
             format!("{label} is not removable"),
         ));
     }
+    if metadata.is_dir() {
+        require_safe_bundle_tree(path, label)?;
+    }
     remove_validated_tree(path, label)
 }
 
@@ -1074,10 +1083,10 @@ fn remove_validated_tree(path: &Path, label: &str) -> Result<(), String> {
     let metadata = fs::symlink_metadata(path)
         .map_err(|error| recovery_error("update-cleanup-failed", error.to_string()))?;
     if metadata.file_type().is_symlink() {
-        return Err(recovery_error(
-            "update-cleanup-failed",
-            format!("{label} contains a symlink"),
-        ));
+        fs::remove_file(path).map_err(|error| {
+            recovery_error("update-cleanup-failed", format!("{label}: {error}"))
+        })?;
+        return Ok(());
     }
     if metadata.is_dir() {
         for entry in fs::read_dir(path)
@@ -1117,17 +1126,17 @@ fn copy_bundle_tree(source: &Path, destination: &Path) -> Result<(), String> {
         )
     })?;
     require_safe_directory(parent, "bundle switch temporary parent")?;
-    copy_tree_no_symlinks(source, destination)
+    copy_tree_preserving_safe_symlinks(source, destination)
 }
 
-fn copy_tree_no_symlinks(source: &Path, destination: &Path) -> Result<(), String> {
+fn copy_tree_preserving_safe_symlinks(source: &Path, destination: &Path) -> Result<(), String> {
     let metadata = fs::symlink_metadata(source)
         .map_err(|error| recovery_error("update-switch-failed", error.to_string()))?;
     if metadata.file_type().is_symlink() {
-        return Err(recovery_error(
-            "update-switch-failed",
-            "candidate bundle contains a symlink",
-        ));
+        let target = fs::read_link(source)
+            .map_err(|error| recovery_error("update-switch-failed", error.to_string()))?;
+        create_recovery_symlink(&target, destination)?;
+        return Ok(());
     }
     if metadata.is_dir() {
         fs::create_dir(destination)
@@ -1137,11 +1146,13 @@ fn copy_tree_no_symlinks(source: &Path, destination: &Path) -> Result<(), String
         {
             let entry =
                 entry.map_err(|error| recovery_error("update-switch-failed", error.to_string()))?;
-            copy_tree_no_symlinks(&entry.path(), &destination.join(entry.file_name()))?;
+            copy_tree_preserving_safe_symlinks(
+                &entry.path(),
+                &destination.join(entry.file_name()),
+            )?;
         }
     } else if metadata.is_file() {
-        fs::copy(source, destination)
-            .map_err(|error| recovery_error("update-switch-failed", error.to_string()))?;
+        copy_regular_file_no_follow(source, destination)?;
     } else {
         return Err(recovery_error(
             "update-switch-failed",
@@ -1149,6 +1160,68 @@ fn copy_tree_no_symlinks(source: &Path, destination: &Path) -> Result<(), String
         ));
     }
     Ok(())
+}
+
+fn create_recovery_symlink(target: &Path, destination: &Path) -> Result<(), String> {
+    #[cfg(unix)]
+    {
+        std::os::unix::fs::symlink(target, destination)
+            .map_err(|error| recovery_error("update-switch-failed", error.to_string()))
+    }
+    #[cfg(windows)]
+    {
+        std::os::windows::fs::symlink_file(target, destination)
+            .map_err(|error| recovery_error("update-switch-failed", error.to_string()))
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        let _ = (target, destination);
+        Err(recovery_error(
+            "update-switch-failed",
+            "safe internal symlinks are unsupported on this platform",
+        ))
+    }
+}
+
+fn copy_regular_file_no_follow(source: &Path, destination: &Path) -> Result<(), String> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+
+        let source_file = OpenOptions::new()
+            .read(true)
+            .custom_flags(libc::O_NOFOLLOW)
+            .open(source)
+            .map_err(|error| recovery_error("update-switch-failed", error.to_string()))?;
+        let source_metadata = source_file
+            .metadata()
+            .map_err(|error| recovery_error("update-switch-failed", error.to_string()))?;
+        if !source_metadata.is_file() {
+            return Err(recovery_error(
+                "update-switch-failed",
+                "candidate bundle contains a special file",
+            ));
+        }
+        let mut destination_file = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .custom_flags(libc::O_NOFOLLOW)
+            .open(destination)
+            .map_err(|error| recovery_error("update-switch-failed", error.to_string()))?;
+        let mut source_file = source_file;
+        io::copy(&mut source_file, &mut destination_file)
+            .and_then(|_| destination_file.sync_all())
+            .map_err(|error| recovery_error("update-switch-failed", error.to_string()))?;
+        fs::set_permissions(destination, source_metadata.permissions())
+            .map_err(|error| recovery_error("update-switch-failed", error.to_string()))
+    }
+    #[cfg(not(unix))]
+    {
+        fs::copy(source, destination)
+            .map(|_| ())
+            .map_err(|error| recovery_error("update-switch-failed", error.to_string()))
+    }
 }
 
 fn require_safe_bundle_tree(path: &Path, label: &str) -> Result<(), String> {
@@ -1161,26 +1234,28 @@ fn require_safe_bundle_tree(path: &Path, label: &str) -> Result<(), String> {
             format!("{label} is not a directory"),
         ));
     }
-    validate_tree_no_symlinks(path, label)
+    validate_tree_with_safe_symlinks(path, path, label)
 }
 
-fn validate_tree_no_symlinks(path: &Path, label: &str) -> Result<(), String> {
+fn validate_tree_with_safe_symlinks(
+    path: &Path,
+    bundle_root: &Path,
+    label: &str,
+) -> Result<(), String> {
     let metadata = fs::symlink_metadata(path)
         .map_err(|error| recovery_error("update-path-unresolved", format!("{label}: {error}")))?;
     if metadata.file_type().is_symlink() {
-        return Err(recovery_error(
-            "update-path-unresolved",
-            format!("{label} contains a symlink"),
-        ));
+        return validate_internal_symlink(path, bundle_root, label);
     }
     if metadata.is_dir() {
         for entry in fs::read_dir(path)
             .map_err(|error| recovery_error("update-path-unresolved", error.to_string()))?
         {
-            validate_tree_no_symlinks(
+            validate_tree_with_safe_symlinks(
                 &entry
                     .map_err(|error| recovery_error("update-path-unresolved", error.to_string()))?
                     .path(),
+                bundle_root,
                 label,
             )?;
         }
@@ -1191,6 +1266,202 @@ fn validate_tree_no_symlinks(path: &Path, label: &str) -> Result<(), String> {
         ));
     }
     Ok(())
+}
+
+fn validate_internal_symlink(
+    link_path: &Path,
+    bundle_root: &Path,
+    label: &str,
+) -> Result<(), String> {
+    let root_name = bundle_root
+        .file_name()
+        .and_then(OsStr::to_str)
+        .ok_or_else(|| {
+            unsafe_internal_symlink_error(label, "bundle root name is not valid UTF-8")
+        })?;
+    let mut current = link_path.to_path_buf();
+    let mut visited = HashSet::new();
+    let mut hops = 0_usize;
+
+    loop {
+        let current_archive_path = bundle_archive_path(bundle_root, &current, label)?;
+        if !visited.insert(current_archive_path.clone()) {
+            return Err(unsafe_internal_symlink_error(
+                label,
+                "symlink chain contains a cycle",
+            ));
+        }
+
+        let raw_target = fs::read_link(&current).map_err(|error| {
+            recovery_error(
+                "update-path-unresolved",
+                format!("{label} symlink target cannot be read: {error}"),
+            )
+        })?;
+        let target = raw_target.to_str().ok_or_else(|| {
+            unsafe_internal_symlink_error(label, "symlink target is not valid UTF-8")
+        })?;
+        let normalized_target = normalize_relative_symlink_target(target).map_err(|error| {
+            unsafe_internal_symlink_error(label, safe_symlink_path_error_message(error))
+        })?;
+        let resolved_archive_path =
+            resolve_relative_symlink_path(&current_archive_path, &normalized_target, root_name)
+                .map_err(|error| {
+                    unsafe_internal_symlink_error(label, safe_symlink_path_error_message(error))
+                })?;
+        let target_path =
+            bundle_path_from_archive_path(bundle_root, &resolved_archive_path, label)?;
+        let metadata = metadata_no_follow_inside_bundle(bundle_root, &target_path, label)?;
+        if metadata.file_type().is_symlink() {
+            if hops >= MAX_SYMLINK_HOPS {
+                return Err(unsafe_internal_symlink_error(
+                    label,
+                    "symlink chain exceeds the maximum hop count",
+                ));
+            }
+            current = target_path;
+            hops += 1;
+            continue;
+        }
+        if metadata.is_file() || metadata.is_dir() {
+            return Ok(());
+        }
+        return Err(unsafe_internal_symlink_error(
+            label,
+            "symlink target is a special file",
+        ));
+    }
+}
+
+fn bundle_archive_path(bundle_root: &Path, path: &Path, label: &str) -> Result<String, String> {
+    let root_name = bundle_root
+        .file_name()
+        .and_then(OsStr::to_str)
+        .ok_or_else(|| {
+            unsafe_internal_symlink_error(label, "bundle root name is not valid UTF-8")
+        })?;
+    let relative = path.strip_prefix(bundle_root).map_err(|_| {
+        unsafe_internal_symlink_error(label, "symlink path escaped the bundle root")
+    })?;
+    let mut components = vec![root_name.to_owned()];
+    for component in relative.components() {
+        let Component::Normal(value) = component else {
+            return Err(unsafe_internal_symlink_error(
+                label,
+                "symlink path contains an unsafe component",
+            ));
+        };
+        let value = value.to_str().ok_or_else(|| {
+            unsafe_internal_symlink_error(label, "symlink path is not valid UTF-8")
+        })?;
+        if !is_safe_archive_component(value) {
+            return Err(unsafe_internal_symlink_error(
+                label,
+                "symlink path contains an unsafe component",
+            ));
+        }
+        components.push(value.to_owned());
+    }
+    Ok(components.join("/"))
+}
+
+fn bundle_path_from_archive_path(
+    bundle_root: &Path,
+    archive_path: &str,
+    label: &str,
+) -> Result<PathBuf, String> {
+    let root_name = bundle_root
+        .file_name()
+        .and_then(OsStr::to_str)
+        .ok_or_else(|| {
+            unsafe_internal_symlink_error(label, "bundle root name is not valid UTF-8")
+        })?;
+    let components = archive_path.split('/').collect::<Vec<_>>();
+    if components.first().copied() != Some(root_name)
+        || components
+            .iter()
+            .any(|component| !is_safe_archive_component(component))
+    {
+        return Err(unsafe_internal_symlink_error(
+            label,
+            "resolved symlink path is outside the bundle root",
+        ));
+    }
+    let mut path = bundle_root.to_path_buf();
+    for component in components.iter().skip(1) {
+        path.push(component);
+    }
+    Ok(path)
+}
+
+fn metadata_no_follow_inside_bundle(
+    bundle_root: &Path,
+    path: &Path,
+    label: &str,
+) -> Result<fs::Metadata, String> {
+    let relative = path.strip_prefix(bundle_root).map_err(|_| {
+        unsafe_internal_symlink_error(label, "symlink target escaped the bundle root")
+    })?;
+    let mut current = bundle_root.to_path_buf();
+    let components = relative.components().collect::<Vec<_>>();
+    if components.is_empty() {
+        return fs::symlink_metadata(bundle_root).map_err(|error| {
+            recovery_error("update-path-unresolved", format!("{label}: {error}"))
+        });
+    }
+    for (index, component) in components.iter().enumerate() {
+        let Component::Normal(value) = component else {
+            return Err(unsafe_internal_symlink_error(
+                label,
+                "symlink target contains an unsafe component",
+            ));
+        };
+        current.push(value);
+        let metadata = fs::symlink_metadata(&current).map_err(|error| {
+            recovery_error(
+                "update-path-unresolved",
+                format!("{label} symlink target is unresolved: {error}"),
+            )
+        })?;
+        if index + 1 < components.len() && metadata.file_type().is_symlink() {
+            return Err(unsafe_internal_symlink_error(
+                label,
+                "symlink target traverses another symlink component",
+            ));
+        }
+        if index + 1 == components.len() {
+            return Ok(metadata);
+        }
+    }
+    Err(unsafe_internal_symlink_error(
+        label,
+        "symlink target is unresolved",
+    ))
+}
+
+fn is_safe_archive_component(value: &str) -> bool {
+    !value.is_empty()
+        && value != "."
+        && value != ".."
+        && !value
+            .as_bytes()
+            .iter()
+            .any(|byte| *byte == b'\\' || *byte == 0 || *byte < 0x20 || *byte == 0x7f)
+        && !value.chars().any(char::is_control)
+}
+
+fn safe_symlink_path_error_message(error: SafeSymlinkPathError) -> &'static str {
+    match error {
+        SafeSymlinkPathError::InvalidTarget => "symlink target is not a safe relative path",
+        SafeSymlinkPathError::EscapesRoot => "symlink target escapes the bundle root",
+    }
+}
+
+fn unsafe_internal_symlink_error(label: &str, message: impl std::fmt::Display) -> String {
+    recovery_error(
+        "update-path-unresolved",
+        format!("{label} contains an unsafe internal symlink: {message}"),
+    )
 }
 
 fn require_safe_directory(path: &Path, label: &str) -> Result<(), String> {
@@ -1372,5 +1643,144 @@ impl OpenOptionsMode for OpenOptions {
         #[cfg(unix)]
         std::os::unix::fs::OpenOptionsExt::mode(&mut self, mode);
         self
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    static NEXT_ROOT: AtomicU64 = AtomicU64::new(0);
+
+    struct TestRoot {
+        path: PathBuf,
+    }
+
+    impl TestRoot {
+        fn new() -> Self {
+            let timestamp = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("clock")
+                .as_nanos();
+            let counter = NEXT_ROOT.fetch_add(1, Ordering::Relaxed);
+            let path = std::env::temp_dir().join(format!(
+                "cornell-method-update-recovery-{timestamp}-{counter}"
+            ));
+            fs::create_dir(&path).expect("test root");
+            Self { path }
+        }
+    }
+
+    impl Drop for TestRoot {
+        fn drop(&mut self) {
+            let _ = remove_validated_tree(&self.path, "test cleanup");
+        }
+    }
+
+    #[cfg(unix)]
+    fn bundle(root: &Path) -> PathBuf {
+        let app = root.join("Candidate.app");
+        fs::create_dir_all(app.join("Contents/MacOS")).expect("bundle layout");
+        fs::write(app.join("Contents/MacOS/notebook"), b"runtime").expect("runtime");
+        app
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn safe_internal_symlink_survives_validation_copy_and_cleanup() {
+        use std::os::unix::fs::symlink;
+
+        let root = TestRoot::new();
+        let source = bundle(&root.path);
+        symlink("MacOS/notebook", source.join("Contents/current")).expect("internal symlink");
+        require_safe_bundle_tree(&source, "candidate bundle").expect("safe source");
+
+        let switch_parent = root.path.join("switch-parent");
+        fs::create_dir(&switch_parent).expect("switch parent");
+        let destination = switch_parent.join("Copied.app");
+        copy_bundle_tree(&source, &destination).expect("copy bundle");
+        require_safe_bundle_tree(&destination, "copied bundle").expect("safe copy");
+        assert_eq!(
+            fs::read_link(destination.join("Contents/current")).expect("copied symlink"),
+            PathBuf::from("MacOS/notebook")
+        );
+        assert_eq!(
+            fs::read(destination.join("Contents/MacOS/notebook")).expect("copied target"),
+            b"runtime"
+        );
+
+        remove_if_safe_tree(&destination, "copied bundle cleanup").expect("cleanup");
+        assert!(!destination.exists());
+        assert!(source.join("Contents/current").is_symlink());
+        assert_eq!(
+            fs::read(source.join("Contents/MacOS/notebook")).expect("source target"),
+            b"runtime"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn unsafe_internal_symlinks_fail_closed_without_touching_external_files() {
+        use std::os::unix::fs::symlink;
+
+        assert!(normalize_relative_symlink_target("").is_err());
+        for target in [
+            "/outside",
+            "../../outside",
+            "missing",
+            "./notebook",
+            "MacOS//notebook",
+            "MacOS/notebook/",
+            "MacOS\\notebook",
+        ] {
+            let root = TestRoot::new();
+            let source = bundle(&root.path);
+            let outside = root.path.join("outside");
+            fs::write(&outside, b"must survive").expect("outside marker");
+            symlink(target, source.join("Contents/current")).expect("unsafe symlink");
+
+            let error = require_safe_bundle_tree(&source, "candidate bundle")
+                .expect_err("unsafe symlink must fail");
+            assert!(error.starts_with("update-path-unresolved:"));
+            assert_eq!(
+                fs::read(&outside).expect("outside marker read"),
+                b"must survive"
+            );
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn symlink_cycles_and_hop_overflow_fail_closed() {
+        use std::os::unix::fs::symlink;
+
+        for count in [MAX_SYMLINK_HOPS, MAX_SYMLINK_HOPS + 1] {
+            let root = TestRoot::new();
+            let source = bundle(&root.path);
+            for index in 0..count {
+                let target = format!("link{}", index + 1);
+                symlink(target, source.join("Contents").join(format!("link{index}")))
+                    .expect("chain link");
+            }
+            fs::write(
+                source.join("Contents").join(format!("link{count}")),
+                b"terminal",
+            )
+            .expect("terminal");
+
+            let result = require_safe_bundle_tree(&source, "candidate bundle");
+            if count == MAX_SYMLINK_HOPS {
+                result.expect("maximum safe hop count");
+            } else {
+                assert!(result.is_err(), "hop overflow must fail");
+            }
+        }
+
+        let root = TestRoot::new();
+        let source = bundle(&root.path);
+        symlink("cycle-b", source.join("Contents/cycle-a")).expect("cycle a");
+        symlink("cycle-a", source.join("Contents/cycle-b")).expect("cycle b");
+        assert!(require_safe_bundle_tree(&source, "candidate bundle").is_err());
     }
 }

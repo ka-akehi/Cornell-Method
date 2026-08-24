@@ -165,6 +165,7 @@ function createCandidate(homeDirectory, { pending = false, migrationMode = "succ
       schemaVersion: 2,
       status: "checking",
       phase: "apply-preparation",
+      restartHandoff: "requested",
       checkStartedAt: 102,
       pendingUpdate,
     }, null, 2)}\n`,

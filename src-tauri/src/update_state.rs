@@ -61,6 +61,13 @@ pub(crate) enum UpdatePhase {
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "kebab-case")]
+pub(crate) enum UpdateRestartHandoff {
+    Requested,
+    MigrationStarted,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
 pub(crate) enum UpdateRecoveryStage {
     HealthPending,
     BundleSwitching,
@@ -343,6 +350,8 @@ pub(crate) struct UpdateState {
     pub(crate) status: UpdateStatus,
     pub(crate) phase: Option<UpdatePhase>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) restart_handoff: Option<UpdateRestartHandoff>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) last_check_at: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) check_started_at: Option<u64>,
@@ -362,6 +371,7 @@ impl UpdateState {
             schema_version: UPDATE_STATE_SCHEMA_VERSION,
             status: UpdateStatus::NotChecked,
             phase: None,
+            restart_handoff: None,
             last_check_at: None,
             check_started_at: None,
             pending_update: None,
@@ -421,6 +431,19 @@ impl UpdateState {
         } else if self.phase.is_some() {
             return Err(UpdateStateError::Invalid(
                 "non-checking state contains a phase".to_string(),
+            ));
+        }
+
+        if self.restart_handoff.is_some()
+            && (self.status != UpdateStatus::Checking
+                || self.phase != Some(UpdatePhase::ApplyPreparation)
+                || self.failure.is_some()
+                || self.pending_update.as_ref().is_none_or(|candidate| {
+                    candidate.verification_state != VerificationState::Verified
+                }))
+        {
+            return Err(UpdateStateError::Invalid(
+                "restart handoff has no pending verified apply preparation".to_string(),
             ));
         }
 
@@ -687,10 +710,11 @@ impl UpdateStateStore {
                         | UpdatePhase::PackageVerification
                         | UpdatePhase::ApplyPreparation
                 )
-            );
+            )
+            && !(state.phase == Some(UpdatePhase::ApplyPreparation)
+                && state.restart_handoff == Some(UpdateRestartHandoff::Requested));
         if recover_interrupted {
-            recover_interrupted_check(&mut state, now);
-            needs_persist = true;
+            needs_persist |= recover_interrupted_check(&mut state, now);
         }
 
         if load_issue.is_none() && ensure_recovery_checkpoint(&mut state) {
@@ -735,10 +759,87 @@ impl UpdateStateStore {
             state.status == UpdateStatus::Checking
                 && state.phase == Some(UpdatePhase::ApplyPreparation)
                 && state.failure.is_none()
+                && state.restart_handoff.is_some()
                 && state.pending_update.as_ref().is_some_and(|candidate| {
                     candidate.verification_state == VerificationState::Verified
                 })
         })
+    }
+
+    pub(crate) fn record_explicit_restart_handoff(&self) -> Result<(), UpdateStateError> {
+        self.ensure_writable()?;
+        let _transition = self.lock_transition()?;
+        let mut state = self.lock_state()?;
+        if state.status != UpdateStatus::Checking
+            || state.phase != Some(UpdatePhase::ApplyPreparation)
+            || state.failure.is_some()
+            || state
+                .pending_update
+                .as_ref()
+                .is_none_or(|candidate| candidate.verification_state != VerificationState::Verified)
+        {
+            return Err(UpdateStateError::Invalid(
+                "explicit restart handoff has no pending verified apply preparation".to_string(),
+            ));
+        }
+        if state.restart_handoff == Some(UpdateRestartHandoff::Requested) {
+            return Ok(());
+        }
+        if state.restart_handoff == Some(UpdateRestartHandoff::MigrationStarted) {
+            return Err(UpdateStateError::Invalid(
+                "explicit restart handoff has already started migration".to_string(),
+            ));
+        }
+
+        let previous = state.clone();
+        state.restart_handoff = Some(UpdateRestartHandoff::Requested);
+        let next = state.clone();
+        drop(state);
+        if let Err(error) = write_state_atomically(&self.state_path, &next) {
+            let mut state = self.lock_state()?;
+            *state = previous;
+            return Err(error);
+        }
+        Ok(())
+    }
+
+    pub(crate) fn claim_staged_migration(&self) -> Result<(), UpdateStateError> {
+        self.ensure_writable()?;
+        let _transition = self.lock_transition()?;
+        let mut state = self.lock_state()?;
+        if state.status != UpdateStatus::Checking
+            || state.phase != Some(UpdatePhase::ApplyPreparation)
+            || state.failure.is_some()
+            || state
+                .pending_update
+                .as_ref()
+                .is_none_or(|candidate| candidate.verification_state != VerificationState::Verified)
+        {
+            return Err(UpdateStateError::Invalid(
+                "staged migration claim has no pending verified apply preparation".to_string(),
+            ));
+        }
+        if state.restart_handoff == Some(UpdateRestartHandoff::MigrationStarted) {
+            return Err(UpdateStateError::Invalid(
+                "staged migration claim has already been consumed".to_string(),
+            ));
+        }
+        if state.restart_handoff != Some(UpdateRestartHandoff::Requested) {
+            return Err(UpdateStateError::Invalid(
+                "staged migration claim has no explicit restart handoff".to_string(),
+            ));
+        }
+
+        let previous = state.clone();
+        state.restart_handoff = Some(UpdateRestartHandoff::MigrationStarted);
+        let next = state.clone();
+        drop(state);
+        if let Err(error) = write_state_atomically(&self.state_path, &next) {
+            let mut state = self.lock_state()?;
+            *state = previous;
+            return Err(error);
+        }
+        Ok(())
     }
 
     pub(crate) fn read_only_snapshot(&self) -> Result<UpdateStateSnapshot, UpdateStateError> {
@@ -794,6 +895,7 @@ impl UpdateStateStore {
         state.last_check_at = Some(now);
         state.check_started_at = Some(now);
         state.failure = None;
+        state.restart_handoff = None;
         state.recovery = None;
         let next = state.clone();
         drop(state);
@@ -828,6 +930,7 @@ impl UpdateStateStore {
             state.check_started_at = None;
             state.pending_update = None;
             state.failure = None;
+            state.restart_handoff = None;
             state.recovery = None;
             state.notification = None;
             Ok(())
@@ -871,6 +974,7 @@ impl UpdateStateStore {
             state.check_started_at = None;
             state.pending_update = Some(pending_update);
             state.failure = None;
+            state.restart_handoff = None;
             state.recovery = None;
             if !same_pending {
                 state.notification = None;
@@ -920,6 +1024,7 @@ impl UpdateStateStore {
         state.check_started_at = None;
         state.pending_update = Some(pending_update);
         state.failure = None;
+        state.restart_handoff = None;
         state.recovery = None;
         state.notification = None;
         let next = state.clone();
@@ -952,6 +1057,7 @@ impl UpdateStateStore {
         state.check_started_at = None;
         state.pending_update = None;
         state.failure = None;
+        state.restart_handoff = None;
         state.recovery = None;
         state.notification = None;
         let next = state.clone();
@@ -985,6 +1091,7 @@ impl UpdateStateStore {
                 state.notification = None;
             }
             state.recovery = None;
+            state.restart_handoff = None;
             state.failure = Some(UpdateFailure { code, retry_at });
             Ok(())
         })
@@ -1013,6 +1120,7 @@ impl UpdateStateStore {
         state.check_started_at = None;
         state.pending_update = None;
         state.notification = None;
+        state.restart_handoff = None;
         state.recovery = None;
         state.failure = Some(UpdateFailure { code, retry_at });
         let next = state.clone();
@@ -1118,6 +1226,7 @@ impl UpdateStateStore {
         state.phase = Some(UpdatePhase::PackageVerification);
         state.check_started_at = Some(now);
         state.failure = None;
+        state.restart_handoff = None;
         let next = state.clone();
         drop(state);
         if let Err(error) = write_state_atomically(&self.state_path, &next) {
@@ -1286,6 +1395,7 @@ impl UpdateStateStore {
         state.check_started_at = None;
         state.pending_update = Some(pending_update);
         state.failure = None;
+        state.restart_handoff = None;
         let next = state.clone();
         drop(state);
         if let Err(error) = write_state_atomically(&self.state_path, &next) {
@@ -1335,6 +1445,7 @@ impl UpdateStateStore {
         state.phase = Some(UpdatePhase::ApplyPreparation);
         state.check_started_at = Some(now);
         state.failure = None;
+        state.restart_handoff = None;
         let next = state.clone();
         drop(state);
         if let Err(error) = write_state_atomically(&self.state_path, &next) {
@@ -1351,6 +1462,7 @@ impl UpdateStateStore {
         let mut state = self.lock_state()?;
         if state.status != UpdateStatus::Checking
             || state.phase != Some(UpdatePhase::ApplyPreparation)
+            || state.restart_handoff != Some(UpdateRestartHandoff::MigrationStarted)
             || state
                 .pending_update
                 .as_ref()
@@ -1363,6 +1475,7 @@ impl UpdateStateStore {
         let previous = state.clone();
         state.phase = Some(UpdatePhase::RestartHealthCheck);
         state.failure = None;
+        state.restart_handoff = None;
         state.recovery = Some(UpdateRecoveryCheckpoint {
             stage: UpdateRecoveryStage::HealthPending,
             database_switched: Some(false),
@@ -1383,6 +1496,7 @@ impl UpdateStateStore {
         let mut state = self.lock_state()?;
         if state.status != UpdateStatus::Checking
             || state.phase != Some(UpdatePhase::ApplyPreparation)
+            || state.restart_handoff != Some(UpdateRestartHandoff::MigrationStarted)
             || state
                 .pending_update
                 .as_ref()
@@ -1395,6 +1509,7 @@ impl UpdateStateStore {
         let previous = state.clone();
         state.phase = Some(UpdatePhase::RestartHealthCheck);
         state.failure = None;
+        state.restart_handoff = None;
         state.recovery = Some(UpdateRecoveryCheckpoint {
             stage: UpdateRecoveryStage::HealthPending,
             database_switched: Some(true),
@@ -1420,6 +1535,7 @@ impl UpdateStateStore {
         let mut state = self.lock_state()?;
         if state.status != UpdateStatus::Checking
             || state.phase != Some(UpdatePhase::ApplyPreparation)
+            || state.restart_handoff != Some(UpdateRestartHandoff::MigrationStarted)
         {
             return Err(UpdateStateError::Invalid(
                 "staged migration failure has no pending apply preparation".to_string(),
@@ -1428,6 +1544,7 @@ impl UpdateStateStore {
         let previous = state.clone();
         state.phase = Some(UpdatePhase::Rollback);
         state.failure = Some(UpdateFailure { code, retry_at });
+        state.restart_handoff = None;
         state.recovery = Some(UpdateRecoveryCheckpoint {
             stage: UpdateRecoveryStage::RollbackPending,
             database_switched: None,
@@ -1612,10 +1729,55 @@ impl UpdateStateStore {
         let previous = state.clone();
         state.phase = Some(phase);
         state.failure = Some(UpdateFailure { code, retry_at });
+        state.restart_handoff = None;
         state.recovery = Some(UpdateRecoveryCheckpoint {
             stage,
             database_switched,
         });
+        let next = state.clone();
+        drop(state);
+        if let Err(error) = write_state_atomically(&self.state_path, &next) {
+            let mut state = self.lock_state()?;
+            *state = previous;
+            return Err(error);
+        }
+        Ok(())
+    }
+
+    pub(crate) fn record_rollback_completed(
+        &self,
+        error_code: &str,
+        retry_at: u64,
+    ) -> Result<(), UpdateStateError> {
+        let code = sanitize_error_code(error_code);
+        self.ensure_writable()?;
+        let _transition = self.lock_transition()?;
+        let mut state = self.lock_state()?;
+        if state.status != UpdateStatus::Checking
+            || !matches!(
+                state.phase,
+                Some(UpdatePhase::RestartHealthCheck)
+                    | Some(UpdatePhase::Rollback)
+                    | Some(UpdatePhase::Cleanup)
+            )
+            || state
+                .pending_update
+                .as_ref()
+                .is_none_or(|candidate| candidate.verification_state != VerificationState::Verified)
+            || state.recovery.is_none()
+        {
+            return Err(UpdateStateError::Invalid(
+                "rollback completion has no active verified recovery".to_string(),
+            ));
+        }
+
+        let previous = state.clone();
+        state.status = UpdateStatus::Available;
+        state.phase = None;
+        state.check_started_at = None;
+        state.failure = Some(UpdateFailure { code, retry_at });
+        state.restart_handoff = None;
+        state.recovery = None;
         let next = state.clone();
         drop(state);
         if let Err(error) = write_state_atomically(&self.state_path, &next) {
@@ -1650,6 +1812,7 @@ impl UpdateStateStore {
         state.check_started_at = None;
         state.pending_update = None;
         state.failure = None;
+        state.restart_handoff = None;
         state.recovery = None;
         state.notification = None;
         let next = state.clone();
@@ -1795,25 +1958,32 @@ fn recover_persisted_staged_migration_failure(state: &mut UpdateState, now: u64)
     true
 }
 
-fn recover_interrupted_check(state: &mut UpdateState, now: u64) {
+fn recover_interrupted_check(state: &mut UpdateState, now: u64) -> bool {
+    if state.phase == Some(UpdatePhase::ApplyPreparation)
+        && state.restart_handoff == Some(UpdateRestartHandoff::Requested)
+    {
+        return false;
+    }
+
     if state.phase == Some(UpdatePhase::ApplyPreparation) {
         state.phase = Some(UpdatePhase::Rollback);
         state.failure = Some(UpdateFailure {
             code: INTERRUPTED_UPDATE_ERROR_CODE.to_string(),
             retry_at: now,
         });
+        state.restart_handoff = None;
         state.recovery = Some(UpdateRecoveryCheckpoint {
             stage: UpdateRecoveryStage::RollbackPending,
             database_switched: None,
         });
-        return;
+        return true;
     }
 
     if matches!(
         state.phase,
         Some(UpdatePhase::RestartHealthCheck | UpdatePhase::Rollback | UpdatePhase::Cleanup)
     ) {
-        return;
+        return false;
     }
 
     let preserve_manifest_candidate =
@@ -1835,6 +2005,7 @@ fn recover_interrupted_check(state: &mut UpdateState, now: u64) {
         code: interrupted_code.to_string(),
         retry_at: now,
     });
+    true
 }
 
 fn ensure_recovery_checkpoint(state: &mut UpdateState) -> bool {
@@ -1976,6 +2147,7 @@ fn migrate_legacy_state(
             legacy.status
         },
         phase: None,
+        restart_handoff: None,
         last_check_at: legacy.last_check_at,
         check_started_at: None,
         pending_update,
@@ -2604,6 +2776,11 @@ mod tests {
         store
             .record_verified(&verified_archive, &extracted_archive, &verified_bundle, 111)
             .unwrap();
+    }
+
+    fn claim_test_staged_migration(store: &UpdateStateStore) {
+        store.record_explicit_restart_handoff().unwrap();
+        store.claim_staged_migration().unwrap();
     }
 
     fn create_test_artifacts(directory: &Path, digest: &str) -> (PathBuf, PathBuf) {
@@ -3754,6 +3931,59 @@ mod tests {
     }
 
     #[test]
+    fn explicit_restart_handoff_preserves_apply_and_claims_staged_migration_once() {
+        let (directory, first_store) = store("explicit-restart-handoff");
+        first_store.begin_check(CheckTrigger::Manual, 100).unwrap();
+        first_store
+            .record_available(pending("1.2.3", "artifact", 100))
+            .unwrap();
+        let candidate = first_store.snapshot().pending_update.unwrap();
+        first_store
+            .begin_package_verification(&candidate, 110)
+            .unwrap();
+        create_test_artifacts(&directory, TEST_DIGEST);
+        record_test_verified(&first_store);
+        let verified = first_store.snapshot().pending_update.unwrap();
+        first_store.begin_apply_preparation(&verified, 120).unwrap();
+        first_store.record_explicit_restart_handoff().unwrap();
+        assert!(first_store.has_pending_apply_preparation());
+        drop(first_store);
+
+        let second_store = load_at(&directory, 200);
+        assert_eq!(
+            second_store.snapshot().restart_handoff,
+            Some(UpdateRestartHandoff::Requested)
+        );
+        assert_eq!(
+            second_store.snapshot().phase,
+            Some(UpdatePhase::ApplyPreparation)
+        );
+        assert!(second_store.has_pending_apply_preparation());
+        second_store.claim_staged_migration().unwrap();
+        assert_eq!(
+            second_store.snapshot().restart_handoff,
+            Some(UpdateRestartHandoff::MigrationStarted)
+        );
+        assert!(second_store.has_pending_apply_preparation());
+        assert!(second_store.claim_staged_migration().is_err());
+        drop(second_store);
+
+        let interrupted = load_at(&directory, 201);
+        assert_eq!(interrupted.snapshot().phase, Some(UpdatePhase::Rollback));
+        assert_eq!(
+            interrupted.snapshot().failure.as_ref().unwrap().code,
+            INTERRUPTED_UPDATE_ERROR_CODE
+        );
+        assert_eq!(
+            interrupted.snapshot().recovery.as_ref().unwrap().stage,
+            UpdateRecoveryStage::RollbackPending
+        );
+        assert!(!interrupted.has_pending_apply_preparation());
+
+        cleanup(&directory);
+    }
+
+    #[test]
     fn staged_migration_failure_is_persisted_as_a_retryable_typed_state() {
         let (directory, store) = store("staged-migration-failure");
         store.begin_check(CheckTrigger::Manual, 100).unwrap();
@@ -3765,6 +3995,7 @@ mod tests {
         record_test_verified(&store);
         let verified = store.snapshot().pending_update.clone().unwrap();
         store.begin_apply_preparation(&verified, 120).unwrap();
+        claim_test_staged_migration(&store);
 
         store
             .record_staged_migration_failure("staged-migration-failed", 200)
@@ -3795,6 +4026,81 @@ mod tests {
     }
 
     #[test]
+    fn rollback_completion_reloads_as_failure_retained_terminal_state() {
+        let (directory, store) = store("rollback-completion-terminal-state");
+        store.begin_check(CheckTrigger::Manual, 100).unwrap();
+        store
+            .record_available(pending("1.2.3", "artifact", 100))
+            .unwrap();
+        let candidate = store.snapshot().pending_update.unwrap();
+        store.begin_package_verification(&candidate, 110).unwrap();
+        create_test_artifacts(&directory, TEST_DIGEST);
+        record_test_verified(&store);
+        let verified = store.snapshot().pending_update.unwrap();
+        store.begin_apply_preparation(&verified, 120).unwrap();
+        claim_test_staged_migration(&store);
+        store
+            .record_staged_migration_failure("candidate-health-failed", 200)
+            .unwrap();
+        store
+            .record_recovery_failure(
+                UpdatePhase::Rollback,
+                UpdateRecoveryStage::RollbackPending,
+                Some(true),
+                "update-rollback-failed",
+                201,
+            )
+            .unwrap();
+        let rollback_failed = store.snapshot();
+        assert_eq!(rollback_failed.status, UpdateStatus::Checking);
+        assert_eq!(rollback_failed.phase, Some(UpdatePhase::Rollback));
+        assert_eq!(
+            rollback_failed.recovery.as_ref().unwrap().stage,
+            UpdateRecoveryStage::RollbackPending
+        );
+        assert_eq!(
+            rollback_failed.failure.as_ref().unwrap().code,
+            "update-rollback-failed"
+        );
+
+        store
+            .record_rollback_completed("update-rollback-failed", 201)
+            .unwrap();
+        let completed = store.snapshot();
+        assert_eq!(completed.status, UpdateStatus::Available);
+        assert_eq!(completed.phase, None);
+        assert_eq!(completed.check_started_at, None);
+        assert_eq!(completed.pending_update, Some(verified.clone()));
+        assert_eq!(completed.recovery, None);
+        assert_eq!(completed.restart_handoff, None);
+        assert_eq!(
+            completed.failure.as_ref().unwrap().code,
+            "update-rollback-failed"
+        );
+        assert_eq!(completed.failure.as_ref().unwrap().retry_at, 201);
+        drop(store);
+
+        let reloaded = load_at(&directory, 202);
+        assert_eq!(reloaded.snapshot().status, UpdateStatus::Available);
+        assert_eq!(reloaded.snapshot().phase, None);
+        assert_eq!(reloaded.snapshot().pending_update, Some(verified));
+        assert_eq!(reloaded.snapshot().recovery, None);
+        assert_eq!(
+            reloaded.snapshot().failure.as_ref().unwrap().code,
+            "update-rollback-failed"
+        );
+        assert!(reloaded
+            .can_start_check(CheckTrigger::Automatic, 100 + AUTO_CHECK_INTERVAL_SECONDS)
+            .unwrap());
+        assert_eq!(
+            reloaded.begin_check(CheckTrigger::Manual, 300).unwrap(),
+            CheckStart::Started
+        );
+
+        cleanup(&directory);
+    }
+
+    #[test]
     fn staged_migration_failure_survives_missing_staging_artifact() {
         let (directory, store) = store("staged-migration-failure-missing-artifact");
         store.begin_check(CheckTrigger::Manual, 100).unwrap();
@@ -3807,6 +4113,7 @@ mod tests {
         record_test_verified(&store);
         let verified = store.snapshot().pending_update.unwrap();
         store.begin_apply_preparation(&verified, 120).unwrap();
+        claim_test_staged_migration(&store);
         store
             .record_staged_migration_failure("staged-migration-runner-failed", 200)
             .unwrap();
@@ -3842,6 +4149,7 @@ mod tests {
         record_test_verified(&store);
         let verified = store.snapshot().pending_update.unwrap();
         store.begin_apply_preparation(&verified, 120).unwrap();
+        claim_test_staged_migration(&store);
         store
             .record_staged_migration_failure("staged-migration-source-invalid", 200)
             .unwrap();
@@ -3879,6 +4187,7 @@ mod tests {
         record_test_verified(&store);
         let verified = store.snapshot().pending_update.unwrap();
         store.begin_apply_preparation(&verified, 120).unwrap();
+        claim_test_staged_migration(&store);
         store
             .record_staged_migration_failure("staged-migration-failed", 200)
             .unwrap();
@@ -3919,6 +4228,7 @@ mod tests {
         record_test_verified(&store);
         let verified = store.snapshot().pending_update.unwrap();
         store.begin_apply_preparation(&verified, 120).unwrap();
+        claim_test_staged_migration(&store);
 
         store.record_staged_migration_no_pending().unwrap();
         let snapshot = store.snapshot();
@@ -3961,6 +4271,7 @@ mod tests {
         record_test_verified(&store);
         let verified = store.snapshot().pending_update.clone().unwrap();
         store.begin_apply_preparation(&verified, 120).unwrap();
+        claim_test_staged_migration(&store);
 
         store.record_staged_migration_switched().unwrap();
         let snapshot = store.snapshot();
@@ -4003,6 +4314,7 @@ mod tests {
         record_test_verified(&store);
         let verified = store.snapshot().pending_update.unwrap();
         store.begin_apply_preparation(&verified, 120).unwrap();
+        claim_test_staged_migration(&store);
         store.record_staged_migration_no_pending().unwrap();
 
         store.record_bundle_switching().unwrap();

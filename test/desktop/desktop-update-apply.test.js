@@ -63,6 +63,40 @@ test("apply reuses current candidate, manifest, signature, archive, and bundle v
   assert.match(archive, /revalidate_verified_archive_path/);
 });
 
+test("apply verifies the complete extracted tree before persisting preparation", () => {
+  const apply = read("src-tauri/src/update_apply.rs");
+  const archive = read("src-tauri/src/update_archive.rs");
+  const workerStart = apply.indexOf("pub(crate) fn apply_verified_update_worker");
+  const workerEnd = apply.indexOf("\nfn validate_candidate_target", workerStart);
+  const worker = apply.slice(workerStart, workerEnd);
+  const bundleStart = apply.indexOf("\nfn validate_extracted_bundle");
+  const bundleEnd = apply.indexOf("\nfn map_revalidation_error", bundleStart);
+  const bundle = apply.slice(bundleStart, bundleEnd);
+
+  assert.notEqual(workerStart, -1);
+  assert.notEqual(bundleStart, -1);
+  assert.match(apply, /revalidate_extracted_archive_tree\(/);
+  assert.match(archive, /compare_extracted_tree_shape\(/);
+  assert.match(archive, /compare_archive_to_extracted_tree\(/);
+  assert.match(archive, /ArchiveTree/);
+  assert.match(archive, /read_link\(/);
+  assert.match(archive, /PermissionsExt/);
+  assert.match(
+    apply,
+    /ArchiveExtractionError::ArchiveTree\s*=>\s*ApplyUpdateCommandCode::UpdateArchive/,
+  );
+  assert.ok(
+    worker.indexOf("validate_extracted_bundle(") <
+      worker.indexOf("state_store.begin_apply_preparation"),
+    "tree validation helper must run before ApplyPreparation is persisted",
+  );
+  assert.ok(
+    bundle.indexOf("validate_extracted_app_bundle(") <
+      bundle.indexOf("revalidate_extracted_archive_tree("),
+    "tree comparison must be the final candidate validation",
+  );
+});
+
 test("apply maps unverified, missing, traversal, symlink, metadata, digest, and state failures fail closed", () => {
   const apply = read("src-tauri/src/update_apply.rs");
   const state = read("src-tauri/src/update_state.rs");
@@ -101,6 +135,7 @@ test("restart is only requested after the atomic preparation boundary and lifecy
   assert.match(lifecycle, /pub\(crate\) fn request_explicit_update_restart/);
   assert.match(lifecycle, /state\.allow_application_exit\(\)/);
   assert.match(lifecycle, /app\.request_restart\(\)/);
+  assert.match(lifecycle, /record_explicit_restart_handoff/);
   assert.match(state, /UpdatePhase::ApplyPreparation/);
   assert.match(
     state,
