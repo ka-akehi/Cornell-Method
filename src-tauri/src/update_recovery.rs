@@ -265,6 +265,7 @@ fn reconcile_bundle_switch(
             storage,
             state_store,
             state,
+            paths,
             error,
             state
                 .recovery
@@ -379,6 +380,7 @@ fn recover_rollback(
             .map_err(|state_error| state_transition_error("restore failure", state_error))?;
         return Err(error);
     }
+    cleanup_failed_marker_before_rollback_completion(state_store, &paths, database_hint)?;
 
     let (failure_code, retry_at) = state
         .failure
@@ -440,6 +442,7 @@ fn rollback_after_health_failure(
         return Err(error);
     }
 
+    cleanup_failed_marker_before_rollback_completion(state_store, paths, database_hint)?;
     state_store
         .record_rollback_completed("candidate-health-failed", current_timestamp())
         .map_err(|error| state_transition_error("health failure", error))?;
@@ -456,6 +459,7 @@ fn handle_health_failure(
     storage: &StorageLayout,
     state_store: &UpdateStateStore,
     state: &UpdateState,
+    paths: &BundlePaths,
     health_error: String,
     database_hint: Option<bool>,
 ) -> Result<RecoveryOutcome, String> {
@@ -473,11 +477,34 @@ fn handle_health_failure(
             .map_err(|state_error| state_transition_error("restore failure", state_error))?;
         return Err(error);
     }
+    cleanup_failed_marker_before_rollback_completion(state_store, paths, database_hint)?;
     state_store
         .record_rollback_completed("candidate-health-failed", current_timestamp())
         .map_err(|error| state_transition_error("health failure", error))?;
     eprintln!("desktop update candidate health failed: {health_error}");
     Ok(RecoveryOutcome::Continue)
+}
+
+fn cleanup_failed_marker_before_rollback_completion(
+    state_store: &UpdateStateStore,
+    paths: &BundlePaths,
+    database_hint: Option<bool>,
+) -> Result<(), String> {
+    if let Err(error) = remove_failed_bundle_marker(paths) {
+        state_store
+            .record_recovery_failure(
+                UpdatePhase::Rollback,
+                UpdateRecoveryStage::RollbackPending,
+                database_hint,
+                "update-rollback-failed",
+                current_timestamp(),
+            )
+            .map_err(|state_error| {
+                state_transition_error("rollback marker cleanup", state_error)
+            })?;
+        return Err(error);
+    }
+    Ok(())
 }
 
 fn handle_switch_failure(
@@ -1053,6 +1080,49 @@ fn remove_candidate_artifact(path: &Path, root: &Path, label: &str) -> Result<()
         require_safe_bundle_tree(path, label)?;
     }
     remove_validated_tree(path, label)
+}
+
+fn remove_failed_bundle_marker(paths: &BundlePaths) -> Result<(), String> {
+    let parent = paths.current.parent().ok_or_else(|| {
+        recovery_error(
+            "update-rollback-failed",
+            "current app bundle has no parent for failed marker cleanup",
+        )
+    })?;
+    if paths.failed.parent() != Some(parent) {
+        return Err(recovery_error(
+            "update-rollback-failed",
+            "failed bundle marker escaped the current bundle parent",
+        ));
+    }
+    let marker_name = paths
+        .failed
+        .file_name()
+        .and_then(OsStr::to_str)
+        .ok_or_else(|| {
+            recovery_error(
+                "update-rollback-failed",
+                "failed bundle marker name is not valid UTF-8",
+            )
+        })?;
+    if !marker_name.starts_with(BUNDLE_FAILED_PREFIX) || !marker_name.ends_with(".app") {
+        return Err(recovery_error(
+            "update-rollback-failed",
+            "failed bundle marker has an unexpected name",
+        ));
+    }
+    require_safe_directory(parent, "failed bundle marker parent")
+        .map_err(|error| recovery_error("update-rollback-failed", error))?;
+    if !path_exists(&paths.failed)
+        .map_err(|error| recovery_error("update-rollback-failed", error))?
+    {
+        return Ok(());
+    }
+    require_safe_bundle_tree(&paths.failed, "failed candidate bundle marker")
+        .map_err(|error| recovery_error("update-rollback-failed", error))?;
+    remove_validated_tree(&paths.failed, "failed candidate bundle marker")
+        .map_err(|error| recovery_error("update-rollback-failed", error))?;
+    sync_directory(parent).map_err(|error| recovery_error("update-rollback-failed", error))
 }
 
 fn remove_if_safe_tree(path: &Path, label: &str) -> Result<(), String> {
@@ -1717,6 +1787,41 @@ mod tests {
             fs::read(source.join("Contents/MacOS/notebook")).expect("source target"),
             b"runtime"
         );
+    }
+
+    #[test]
+    fn failed_bundle_marker_cleanup_is_scoped_to_the_candidate_marker() {
+        let root = TestRoot::new();
+        let current = root.path.join(APP_BUNDLE_NAME);
+        let rollback = root.path.join(format!("{BUNDLE_ROLLBACK_PREFIX}old.app"));
+        let switch_temp = root
+            .path
+            .join(format!("{BUNDLE_SWITCH_PREFIX}candidate.app"));
+        let failed = root
+            .path
+            .join(format!("{BUNDLE_FAILED_PREFIX}candidate.app"));
+        let other_failed = root
+            .path
+            .join(format!("{BUNDLE_FAILED_PREFIX}other-candidate.app"));
+
+        for directory in [&current, &rollback, &switch_temp, &failed, &other_failed] {
+            fs::create_dir_all(directory.join("Contents/MacOS")).expect("bundle directory");
+            fs::write(directory.join("Contents/MacOS/notebook"), b"bundle").expect("bundle file");
+        }
+
+        let paths = BundlePaths {
+            current: current.clone(),
+            rollback: rollback.clone(),
+            switch_temp: switch_temp.clone(),
+            failed: failed.clone(),
+        };
+        remove_failed_bundle_marker(&paths).expect("failed marker cleanup");
+
+        assert!(!failed.exists());
+        assert!(current.exists());
+        assert!(rollback.exists());
+        assert!(switch_temp.exists());
+        assert!(other_failed.exists());
     }
 
     #[cfg(unix)]

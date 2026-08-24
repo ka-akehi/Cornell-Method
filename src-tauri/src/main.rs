@@ -36,7 +36,7 @@ use update_check::{
     ManualUpdateCheckResponse,
 };
 use update_download::ReqwestArtifactHttpTransport;
-use update_migration::run_startup_staged_migration;
+use update_migration::{run_startup_staged_migration, StartupStagedMigrationOutcome};
 use update_provider::ReqwestManifestHttpTransport;
 use update_recovery::{run_startup_update_recovery, RecoveryOutcome};
 use update_signature::EmbeddedTrustedKeyStore;
@@ -223,9 +223,26 @@ fn run_application(instance: InstanceGuard) -> AppResult<()> {
             if let Some(issue) = update_state.load_issue() {
                 eprintln!("desktop update state unavailable: {}", issue.code());
             }
-            run_startup_staged_migration(&root, &storage, &update_state).map_err(boxed_error)?;
-            let recovery_outcome =
-                run_startup_update_recovery(&root, &storage, &update_state).map_err(boxed_error)?;
+            let migration_outcome = run_startup_staged_migration(&root, &storage, &update_state)
+                .map_err(boxed_error)?;
+            let recovery_outcome = match run_startup_update_recovery(&root, &storage, &update_state)
+            {
+                Ok(outcome) => outcome,
+                Err(recovery_error) => {
+                    let error = match &migration_outcome {
+                        StartupStagedMigrationOutcome::Failed { code, reason } => format!(
+                            "{reason} (code {code}); startup update recovery failed: {recovery_error}"
+                        ),
+                        _ => recovery_error,
+                    };
+                    return Err(boxed_error(error));
+                }
+            };
+            if let StartupStagedMigrationOutcome::Failed { code, reason } = &migration_outcome {
+                eprintln!(
+                    "desktop staged migration failed ({code}); startup recovery completed: {reason}"
+                );
+            }
             let storage = run_bootstrap_with_storage(&root, &storage).map_err(boxed_error)?;
             app.manage(update_state);
             let sidecar = start_sidecar(&root, &storage).map_err(boxed_error)?;

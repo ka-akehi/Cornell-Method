@@ -108,15 +108,55 @@ test("update state exposes daily/manual/retry/notification transitions without s
   assert.match(migration, /claim_staged_migration/);
 });
 
-test("explicit restart handoff is the only ApplyPreparation that survives startup", () => {
+test("Issue #167: migration failures keep a typed checkpoint and return control to startup recovery", () => {
+  const main = readSource("src-tauri/src/main.rs");
+  const migration = readSource("src-tauri/src/update_migration.rs");
+  const setup = main.slice(main.indexOf(".setup(move |app|"), main.indexOf("\n        .run("));
+  const migrationCall = setup.indexOf("run_startup_staged_migration");
+  const recoveryCall = setup.indexOf("run_startup_update_recovery");
+  const bootstrapCall = setup.indexOf("run_bootstrap_with_storage");
+
+  assert.match(migration, /enum StartupStagedMigrationOutcome/);
+  assert.match(
+    migration,
+    /Err\(error\)\s*=>\s*\{[\s\S]*?record_staged_migration_failure\([\s\S]*?error,[\s\S]*?\);/,
+  );
+  assert.match(
+    migration,
+    /record_staged_migration_failure\([\s\S]*?Ok\(StartupStagedMigrationOutcome::Failed/s,
+  );
+  assert.match(migration, /failed to persist staged migration rollback checkpoint/);
+  assert.match(setup, /let migration_outcome\s*=\s*run_startup_staged_migration/);
+  assert.match(setup, /let recovery_outcome = match run_startup_update_recovery/);
+  assert.ok(migrationCall >= 0);
+  assert.ok(recoveryCall > migrationCall);
+  assert.ok(bootstrapCall > recoveryCall);
+});
+
+test("Issue #166: explicit restart handoff is persisted before restart is requested", () => {
   const source = readSource("src-tauri/src/update_state.rs");
   const lifecycle = readSource("src-tauri/src/lifecycle.rs");
   const migration = readSource("src-tauri/src/update_migration.rs");
-  const restart = lifecycle.indexOf("app.request_restart()");
-  const persist = lifecycle.indexOf("record_explicit_restart_handoff");
+  const lifecycleStart = lifecycle.indexOf(
+    "pub(crate) fn request_explicit_update_restart",
+  );
+  const lifecycleEnd = lifecycle.indexOf("\nfn finalize_close", lifecycleStart);
+  const restartFlow = lifecycle.slice(lifecycleStart, lifecycleEnd);
+  const restart = restartFlow.indexOf("app.request_restart()");
+  const persist = restartFlow.indexOf("record_explicit_restart_handoff()?");
+  const allow = restartFlow.indexOf("state.allow_application_exit()");
 
+  assert.ok(lifecycleStart >= 0);
+  assert.ok(lifecycleEnd > lifecycleStart);
   assert.ok(restart >= 0);
-  assert.ok(persist > restart, "handoff is persisted only after restart is requested");
+  assert.ok(persist >= 0);
+  assert.ok(persist < allow, "handoff must persist before exit is authorized");
+  assert.ok(persist < restart, "handoff must persist before restart is requested");
+  assert.match(
+    restartFlow,
+    /record_explicit_restart_handoff\(\)\?;[\s\S]*?state\.allow_application_exit\(\);[\s\S]*?app\.request_restart\(\);/,
+    "handoff persistence failure must not authorize close or request restart",
+  );
   assert.match(source, /restart_handoff: Option<UpdateRestartHandoff>/);
   assert.match(source, /UpdateRestartHandoff::MigrationStarted/);
   assert.match(source, /state\.phase = Some\(UpdatePhase::Rollback\)/);

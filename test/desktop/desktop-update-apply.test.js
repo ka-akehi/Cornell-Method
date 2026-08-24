@@ -125,17 +125,31 @@ test("apply maps unverified, missing, traversal, symlink, metadata, digest, and 
   assert.match(state, /apply_preparation_recovery_keeps_verified_candidate_and_current_app/);
 });
 
-test("restart is only requested after the atomic preparation boundary and lifecycle allows it explicitly", () => {
+test("Issue #166: restart follows atomic handoff persistence and explicit exit authorization", () => {
   const apply = read("src-tauri/src/update_apply.rs");
   const lifecycle = read("src-tauri/src/lifecycle.rs");
   const state = read("src-tauri/src/update_state.rs");
+  const lifecycleStart = lifecycle.indexOf(
+    "pub(crate) fn request_explicit_update_restart",
+  );
+  const lifecycleEnd = lifecycle.indexOf("\nfn finalize_close", lifecycleStart);
+  const restartFlow = lifecycle.slice(lifecycleStart, lifecycleEnd);
+  const persist = restartFlow.indexOf("record_explicit_restart_handoff()?");
+  const allow = restartFlow.indexOf("state.allow_application_exit()");
+  const restart = restartFlow.indexOf("app.request_restart()");
 
   assert.match(apply, /state_store\.begin_apply_preparation\(&candidate, current_timestamp\(\)\)/);
   assert.match(apply, /request_explicit_update_restart\(&app, lifecycle_state\.inner\(\)\.as_ref\(\)\)/);
-  assert.match(lifecycle, /pub\(crate\) fn request_explicit_update_restart/);
-  assert.match(lifecycle, /state\.allow_application_exit\(\)/);
-  assert.match(lifecycle, /app\.request_restart\(\)/);
-  assert.match(lifecycle, /record_explicit_restart_handoff/);
+  assert.ok(lifecycleStart >= 0);
+  assert.ok(lifecycleEnd > lifecycleStart);
+  assert.ok(persist >= 0, "explicit handoff persistence must be fallible");
+  assert.ok(persist < allow, "exit authorization must follow persisted handoff");
+  assert.ok(allow < restart, "restart request must follow exit authorization");
+  assert.match(
+    restartFlow,
+    /record_explicit_restart_handoff\(\)\?;[\s\S]*?state\.allow_application_exit\(\);[\s\S]*?app\.request_restart\(\);/,
+    "handoff persistence failure must short-circuit both restart side effects",
+  );
   assert.match(state, /UpdatePhase::ApplyPreparation/);
   assert.match(
     state,

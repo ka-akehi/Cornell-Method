@@ -29,6 +29,7 @@ function hasSqliteCli() {
 }
 
 const sqliteCliAvailable = hasSqliteCli();
+const additionalApplicationTable = "user_defined_data";
 
 function tempHome() {
   return fs.mkdtempSync(path.join(os.tmpdir(), "cornell-desktop-update-migration-"));
@@ -51,6 +52,16 @@ function copyFile(sourcePath, targetPath) {
   fs.copyFileSync(sourcePath, targetPath);
 }
 
+function seedAdditionalApplicationTable(databasePath) {
+  sqlite(
+    databasePath,
+    `CREATE TABLE "${additionalApplicationTable}" ("id" TEXT NOT NULL PRIMARY KEY, "payload" TEXT NOT NULL);
+     INSERT INTO "${additionalApplicationTable}" ("id", "payload") VALUES ('preserved-row', 'before');
+     INSERT INTO "${additionalApplicationTable}" ("id", "payload") VALUES ('deleted-row', 'before-delete');
+     INSERT INTO "${additionalApplicationTable}" ("id", "payload") VALUES ('changed-row', 'before-change');`,
+  );
+}
+
 function createFakeNode(runtimeDirectory, migrationMode) {
   const nodePath = path.join(runtimeDirectory, "node");
   const script = `#!${process.execPath}
@@ -70,10 +81,19 @@ const migrationPath = pathModule.join(migrationsDirectory, migrationName, "migra
 const migrationSql = fs.readFileSync(migrationPath, "utf8");
 const checksum = crypto.createHash("sha256").update(migrationSql).digest("hex");
 const quote = String.fromCharCode(34);
+const applicationTable = quote + ${JSON.stringify(additionalApplicationTable)} + quote;
 const postMigrationSql = ${JSON.stringify(migrationMode)} === "drop-required"
   ? "\\nDROP TABLE notebooks;"
   : ${JSON.stringify(migrationMode)} === "drop-required-column"
     ? "\\nALTER TABLE " + quote + "notebooks" + quote + " DROP COLUMN " + quote + "body" + quote + ";"
+  : ${JSON.stringify(migrationMode)} === "drop-application-table"
+    ? "\\nDROP TABLE " + applicationTable + ";"
+  : ${JSON.stringify(migrationMode)} === "drop-application-column"
+    ? "\\nALTER TABLE " + applicationTable + " DROP COLUMN " + quote + "payload" + quote + ";"
+  : ${JSON.stringify(migrationMode)} === "delete-application-row"
+    ? "\\nDELETE FROM " + applicationTable + " WHERE " + quote + "id" + quote + " = 'deleted-row';"
+  : ${JSON.stringify(migrationMode)} === "change-application-row"
+    ? "\\nUPDATE " + applicationTable + " SET " + quote + "payload" + quote + " = 'changed' WHERE " + quote + "id" + quote + " = 'changed-row';"
   : "";
 const statement = migrationSql + postMigrationSql + "\\n" +
   "INSERT INTO " + quote + "_prisma_migrations" + quote + " (id, checksum, finished_at, migration_name, logs, rolled_back_at, started_at, applied_steps_count) " +
@@ -387,6 +407,119 @@ test("migration runs against the staged copy and preserves existing note relatio
   }, { pending: true });
 });
 
+test("Issue #168: read-back includes existing application tables and excludes the migration table", {
+  skip: !sqliteCliAvailable,
+}, () => {
+  runFixture(({ ready, candidate }) => {
+    seedAdditionalApplicationTable(ready.databasePath);
+    const result = runStagedUpdateMigration({
+      storagePaths: candidate.storagePaths,
+      sqliteBinary,
+      now: 215,
+    });
+
+    assert.equal(result.status, DESKTOP_STAGED_MIGRATION_STATUS.SWITCHED);
+    assert.equal(
+      Number(execFileSync(sqliteBinary, [
+        ready.databasePath,
+        `SELECT COUNT(*) FROM "${additionalApplicationTable}";`,
+      ], { encoding: "utf8" }).trim()),
+      3,
+    );
+    assert.equal(
+      Number(execFileSync(sqliteBinary, [
+        ready.databasePath,
+        `SELECT COUNT(*) FROM _prisma_migrations WHERE migration_name = '${candidate.extraMigrationName}';`,
+      ], { encoding: "utf8" }).trim()),
+      1,
+    );
+  }, { pending: true });
+});
+
+test("Issue #168: dropping an existing unknown application table fails before switching", {
+  skip: !sqliteCliAvailable,
+}, () => {
+  runFixture(({ ready, candidate }) => {
+    seedAdditionalApplicationTable(ready.databasePath);
+    const beforeBytes = fs.readFileSync(ready.databasePath);
+    const beforeIdentity = fs.statSync(ready.databasePath).ino;
+
+    assert.throws(
+      () => runStagedUpdateMigration({
+        storagePaths: candidate.storagePaths,
+        sqliteBinary,
+        now: 216,
+      }),
+      (error) => error.code === "STAGED_MIGRATION_READ_BACK_FAILED",
+    );
+    assert.deepEqual(fs.readFileSync(ready.databasePath), beforeBytes);
+    assert.equal(fs.statSync(ready.databasePath).ino, beforeIdentity);
+  }, { pending: true, migrationMode: "drop-application-table" });
+});
+
+test("Issue #168: dropping a column from an existing unknown application table fails before switching", {
+  skip: !sqliteCliAvailable,
+}, () => {
+  runFixture(({ ready, candidate }) => {
+    seedAdditionalApplicationTable(ready.databasePath);
+    const beforeBytes = fs.readFileSync(ready.databasePath);
+    const beforeIdentity = fs.statSync(ready.databasePath).ino;
+
+    assert.throws(
+      () => runStagedUpdateMigration({
+        storagePaths: candidate.storagePaths,
+        sqliteBinary,
+        now: 217,
+      }),
+      (error) => error.code === "STAGED_MIGRATION_READ_BACK_FAILED",
+    );
+    assert.deepEqual(fs.readFileSync(ready.databasePath), beforeBytes);
+    assert.equal(fs.statSync(ready.databasePath).ino, beforeIdentity);
+  }, { pending: true, migrationMode: "drop-application-column" });
+});
+
+test("Issue #168: deleting a row from an existing unknown application table fails before switching", {
+  skip: !sqliteCliAvailable,
+}, () => {
+  runFixture(({ ready, candidate }) => {
+    seedAdditionalApplicationTable(ready.databasePath);
+    const beforeBytes = fs.readFileSync(ready.databasePath);
+    const beforeIdentity = fs.statSync(ready.databasePath).ino;
+
+    assert.throws(
+      () => runStagedUpdateMigration({
+        storagePaths: candidate.storagePaths,
+        sqliteBinary,
+        now: 218,
+      }),
+      (error) => error.code === "STAGED_MIGRATION_READ_BACK_FAILED",
+    );
+    assert.deepEqual(fs.readFileSync(ready.databasePath), beforeBytes);
+    assert.equal(fs.statSync(ready.databasePath).ino, beforeIdentity);
+  }, { pending: true, migrationMode: "delete-application-row" });
+});
+
+test("Issue #168: changing a row in an existing unknown application table fails before switching", {
+  skip: !sqliteCliAvailable,
+}, () => {
+  runFixture(({ ready, candidate }) => {
+    seedAdditionalApplicationTable(ready.databasePath);
+    const beforeBytes = fs.readFileSync(ready.databasePath);
+    const beforeIdentity = fs.statSync(ready.databasePath).ino;
+
+    assert.throws(
+      () => runStagedUpdateMigration({
+        storagePaths: candidate.storagePaths,
+        sqliteBinary,
+        now: 219,
+      }),
+      (error) => error.code === "STAGED_MIGRATION_READ_BACK_FAILED",
+    );
+    assert.deepEqual(fs.readFileSync(ready.databasePath), beforeBytes);
+    assert.equal(fs.statSync(ready.databasePath).ino, beforeIdentity);
+  }, { pending: true, migrationMode: "change-application-row" });
+});
+
 test("migration failure keeps live database and existing managed backups unchanged", {
   skip: !sqliteCliAvailable,
 }, () => {
@@ -408,6 +541,99 @@ test("migration failure keeps live database and existing managed backups unchang
     assert.equal(digest(ready.databasePath), beforeDigest);
     assert.deepEqual(fs.readFileSync(existingBackup, "utf8"), "existing backup\n");
   }, { pending: true, migrationMode: "fail" });
+});
+
+test("Issue #164: retrying the same candidate reuses its safety backup after rollback", {
+  skip: !sqliteCliAvailable,
+}, () => {
+  runFixture(({ ready, candidate, homeDirectory }) => {
+    const beforeBytes = fs.readFileSync(ready.databasePath);
+    const beforeDigest = digest(ready.databasePath);
+    const otherCandidateBackup = path.join(
+      candidate.storagePaths.backupsDirectory,
+      `notebook-${"b".repeat(64)}-old.sqlite.bak`,
+    );
+    const userBackup = path.join(
+      candidate.storagePaths.backupsDirectory,
+      "manual-user-backup.sqlite.bak",
+    );
+    const outsideBackup = path.join(homeDirectory, "outside-candidate-backup.sqlite.bak");
+    fs.writeFileSync(otherCandidateBackup, "other candidate backup\n");
+    fs.writeFileSync(userBackup, "user backup\n");
+    fs.writeFileSync(outsideBackup, "outside backup\n");
+
+    assert.throws(
+      () => runStagedUpdateMigration({
+        storagePaths: candidate.storagePaths,
+        sqliteBinary,
+        now: 211,
+      }),
+      (error) => error.code === "STAGED_MIGRATION_RUNNER_FAILED",
+    );
+    assert.deepEqual(fs.readFileSync(ready.databasePath), beforeBytes);
+    const [firstBackupName] = fs.readdirSync(candidate.storagePaths.backupsDirectory)
+      .filter((name) => name.startsWith(`notebook-${candidate.candidateDigest}-`));
+    assert.ok(firstBackupName);
+    assert.equal(
+      digest(path.join(candidate.storagePaths.backupsDirectory, firstBackupName)),
+      beforeDigest,
+    );
+
+    // Simulate the retry after rollback: the failed staged copy is discarded, while
+    // the verified candidate and the restored live database remain the same.
+    createFakeNode(candidate.runtimeDirectory, "success");
+    const result = runStagedUpdateMigration({
+      storagePaths: candidate.storagePaths,
+      sqliteBinary,
+      now: 212,
+    });
+
+    assert.equal(result.status, DESKTOP_STAGED_MIGRATION_STATUS.SWITCHED);
+    assert.deepEqual(
+      fs.readdirSync(candidate.storagePaths.backupsDirectory).sort(),
+      [firstBackupName, otherCandidateBackup.split(path.sep).at(-1), userBackup.split(path.sep).at(-1)].sort(),
+    );
+    assert.equal(
+      digest(path.join(candidate.storagePaths.backupsDirectory, firstBackupName)),
+      beforeDigest,
+    );
+    assert.deepEqual(fs.readFileSync(outsideBackup, "utf8"), "outside backup\n");
+  }, { pending: true, migrationMode: "fail" });
+});
+
+test("ambiguous same-candidate safety backups remain fail-closed and are never pruned", {
+  skip: !sqliteCliAvailable,
+}, () => {
+  runFixture(({ ready, candidate }) => {
+    const beforeBytes = fs.readFileSync(ready.databasePath);
+    const candidatePrefix = `notebook-${candidate.candidateDigest}-`;
+    const firstBackup = path.join(
+      candidate.storagePaths.backupsDirectory,
+      `${candidatePrefix}first.sqlite.bak`,
+    );
+    const secondBackup = path.join(
+      candidate.storagePaths.backupsDirectory,
+      `${candidatePrefix}second.sqlite.bak`,
+    );
+    fs.writeFileSync(firstBackup, beforeBytes);
+    fs.writeFileSync(secondBackup, beforeBytes);
+
+    assert.throws(
+      () => runStagedUpdateMigration({
+        storagePaths: candidate.storagePaths,
+        sqliteBinary,
+        now: 213,
+      }),
+      (error) => error.code === "STAGED_MIGRATION_BACKUP_FAILED",
+    );
+    assert.deepEqual(fs.readFileSync(ready.databasePath), beforeBytes);
+    assert.deepEqual(fs.readFileSync(firstBackup), beforeBytes);
+    assert.deepEqual(fs.readFileSync(secondBackup), beforeBytes);
+    assert.deepEqual(
+      fs.readdirSync(candidate.storagePaths.backupsDirectory).sort(),
+      [path.basename(firstBackup), path.basename(secondBackup)].sort(),
+    );
+  }, { pending: true });
 });
 
 test("staged reopen validation failure keeps live database and existing managed backups unchanged", {

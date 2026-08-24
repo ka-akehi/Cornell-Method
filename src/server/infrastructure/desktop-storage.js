@@ -62,6 +62,9 @@ const REQUIRED_MIGRATION_COLUMNS = Object.freeze([
   "started_at",
   "applied_steps_count",
 ]);
+const SQLITE_INTERNAL_TABLE_NAMES = Object.freeze([
+  "_prisma_migrations",
+]);
 const DEFAULT_PROJECT_ROOT = path.resolve(__dirname, "../../..");
 const DEFAULT_MIGRATIONS_DIRECTORY = path.join(
   DEFAULT_PROJECT_ROOT,
@@ -1355,21 +1358,17 @@ function readSqliteDataSnapshot(databasePath, sqliteBinary) {
   try {
     const tableRows = reader.all(
       `SELECT "name" FROM "sqlite_master"
-       WHERE "type" = 'table' AND "name" NOT LIKE 'sqlite_%'`,
+       WHERE "type" = 'table'
+       ORDER BY "name"`,
     );
-    const tableNames = new Set(tableRows.map((row) => row.name));
-    const tables = {};
-    for (const table of [
-      "notebooks",
-      "cues",
-      "tags",
-      "notebook_tags",
-      "notebook_canvases",
-    ]) {
-      if (!tableNames.has(table)) {
-        tables[table] = null;
-        continue;
-      }
+    const tableNames = tableRows
+      .map((row) => row.name)
+      .filter((table) => (
+        !table.startsWith("sqlite_")
+        && !SQLITE_INTERNAL_TABLE_NAMES.includes(table)
+      ));
+    const tables = Object.create(null);
+    for (const table of tableNames) {
       const columns = reader
         .all(`PRAGMA table_info(${quoteSqlIdentifier(table)})`)
         .map((row) => row.name);
@@ -1449,9 +1448,9 @@ function compareSqliteDataSnapshots(before, after) {
     const beforeTable = before[table];
     if (beforeTable === null) continue;
     const afterTable = after[table];
-    if (afterTable === null) {
+    if (afterTable === undefined || afterTable === null) {
       throw stagedMigrationError(
-        "SQLite required data table が migration 後にありません",
+        "SQLite existing application table が migration 後にありません",
         "STAGED_MIGRATION_READ_BACK_FAILED",
       );
     }
@@ -1462,7 +1461,7 @@ function compareSqliteDataSnapshots(before, after) {
         .map((column) => `${table}.${column}`)
         .join(", ");
       throw stagedMigrationError(
-        `SQLite required data table の既存 columns が migration 後にありません: ${missingColumnLabels}`,
+        `SQLite existing application table の既存 columns が migration 後にありません: ${missingColumnLabels}`,
         "STAGED_MIGRATION_READ_BACK_FAILED",
       );
     }
@@ -1477,7 +1476,7 @@ function compareSqliteDataSnapshots(before, after) {
     }).sort((left, right) => left.localeCompare(right));
     if (JSON.stringify(beforeRows) !== JSON.stringify(afterRows)) {
       throw stagedMigrationError(
-        "SQLite existing data の read-back が一致しません",
+        "SQLite existing application data の read-back が一致しません",
         "STAGED_MIGRATION_READ_BACK_FAILED",
       );
     }
@@ -1659,6 +1658,54 @@ function copyRegularFileAtomically(
   }
 }
 
+function findCandidateSafetyBackups(storagePaths, candidate) {
+  let entries;
+  try {
+    entries = fs.readdirSync(storagePaths.backupsDirectory, { withFileTypes: true });
+  } catch (error) {
+    throw stagedMigrationError(
+      "candidate safety backup を探索できません",
+      "STAGED_MIGRATION_BACKUP_FAILED",
+      error,
+    );
+  }
+
+  const prefix = `notebook-${candidate.digest}-`;
+  const matches = [];
+  for (const entry of entries) {
+    if (!entry.name.startsWith(prefix) || !entry.name.endsWith(".sqlite.bak")) {
+      continue;
+    }
+    const backupPath = path.join(storagePaths.backupsDirectory, entry.name);
+    let stats;
+    try {
+      stats = fs.lstatSync(backupPath);
+    } catch (error) {
+      throw stagedMigrationError(
+        "candidate safety backup を検査できません",
+        "STAGED_MIGRATION_BACKUP_FAILED",
+        error,
+      );
+    }
+    if (stats.isSymbolicLink() || !stats.isFile()) {
+      throw stagedMigrationError(
+        "candidate safety backup が regular file ではありません",
+        "STAGED_MIGRATION_BACKUP_FAILED",
+      );
+    }
+    matches.push({ path: backupPath, stats });
+  }
+  return matches;
+}
+
+function readRegularFileBytes(filePath, label, failureCode) {
+  try {
+    return fs.readFileSync(filePath);
+  } catch (error) {
+    throw stagedMigrationError(`${label} を読み取れません`, failureCode, error);
+  }
+}
+
 function createSafetyBackup(storagePaths, candidate, now) {
   const liveStats = requireExistingRegularFile(
     storagePaths.databasePath,
@@ -1671,6 +1718,62 @@ function createSafetyBackup(storagePaths, candidate, now) {
     "STAGED_MIGRATION_BACKUP_FAILED",
   );
   assertSameFilesystem(liveStats, backupDirectoryStats, "live SQLite and managed backup");
+  const existingBackups = findCandidateSafetyBackups(storagePaths, candidate);
+  if (existingBackups.length > 1) {
+    // Keep recovery fail-closed: an ambiguous candidate backup must not be pruned here.
+    throw stagedMigrationError(
+      "同一候補の safety backup が複数あり、再利用できません",
+      "STAGED_MIGRATION_BACKUP_FAILED",
+    );
+  }
+  if (existingBackups.length === 1) {
+    const existingBackup = existingBackups[0];
+    assertSameFilesystem(existingBackup.stats, liveStats, "candidate safety backup and live SQLite");
+    if (existingBackup.stats.size !== liveStats.size) {
+      throw stagedMigrationError(
+        "既存の candidate safety backup が live SQLite と一致しません",
+        "STAGED_MIGRATION_BACKUP_FAILED",
+      );
+    }
+    const liveBytes = readRegularFileBytes(
+      storagePaths.databasePath,
+      "live SQLite database",
+      "STAGED_MIGRATION_BACKUP_FAILED",
+    );
+    const backupBytes = readRegularFileBytes(
+      existingBackup.path,
+      "candidate safety backup",
+      "STAGED_MIGRATION_BACKUP_FAILED",
+    );
+    if (!liveBytes.equals(backupBytes)) {
+      throw stagedMigrationError(
+        "既存の candidate safety backup が live SQLite と一致しません",
+        "STAGED_MIGRATION_BACKUP_FAILED",
+      );
+    }
+    const liveAfterRead = requireExistingRegularFile(
+      storagePaths.databasePath,
+      "live SQLite database after safety backup reuse",
+      "STAGED_MIGRATION_BACKUP_FAILED",
+    );
+    const backupAfterRead = requireExistingRegularFile(
+      existingBackup.path,
+      "candidate safety backup after reuse",
+      "STAGED_MIGRATION_BACKUP_FAILED",
+    );
+    if (
+      !sameFileIdentity(liveStats, liveAfterRead)
+      || liveStats.size !== liveAfterRead.size
+      || !sameFileIdentity(existingBackup.stats, backupAfterRead)
+      || existingBackup.stats.size !== backupAfterRead.size
+    ) {
+      throw stagedMigrationError(
+        "safety backup 再利用中に SQLite file identity が変わりました",
+        "STAGED_MIGRATION_BACKUP_FAILED",
+      );
+    }
+    return existingBackup.path;
+  }
   const backupName = `notebook-${candidate.digest}-${now}-${crypto.randomBytes(12).toString("hex")}.sqlite.bak`;
   return copyRegularFileAtomically(
     storagePaths.databasePath,

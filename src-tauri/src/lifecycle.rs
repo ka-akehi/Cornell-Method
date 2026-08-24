@@ -250,13 +250,15 @@ pub(crate) fn request_explicit_update_restart(
 ) -> Result<(), UpdateStateError> {
     // The update dialog has already resolved the user's save/discard choice.
     // Allow Tauri's restart event through without reopening the ordinary close
-    // bridge. Persist the handoff only after request_restart has been invoked:
-    // if the process stops between ApplyPreparation and this boundary, startup
-    // treats the unhanded preparation as an interrupted update and rolls back.
+    // bridge. The handoff must cross the update state's atomic persistence
+    // boundary before either restart or exit is authorized. Otherwise the
+    // event loop could process request_restart while startup still sees an
+    // unhanded ApplyPreparation and rolls the valid update back.
+    app.state::<UpdateStateStore>()
+        .record_explicit_restart_handoff()?;
     state.allow_application_exit();
     app.request_restart();
-    app.state::<UpdateStateStore>()
-        .record_explicit_restart_handoff()
+    Ok(())
 }
 
 fn finalize_close(window: WebviewWindow, app: AppHandle, state: Arc<AppState>) {

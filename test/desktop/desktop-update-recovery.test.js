@@ -150,6 +150,60 @@ test("successful rollback leaves a reloadable failure terminal state while rollb
   assert.match(recovery, /handle_health_failure[\s\S]*record_rollback_completed\("candidate-health-failed"/);
 });
 
+test("Issue #165: successful rollback removes only its failed marker before terminal completion", () => {
+  const recovery = read("src-tauri/src/update_recovery.rs");
+  const helperStart = recovery.indexOf("fn cleanup_failed_marker_before_rollback_completion");
+  const helperEnd = recovery.indexOf("\nfn handle_switch_failure", helperStart);
+  const helper = recovery.slice(helperStart, helperEnd);
+  const markerStart = recovery.indexOf("fn remove_failed_bundle_marker");
+  const markerEnd = recovery.indexOf("\nfn remove_if_safe_tree", markerStart);
+  const marker = recovery.slice(markerStart, markerEnd);
+
+  assert.ok(helperStart >= 0);
+  assert.ok(helperEnd > helperStart);
+  assert.ok(markerStart >= 0);
+  assert.ok(markerEnd > markerStart);
+  assert.match(marker, /paths\.failed\.parent\(\)[\s\S]*require_safe_directory\(parent/);
+  assert.match(marker, /require_safe_bundle_tree[\s\S]*remove_validated_tree/);
+  assert.doesNotMatch(marker, /remove_dir_all/);
+  assert.match(
+    helper,
+    /record_recovery_failure\([\s\S]*UpdateRecoveryStage::RollbackPending[\s\S]*"update-rollback-failed"/,
+  );
+
+  function body(name) {
+    const start = recovery.indexOf(`fn ${name}`);
+    const end = recovery.indexOf("\nfn ", start + 1);
+    return recovery.slice(start, end < 0 ? recovery.length : end);
+  }
+
+  for (const name of [
+    "recover_rollback",
+    "rollback_after_health_failure",
+    "handle_health_failure",
+  ]) {
+    const rollback = body(name);
+    const bundleRollback = rollback.indexOf("rollback_bundle_if_needed");
+    const restore = rollback.indexOf("restore_database_if_needed");
+    const cleanup = rollback.indexOf("cleanup_failed_marker_before_rollback_completion");
+    const completion = rollback.indexOf("record_rollback_completed");
+    if (name !== "handle_health_failure") {
+      assert.ok(bundleRollback >= 0, `${name} rolls back the bundle`);
+      assert.ok(cleanup > bundleRollback, `${name} cleans the marker after bundle rollback`);
+    }
+    assert.ok(restore >= 0, `${name} restores the database`);
+    assert.ok(cleanup > restore, `${name} cleans the marker after restore`);
+    assert.ok(completion > cleanup, `${name} records completion after marker cleanup`);
+  }
+
+  assert.match(
+    recovery,
+    /if path_exists\(&paths\.failed\)\?[\s\S]*failed candidate bundle marker is already occupied/,
+  );
+  assert.match(recovery, /BUNDLE_FAILED_PREFIX/);
+  assert.match(recovery, /BUNDLE_ROLLBACK_PREFIX/);
+});
+
 test("candidate health derives the fixed packaged runtime root after bundle validation", () => {
   const recovery = read("src-tauri/src/update_recovery.rs");
   const runtime = read("src-tauri/src/runtime.rs");
@@ -212,6 +266,24 @@ test("startup invokes recovery before bootstrap and does not let normal update c
     setup.slice(bootstrap),
     /apply_verified_update|verify_pending_update|run_update_check\(\s*CheckTrigger::Automatic/s,
   );
+});
+
+test("Issue #167: staged migration failure is recovered in the same startup and recovery errors remain fatal", () => {
+  const main = read("src-tauri/src/main.rs");
+  const migration = read("src-tauri/src/update_migration.rs");
+  const setup = main.slice(main.indexOf(".setup(move |app|"), main.indexOf("\n        .run("));
+  const migrationCall = setup.indexOf("run_startup_staged_migration");
+  const recoveryCall = setup.indexOf("run_startup_update_recovery");
+  const bootstrapCall = setup.indexOf("run_bootstrap_with_storage");
+
+  assert.match(migration, /record_staged_migration_failure/);
+  assert.match(migration, /StartupStagedMigrationOutcome::Failed/);
+  assert.match(setup, /StartupStagedMigrationOutcome::Failed \{ code, reason \}/);
+  assert.match(setup, /startup update recovery failed/);
+  assert.match(setup, /return Err\(boxed_error\(error\)\)/);
+  assert.match(setup, /desktop staged migration failed \(\{code\}\); startup recovery completed/);
+  assert.ok(recoveryCall > migrationCall);
+  assert.ok(bootstrapCall > recoveryCall);
 });
 
 test("production candidate health cannot select a renderer or external runtime path", () => {
