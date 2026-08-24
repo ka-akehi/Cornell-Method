@@ -42,6 +42,58 @@ function disposableFixture() {
   };
 }
 
+function partialCleanupFixture() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "cornell-update-recovery-partial-"));
+  const support = path.join(root, "Application Support", "com.cornellmethod.notebook");
+  const digest = "a".repeat(64);
+  const staging = path.join(support, "staging");
+  const candidate = path.join(
+    staging,
+    "extract",
+    digest,
+    "Cornell Method Notebook.app",
+  );
+  const packagePath = path.join(staging, "packages", `${digest}.app.tar.gz`);
+  const migration = path.join(staging, "database-migrations", "migration.sql");
+  const backup = path.join(
+    support,
+    "backups",
+    `notebook-${digest}-100-random.sqlite.bak`,
+  );
+  const current = path.join(root, "Cornell Method Notebook.app");
+  const live = path.join(support, "live", "notebook.sqlite");
+
+  for (const directory of [
+    candidate,
+    current,
+    path.dirname(packagePath),
+    path.dirname(migration),
+    path.dirname(backup),
+    path.dirname(live),
+  ]) {
+    fs.mkdirSync(directory, { recursive: true });
+  }
+  fs.writeFileSync(path.join(candidate, "candidate.marker"), "candidate");
+  fs.writeFileSync(path.join(current, "current.marker"), "current");
+  fs.writeFileSync(packagePath, "package remains after partial cleanup");
+  fs.writeFileSync(migration, "migration remains after partial cleanup");
+  fs.writeFileSync(backup, "backup remains after partial cleanup");
+  fs.writeFileSync(live, "live");
+
+  return {
+    root,
+    candidate,
+    packagePath,
+    migration,
+    backup,
+    current,
+    live,
+    cleanup() {
+      fs.rmSync(root, { recursive: true, force: true });
+    },
+  };
+}
+
 test("recovery persists typed checkpoints and separates health, switch, rollback, and cleanup", () => {
   const state = read("src-tauri/src/update_state.rs");
   const recovery = read("src-tauri/src/update_recovery.rs");
@@ -284,6 +336,172 @@ test("Issue #167: staged migration failure is recovered in the same startup and 
   assert.match(setup, /desktop staged migration failed \(\{code\}\); startup recovery completed/);
   assert.ok(recoveryCall > migrationCall);
   assert.ok(bootstrapCall > recoveryCall);
+});
+
+test("Issue #172: only an explicitly proven database switch authorizes restore", () => {
+  const migration = read("src-tauri/src/update_migration.rs");
+  const state = read("src-tauri/src/update_state.rs");
+  const recovery = read("src-tauri/src/update_recovery.rs");
+  const restoreStart = recovery.indexOf("fn restore_database_if_needed");
+  const restoreEnd = recovery.indexOf("\nfn atomic_restore_database", restoreStart);
+  const restore = recovery.slice(restoreStart, restoreEnd);
+  const guard = restore.indexOf("if !database_switch_was_proven(database_hint)");
+  const backupLookup = restore.indexOf("find_safety_backup");
+
+  assert.match(
+    migration,
+    /StagedMigrationOutcome::Switched[\s\S]*?record_staged_migration_switched\(\)/,
+  );
+  assert.match(
+    state,
+    /record_staged_migration_failure[\s\S]*?database_switched: Some\(false\)/,
+  );
+  assert.match(
+    state,
+    /record_staged_migration_switched[\s\S]*?database_switched: Some\(true\)/,
+  );
+  assert.match(
+    recovery,
+    /fn database_switch_was_proven\(database_hint: Option<bool>\) -> bool[\s\S]*?database_hint == Some\(true\)/,
+  );
+  assert.ok(guard >= 0, "restore must have a fail-closed switch guard");
+  assert.ok(backupLookup > guard, "backup presence must not authorize restore");
+  assert.match(recovery, /database_restore_requires_explicit_switch_evidence/);
+});
+
+test("Issue #171: restore cleanup tracks created paths across token mismatches and retries", () => {
+  const recovery = read("src-tauri/src/update_recovery.rs");
+  const restoreStart = recovery.indexOf("fn restore_database_if_needed");
+  const restoreEnd = recovery.indexOf("\nfn find_safety_backup", restoreStart);
+  const restore = recovery.slice(restoreStart, restoreEnd);
+  const atomicStart = recovery.indexOf("fn atomic_restore_database");
+  const atomicEnd = recovery.indexOf("\nfn find_safety_backup", atomicStart);
+  const atomic = recovery.slice(atomicStart, atomicEnd);
+  const cleanupStart = recovery.indexOf("fn remove_restore_temporary_files");
+  const cleanupEnd = recovery.indexOf("\nfn remove_stale_restore_temporary_files", cleanupStart);
+  const cleanup = recovery.slice(cleanupStart, cleanupEnd);
+
+  assert.match(atomic, /Result<RestoreTemporaryPaths, String>/);
+  assert.match(
+    atomic,
+    /restore_temporary_paths\(storage\.live_directory\(\), backup\)/,
+  );
+  assert.match(
+    restore,
+    /atomic_restore_database\(storage, &backup, &backup_bytes\)[\s\S]*?remove_restore_temporary_files\(storage\.live_directory\(\), &temporary_paths\)/,
+  );
+  assert.doesNotMatch(cleanup, /candidate\.sha256/);
+  assert.match(recovery, /path\.parent\(\) != Some\(live_directory\)/);
+  assert.match(cleanup, /validate_restore_temporary_path/);
+  assert.match(
+    recovery,
+    /fn remove_stale_restore_temporary_files[\s\S]*?fs::read_dir\(live_directory\)[\s\S]*?restore_temporary_prefix/,
+  );
+  assert.match(recovery, /restore temporary cleanup failed/);
+
+  for (const name of [
+    "recover_rollback",
+    "rollback_after_health_failure",
+    "handle_health_failure",
+  ]) {
+    const start = recovery.indexOf(`fn ${name}`);
+    const end = recovery.indexOf("\nfn ", start + 1);
+    const body = recovery.slice(start, end < 0 ? recovery.length : end);
+    const restoreIndex = body.indexOf("restore_database_if_needed");
+    const cleanupIndex = body.indexOf("cleanup_failed_marker_before_rollback_completion");
+    const completionIndex = body.indexOf("record_rollback_completed");
+    assert.ok(restoreIndex >= 0, `${name} restores the database`);
+    assert.ok(cleanupIndex > restoreIndex, `${name} cleans restore temps before completion`);
+    assert.ok(completionIndex > cleanupIndex, `${name} completes after cleanup`);
+  }
+});
+
+test("Issue #173: partial switch temps are discarded and rebuilt from the candidate source", () => {
+  const recovery = read("src-tauri/src/update_recovery.rs");
+  const switchStart = recovery.indexOf("fn switch_bundle");
+  const switchEnd = recovery.indexOf("\nfn rollback_bundle_if_needed", switchStart);
+  const switchBundle = recovery.slice(switchStart, switchEnd);
+  const reconcileStart = recovery.indexOf("fn reconcile_bundle_switch");
+  const reconcileEnd = recovery.indexOf("\nfn finish_switched_candidate", reconcileStart);
+  const reconcile = recovery.slice(reconcileStart, reconcileEnd);
+  const prepareStart = recovery.indexOf("fn prepare_switch_temp");
+  const prepareEnd = recovery.indexOf("\nfn validate_complete_switch_temp", prepareStart);
+  const prepare = recovery.slice(prepareStart, prepareEnd);
+  const copyStart = recovery.indexOf("fn copy_bundle_tree");
+  const copyEnd = recovery.indexOf("\nfn copy_tree_preserving_safe_symlinks", copyStart);
+  const copy = recovery.slice(copyStart, copyEnd);
+  const cleanupStart = recovery.indexOf("fn remove_partial_bundle_tree");
+  const cleanupEnd = recovery.indexOf("\nfn validate_tree_for_no_follow_removal", cleanupStart);
+  const cleanup = recovery.slice(cleanupStart, cleanupEnd);
+
+  assert.match(switchBundle, /prepare_switch_temp\(paths, candidate\)/);
+  const recoveryTempValidation = reconcile.indexOf("validate_complete_switch_temp(paths, candidate)");
+  const recoveryHealth = reconcile.indexOf("run_candidate_health", recoveryTempValidation);
+  assert.ok(recoveryTempValidation >= 0);
+  assert.ok(recoveryHealth > recoveryTempValidation);
+  const existingTempValidation = prepare.indexOf("match validate_complete_switch_temp(paths, candidate)");
+  const discard = prepare.indexOf("discard_switch_temp(paths)", existingTempValidation);
+  const rebuild = prepare.indexOf("copy_bundle_tree(&candidate.source_path", discard);
+  assert.ok(existingTempValidation >= 0);
+  assert.ok(discard > existingTempValidation);
+  assert.ok(rebuild > discard);
+  assert.match(prepare, /validate_complete_switch_temp/);
+  assert.match(recovery, /compare_bundle_trees\(/);
+  assert.match(copy, /copy_tree_preserving_safe_symlinks[\s\S]*remove_partial_bundle_tree/);
+  assert.match(cleanup, /path\.parent\(\) != Some\(parent\)/);
+  assert.match(cleanup, /validate_no_symlink_components/);
+  assert.match(recovery, /validate_tree_for_no_follow_removal[\s\S]*remove_tree_no_follow/);
+  assert.match(recovery, /custom_flags\(libc::O_NOFOLLOW\)/);
+});
+
+test("Issue #170: partial cleanup retry accepts a deleted candidate leaf and reaches completion", () => {
+  const fixture = partialCleanupFixture();
+  try {
+    // The first cleanup attempt already removed the candidate bundle before a
+    // later artifact cleanup failed.  The remaining artifacts are the retry
+    // fixture, not evidence that the candidate should be recreated.
+    fs.rmSync(fixture.candidate, { recursive: true, force: true });
+    assert.equal(fs.existsSync(fixture.candidate), false);
+    assert.equal(fs.existsSync(fixture.packagePath), true);
+    assert.equal(fs.existsSync(fixture.migration), true);
+    assert.equal(fs.existsSync(fixture.backup), true);
+
+    const recovery = read("src-tauri/src/update_recovery.rs");
+    const cleanupStart = recovery.indexOf("fn cleanup_after_success");
+    const cleanupEnd = recovery.indexOf("\nfn remove_restore_temporary_files", cleanupStart);
+    const cleanup = recovery.slice(cleanupStart, cleanupEnd);
+    const candidateCleanup = cleanup.indexOf('"candidate bundle cleanup"');
+    const packageCleanup = cleanup.indexOf('"candidate package cleanup"');
+    const migrationCleanup = cleanup.indexOf('"database migration cleanup"');
+    const backupCleanup = cleanup.indexOf('"migration safety backup cleanup"');
+    assert.ok(candidateCleanup >= 0);
+    assert.ok(packageCleanup > candidateCleanup);
+    assert.ok(migrationCleanup > packageCleanup);
+    assert.ok(backupCleanup > migrationCleanup);
+
+    const removeStart = recovery.indexOf("fn remove_candidate_artifact");
+    const removeEnd = recovery.indexOf("\nfn remove_failed_bundle_marker", removeStart);
+    const remove = recovery.slice(removeStart, removeEnd);
+    assert.match(remove, /validate_candidate_artifact_path\(path, root, label\)/);
+    assert.doesNotMatch(remove, /validate_no_symlink_components\(path, label\)/);
+
+    const pathValidationStart = recovery.indexOf("fn validate_candidate_artifact_path");
+    const pathValidationEnd = recovery.indexOf("\nfn canonical_managed_root", pathValidationStart);
+    const pathValidation = recovery.slice(pathValidationStart, pathValidationEnd);
+    assert.match(pathValidation, /canonical_managed_root\(root, label\)/);
+    assert.match(pathValidation, /fs::symlink_metadata\(&current\)/);
+    assert.match(pathValidation, /NotFound[^\n]*=> return Ok\(None\)/);
+
+    const finishStart = recovery.indexOf("fn finish_cleanup");
+    const finishEnd = recovery.indexOf("\nfn recover_rollback", finishStart);
+    const finish = recovery.slice(finishStart, finishEnd);
+    assert.match(finish, /cleanup_after_success[\s\S]*Ok\(\(\)\)[\s\S]*complete_update/);
+
+    const state = read("src-tauri/src/update_state.rs");
+    assert.match(state, /pub\(crate\) fn complete_update[\s\S]*UpdateStatus::Available/);
+  } finally {
+    fixture.cleanup();
+  }
 });
 
 test("production candidate health cannot select a renderer or external runtime path", () => {

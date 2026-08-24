@@ -1,4 +1,5 @@
 use std::cmp::Ordering;
+use std::path::Path;
 use std::sync::Arc;
 
 use serde::Serialize;
@@ -207,6 +208,56 @@ pub(crate) fn apply_verified_update_worker(
     let lifecycle_state = app.state::<Arc<AppState>>();
     request_explicit_update_restart(&app, lifecycle_state.inner().as_ref())?;
     Ok(response)
+}
+
+pub(crate) fn revalidate_staged_candidate(
+    candidate: &PendingUpdate,
+    staging_root: &Path,
+) -> Result<(), String> {
+    candidate
+        .validate_paths_at(staging_root)
+        .map_err(|error| format!("staged candidate path validation failed: {error}"))?;
+
+    let target_context = load_update_target_context().map_err(|error| {
+        format!(
+            "staged candidate target validation failed: {}",
+            error.code()
+        )
+    })?;
+    let manifest_transport = ReqwestManifestHttpTransport::new()
+        .map_err(|error| format!("staged candidate manifest revalidation failed: {error}"))?;
+    let trust_store = EmbeddedTrustedKeyStore::embedded()
+        .map_err(|error| format!("staged candidate trust-store validation failed: {error}"))?;
+    let revalidated = revalidate_verified_candidate(
+        candidate,
+        &target_context,
+        staging_root,
+        &manifest_transport,
+        &trust_store,
+    )
+    .map_err(describe_staged_candidate_revalidation_error)?;
+
+    if revalidated.release.version.to_string() != candidate.version
+        || revalidated.release.channel != candidate.channel
+        || revalidated.release.architecture != candidate.architecture
+    {
+        return Err("staged candidate release identity changed after restart".to_string());
+    }
+
+    validate_extracted_bundle(candidate, &revalidated.archive, staging_root)
+        .map_err(|error| format!("staged candidate bundle/tree validation failed: {error:?}"))?;
+    Ok(())
+}
+
+fn describe_staged_candidate_revalidation_error(
+    error: VerifiedCandidateRevalidationError,
+) -> String {
+    let code = match error {
+        VerifiedCandidateRevalidationError::Revalidation => "update-revalidation",
+        VerifiedCandidateRevalidationError::CandidateChanged => "update-candidate-changed",
+        VerifiedCandidateRevalidationError::Package(error) => error.code(),
+    };
+    format!("staged candidate archive revalidation failed: {code}")
 }
 
 fn validate_candidate_target(

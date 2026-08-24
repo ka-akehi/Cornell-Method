@@ -294,9 +294,21 @@ Settings の current implementation は、shared event bridge、Mac menu から�
 
 この節は現行 MVP の route、API、明示保存、確認付き物理削除、詳細画面内復習、`/backup`、CanvasDocumentV1、legacy Markdown を変更しない Desktop Alpha の承認済み契約です。契約は確定しています。現行コードには provider normalization、manifest validation、compatible selection、公開 URL 境界、download、signature・SHA-256、archive・bundle validation、update state、pending verification、verified artifact の apply preparation、staged migration、candidate health、bundle switch、rollback / recovery、cleanup の backend 実装があります。実際の packaged app による sidecar health、bundle switch、rollback / recovery、cleanup の runtime acceptance は未検証です。
 
-PR #159 の Code Review Issue #164〜#168 に関する実装状態は、候補 safety backup の再利用・曖昧性、rollback 後の failed bundle marker cleanup、restart handoff の永続化順序、staged migration failure の同一 startup recovery、全 application table の read-back 比較としてこの契約に反映する。Issue の自動 close 用文言は PR 本文の責務とする。
+PR #159 の Code Review Issue #164〜#175 に関する実装状態は、候補 safety backup の再利用・曖昧性、rollback 後の failed bundle marker cleanup、restart handoff の永続化順序、staged migration failure の同一 startup recovery、全 application table の read-back 比較に加え、restart 後の候補再検証、restore proof、schema compatibility、durable rename、cleanup / retry safety としてこの契約に反映する。Issue の自動 close 用文言は PR 本文の責務とする。
 
-2026-08-24 時点の staged migration suite は 19/19 PASS、Desktop update Node suite は 69/69 PASS、rollback/recovery focused tests は 8/8 PASS（同 suite に含む）。これは static / disposable fixture と contract test の証跡であり、実 provider / package runtime、実際の macOS packaged `.app` / DMG、Apple Silicon GUI の packaged acceptance ではない。対象 ESLint、対象 Desktop test / launcher / runtime helper の `node --check`、Rust fmt、`git diff --check` は PASS、Rust unit test は offline cache に `base64 0.22.1` がないため compile 前に未検証である。full build と packaged macOS runtime は未検証であり、packaged DMG の配信可否も完了扱いにしない。
+Issue #169〜#175 は、local-first・explicit apply・rollback の既存契約を次のように補強する。
+
+| Issue | 契約を補強する境界 |
+| --- | --- |
+| #169 | restart 後、staged migration と candidate health / switch の前に署名済み archive と staging tree 全体を再検証する。検証失敗時は claim、health、switch を起動しない。 |
+| #170 | partial cleanup retry は missing leaf を安全な no-follow 検証後に idempotent success として扱い、managed root 外・symlink bypass・非対応 file type は fail-closed とする。 |
+| #171 | rollback restore の exact temporary path を追跡して stale temp を cleanup し、別 candidate / token の temporary path を削除しない。 |
+| #172 | live DB restore は実切替を `Some(true)` で証明できる場合だけ許可し、未切替・旧 checkpoint では live DB を古い backup で上書きしない。 |
+| #173 | partial `switch_temp` を候補として再利用せず、完全 tree 検証済み candidate source から retry する。 |
+| #174 | `NO_PENDING` 前に candidate Prisma schema と SQLite schema の compatibility を検証し、不一致時は backup、switch、cleanup へ進まない。 |
+| #175 | staged DB rename 後に live directory を sync し、post-rename sync failure は切替成功とせず fail-closed にする。 |
+
+2026-08-24 時点の staged migration suite は 22/22 PASS、Desktop update Node suite は 77/77 PASS、desktop recovery suite は 14/14 PASS だった。これは static / disposable fixture と contract test の証跡であり、実 provider / package runtime、実際の macOS packaged `.app` / DMG、Apple Silicon GUI の packaged acceptance ではない。対象 ESLint、対象 Desktop test / launcher / runtime helper の `node --check`、Rust fmt、`git diff --check` は PASS、Rust unit test は offline cache に `base64 0.22.1` がないため compile 前に未検証である。full build と packaged macOS runtime は未検証であり、packaged DMG の配信可否も完了扱いにしない。
 
 - 初期 provider は GitHub Releases とし、更新取得側は provider-neutral な manifest interface とする。具体的な取得 URL や provider 固有 payload はこの契約で固定しない。
 - 初期配布は DMG とする。アプリ内更新は Apple Silicon 向け `.app archive` を使い、DMG と更新 package の役割を分ける。archive の具体的な拡張子は未決定とする。

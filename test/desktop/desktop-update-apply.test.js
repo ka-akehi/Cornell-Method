@@ -1,6 +1,8 @@
 /* eslint-disable @typescript-eslint/no-require-imports -- This focused test uses Node's built-in test runner. */
 const assert = require("node:assert/strict");
+const crypto = require("node:crypto");
 const fs = require("node:fs");
+const os = require("node:os");
 const path = require("node:path");
 const { test } = require("node:test");
 
@@ -95,6 +97,73 @@ test("apply verifies the complete extracted tree before persisting preparation",
       bundle.indexOf("revalidate_extracted_archive_tree("),
     "tree comparison must be the final candidate validation",
   );
+});
+
+test("Issue #169: restart revalidates the signed archive/tree before migration or candidate health", () => {
+  const apply = read("src-tauri/src/update_apply.rs");
+  const migration = read("src-tauri/src/update_migration.rs");
+  const recovery = read("src-tauri/src/update_recovery.rs");
+
+  const migrationStart = migration.indexOf("pub(crate) fn run_startup_staged_migration");
+  const migrationEnd = migration.indexOf("\nfn record_staged_migration_failure", migrationStart);
+  const migrationFlow = migration.slice(migrationStart, migrationEnd);
+  const revalidationBeforeClaim = migrationFlow.indexOf("revalidate_staged_candidate(");
+  const claim = migrationFlow.indexOf("claim_staged_migration()");
+  const migrationRunner = migrationFlow.indexOf("run_staged_migration_command(");
+
+  const healthStart = recovery.indexOf("UpdateRecoveryStage::HealthPending =>");
+  const healthEnd = recovery.indexOf("\n        UpdateRecoveryStage::BundleSwitching", healthStart);
+  const healthFlow = recovery.slice(healthStart, healthEnd);
+  const revalidationBeforeHealth = healthFlow.indexOf("revalidate_staged_candidate(");
+  const candidateHealth = healthFlow.indexOf("run_candidate_health(");
+  const bundleSwitch = healthFlow.indexOf("switch_bundle(");
+
+  assert.match(apply, /pub\(crate\) fn revalidate_staged_candidate\(/);
+  assert.match(apply, /revalidate_verified_candidate\(/);
+  assert.match(apply, /validate_extracted_app_bundle\(/);
+  assert.match(apply, /revalidate_extracted_archive_tree\(/);
+  assert.ok(revalidationBeforeClaim >= 0);
+  assert.ok(claim > revalidationBeforeClaim);
+  assert.ok(migrationRunner > claim);
+  assert.match(
+    migrationFlow,
+    /revalidate_staged_candidate\([\s\S]*?\)\.map_err\([\s\S]*?\)\?;[\s\S]*?state_store\s*\.claim_staged_migration\(\)/,
+  );
+  assert.ok(revalidationBeforeHealth >= 0);
+  assert.ok(candidateHealth > revalidationBeforeHealth);
+  assert.ok(bundleSwitch > candidateHealth);
+  assert.match(
+    healthFlow,
+    /revalidate_staged_candidate\([\s\S]*?\)\?;[\s\S]*?run_candidate_health\(/,
+  );
+  assert.doesNotMatch(
+    migrationFlow.slice(0, revalidationBeforeClaim),
+    /claim_staged_migration|run_staged_migration_command/,
+  );
+
+  const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), "cornell-update-issue-169-"));
+  try {
+    const stagedCodePath = path.join(fixtureRoot, "candidate-runtime", "entry.js");
+    fs.mkdirSync(path.dirname(stagedCodePath), { recursive: true });
+    fs.writeFileSync(stagedCodePath, "signed candidate code\n");
+    const signedDigest = crypto.createHash("sha256").update(fs.readFileSync(stagedCodePath)).digest("hex");
+
+    // Model the issue's interval: the tree is changed after the apply-time
+    // snapshot but before the restarted migration/health gate runs.
+    fs.writeFileSync(stagedCodePath, "mutated candidate code\n");
+    const mutatedDigest = crypto.createHash("sha256").update(fs.readFileSync(stagedCodePath)).digest("hex");
+    assert.notEqual(mutatedDigest, signedDigest);
+    assert.match(
+      migrationFlow,
+      /revalidate_staged_candidate\([\s\S]*?claim_staged_migration\(\)[\s\S]*?run_staged_migration_command\(/,
+    );
+    assert.match(
+      healthFlow,
+      /revalidate_staged_candidate\([\s\S]*?run_candidate_health\(/,
+    );
+  } finally {
+    fs.rmSync(fixtureRoot, { recursive: true, force: true });
+  }
 });
 
 test("apply maps unverified, missing, traversal, symlink, metadata, digest, and state failures fail closed", () => {

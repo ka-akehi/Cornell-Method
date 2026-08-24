@@ -1,13 +1,14 @@
 use std::collections::HashSet;
 use std::ffi::OsStr;
 use std::fs::{self, File, OpenOptions};
-use std::io::{self, Write};
+use std::io::{self, Read, Write};
 use std::path::{Component, Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::runtime::{
     packaged_runtime_root, start_sidecar, validate_database_command, StorageLayout,
 };
+use crate::update_apply::revalidate_staged_candidate;
 use crate::update_archive::{
     normalize_relative_symlink_target, resolve_relative_symlink_path, ExtractedArchive,
     SafeSymlinkPathError, MAX_SYMLINK_HOPS,
@@ -60,6 +61,12 @@ struct BundlePaths {
     rollback: PathBuf,
     switch_temp: PathBuf,
     failed: PathBuf,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct RestoreTemporaryPaths {
+    restore_temp: PathBuf,
+    original_temp: PathBuf,
 }
 
 pub(crate) fn run_startup_update_recovery(
@@ -142,6 +149,7 @@ fn recover_restart_health(
 
     match stage {
         UpdateRecoveryStage::HealthPending => {
+            revalidate_staged_candidate(&candidate.pending, &storage.staging_directory())?;
             require_safe_bundle_tree(&paths.current, "current app bundle")?;
             if let Err(error) = run_candidate_health(candidate.runtime_root()?, storage) {
                 return rollback_after_health_failure(
@@ -222,6 +230,7 @@ fn reconcile_bundle_switch(
     }
     if !path_exists(&paths.current)? {
         if temp_exists && rollback_exists {
+            validate_complete_switch_temp(paths, candidate)?;
             let runtime_root =
                 validated_candidate_runtime_root(&paths.switch_temp, &candidate.pending)?;
             require_safe_bundle_tree(&paths.rollback, "rollback app bundle")?;
@@ -380,7 +389,7 @@ fn recover_rollback(
             .map_err(|state_error| state_transition_error("restore failure", state_error))?;
         return Err(error);
     }
-    cleanup_failed_marker_before_rollback_completion(state_store, &paths, database_hint)?;
+    cleanup_failed_marker_before_rollback_completion(storage, state_store, &paths, database_hint)?;
 
     let (failure_code, retry_at) = state
         .failure
@@ -442,7 +451,7 @@ fn rollback_after_health_failure(
         return Err(error);
     }
 
-    cleanup_failed_marker_before_rollback_completion(state_store, paths, database_hint)?;
+    cleanup_failed_marker_before_rollback_completion(storage, state_store, paths, database_hint)?;
     state_store
         .record_rollback_completed("candidate-health-failed", current_timestamp())
         .map_err(|error| state_transition_error("health failure", error))?;
@@ -477,7 +486,7 @@ fn handle_health_failure(
             .map_err(|state_error| state_transition_error("restore failure", state_error))?;
         return Err(error);
     }
-    cleanup_failed_marker_before_rollback_completion(state_store, paths, database_hint)?;
+    cleanup_failed_marker_before_rollback_completion(storage, state_store, paths, database_hint)?;
     state_store
         .record_rollback_completed("candidate-health-failed", current_timestamp())
         .map_err(|error| state_transition_error("health failure", error))?;
@@ -486,10 +495,25 @@ fn handle_health_failure(
 }
 
 fn cleanup_failed_marker_before_rollback_completion(
+    storage: &StorageLayout,
     state_store: &UpdateStateStore,
     paths: &BundlePaths,
     database_hint: Option<bool>,
 ) -> Result<(), String> {
+    if let Err(error) = remove_stale_restore_temporary_files(storage.live_directory()) {
+        state_store
+            .record_recovery_failure(
+                UpdatePhase::Rollback,
+                UpdateRecoveryStage::RollbackPending,
+                database_hint,
+                "update-restore-failed",
+                current_timestamp(),
+            )
+            .map_err(|state_error| {
+                state_transition_error("restore temporary cleanup", state_error)
+            })?;
+        return Err(error);
+    }
     if let Err(error) = remove_failed_bundle_marker(paths) {
         state_store
             .record_recovery_failure(
@@ -763,14 +787,7 @@ fn switch_bundle(paths: &BundlePaths, candidate: &CandidateBundle) -> Result<(),
             "rollback bundle already exists",
         ));
     }
-    if path_exists(&paths.switch_temp)? {
-        require_candidate_bundle_at(&paths.switch_temp, &candidate.pending)?;
-        require_safe_bundle_tree(&paths.switch_temp, "bundle switch temporary")?;
-    } else {
-        copy_bundle_tree(&candidate.source_path, &paths.switch_temp)?;
-        require_candidate_bundle_at(&paths.switch_temp, &candidate.pending)?;
-        require_safe_bundle_tree(&paths.switch_temp, "bundle switch temporary")?;
-    }
+    prepare_switch_temp(paths, candidate)?;
 
     fs::rename(&paths.current, &paths.rollback)
         .map_err(|error| recovery_error("update-switch-failed", error.to_string()))?;
@@ -800,6 +817,90 @@ fn switch_bundle(paths: &BundlePaths, candidate: &CandidateBundle) -> Result<(),
     require_safe_bundle_tree(&paths.current, "current app bundle")?;
     require_safe_bundle_tree(&paths.rollback, "rollback app bundle")?;
     Ok(())
+}
+
+fn prepare_switch_temp(paths: &BundlePaths, candidate: &CandidateBundle) -> Result<(), String> {
+    let should_copy = if path_exists(&paths.switch_temp)? {
+        match validate_complete_switch_temp(paths, candidate) {
+            Ok(()) => false,
+            Err(validation_error) => {
+                discard_switch_temp(paths).map_err(|cleanup_error| {
+                    recovery_error(
+                        "update-switch-failed",
+                        format!(
+                            "unverified switch temporary could not be discarded: {validation_error}; {cleanup_error}"
+                        ),
+                    )
+                })?;
+                true
+            }
+        }
+    } else {
+        true
+    };
+
+    if should_copy {
+        copy_bundle_tree(&candidate.source_path, &paths.switch_temp)?;
+        if let Err(validation_error) = validate_complete_switch_temp(paths, candidate) {
+            let cleanup_result = discard_switch_temp(paths);
+            return match cleanup_result {
+                Ok(()) => Err(validation_error),
+                Err(cleanup_error) => Err(recovery_error(
+                    "update-switch-failed",
+                    format!(
+                        "copied switch temporary failed validation: {validation_error}; cleanup failed: {cleanup_error}"
+                    ),
+                )),
+            };
+        }
+    }
+    Ok(())
+}
+
+fn validate_complete_switch_temp(
+    paths: &BundlePaths,
+    candidate: &CandidateBundle,
+) -> Result<(), String> {
+    require_candidate_bundle_at(&paths.switch_temp, &candidate.pending)?;
+    require_safe_bundle_tree(&paths.switch_temp, "bundle switch temporary")?;
+    require_safe_bundle_tree(&candidate.source_path, "candidate bundle source")?;
+    compare_bundle_trees(
+        &candidate.source_path,
+        &paths.switch_temp,
+        "bundle switch temporary",
+    )
+}
+
+fn discard_switch_temp(paths: &BundlePaths) -> Result<(), String> {
+    let parent = paths.current.parent().ok_or_else(|| {
+        recovery_error(
+            "update-switch-failed",
+            "current app bundle has no parent for switch temporary cleanup",
+        )
+    })?;
+    if paths.switch_temp.parent() != Some(parent) {
+        return Err(recovery_error(
+            "update-switch-failed",
+            "switch temporary escaped the current bundle parent",
+        ));
+    }
+    let name = paths
+        .switch_temp
+        .file_name()
+        .and_then(OsStr::to_str)
+        .ok_or_else(|| {
+            recovery_error(
+                "update-switch-failed",
+                "switch temporary name is not valid UTF-8",
+            )
+        })?;
+    if !name.starts_with(BUNDLE_SWITCH_PREFIX) || !name.ends_with(".app") {
+        return Err(recovery_error(
+            "update-switch-failed",
+            "switch temporary has an unexpected name",
+        ));
+    }
+    remove_partial_bundle_tree(&paths.switch_temp, parent, "bundle switch temporary")
 }
 
 fn rollback_bundle_if_needed(
@@ -887,13 +988,20 @@ fn run_candidate_health(runtime_root: &Path, storage: &StorageLayout) -> Result<
         .map_err(|error| recovery_error("candidate-health-failed", error))
 }
 
+fn database_switch_was_proven(database_hint: Option<bool>) -> bool {
+    database_hint == Some(true)
+}
+
 fn restore_database_if_needed(
     root: &Path,
     storage: &StorageLayout,
     candidate: &PendingUpdate,
     database_hint: Option<bool>,
 ) -> Result<bool, String> {
-    if database_hint == Some(false) {
+    // A safety backup proves only that a pre-migration copy exists.  Restore is
+    // authorized only when the checkpoint explicitly records the live DB
+    // switch; false and legacy/unknown checkpoints are fail-closed.
+    if !database_switch_was_proven(database_hint) {
         return Ok(false);
     }
     let backup = find_safety_backup(storage, candidate)?;
@@ -912,13 +1020,35 @@ fn restore_database_if_needed(
     let backup_bytes = fs::read(&backup)
         .map_err(|error| recovery_error("update-restore-failed", error.to_string()))?;
     if live_bytes == backup_bytes {
-        validate_database_command(root, storage)
-            .map_err(|error| recovery_error("update-restore-failed", error))?;
+        let validation_result = validate_database_command(root, storage)
+            .map_err(|error| recovery_error("update-restore-failed", error));
+        let cleanup_result = remove_stale_restore_temporary_files(storage.live_directory());
+        match (validation_result, cleanup_result) {
+            (Ok(()), Ok(())) => {}
+            (Err(validation_error), Ok(())) => return Err(validation_error),
+            (Ok(()), Err(cleanup_error)) => return Err(cleanup_error),
+            (Err(validation_error), Err(cleanup_error)) => {
+                return Err(format!(
+                    "{validation_error}; restore temporary cleanup failed: {cleanup_error}"
+                ));
+            }
+        }
         return Ok(false);
     }
-    atomic_restore_database(storage, &backup, &backup_bytes)?;
-    validate_database_command(root, storage)
-        .map_err(|error| recovery_error("update-restore-failed", error))?;
+    let temporary_paths = atomic_restore_database(storage, &backup, &backup_bytes)?;
+    let validation_result = validate_database_command(root, storage)
+        .map_err(|error| recovery_error("update-restore-failed", error));
+    let cleanup_result = remove_restore_temporary_files(storage.live_directory(), &temporary_paths);
+    match (validation_result, cleanup_result) {
+        (Ok(()), Ok(())) => {}
+        (Err(validation_error), Ok(())) => return Err(validation_error),
+        (Ok(()), Err(cleanup_error)) => return Err(cleanup_error),
+        (Err(validation_error), Err(cleanup_error)) => {
+            return Err(format!(
+                "{validation_error}; restore temporary cleanup failed: {cleanup_error}"
+            ));
+        }
+    }
     Ok(true)
 }
 
@@ -926,34 +1056,47 @@ fn atomic_restore_database(
     storage: &StorageLayout,
     backup: &Path,
     backup_bytes: &[u8],
-) -> Result<(), String> {
-    let digest = safe_path_token(
-        backup
-            .file_name()
-            .and_then(OsStr::to_str)
-            .unwrap_or("backup"),
-    );
-    let restore_temp = storage
-        .live_directory()
-        .join(format!("{DATABASE_RESTORE_PREFIX}{digest}.tmp"));
-    let original_temp = storage
-        .live_directory()
-        .join(format!("{DATABASE_ORIGINAL_PREFIX}{digest}.tmp"));
-    let live_bytes = fs::read(storage.database_path())
-        .map_err(|error| recovery_error("update-restore-failed", error.to_string()))?;
-    ensure_file_copy(&original_temp, &live_bytes, "update-restore-failed")?;
-    ensure_file_copy(&restore_temp, backup_bytes, "update-restore-failed")?;
-    fs::rename(&restore_temp, storage.database_path())
-        .map_err(|error| recovery_error("update-restore-failed", error.to_string()))?;
-    let read_back = fs::read(storage.database_path())
-        .map_err(|error| recovery_error("update-restore-failed", error.to_string()))?;
-    if read_back != backup_bytes {
-        return Err(recovery_error(
+) -> Result<RestoreTemporaryPaths, String> {
+    let temporary_paths = restore_temporary_paths(storage.live_directory(), backup)?;
+    let restore_result = (|| {
+        let live_bytes = fs::read(storage.database_path())
+            .map_err(|error| recovery_error("update-restore-failed", error.to_string()))?;
+        ensure_file_copy(
+            &temporary_paths.original_temp,
+            &live_bytes,
             "update-restore-failed",
-            "restored SQLite read-back differs from the safety backup",
-        ));
+        )?;
+        ensure_file_copy(
+            &temporary_paths.restore_temp,
+            backup_bytes,
+            "update-restore-failed",
+        )?;
+        fs::rename(&temporary_paths.restore_temp, storage.database_path())
+            .map_err(|error| recovery_error("update-restore-failed", error.to_string()))?;
+        let read_back = fs::read(storage.database_path())
+            .map_err(|error| recovery_error("update-restore-failed", error.to_string()))?;
+        if read_back != backup_bytes {
+            return Err(recovery_error(
+                "update-restore-failed",
+                "restored SQLite read-back differs from the safety backup",
+            ));
+        }
+        Ok(())
+    })();
+
+    match restore_result {
+        Ok(()) => Ok(temporary_paths),
+        Err(restore_error) => {
+            let cleanup_result =
+                remove_restore_temporary_files(storage.live_directory(), &temporary_paths);
+            match cleanup_result {
+                Ok(()) => Err(restore_error),
+                Err(cleanup_error) => Err(format!(
+                    "{restore_error}; restore temporary cleanup failed: {cleanup_error}"
+                )),
+            }
+        }
     }
-    Ok(())
 }
 
 fn find_safety_backup(
@@ -1004,6 +1147,7 @@ fn cleanup_after_success(
 ) -> Result<(), String> {
     require_candidate_bundle_at(&paths.current, &candidate.pending)?;
     validate_database_paths(storage)?;
+    remove_stale_restore_temporary_files(storage.live_directory())?;
     remove_if_safe_tree(&paths.rollback, "old app bundle cleanup")?;
     remove_if_safe_tree(&paths.switch_temp, "bundle temporary cleanup")?;
     remove_if_safe_tree(&paths.failed, "failed bundle cleanup")?;
@@ -1036,40 +1180,123 @@ fn cleanup_after_success(
             "migration safety backup cleanup",
         )?;
     }
-    remove_restore_temporary_files(storage, &candidate.pending)?;
     Ok(())
 }
 
 fn remove_restore_temporary_files(
-    storage: &StorageLayout,
-    candidate: &PendingUpdate,
+    live_directory: &Path,
+    temporary_paths: &RestoreTemporaryPaths,
 ) -> Result<(), String> {
-    let digest = candidate
-        .sha256
-        .as_deref()
-        .ok_or_else(|| recovery_error("update-candidate-invalid", "candidate digest is missing"))?;
-    for prefix in [DATABASE_RESTORE_PREFIX, DATABASE_ORIGINAL_PREFIX] {
-        let path = storage
-            .live_directory()
-            .join(format!("{prefix}{digest}.tmp"));
-        remove_if_safe_file(&path, "database restore temporary cleanup")?;
+    require_safe_directory(live_directory, "live database directory")?;
+    for (path, prefix) in [
+        (&temporary_paths.restore_temp, DATABASE_RESTORE_PREFIX),
+        (&temporary_paths.original_temp, DATABASE_ORIGINAL_PREFIX),
+    ] {
+        validate_restore_temporary_path(live_directory, path, prefix)?;
+        remove_if_safe_file(path, "database restore temporary cleanup")?;
+    }
+    sync_directory(live_directory)
+        .map_err(|error| recovery_error("update-cleanup-failed", error))?;
+    Ok(())
+}
+
+fn remove_stale_restore_temporary_files(live_directory: &Path) -> Result<(), String> {
+    require_safe_directory(live_directory, "live database directory")?;
+    let mut paths = Vec::new();
+    for entry in fs::read_dir(live_directory)
+        .map_err(|error| recovery_error("update-cleanup-failed", error.to_string()))?
+    {
+        let entry =
+            entry.map_err(|error| recovery_error("update-cleanup-failed", error.to_string()))?;
+        let path = entry.path();
+        let Some(name) = entry.file_name().to_str().map(str::to_owned) else {
+            continue;
+        };
+        let Some(prefix) = restore_temporary_prefix(&name) else {
+            continue;
+        };
+        validate_restore_temporary_path(live_directory, &path, prefix)?;
+        paths.push(path);
+    }
+
+    for path in &paths {
+        remove_if_safe_file(path, "database restore temporary cleanup")?;
+    }
+    if !paths.is_empty() {
+        sync_directory(live_directory)
+            .map_err(|error| recovery_error("update-cleanup-failed", error))?;
+    }
+    Ok(())
+}
+
+fn restore_temporary_paths(
+    live_directory: &Path,
+    backup: &Path,
+) -> Result<RestoreTemporaryPaths, String> {
+    require_safe_directory(live_directory, "live database directory")?;
+    let token = safe_path_token(
+        backup
+            .file_name()
+            .and_then(OsStr::to_str)
+            .unwrap_or("backup"),
+    );
+    let token = if token.is_empty() {
+        "backup".to_owned()
+    } else {
+        token
+    };
+    Ok(RestoreTemporaryPaths {
+        restore_temp: live_directory.join(format!("{DATABASE_RESTORE_PREFIX}{token}.tmp")),
+        original_temp: live_directory.join(format!("{DATABASE_ORIGINAL_PREFIX}{token}.tmp")),
+    })
+}
+
+fn restore_temporary_prefix(name: &str) -> Option<&'static str> {
+    [DATABASE_RESTORE_PREFIX, DATABASE_ORIGINAL_PREFIX]
+        .into_iter()
+        .find(|prefix| {
+            name.strip_prefix(prefix)
+                .and_then(|rest| rest.strip_suffix(".tmp"))
+                .is_some_and(|token| {
+                    !token.is_empty()
+                        && token
+                            .chars()
+                            .all(|character| character.is_ascii_alphanumeric() || character == '-')
+                })
+        })
+}
+
+fn validate_restore_temporary_path(
+    live_directory: &Path,
+    path: &Path,
+    expected_prefix: &str,
+) -> Result<(), String> {
+    if path.parent() != Some(live_directory) {
+        return Err(recovery_error(
+            "update-cleanup-failed",
+            "database restore temporary escaped the live database directory",
+        ));
+    }
+    let name = path.file_name().and_then(OsStr::to_str).ok_or_else(|| {
+        recovery_error(
+            "update-cleanup-failed",
+            "database restore temporary name is not valid UTF-8",
+        )
+    })?;
+    if !name.starts_with(expected_prefix) || restore_temporary_prefix(name) != Some(expected_prefix)
+    {
+        return Err(recovery_error(
+            "update-cleanup-failed",
+            "database restore temporary has an unexpected name",
+        ));
     }
     Ok(())
 }
 
 fn remove_candidate_artifact(path: &Path, root: &Path, label: &str) -> Result<(), String> {
-    if !path.starts_with(root) {
-        return Err(recovery_error(
-            "update-cleanup-failed",
-            format!("{label} escaped its managed root"),
-        ));
-    }
-    validate_no_symlink_components(path, label)?;
-    if !path_exists(path)? {
+    let Some(metadata) = validate_candidate_artifact_path(path, root, label)? else {
         return Ok(());
-    }
-    let metadata = fs::symlink_metadata(path)
-        .map_err(|error| recovery_error("update-cleanup-failed", error.to_string()))?;
+    };
     if metadata.file_type().is_symlink() || (!metadata.is_file() && !metadata.is_dir()) {
         return Err(recovery_error(
             "update-cleanup-failed",
@@ -1080,6 +1307,116 @@ fn remove_candidate_artifact(path: &Path, root: &Path, label: &str) -> Result<()
         require_safe_bundle_tree(path, label)?;
     }
     remove_validated_tree(path, label)
+}
+
+fn validate_candidate_artifact_path(
+    path: &Path,
+    root: &Path,
+    label: &str,
+) -> Result<Option<fs::Metadata>, String> {
+    if !path.is_absolute()
+        || path
+            .components()
+            .any(|component| matches!(component, Component::ParentDir))
+    {
+        return Err(recovery_error(
+            "update-cleanup-failed",
+            format!("{label} is not an absolute safe path"),
+        ));
+    }
+
+    // Validate the managed root before canonicalizing it.  canonicalize is
+    // used only to make the root boundary explicit; all existing components
+    // are still inspected with symlink_metadata so a symlink cannot be
+    // accepted merely because it resolves inside the canonical root.
+    let canonical_root = canonical_managed_root(root, label)?;
+    if !path.starts_with(root) || !path.starts_with(&canonical_root) || path == root {
+        return Err(recovery_error(
+            "update-cleanup-failed",
+            format!("{label} escaped its managed root"),
+        ));
+    }
+
+    let relative = path.strip_prefix(&canonical_root).map_err(|_| {
+        recovery_error(
+            "update-cleanup-failed",
+            format!("{label} escaped its canonical managed root"),
+        )
+    })?;
+    let components: Vec<_> = relative.components().collect();
+    if components.is_empty() {
+        return Err(recovery_error(
+            "update-cleanup-failed",
+            format!("{label} cannot be the managed root"),
+        ));
+    }
+
+    let mut current = canonical_root;
+    for (index, component) in components.iter().enumerate() {
+        let Component::Normal(component) = component else {
+            return Err(recovery_error(
+                "update-cleanup-failed",
+                format!("{label} contains an unsafe path component"),
+            ));
+        };
+        current.push(component);
+        let is_leaf = index + 1 == components.len();
+        match fs::symlink_metadata(&current) {
+            Ok(metadata) => {
+                if metadata.file_type().is_symlink() {
+                    return Err(recovery_error(
+                        "update-path-unresolved",
+                        format!("{label} contains a symlink"),
+                    ));
+                }
+                if !is_leaf && !metadata.is_dir() {
+                    return Err(recovery_error(
+                        "update-cleanup-failed",
+                        format!("{label} contains a non-directory parent"),
+                    ));
+                }
+                if is_leaf {
+                    return Ok(Some(metadata));
+                }
+            }
+            // A missing leaf is an idempotent cleanup success.  If an
+            // intermediate component is already gone, no filesystem object
+            // remains to follow either, so the same result is safe after all
+            // existing parent components have been checked.
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+            Err(error) => {
+                return Err(recovery_error(
+                    "update-path-unresolved",
+                    format!("{label}: {error}"),
+                ));
+            }
+        }
+    }
+
+    Ok(None)
+}
+
+fn canonical_managed_root(root: &Path, label: &str) -> Result<PathBuf, String> {
+    require_absolute_without_parent(root, &format!("{label} managed root"))?;
+    validate_no_symlink_components(root, &format!("{label} managed root"))?;
+    let metadata = fs::symlink_metadata(root).map_err(|error| {
+        recovery_error(
+            "update-cleanup-failed",
+            format!("{label} managed root: {error}"),
+        )
+    })?;
+    if metadata.file_type().is_symlink() || !metadata.is_dir() {
+        return Err(recovery_error(
+            "update-cleanup-failed",
+            format!("{label} managed root is not a directory"),
+        ));
+    }
+    fs::canonicalize(root).map_err(|error| {
+        recovery_error(
+            "update-cleanup-failed",
+            format!("{label} managed root could not be canonicalized: {error}"),
+        )
+    })
 }
 
 fn remove_failed_bundle_marker(paths: &BundlePaths) -> Result<(), String> {
@@ -1149,32 +1486,83 @@ fn remove_if_safe_file(path: &Path, label: &str) -> Result<(), String> {
         .map_err(|error| recovery_error("update-cleanup-failed", error.to_string()))
 }
 
-fn remove_validated_tree(path: &Path, label: &str) -> Result<(), String> {
+fn remove_partial_bundle_tree(path: &Path, parent: &Path, label: &str) -> Result<(), String> {
+    if path.parent() != Some(parent) {
+        return Err(recovery_error(
+            "update-switch-failed",
+            format!("{label} escaped its managed parent"),
+        ));
+    }
+    require_safe_directory(parent, &format!("{label} parent"))?;
+    if !path_exists(path)? {
+        return Ok(());
+    }
+    // The root is required to be a real directory.  Descendant symlinks are
+    // removed as links only; cleanup never follows them.
+    validate_no_symlink_components(path, label)?;
     let metadata = fs::symlink_metadata(path)
-        .map_err(|error| recovery_error("update-cleanup-failed", error.to_string()))?;
-    if metadata.file_type().is_symlink() {
-        fs::remove_file(path).map_err(|error| {
-            recovery_error("update-cleanup-failed", format!("{label}: {error}"))
-        })?;
+        .map_err(|error| recovery_error("update-switch-failed", error.to_string()))?;
+    if metadata.file_type().is_symlink() || !metadata.is_dir() {
+        return Err(recovery_error(
+            "update-switch-failed",
+            format!("{label} is not a removable directory"),
+        ));
+    }
+    validate_tree_for_no_follow_removal(path, label)?;
+    remove_tree_no_follow(path, label, "update-switch-failed")?;
+    sync_directory(parent)
+}
+
+fn validate_tree_for_no_follow_removal(path: &Path, label: &str) -> Result<(), String> {
+    let metadata = fs::symlink_metadata(path)
+        .map_err(|error| recovery_error("update-switch-failed", error.to_string()))?;
+    if metadata.file_type().is_symlink() || metadata.is_file() {
         return Ok(());
     }
     if metadata.is_dir() {
         for entry in fs::read_dir(path)
-            .map_err(|error| recovery_error("update-cleanup-failed", error.to_string()))?
+            .map_err(|error| recovery_error("update-switch-failed", error.to_string()))?
         {
             let child = entry
-                .map_err(|error| recovery_error("update-cleanup-failed", error.to_string()))?
+                .map_err(|error| recovery_error("update-switch-failed", error.to_string()))?
                 .path();
-            remove_validated_tree(&child, label)?;
+            validate_tree_for_no_follow_removal(&child, label)?;
         }
-        fs::remove_dir(path)
-            .map_err(|error| recovery_error("update-cleanup-failed", error.to_string()))?;
-    } else if metadata.is_file() {
+        return Ok(());
+    }
+    Err(recovery_error(
+        "update-switch-failed",
+        format!("{label} contains a special file"),
+    ))
+}
+
+fn remove_validated_tree(path: &Path, label: &str) -> Result<(), String> {
+    remove_tree_no_follow(path, label, "update-cleanup-failed")
+}
+
+fn remove_tree_no_follow(path: &Path, label: &str, failure_code: &str) -> Result<(), String> {
+    let metadata = fs::symlink_metadata(path)
+        .map_err(|error| recovery_error(failure_code, error.to_string()))?;
+    if metadata.file_type().is_symlink() {
         fs::remove_file(path)
-            .map_err(|error| recovery_error("update-cleanup-failed", error.to_string()))?;
+            .map_err(|error| recovery_error(failure_code, format!("{label}: {error}")))?;
+        return Ok(());
+    }
+    if metadata.is_dir() {
+        for entry in
+            fs::read_dir(path).map_err(|error| recovery_error(failure_code, error.to_string()))?
+        {
+            let child = entry
+                .map_err(|error| recovery_error(failure_code, error.to_string()))?
+                .path();
+            remove_tree_no_follow(&child, label, failure_code)?;
+        }
+        fs::remove_dir(path).map_err(|error| recovery_error(failure_code, error.to_string()))?;
+    } else if metadata.is_file() {
+        fs::remove_file(path).map_err(|error| recovery_error(failure_code, error.to_string()))?;
     } else {
         return Err(recovery_error(
-            "update-cleanup-failed",
+            failure_code,
             format!("{label} contains a special file"),
         ));
     }
@@ -1196,7 +1584,19 @@ fn copy_bundle_tree(source: &Path, destination: &Path) -> Result<(), String> {
         )
     })?;
     require_safe_directory(parent, "bundle switch temporary parent")?;
-    copy_tree_preserving_safe_symlinks(source, destination)
+    match copy_tree_preserving_safe_symlinks(source, destination) {
+        Ok(()) => Ok(()),
+        Err(copy_error) => {
+            let cleanup_result =
+                remove_partial_bundle_tree(destination, parent, "bundle switch temporary");
+            match cleanup_result {
+                Ok(()) => Err(copy_error),
+                Err(cleanup_error) => Err(format!(
+                    "{copy_error}; partial bundle cleanup failed: {cleanup_error}"
+                )),
+            }
+        }
+    }
 }
 
 fn copy_tree_preserving_safe_symlinks(source: &Path, destination: &Path) -> Result<(), String> {
@@ -1230,6 +1630,149 @@ fn copy_tree_preserving_safe_symlinks(source: &Path, destination: &Path) -> Resu
         ));
     }
     Ok(())
+}
+
+fn compare_bundle_trees(source: &Path, destination: &Path, label: &str) -> Result<(), String> {
+    let source_metadata = fs::symlink_metadata(source)
+        .map_err(|error| recovery_error("update-switch-failed", error.to_string()))?;
+    let destination_metadata = fs::symlink_metadata(destination)
+        .map_err(|error| recovery_error("update-switch-failed", error.to_string()))?;
+    let source_type = source_metadata.file_type();
+    let destination_type = destination_metadata.file_type();
+
+    if source_type.is_symlink() || destination_type.is_symlink() {
+        if !source_type.is_symlink() || !destination_type.is_symlink() {
+            return Err(recovery_error(
+                "update-switch-failed",
+                format!("{label} entry type differs from candidate source"),
+            ));
+        }
+        let source_target = fs::read_link(source)
+            .map_err(|error| recovery_error("update-switch-failed", error.to_string()))?;
+        let destination_target = fs::read_link(destination)
+            .map_err(|error| recovery_error("update-switch-failed", error.to_string()))?;
+        if source_target != destination_target {
+            return Err(recovery_error(
+                "update-switch-failed",
+                format!("{label} symlink target differs from candidate source"),
+            ));
+        }
+        return Ok(());
+    }
+
+    if source_type.is_dir() || destination_type.is_dir() {
+        if !source_type.is_dir() || !destination_type.is_dir() {
+            return Err(recovery_error(
+                "update-switch-failed",
+                format!("{label} entry type differs from candidate source"),
+            ));
+        }
+        for entry in fs::read_dir(source)
+            .map_err(|error| recovery_error("update-switch-failed", error.to_string()))?
+        {
+            let entry =
+                entry.map_err(|error| recovery_error("update-switch-failed", error.to_string()))?;
+            let source_child = entry.path();
+            let destination_child = destination.join(entry.file_name());
+            if !path_exists(&destination_child)? {
+                return Err(recovery_error(
+                    "update-switch-failed",
+                    format!("{label} is missing a candidate source entry"),
+                ));
+            }
+            compare_bundle_trees(&source_child, &destination_child, label)?;
+        }
+        for entry in fs::read_dir(destination)
+            .map_err(|error| recovery_error("update-switch-failed", error.to_string()))?
+        {
+            let entry =
+                entry.map_err(|error| recovery_error("update-switch-failed", error.to_string()))?;
+            let source_child = source.join(entry.file_name());
+            if !path_exists(&source_child)? {
+                return Err(recovery_error(
+                    "update-switch-failed",
+                    format!("{label} contains an extra entry"),
+                ));
+            }
+        }
+        return Ok(());
+    }
+
+    if source_type.is_file() || destination_type.is_file() {
+        if !source_type.is_file() || !destination_type.is_file() {
+            return Err(recovery_error(
+                "update-switch-failed",
+                format!("{label} entry type differs from candidate source"),
+            ));
+        }
+        return compare_regular_file_bytes(source, destination, label);
+    }
+
+    Err(recovery_error(
+        "update-switch-failed",
+        format!("{label} contains a special file"),
+    ))
+}
+
+fn compare_regular_file_bytes(
+    source: &Path,
+    destination: &Path,
+    label: &str,
+) -> Result<(), String> {
+    let source_metadata = fs::symlink_metadata(source)
+        .map_err(|error| recovery_error("update-switch-failed", error.to_string()))?;
+    let destination_metadata = fs::symlink_metadata(destination)
+        .map_err(|error| recovery_error("update-switch-failed", error.to_string()))?;
+    if source_metadata.len() != destination_metadata.len() {
+        return Err(recovery_error(
+            "update-switch-failed",
+            format!("{label} file size differs from candidate source"),
+        ));
+    }
+
+    let mut source_file = open_regular_file_no_follow(source)?;
+    let mut destination_file = open_regular_file_no_follow(destination)?;
+    let mut source_buffer = [0_u8; 16 * 1024];
+    let mut destination_buffer = [0_u8; 16 * 1024];
+    loop {
+        let source_read = source_file
+            .read(&mut source_buffer)
+            .map_err(|error| recovery_error("update-switch-failed", error.to_string()))?;
+        let destination_read = destination_file
+            .read(&mut destination_buffer)
+            .map_err(|error| recovery_error("update-switch-failed", error.to_string()))?;
+        if source_read != destination_read
+            || source_buffer[..source_read] != destination_buffer[..destination_read]
+        {
+            return Err(recovery_error(
+                "update-switch-failed",
+                format!("{label} file contents differ from candidate source"),
+            ));
+        }
+        if source_read == 0 {
+            return Ok(());
+        }
+    }
+}
+
+fn open_regular_file_no_follow(path: &Path) -> Result<File, String> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+
+        OpenOptions::new()
+            .read(true)
+            .custom_flags(libc::O_NOFOLLOW)
+            .open(path)
+            .map_err(|error| recovery_error("update-switch-failed", error.to_string()))
+    }
+    #[cfg(not(unix))]
+    {
+        OpenOptions::new()
+            .read(true)
+            .open(path)
+            .map_err(|error| recovery_error("update-switch-failed", error.to_string()))
+    }
 }
 
 fn create_recovery_symlink(target: &Path, destination: &Path) -> Result<(), String> {
@@ -1723,6 +2266,48 @@ mod tests {
 
     static NEXT_ROOT: AtomicU64 = AtomicU64::new(0);
 
+    #[test]
+    fn database_restore_requires_explicit_switch_evidence() {
+        assert!(!database_switch_was_proven(None));
+        assert!(!database_switch_was_proven(Some(false)));
+        assert!(database_switch_was_proven(Some(true)));
+    }
+
+    #[test]
+    fn restore_temporary_cleanup_uses_exact_backup_paths_and_preserves_database_files() {
+        let root = TestRoot::new();
+        let live = root.path.join("live");
+        let backups = root.path.join("backups");
+        fs::create_dir_all(&live).expect("live directory");
+        fs::create_dir(&backups).expect("backup directory");
+        let database = live.join("notebook.sqlite");
+        let backup = backups.join(format!("notebook-{}-100-random.sqlite.bak", "a".repeat(64)));
+        fs::write(&database, b"live").expect("live database");
+        fs::write(&backup, b"backup").expect("safety backup");
+
+        let temporary_paths = restore_temporary_paths(&live, &backup).expect("temp paths");
+        let candidate_restore =
+            live.join(format!("{DATABASE_RESTORE_PREFIX}{}.tmp", "b".repeat(64)));
+        assert_ne!(temporary_paths.restore_temp, candidate_restore);
+        fs::write(&temporary_paths.restore_temp, b"backup").expect("restore temp");
+        fs::write(&temporary_paths.original_temp, b"live").expect("original temp");
+
+        remove_restore_temporary_files(&live, &temporary_paths).expect("exact cleanup");
+        remove_restore_temporary_files(&live, &temporary_paths).expect("retry cleanup");
+        let candidate_original =
+            live.join(format!("{DATABASE_ORIGINAL_PREFIX}{}.tmp", "b".repeat(64)));
+        fs::write(&candidate_restore, b"stale restore").expect("retry restore temp");
+        fs::write(&candidate_original, b"stale original").expect("retry original temp");
+        remove_stale_restore_temporary_files(&live).expect("stale retry cleanup");
+
+        assert!(!temporary_paths.restore_temp.exists());
+        assert!(!temporary_paths.original_temp.exists());
+        assert!(!candidate_restore.exists());
+        assert!(!candidate_original.exists());
+        assert_eq!(fs::read(&database).expect("database read"), b"live");
+        assert_eq!(fs::read(&backup).expect("backup read"), b"backup");
+    }
+
     struct TestRoot {
         path: PathBuf,
     }
@@ -1753,6 +2338,50 @@ mod tests {
         let app = root.join("Candidate.app");
         fs::create_dir_all(app.join("Contents/MacOS")).expect("bundle layout");
         fs::write(app.join("Contents/MacOS/notebook"), b"runtime").expect("runtime");
+        app
+    }
+
+    fn verified_pending(digest: &str) -> PendingUpdate {
+        PendingUpdate {
+            version: "1.2.3".to_owned(),
+            channel: "stable".to_owned(),
+            architecture: crate::update_manifest::TARGET_ARCHITECTURE.to_owned(),
+            artifact: "test-artifact".to_owned(),
+            verification_state: VerificationState::Verified,
+            size_bytes: Some(1),
+            sha256: Some(digest.to_owned()),
+            key_id: Some("test-key".to_owned()),
+            signed_identity_sha256: Some(digest.to_owned()),
+            package_path: Some(PathBuf::from("package.tar.gz")),
+            extracted_app_path: Some(PathBuf::from("extract").join(digest).join(APP_BUNDLE_NAME)),
+            discovered_at: 1,
+            verified_at: Some(2),
+        }
+    }
+
+    fn valid_candidate_source(root: &Path) -> PathBuf {
+        let app = root.join(APP_BUNDLE_NAME);
+        let contents = app.join("Contents");
+        fs::create_dir_all(contents.join("MacOS")).expect("candidate layout");
+        fs::write(
+            contents.join("Info.plist"),
+            format!(
+                "<?xml version=\"1.0\" encoding=\"UTF-8\"?><plist version=\"1.0\"><dict><key>CFBundleIdentifier</key><string>{}</string><key>CFBundleShortVersionString</key><string>1.2.3</string><key>CFBundleExecutable</key><string>notebook</string></dict></plist>",
+                crate::update_manifest::MANIFEST_PRODUCT_ID
+            ),
+        )
+        .expect("candidate plist");
+        let mut macho = Vec::new();
+        macho.extend_from_slice(&[0xcf, 0xfa, 0xed, 0xfe]);
+        macho.extend_from_slice(&0x0100_000c_u32.to_le_bytes());
+        macho.extend_from_slice(&0_u32.to_le_bytes());
+        macho.extend_from_slice(&2_u32.to_le_bytes());
+        macho.extend_from_slice(&0_u32.to_le_bytes());
+        macho.extend_from_slice(&0_u32.to_le_bytes());
+        macho.extend_from_slice(&0_u32.to_le_bytes());
+        macho.extend_from_slice(&0_u32.to_le_bytes());
+        fs::write(contents.join("MacOS/notebook"), macho).expect("candidate executable");
+        fs::write(contents.join("Resources.marker"), b"source-candidate").expect("marker");
         app
     }
 
@@ -1789,6 +2418,50 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn retry_discards_partial_switch_temp_and_rebuilds_from_candidate_source() {
+        use std::os::unix::fs::symlink;
+
+        let root = TestRoot::new();
+        let source = valid_candidate_source(&root.path.join("staging"));
+        let parent = root.path.join("Application");
+        fs::create_dir(&parent).expect("application parent");
+        let digest = "a".repeat(64);
+        let switch_temp = parent.join(format!("{BUNDLE_SWITCH_PREFIX}{digest}.app"));
+        copy_bundle_tree(&source, &switch_temp).expect("initial temporary copy");
+        fs::remove_file(switch_temp.join("Contents/Resources.marker")).expect("partial marker");
+
+        let outside = root.path.join("outside");
+        fs::write(&outside, b"must survive").expect("outside marker");
+        symlink(&outside, switch_temp.join("Contents/external")).expect("external link");
+
+        let candidate = CandidateBundle {
+            pending: verified_pending(&digest),
+            source_path: source.clone(),
+            runtime_path: None,
+        };
+        let paths = BundlePaths {
+            current: parent.join(APP_BUNDLE_NAME),
+            rollback: parent.join("rollback.app"),
+            switch_temp: switch_temp.clone(),
+            failed: parent.join("failed.app"),
+        };
+
+        prepare_switch_temp(&paths, &candidate).expect("rebuild temporary from source");
+        assert_eq!(
+            fs::read(switch_temp.join("Contents/Resources.marker")).expect("rebuilt marker"),
+            b"source-candidate"
+        );
+        assert!(!switch_temp.join("Contents/external").exists());
+        assert_eq!(
+            fs::read(&outside).expect("outside marker read"),
+            b"must survive"
+        );
+        compare_bundle_trees(&source, &switch_temp, "rebuilt switch temporary")
+            .expect("rebuilt tree matches source");
+    }
+
     #[test]
     fn failed_bundle_marker_cleanup_is_scoped_to_the_candidate_marker() {
         let root = TestRoot::new();
@@ -1822,6 +2495,79 @@ mod tests {
         assert!(rollback.exists());
         assert!(switch_temp.exists());
         assert!(other_failed.exists());
+    }
+
+    #[test]
+    fn missing_candidate_artifacts_are_idempotent_after_parent_validation() {
+        let root = TestRoot::new();
+        let staging = root.path.join("staging");
+        let backups = root.path.join("backups");
+        let digest = "a".repeat(64);
+        let candidate = staging.join("extract").join(&digest).join(APP_BUNDLE_NAME);
+        let package = staging
+            .join("packages")
+            .join(format!("{digest}.app.tar.gz"));
+        let backup = backups.join(format!("notebook-{digest}-100.sqlite.bak"));
+
+        fs::create_dir_all(candidate.parent().expect("candidate parent"))
+            .expect("candidate parent");
+        fs::create_dir(package.parent().expect("package parent")).expect("package parent");
+        fs::create_dir(&backups).expect("backup root");
+
+        for (path, label) in [
+            (&candidate, "candidate bundle cleanup"),
+            (&package, "candidate package cleanup"),
+            (&backup, "migration safety backup cleanup"),
+        ] {
+            remove_candidate_artifact(
+                path,
+                if path == &backup { &backups } else { &staging },
+                label,
+            )
+            .expect("missing leaf is an idempotent cleanup success");
+        }
+
+        fs::write(&package, b"package").expect("package artifact");
+        remove_candidate_artifact(&package, &staging, "candidate package cleanup")
+            .expect("existing regular artifact cleanup");
+        assert!(!package.exists());
+        assert!(candidate.parent().expect("candidate parent").is_dir());
+        assert!(backups.is_dir());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn missing_candidate_artifact_does_not_bypass_root_or_symlink_safety() {
+        use std::os::unix::fs::symlink;
+
+        let root = TestRoot::new();
+        let managed = root.path.join("managed");
+        let outside = root.path.join("outside");
+        fs::create_dir(&managed).expect("managed root");
+        fs::create_dir(&outside).expect("outside directory");
+
+        let escaped = managed.join("..").join("outside").join("missing");
+        assert!(remove_candidate_artifact(&escaped, &managed, "escaped artifact").is_err());
+
+        let parent_link = managed.join("parent-link");
+        symlink(&outside, &parent_link).expect("parent symlink");
+        let missing_through_link = parent_link.join("missing");
+        assert!(remove_candidate_artifact(
+            &missing_through_link,
+            &managed,
+            "linked parent artifact"
+        )
+        .is_err());
+
+        let outside_file = outside.join("outside.txt");
+        fs::write(&outside_file, b"must survive").expect("outside file");
+        let linked_leaf = managed.join("linked-leaf");
+        symlink(&outside_file, &linked_leaf).expect("leaf symlink");
+        assert!(remove_candidate_artifact(&linked_leaf, &managed, "linked leaf artifact").is_err());
+        assert_eq!(
+            fs::read(&outside_file).expect("outside file read"),
+            b"must survive"
+        );
     }
 
     #[cfg(unix)]

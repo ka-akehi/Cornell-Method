@@ -80,6 +80,8 @@ pub(crate) enum UpdateRecoveryStage {
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub(crate) struct UpdateRecoveryCheckpoint {
     pub(crate) stage: UpdateRecoveryStage,
+    // Only Some(true) proves that the live database was switched.  None is
+    // retained for old or interrupted checkpoints and is fail-closed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) database_switched: Option<bool>,
 }
@@ -1547,7 +1549,7 @@ impl UpdateStateStore {
         state.restart_handoff = None;
         state.recovery = Some(UpdateRecoveryCheckpoint {
             stage: UpdateRecoveryStage::RollbackPending,
-            database_switched: None,
+            database_switched: Some(false),
         });
         let next = state.clone();
         drop(state);
@@ -1601,7 +1603,10 @@ impl UpdateStateStore {
             .and_then(|checkpoint| checkpoint.database_switched);
         state.recovery = Some(UpdateRecoveryCheckpoint {
             stage,
-            database_switched: database_switched.or(existing_database_switched),
+            database_switched: merge_database_switch_evidence(
+                existing_database_switched,
+                database_switched,
+            ),
         });
         let next = state.clone();
         drop(state);
@@ -1730,9 +1735,16 @@ impl UpdateStateStore {
         state.phase = Some(phase);
         state.failure = Some(UpdateFailure { code, retry_at });
         state.restart_handoff = None;
+        let existing_database_switched = state
+            .recovery
+            .as_ref()
+            .and_then(|checkpoint| checkpoint.database_switched);
         state.recovery = Some(UpdateRecoveryCheckpoint {
             stage,
-            database_switched,
+            database_switched: merge_database_switch_evidence(
+                existing_database_switched,
+                database_switched,
+            ),
         });
         let next = state.clone();
         drop(state);
@@ -1860,6 +1872,16 @@ fn automatic_check_is_due(state: &UpdateState, now: u64) -> bool {
         .is_none_or(|failure| now >= failure.retry_at)
 }
 
+fn merge_database_switch_evidence(existing: Option<bool>, reported: Option<bool>) -> Option<bool> {
+    if existing == Some(true) || reported == Some(true) {
+        Some(true)
+    } else if existing == Some(false) || reported == Some(false) {
+        Some(false)
+    } else {
+        None
+    }
+}
+
 fn validate_verified_archive(
     pending_update: &PendingUpdate,
     verified_archive: &VerifiedArchive,
@@ -1953,7 +1975,7 @@ fn recover_persisted_staged_migration_failure(state: &mut UpdateState, now: u64)
     state.check_started_at = Some(now);
     state.recovery = Some(UpdateRecoveryCheckpoint {
         stage: UpdateRecoveryStage::RollbackPending,
-        database_switched: None,
+        database_switched: Some(false),
     });
     true
 }
@@ -4010,6 +4032,10 @@ mod tests {
             "staged-migration-failed"
         );
         assert_eq!(snapshot.failure.as_ref().unwrap().retry_at, 200);
+        assert_eq!(
+            snapshot.recovery.as_ref().unwrap().database_switched,
+            Some(false)
+        );
 
         drop(store);
         let reloaded = load_at(&directory, 201);
@@ -4019,6 +4045,15 @@ mod tests {
         assert_eq!(
             reloaded.snapshot().failure.as_ref().unwrap().code,
             "staged-migration-failed"
+        );
+        assert_eq!(
+            reloaded
+                .snapshot()
+                .recovery
+                .as_ref()
+                .unwrap()
+                .database_switched,
+            Some(false)
         );
         assert!(!reloaded.has_pending_apply_preparation());
 
@@ -4061,6 +4096,10 @@ mod tests {
         assert_eq!(
             rollback_failed.failure.as_ref().unwrap().code,
             "update-rollback-failed"
+        );
+        assert_eq!(
+            rollback_failed.recovery.as_ref().unwrap().database_switched,
+            Some(true)
         );
 
         store

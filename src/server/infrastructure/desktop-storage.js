@@ -62,6 +62,17 @@ const REQUIRED_MIGRATION_COLUMNS = Object.freeze([
   "started_at",
   "applied_steps_count",
 ]);
+const SQLITE_SCHEMA_SCALAR_TYPES = Object.freeze({
+  String: "TEXT",
+  Int: "INTEGER",
+  BigInt: "INTEGER",
+  Float: "REAL",
+  Decimal: "NUMERIC",
+  Boolean: "NUMERIC",
+  DateTime: "NUMERIC",
+  Json: "TEXT",
+  Bytes: "BLOB",
+});
 const SQLITE_INTERNAL_TABLE_NAMES = Object.freeze([
   "_prisma_migrations",
 ]);
@@ -300,6 +311,534 @@ function readMigrationManifest(
   }
 
   return manifest;
+}
+
+function stripPrismaComments(source) {
+  let result = "";
+  let inString = false;
+  let escaped = false;
+  let inLineComment = false;
+  let inBlockComment = false;
+
+  for (let index = 0; index < source.length; index += 1) {
+    const character = source[index];
+    const nextCharacter = source[index + 1];
+
+    if (inLineComment) {
+      if (character === "\n") {
+        inLineComment = false;
+        result += character;
+      } else {
+        result += " ";
+      }
+      continue;
+    }
+
+    if (inBlockComment) {
+      if (character === "*" && nextCharacter === "/") {
+        inBlockComment = false;
+        result += "  ";
+        index += 1;
+      } else {
+        result += character === "\n" ? "\n" : " ";
+      }
+      continue;
+    }
+
+    if (!inString && character === "/" && nextCharacter === "/") {
+      inLineComment = true;
+      result += "  ";
+      index += 1;
+      continue;
+    }
+
+    if (!inString && character === "/" && nextCharacter === "*") {
+      inBlockComment = true;
+      result += "  ";
+      index += 1;
+      continue;
+    }
+
+    result += character;
+    if (character === "\\" && inString && !escaped) {
+      escaped = true;
+    } else {
+      if (character === '"' && !escaped) {
+        inString = !inString;
+      }
+      escaped = false;
+    }
+  }
+
+  if (inString || inBlockComment) {
+    throw new Error("Prisma schema の文字列またはコメントが閉じていません");
+  }
+
+  return result;
+}
+
+function extractPrismaBlocks(source, keyword) {
+  const blockPattern = new RegExp(
+    `\\b${keyword}\\s+([A-Za-z_][A-Za-z0-9_]*)\\s*\\{`,
+    "g",
+  );
+  const blocks = [];
+
+  for (let match = blockPattern.exec(source); match !== null; match = blockPattern.exec(source)) {
+    let depth = 1;
+    let inString = false;
+    let escaped = false;
+    let end = match.index + match[0].length;
+
+    for (; end < source.length; end += 1) {
+      const character = source[end];
+      if (character === "\\" && inString && !escaped) {
+        escaped = true;
+        continue;
+      }
+      if (character === '"' && !escaped) {
+        inString = !inString;
+      }
+      escaped = false;
+      if (inString) continue;
+      if (character === "{") depth += 1;
+      if (character === "}") {
+        depth -= 1;
+        if (depth === 0) break;
+      }
+    }
+
+    if (depth !== 0) {
+      throw new Error(`${keyword} block が閉じていません`);
+    }
+
+    blocks.push({
+      name: match[1],
+      body: source.slice(match.index + match[0].length, end),
+    });
+    blockPattern.lastIndex = end + 1;
+  }
+
+  return blocks;
+}
+
+function splitPrismaTopLevel(value, separator = ",") {
+  const parts = [];
+  let current = "";
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+
+  for (const character of value) {
+    if (character === "\\" && inString && !escaped) {
+      current += character;
+      escaped = true;
+      continue;
+    }
+    if (character === '"' && !escaped) {
+      inString = !inString;
+    }
+    escaped = false;
+    if (!inString) {
+      if (character === "(" || character === "[" || character === "{") depth += 1;
+      if (character === ")" || character === "]" || character === "}") depth -= 1;
+      if (character === separator && depth === 0) {
+        parts.push(current.trim());
+        current = "";
+        continue;
+      }
+    }
+    current += character;
+  }
+  if (inString || depth !== 0) {
+    throw new Error("Prisma schema の attribute が閉じていません");
+  }
+  if (current.trim() !== "") parts.push(current.trim());
+  return parts;
+}
+
+function splitPrismaStatements(body) {
+  const statements = [];
+  let current = "";
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+
+  for (const character of body) {
+    if (character === "\\" && inString && !escaped) {
+      current += character;
+      escaped = true;
+      continue;
+    }
+    if (character === '"' && !escaped) {
+      inString = !inString;
+    }
+    escaped = false;
+    if (!inString) {
+      if (character === "(" || character === "[" || character === "{") depth += 1;
+      if (character === ")" || character === "]" || character === "}") depth -= 1;
+      if (character === "\n" && depth === 0) {
+        if (current.trim() !== "") statements.push(current.trim());
+        current = "";
+        continue;
+      }
+    }
+    current += character;
+  }
+  if (inString || depth !== 0) {
+    throw new Error("Prisma schema の model が閉じていません");
+  }
+  if (current.trim() !== "") statements.push(current.trim());
+  return statements;
+}
+
+function findPrismaAttributeCall(statement, attributeName) {
+  const token = `@${attributeName}`;
+  const start = statement.indexOf(token);
+  if (start < 0) return null;
+  const afterToken = start + token.length;
+  if (
+    (start > 0 && /[A-Za-z0-9_]/u.test(statement[start - 1]))
+    || (afterToken < statement.length && /[A-Za-z0-9_]/u.test(statement[afterToken]))
+  ) {
+    return null;
+  }
+  let index = afterToken;
+  while (/\s/u.test(statement[index] ?? "")) index += 1;
+  if (statement[index] !== "(") return "";
+
+  const argumentStart = index + 1;
+  let depth = 1;
+  let inString = false;
+  let escaped = false;
+  for (index = argumentStart; index < statement.length; index += 1) {
+    const character = statement[index];
+    if (character === "\\" && inString && !escaped) {
+      escaped = true;
+      continue;
+    }
+    if (character === '"' && !escaped) inString = !inString;
+    escaped = false;
+    if (inString) continue;
+    if (character === "(") depth += 1;
+    if (character === ")") {
+      depth -= 1;
+      if (depth === 0) return statement.slice(argumentStart, index).trim();
+    }
+  }
+  throw new Error(`@${attributeName} attribute が閉じていません`);
+}
+
+function hasPrismaAttribute(statement, attributeName) {
+  const token = `@${attributeName}`;
+  const start = statement.indexOf(token);
+  if (start < 0) return false;
+  const afterToken = start + token.length;
+  return !(
+    (start > 0 && /[A-Za-z0-9_]/u.test(statement[start - 1]))
+    || (afterToken < statement.length && /[A-Za-z0-9_]/u.test(statement[afterToken]))
+  );
+}
+
+function parsePrismaStringLiteral(value) {
+  const trimmed = value.trim();
+  if (!trimmed.startsWith('"') || !trimmed.endsWith('"')) {
+    throw new Error("Prisma schema の文字列 literal が不正です");
+  }
+  return JSON.parse(trimmed);
+}
+
+function parsePrismaFieldList(value) {
+  const trimmed = value.trim();
+  if (!trimmed.startsWith("[") || !trimmed.endsWith("]")) {
+    throw new Error("Prisma schema の field list が不正です");
+  }
+  const fields = splitPrismaTopLevel(trimmed.slice(1, -1))
+    .map((field) => field.split(":", 1)[0].trim())
+    .filter(Boolean);
+  if (
+    fields.length === 0
+    || fields.some((field) => !/^[A-Za-z_][A-Za-z0-9_]*$/u.test(field))
+  ) {
+    throw new Error("Prisma schema の field list が不正です");
+  }
+  return fields;
+}
+
+function parsePrismaNamedArgument(argumentsText, name) {
+  const argument = splitPrismaTopLevel(argumentsText)
+    .find((part) => part.trim().startsWith(`${name}:`));
+  return argument === undefined ? null : argument.slice(argument.indexOf(":") + 1).trim();
+}
+
+function normalizeReferentialAction(value) {
+  const normalized = String(value ?? "")
+    .trim()
+    .replaceAll("_", "")
+    .replaceAll(" ", "")
+    .toUpperCase();
+  return {
+    CASCADE: "CASCADE",
+    RESTRICT: "RESTRICT",
+    NOACTION: "NO ACTION",
+    SETNULL: "SET NULL",
+    SETDEFAULT: "SET DEFAULT",
+  }[normalized] ?? null;
+}
+
+function parsePrismaSchemaContract(schemaSource) {
+  const source = stripPrismaComments(schemaSource);
+  const datasources = extractPrismaBlocks(source, "datasource");
+  if (datasources.length !== 1) {
+    throw new Error("SQLite datasource が 1 つ必要です");
+  }
+  const providerStatement = splitPrismaStatements(datasources[0].body)
+    .find((statement) => /^provider\s*=/u.test(statement));
+  const providerMatch = providerStatement?.match(/^provider\s*=\s*"([^"]+)"\s*$/u);
+  if (providerMatch?.[1] !== "sqlite") {
+    throw new Error("candidate schema の datasource provider が sqlite ではありません");
+  }
+
+  const enumNames = new Set(
+    extractPrismaBlocks(source, "enum").map((block) => block.name),
+  );
+  const modelBlocks = extractPrismaBlocks(source, "model");
+  if (modelBlocks.length === 0) {
+    throw new Error("candidate schema に model がありません");
+  }
+  const modelNames = new Set(modelBlocks.map((block) => block.name));
+  const models = [];
+
+  for (const block of modelBlocks) {
+    const statements = splitPrismaStatements(block.body);
+    const mapAttribute = statements.find((statement) => statement.startsWith("@@map"));
+    const tableName = mapAttribute === undefined
+      ? block.name
+      : parsePrismaStringLiteral(findPrismaAttributeCall(mapAttribute, "map") ?? "");
+    if (typeof tableName !== "string" || tableName.length === 0) {
+      throw new Error(`model ${block.name} の table mapping が不正です`);
+    }
+
+    const scalarFields = [];
+    const fieldByName = new Map();
+    const relationFields = [];
+    let primaryKey = null;
+    const uniqueConstraints = [];
+    const indexes = [];
+    let ignored = false;
+
+    for (const statement of statements) {
+      if (statement.startsWith("@@")) {
+        if (statement.startsWith("@@map")) continue;
+        if (statement.startsWith("@@ignore")) {
+          ignored = true;
+          continue;
+        }
+        const blockAttribute = statement.match(/^@@(id|unique|index)\s*\((.*)\)\s*$/u);
+        if (blockAttribute === null) {
+          throw new Error(`model ${block.name} の block attribute を解釈できません`);
+        }
+        const fieldListArgument = blockAttribute[2].match(/\[[\s\S]*\]/u)?.[0];
+        if (fieldListArgument === undefined) {
+          throw new Error(`model ${block.name} の constraint field list が不正です`);
+        }
+        const fieldList = parsePrismaFieldList(fieldListArgument);
+        if (blockAttribute[1] === "id") {
+          if (primaryKey !== null) throw new Error(`model ${block.name} に primary key が重複しています`);
+          primaryKey = fieldList;
+        } else if (blockAttribute[1] === "unique") {
+          uniqueConstraints.push(fieldList);
+        } else {
+          indexes.push({ fields: fieldList, unique: false });
+        }
+        continue;
+      }
+
+      const fieldMatch = statement.match(
+        /^([A-Za-z_][A-Za-z0-9_]*)\s+([A-Za-z_][A-Za-z0-9_]*(?:\[\])?\??)(?:\s+(.+))?$/u,
+      );
+      if (fieldMatch === null) {
+        throw new Error(`model ${block.name} の field を解釈できません`);
+      }
+      const [, fieldName, typeToken, attributes = ""] = fieldMatch;
+      const isList = typeToken.endsWith("[]");
+      const isOptional = typeToken.endsWith("?");
+      const typeName = typeToken.replace(/\[\]|\?/gu, "");
+      if (isList && !modelNames.has(typeName)) {
+        throw new Error(`model ${block.name} の scalar list type は SQLite contract に対応していません`);
+      }
+      if (isList || modelNames.has(typeName)) {
+        relationFields.push({
+          fieldName,
+          typeName,
+          isList,
+          isOptional,
+          attributes,
+        });
+        continue;
+      }
+      if (!Object.hasOwn(SQLITE_SCHEMA_SCALAR_TYPES, typeName) && !enumNames.has(typeName)) {
+        throw new Error(`model ${block.name} の scalar type を解釈できません: ${typeName}`);
+      }
+      if (fieldByName.has(fieldName)) {
+        throw new Error(`model ${block.name} の field が重複しています: ${fieldName}`);
+      }
+      const mappedName = findPrismaAttributeCall(attributes, "map");
+      const field = {
+        fieldName,
+        columnName: mappedName === null
+          ? fieldName
+          : parsePrismaStringLiteral(mappedName),
+        sqliteType: enumNames.has(typeName) ? "TEXT" : SQLITE_SCHEMA_SCALAR_TYPES[typeName],
+        required: !isOptional,
+        primaryKey: hasPrismaAttribute(attributes, "id"),
+        unique: hasPrismaAttribute(attributes, "unique"),
+        ignored: hasPrismaAttribute(attributes, "ignore"),
+      };
+      if (!field.ignored) {
+        scalarFields.push(field);
+        fieldByName.set(fieldName, field);
+      }
+    }
+
+    if (ignored) continue;
+    const columnNames = new Set();
+    for (const field of scalarFields) {
+      if (columnNames.has(field.columnName)) {
+        throw new Error(`model ${block.name} の column mapping が重複しています: ${field.columnName}`);
+      }
+      columnNames.add(field.columnName);
+    }
+    if (primaryKey === null) {
+      const fieldPrimaryKeys = scalarFields.filter((field) => field.primaryKey).map((field) => field.fieldName);
+      if (fieldPrimaryKeys.length > 1) {
+        throw new Error(`model ${block.name} の primary key が重複しています`);
+      }
+      primaryKey = fieldPrimaryKeys;
+    }
+    for (const field of scalarFields.filter((candidate) => candidate.unique)) {
+      uniqueConstraints.push([field.fieldName]);
+    }
+    for (const relation of relationFields) {
+      if (relation.isList || !hasPrismaAttribute(relation.attributes, "relation")) continue;
+      const relationArguments = findPrismaAttributeCall(relation.attributes, "relation");
+      const localFieldsArgument = parsePrismaNamedArgument(relationArguments, "fields");
+      const referencedFieldsArgument = parsePrismaNamedArgument(relationArguments, "references");
+      if (localFieldsArgument === null || referencedFieldsArgument === null) {
+        throw new Error(`model ${block.name} の relation fields が不足しています`);
+      }
+      const localFields = parsePrismaFieldList(localFieldsArgument);
+      const referencedFields = parsePrismaFieldList(referencedFieldsArgument);
+      if (localFields.length !== referencedFields.length || !modelNames.has(relation.typeName)) {
+        throw new Error(`model ${block.name} の relation mapping が不正です`);
+      }
+      const targetBlock = modelBlocks.find((candidate) => candidate.name === relation.typeName);
+      const targetStatements = splitPrismaStatements(targetBlock.body);
+      const targetMapAttribute = targetStatements.find((statement) => statement.startsWith("@@map"));
+      const targetTableName = targetMapAttribute === undefined
+        ? targetBlock.name
+        : parsePrismaStringLiteral(findPrismaAttributeCall(targetMapAttribute, "map") ?? "");
+      const foreignKeyFields = localFields.map((fieldName, index) => {
+        const localField = fieldByName.get(fieldName);
+        if (!localField) throw new Error(`model ${block.name} の relation local field が不正です`);
+        const targetFieldStatement = targetStatements.find((statement) => (
+          statement.match(/^([A-Za-z_][A-Za-z0-9_]*)\s+/u)?.[1] === referencedFields[index]
+        ));
+        const targetFieldMatch = targetFieldStatement?.match(
+          /^([A-Za-z_][A-Za-z0-9_]*)\s+([A-Za-z_][A-Za-z0-9_]*(?:\[\])?\??)(?:\s+(.+))?$/u,
+        );
+        if (targetFieldMatch === null || targetFieldMatch === undefined) {
+          throw new Error(`model ${relation.typeName} の relation target field が不正です`);
+        }
+        const targetTypeToken = targetFieldMatch[2];
+        if (targetTypeToken.endsWith("[]") || modelNames.has(targetTypeToken.replace(/\[\]|\?/gu, ""))) {
+          throw new Error(`model ${relation.typeName} の relation target field が scalar ではありません`);
+        }
+        const targetMappedName = findPrismaAttributeCall(targetFieldMatch[3] ?? "", "map");
+        return {
+          from: localField.columnName,
+          to: targetMappedName === null
+            ? referencedFields[index]
+            : parsePrismaStringLiteral(targetMappedName),
+        };
+      });
+      const relationOnDelete = parsePrismaNamedArgument(relationArguments, "onDelete");
+      const relationOnUpdate = parsePrismaNamedArgument(relationArguments, "onUpdate");
+      const onDelete = relationOnDelete === null
+        ? relation.isOptional ? "SET NULL" : "RESTRICT"
+        : normalizeReferentialAction(relationOnDelete);
+      const onUpdate = relationOnUpdate === null
+        ? "CASCADE"
+        : normalizeReferentialAction(relationOnUpdate);
+      if (onDelete === null || onUpdate === null) {
+        throw new Error(`model ${block.name} の referential action が不正です`);
+      }
+      relation.foreignKey = {
+        columns: foreignKeyFields.map((field) => field.from),
+        referencedTable: targetTableName,
+        referencedColumns: foreignKeyFields.map((field) => field.to),
+        onDelete,
+        onUpdate,
+      };
+    }
+
+    const fieldByNameEntries = new Set(scalarFields.map((field) => field.fieldName));
+    const resolveFieldList = (fieldList) => fieldList.map((fieldName) => {
+      if (!fieldByNameEntries.has(fieldName)) {
+        throw new Error(`model ${block.name} の constraint field が不正です: ${fieldName}`);
+      }
+      return fieldByName.get(fieldName).columnName;
+    });
+    models.push({
+      modelName: block.name,
+      tableName,
+      columns: scalarFields.map((field) => ({
+        name: field.columnName,
+        sqliteType: field.sqliteType,
+        required: field.required,
+      })),
+      primaryKey: resolveFieldList(primaryKey),
+      uniqueConstraints: uniqueConstraints.map(resolveFieldList),
+      indexes: indexes.map((index) => ({
+        columns: resolveFieldList(index.fields),
+        unique: index.unique,
+      })),
+      foreignKeys: relationFields
+        .filter((relation) => relation.foreignKey !== undefined)
+        .map((relation) => relation.foreignKey),
+    });
+  }
+
+  const tableNames = new Set();
+  for (const model of models) {
+    if (tableNames.has(model.tableName)) {
+      throw new Error(`candidate schema の table mapping が重複しています: ${model.tableName}`);
+    }
+    tableNames.add(model.tableName);
+  }
+  return Object.freeze({ models: Object.freeze(models) });
+}
+
+function readCandidateSchemaContract(schemaPath) {
+  let schemaSource;
+  try {
+    schemaSource = fs.readFileSync(schemaPath, "utf8");
+  } catch (error) {
+    throw stagedMigrationError(
+      "verified app Prisma schema を読み取れません",
+      "STAGED_MIGRATION_SOURCE_INVALID",
+      error,
+    );
+  }
+  try {
+    return parsePrismaSchemaContract(schemaSource);
+  } catch (error) {
+    throw stagedMigrationError(
+      "verified app Prisma schema の DB contract を解釈できません",
+      "STAGED_MIGRATION_SOURCE_INVALID",
+      error,
+    );
+  }
 }
 
 function isBetterSqlite3NativeLoadError(error, phase) {
@@ -1267,8 +1806,9 @@ function resolveStagedMigrationSource(candidate) {
     "verified app project environment helper",
     "STAGED_MIGRATION_SOURCE_INVALID",
   );
+  const schemaPath = path.join(runtimeDirectory, "prisma", "schema.prisma");
   requireExistingRegularFile(
-    path.join(runtimeDirectory, "prisma", "schema.prisma"),
+    schemaPath,
     "verified app Prisma schema",
     "STAGED_MIGRATION_SOURCE_INVALID",
   );
@@ -1336,11 +1876,194 @@ function resolveStagedMigrationSource(candidate) {
     prismaBinary,
     prismaConfigPath: path.join(runtimeDirectory, "prisma.config.ts"),
     prismaProjectRoot: runtimeDirectory,
+    schemaPath,
+    schemaContract: readCandidateSchemaContract(schemaPath),
   });
 }
 
 function quoteSqlIdentifier(identifier) {
   return `"${identifier.replaceAll("\"", "\"\"")}"`;
+}
+
+function sqliteTypeAffinity(type) {
+  const normalized = String(type ?? "").toUpperCase();
+  if (normalized.includes("INT")) return "INTEGER";
+  if (normalized.includes("CHAR") || normalized.includes("CLOB") || normalized.includes("TEXT")) {
+    return "TEXT";
+  }
+  if (normalized.includes("BLOB") || normalized === "") return "BLOB";
+  if (normalized.includes("REAL") || normalized.includes("FLOA") || normalized.includes("DOUB")) {
+    return "REAL";
+  }
+  return "NUMERIC";
+}
+
+function sameStringArray(left, right) {
+  return left.length === right.length && left.every((value, index) => value === right[index]);
+}
+
+function readSqliteIndexMetadata(reader, tableName) {
+  const indexRows = reader.all(
+    `PRAGMA index_list(${quoteSqlIdentifier(tableName)})`,
+  );
+  return indexRows.map((indexRow) => {
+    const indexName = indexRow.name;
+    const columns = reader
+      .all(`PRAGMA index_info(${quoteSqlIdentifier(indexName)})`)
+      .sort((left, right) => Number(left.seq) - Number(right.seq))
+      .map((column) => column.name)
+      .filter((column) => typeof column === "string");
+    return {
+      columns,
+      unique: Number(indexRow.unique) === 1,
+    };
+  });
+}
+
+function readSqliteForeignKeyMetadata(reader, tableName) {
+  const rows = reader.all(
+    `PRAGMA foreign_key_list(${quoteSqlIdentifier(tableName)})`,
+  );
+  const grouped = new Map();
+  for (const row of rows) {
+    const key = String(row.id);
+    const group = grouped.get(key) ?? {
+      columns: [],
+      referencedTable: row.table,
+      referencedColumns: [],
+      onDelete: normalizeReferentialAction(row.on_delete),
+      onUpdate: normalizeReferentialAction(row.on_update),
+    };
+    group.columns[Number(row.seq)] = row.from;
+    group.referencedColumns[Number(row.seq)] = row.to;
+    grouped.set(key, group);
+  }
+  return [...grouped.values()];
+}
+
+function schemaIndexExists(indexes, expectedColumns, expectedUnique) {
+  return indexes.some((index) => (
+    sameStringArray(index.columns, expectedColumns)
+    && (!expectedUnique || index.unique)
+  ));
+}
+
+function schemaForeignKeyExists(foreignKeys, expected) {
+  return foreignKeys.some((foreignKey) => (
+    sameStringArray(foreignKey.columns, expected.columns)
+    && foreignKey.referencedTable === expected.referencedTable
+    && sameStringArray(foreignKey.referencedColumns, expected.referencedColumns)
+    && foreignKey.onDelete === expected.onDelete
+    && foreignKey.onUpdate === expected.onUpdate
+  ));
+}
+
+function validateCandidateSchemaCompatibility(
+  databasePath,
+  schemaContract,
+  sqliteBinary,
+  failureCode,
+  subject,
+) {
+  let reader;
+  try {
+    reader = createSqliteReader(databasePath, sqliteBinary);
+    const tableRows = reader.all(
+      `SELECT "name" FROM "sqlite_master"
+       WHERE "type" = 'table' AND "name" NOT LIKE 'sqlite_%'
+       ORDER BY "name"`,
+    );
+    const tableNames = new Set(tableRows.map((row) => row.name));
+
+    for (const model of schemaContract.models) {
+      if (!tableNames.has(model.tableName)) {
+        throw stagedMigrationError(
+          `${subject} SQLite candidate schema の table がありません: ${model.tableName}`,
+          failureCode,
+        );
+      }
+
+      const columns = reader.all(
+        `PRAGMA table_info(${quoteSqlIdentifier(model.tableName)})`,
+      );
+      const columnsByName = new Map(columns.map((column) => [column.name, column]));
+      for (const expectedColumn of model.columns) {
+        const actualColumn = columnsByName.get(expectedColumn.name);
+        if (actualColumn === undefined) {
+          throw stagedMigrationError(
+            `${subject} SQLite candidate schema の column がありません: ${model.tableName}.${expectedColumn.name}`,
+            failureCode,
+          );
+        }
+        if (
+          sqliteTypeAffinity(actualColumn.type)
+          !== sqliteTypeAffinity(expectedColumn.sqliteType)
+        ) {
+          throw stagedMigrationError(
+            `${subject} SQLite candidate schema の column type が一致しません: ${model.tableName}.${expectedColumn.name}`,
+            failureCode,
+          );
+        }
+        if (expectedColumn.required && Number(actualColumn.notnull) !== 1 && Number(actualColumn.pk) === 0) {
+          throw stagedMigrationError(
+            `${subject} SQLite candidate schema の required column が nullable です: ${model.tableName}.${expectedColumn.name}`,
+            failureCode,
+          );
+        }
+      }
+
+      const actualPrimaryKey = columns
+        .filter((column) => Number(column.pk) > 0)
+        .sort((left, right) => Number(left.pk) - Number(right.pk))
+        .map((column) => column.name);
+      if (!sameStringArray(actualPrimaryKey, model.primaryKey)) {
+        throw stagedMigrationError(
+          `${subject} SQLite candidate schema の primary key が一致しません: ${model.tableName}`,
+          failureCode,
+        );
+      }
+
+      const indexes = readSqliteIndexMetadata(reader, model.tableName);
+      if (model.primaryKey.length > 0) {
+        indexes.push({ columns: model.primaryKey, unique: true });
+      }
+      for (const uniqueConstraint of model.uniqueConstraints) {
+        if (!schemaIndexExists(indexes, uniqueConstraint, true)) {
+          throw stagedMigrationError(
+            `${subject} SQLite candidate schema の unique constraint がありません: ${model.tableName}`,
+            failureCode,
+          );
+        }
+      }
+      for (const index of model.indexes) {
+        if (!schemaIndexExists(indexes, index.columns, index.unique)) {
+          throw stagedMigrationError(
+            `${subject} SQLite candidate schema の index がありません: ${model.tableName}`,
+            failureCode,
+          );
+        }
+      }
+
+      const foreignKeys = readSqliteForeignKeyMetadata(reader, model.tableName);
+      for (const foreignKey of model.foreignKeys) {
+        if (!schemaForeignKeyExists(foreignKeys, foreignKey)) {
+          throw stagedMigrationError(
+            `${subject} SQLite candidate schema の foreign key がありません: ${model.tableName}`,
+            failureCode,
+          );
+        }
+      }
+    }
+  } catch (error) {
+    if (error instanceof DesktopStorageError && error.code === failureCode) throw error;
+    throw stagedMigrationError(
+      `${subject} SQLite candidate schema compatibility check に失敗しました`,
+      failureCode,
+      error,
+    );
+  } finally {
+    if (reader) reader.close();
+  }
 }
 
 function readSqliteDataSnapshot(databasePath, sqliteBinary) {
@@ -1874,6 +2597,7 @@ function switchStagedDatabase(storagePaths, stagedDatabasePath, liveBefore, back
     fs.accessSync(storagePaths.liveDirectory, fs.constants.W_OK);
     syncDirectory(storagePaths.liveDirectory);
     fs.renameSync(stagedDatabasePath, storagePaths.databasePath);
+    syncDirectory(storagePaths.liveDirectory);
   } catch (error) {
     throw stagedMigrationError(
       "staged SQLite atomic switch に失敗しました",
@@ -1908,6 +2632,13 @@ function runStagedUpdateMigration({
   });
 
   if (inspection.status === DESKTOP_DATABASE_STATUS.READY) {
+    validateCandidateSchemaCompatibility(
+      paths.databasePath,
+      source.schemaContract,
+      sqliteBinary,
+      "STAGED_MIGRATION_LIVE_DATABASE_INVALID",
+      "live",
+    );
     return Object.freeze({
       status: DESKTOP_STAGED_MIGRATION_STATUS.NO_PENDING,
       pendingMigrations: [],
@@ -1965,6 +2696,13 @@ function runStagedUpdateMigration({
   }
   const afterSnapshot = readSqliteDataSnapshot(staged.stagedPath, sqliteBinary);
   compareSqliteDataSnapshots(beforeSnapshot, afterSnapshot);
+  validateCandidateSchemaCompatibility(
+    staged.stagedPath,
+    source.schemaContract,
+    sqliteBinary,
+    "STAGED_MIGRATION_REOPEN_FAILED",
+    "staged",
+  );
   switchStagedDatabase(paths, staged.stagedPath, liveBefore, backupPath);
 
   return Object.freeze({

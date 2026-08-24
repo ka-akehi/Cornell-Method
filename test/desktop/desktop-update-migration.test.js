@@ -243,6 +243,51 @@ test("ApplyPreparation with no pending migration performs no backup, copy, runne
   }, { pending: false });
 });
 
+test("Issue #174: matching migration history does not prove candidate schema compatibility", {
+  skip: !sqliteCliAvailable,
+}, () => {
+  runFixture(({ ready, candidate }) => {
+    const schemaPath = path.join(candidate.runtimeDirectory, "prisma", "schema.prisma");
+    const schemaBefore = fs.readFileSync(schemaPath);
+    const schemaAfter = Buffer.from(
+      schemaBefore.toString("utf8").replace(
+        '  bodyMode       String    @default("markdown") @map("body_mode")',
+        '  bodyMode       String    @default("markdown") @map("body_mode")\n  candidateRequired String @map("candidate_required")',
+      ),
+      "utf8",
+    );
+    assert.notDeepEqual(schemaAfter, schemaBefore);
+    fs.writeFileSync(schemaPath, schemaAfter);
+
+    const beforeBytes = fs.readFileSync(ready.databasePath);
+    const beforeIdentity = fs.statSync(ready.databasePath).ino;
+    const packagePath = path.join(candidate.stagingDirectory, "packages", `${candidate.candidateDigest}.app.tar.gz`);
+    const packageBefore = fs.readFileSync(packagePath);
+    const statePath = path.join(candidate.storagePaths.settingsDirectory, "update-state.json");
+    const stateBefore = fs.readFileSync(statePath);
+
+    assert.throws(
+      () => runStagedUpdateMigration({
+        storagePaths: candidate.storagePaths,
+        sqliteBinary,
+        now: 220,
+      }),
+      (error) => error.code === "STAGED_MIGRATION_LIVE_DATABASE_INVALID",
+    );
+
+    assert.deepEqual(fs.readFileSync(ready.databasePath), beforeBytes);
+    assert.equal(fs.statSync(ready.databasePath).ino, beforeIdentity);
+    assert.deepEqual(fs.readdirSync(candidate.storagePaths.backupsDirectory), []);
+    assert.equal(
+      fs.existsSync(path.join(candidate.stagingDirectory, "database-migrations")),
+      false,
+    );
+    assert.deepEqual(fs.readFileSync(schemaPath), schemaAfter);
+    assert.deepEqual(fs.readFileSync(packagePath), packageBefore);
+    assert.deepEqual(fs.readFileSync(statePath), stateBefore);
+  }, { pending: false });
+});
+
 test("the staged backend rejects startup state that is not explicit ApplyPreparation", {
   skip: !sqliteCliAvailable,
 }, () => {
@@ -543,6 +588,45 @@ test("migration failure keeps live database and existing managed backups unchang
   }, { pending: true, migrationMode: "fail" });
 });
 
+test("Issue #172: a pre-switch failure never overwrites a later live database edit", {
+  skip: !sqliteCliAvailable,
+}, () => {
+  runFixture(({ ready, candidate }) => {
+    assert.throws(
+      () => runStagedUpdateMigration({
+        storagePaths: candidate.storagePaths,
+        sqliteBinary,
+        now: 203,
+      }),
+      (error) => error.code === "STAGED_MIGRATION_RUNNER_FAILED",
+    );
+    const [backupName] = fs.readdirSync(candidate.storagePaths.backupsDirectory)
+      .filter((name) => name.startsWith(`notebook-${candidate.candidateDigest}-`));
+    assert.ok(backupName);
+    const backupPath = path.join(candidate.storagePaths.backupsDirectory, backupName);
+    const backupBeforeEdit = fs.readFileSync(backupPath);
+
+    sqlite(
+      ready.databasePath,
+      `CREATE TABLE "user_edit_marker" ("id" TEXT NOT NULL PRIMARY KEY, "value" TEXT NOT NULL);
+       INSERT INTO "user_edit_marker" ("id", "value") VALUES ('after-failure', 'keep me');`,
+    );
+    const liveAfterEdit = fs.readFileSync(ready.databasePath);
+
+    createFakeNode(candidate.runtimeDirectory, "success");
+    assert.throws(
+      () => runStagedUpdateMigration({
+        storagePaths: candidate.storagePaths,
+        sqliteBinary,
+        now: 204,
+      }),
+      (error) => error.code === "STAGED_MIGRATION_BACKUP_FAILED",
+    );
+    assert.deepEqual(fs.readFileSync(ready.databasePath), liveAfterEdit);
+    assert.deepEqual(fs.readFileSync(backupPath), backupBeforeEdit);
+  }, { pending: true, migrationMode: "fail" });
+});
+
 test("Issue #164: retrying the same candidate reuses its safety backup after rollback", {
   skip: !sqliteCliAvailable,
 }, () => {
@@ -702,6 +786,59 @@ test("atomic switch failure leaves live database and existing managed backups un
       fs.renameSync = originalRenameSync;
     }
     assert.deepEqual(fs.readFileSync(ready.databasePath), beforeBytes);
+    assert.deepEqual(fs.readFileSync(existingBackup, "utf8"), "existing backup\n");
+  }, { pending: true });
+});
+
+test("post-rename live directory sync failure fails closed", {
+  skip: !sqliteCliAvailable,
+}, () => {
+  runFixture(({ ready, candidate }) => {
+    const existingBackup = path.join(candidate.storagePaths.backupsDirectory, "existing.sqlite.bak");
+    fs.writeFileSync(existingBackup, "existing backup\n");
+    const beforeBytes = fs.readFileSync(ready.databasePath);
+    const originalOpenSync = fs.openSync;
+    const originalRenameSync = fs.renameSync;
+    const originalFsyncSync = fs.fsyncSync;
+    const liveDirectoryDescriptors = new Set();
+    let renameCompleted = false;
+    let postRenameLiveDirectorySyncAttempted = false;
+
+    fs.openSync = (filePath, ...args) => {
+      const descriptor = originalOpenSync(filePath, ...args);
+      if (filePath === candidate.storagePaths.liveDirectory) {
+        liveDirectoryDescriptors.add(descriptor);
+      }
+      return descriptor;
+    };
+    fs.renameSync = (sourcePath, targetPath) => {
+      const result = originalRenameSync(sourcePath, targetPath);
+      if (targetPath === candidate.storagePaths.databasePath) {
+        renameCompleted = true;
+      }
+      return result;
+    };
+    fs.fsyncSync = (descriptor) => {
+      if (renameCompleted && liveDirectoryDescriptors.has(descriptor)) {
+        postRenameLiveDirectorySyncAttempted = true;
+        throw new Error("disposable post-rename directory sync failure");
+      }
+      return originalFsyncSync(descriptor);
+    };
+    try {
+      assert.throws(
+        () => runStagedUpdateMigration({ storagePaths: candidate.storagePaths, sqliteBinary, now: 220 }),
+        (error) => error.code === "STAGED_MIGRATION_SWITCH_FAILED",
+      );
+    } finally {
+      fs.openSync = originalOpenSync;
+      fs.renameSync = originalRenameSync;
+      fs.fsyncSync = originalFsyncSync;
+    }
+
+    assert.equal(renameCompleted, true);
+    assert.equal(postRenameLiveDirectorySyncAttempted, true);
+    assert.notDeepEqual(fs.readFileSync(ready.databasePath), beforeBytes);
     assert.deepEqual(fs.readFileSync(existingBackup, "utf8"), "existing backup\n");
   }, { pending: true });
 });
