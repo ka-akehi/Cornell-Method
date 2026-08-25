@@ -12,6 +12,7 @@ interval="${CODEX_WORKER_INTERVAL:-2}"
 coding_worker_model="${CODEX_CODING_WORKER_MODEL:-GPT-5.3-Codex-Spark}"
 state_dir="${CODEX_WORKER_STATE_DIR:-$queue_dir/.state}"
 progress_script="$script_dir/worker-progress.sh"
+change_recorder_script="$script_dir/worker-record-change.sh"
 
 mkdir -p "$root/queued" "$root/running" "$root/done" "$root/failed"
 mkdir -p "$state_dir/progress"
@@ -39,20 +40,21 @@ changed_files_since() {
     ! -path "$watch_root/test-results/*" \
     ! -path "$watch_root/out/*" \
     ! -path "$watch_root/build/*" \
+    ! -path "$watch_root/src-tauri/target/*" \
+    ! -path "$watch_root/src-tauri/gen/*" \
     2>/dev/null | sed "s#^$watch_root/##" | sort || true
 }
 
-report_changed_files_since() {
-  changed_since="$1"
-  changed_files="$(changed_files_since "$changed_since")"
-
-  if [ -z "$changed_files" ]; then
-    status_log "Changed files: none"
+report_recorded_changed_files() {
+  changed_files_file="$1"
+  if [ -z "$changed_files_file" ] || [ ! -s "$changed_files_file" ]; then
+    status_log "Changed files recorded by worker: none"
     return
   fi
 
-  status_log "Changed files modified during task:"
-  printf '%s\n' "$changed_files" | while IFS= read -r changed_file; do
+  status_log "Changed files recorded by worker:"
+  sort -u "$changed_files_file" | while IFS= read -r changed_file; do
+    [ -n "$changed_file" ] || continue
     status_log "  $changed_file"
   done
 }
@@ -61,10 +63,47 @@ is_coding_task() {
   grep -Eq '^[[:space:]]*CODEX_TASK_KIND:[[:space:]]*coding[[:space:]]*$' "$1"
 }
 
-run_codex_default() {
-  prompt_file="$1"
-  worker_report="$2"
-  codex exec --skip-git-repo-check --output-last-message "$worker_report" < "$prompt_file"
+task_risk() {
+  task_file="$1"
+  risk="$(sed -n 's/^[[:space:]]*CODEX_TASK_RISK:[[:space:]]*\([A-Za-z][A-Za-z-]*\)[[:space:]]*$/\1/p' "$task_file" | head -n 1 | tr '[:upper:]' '[:lower:]')"
+  if [ -z "$risk" ]; then
+    risk="normal"
+  fi
+
+  case "$risk" in
+    low|normal|high|critical)
+      printf '%s\n' "$risk"
+      ;;
+    *)
+      printf '[%s] Unknown CODEX_TASK_RISK %s; using normal\n' "$worker_name" "$risk" >&2
+      printf '%s\n' "normal"
+      ;;
+  esac
+}
+
+reasoning_effort_for_task() {
+  task_file="$1"
+
+  if [ "${CODEX_WORKER_REASONING_EFFORT+x}" = "x" ]; then
+    configured="$CODEX_WORKER_REASONING_EFFORT"
+    case "$configured" in
+      inherit|low|medium|high|xhigh|max)
+        printf '%s\n' "$configured"
+        ;;
+      *)
+        printf '[%s] Unknown CODEX_WORKER_REASONING_EFFORT %s; using medium\n' "$worker_name" "$configured" >&2
+        printf '%s\n' "medium"
+        ;;
+    esac
+    return
+  fi
+
+  case "$(task_risk "$task_file")" in
+    low) printf '%s\n' "low" ;;
+    normal) printf '%s\n' "medium" ;;
+    high) printf '%s\n' "high" ;;
+    critical) printf '%s\n' "max" ;;
+  esac
 }
 
 is_model_unavailable_output() {
@@ -72,55 +111,98 @@ is_model_unavailable_output() {
   grep -Eiq 'model.*not supported|unsupported.*model|invalid_request_error.*model|Model metadata for .* not found' "$output_file"
 }
 
-run_codex_with_model_fallback() {
+is_reasoning_unavailable_output() {
+  output_file="$1"
+  grep -Eiq 'reasoning([^[:alnum:]]+effort)?.*(not supported|unsupported|invalid)|model_reasoning_effort.*(not supported|unsupported|invalid)|unsupported.*reasoning' "$output_file"
+}
+
+fallback_reasoning_effort() {
+  case "$1" in
+    max|xhigh) printf '%s\n' "high" ;;
+    *) printf '%s\n' "" ;;
+  esac
+}
+
+run_codex_once() {
   prompt_file="$1"
   model="$2"
-  worker_report="$3"
+  reasoning_effort="$3"
+  worker_report="$4"
+  output_file="$5"
 
-  if [ -z "$model" ] || [ "$model" = "none" ]; then
-    run_codex_default "$prompt_file" "$worker_report"
-    return $?
-  fi
-
-  output_file="$(mktemp "${TMPDIR:-/tmp}/codex-worker-model.XXXXXX")"
-  if codex exec --skip-git-repo-check --model "$model" --output-last-message "$worker_report" < "$prompt_file" > "$output_file" 2>&1; then
-    cat "$output_file"
-    rm -f "$output_file"
-    return 0
+  if [ "$reasoning_effort" = "inherit" ]; then
+    if [ -n "$model" ] && [ "$model" != "none" ]; then
+      codex exec --skip-git-repo-check --model "$model" --output-last-message "$worker_report" < "$prompt_file" > "$output_file" 2>&1
+    else
+      codex exec --skip-git-repo-check --output-last-message "$worker_report" < "$prompt_file" > "$output_file" 2>&1
+    fi
   else
-    status="$?"
+    reasoning_config="model_reasoning_effort=\"$reasoning_effort\""
+    if [ -n "$model" ] && [ "$model" != "none" ]; then
+      codex exec --skip-git-repo-check --model "$model" -c "$reasoning_config" --output-last-message "$worker_report" < "$prompt_file" > "$output_file" 2>&1
+    else
+      codex exec --skip-git-repo-check -c "$reasoning_config" --output-last-message "$worker_report" < "$prompt_file" > "$output_file" 2>&1
+    fi
   fi
+}
 
-  cat "$output_file"
+run_codex_with_fallbacks() {
+  prompt_file="$1"
+  model="$2"
+  reasoning_effort="$3"
+  worker_report="$4"
 
-  if is_model_unavailable_output "$output_file"; then
-    rm -f "$output_file"
-    status_log "Model unavailable for coding task; retrying with default model: $model"
+  attempt_model="$model"
+  attempt_effort="$reasoning_effort"
+  output_file="$(mktemp "${TMPDIR:-/tmp}/codex-worker-model.XXXXXX")"
+
+  while true; do
+    : > "$output_file"
     : > "$worker_report"
-    run_codex_default "$prompt_file" "$worker_report"
-    return $?
-  fi
 
-  rm -f "$output_file"
-  return "$status"
+    if run_codex_once "$prompt_file" "$attempt_model" "$attempt_effort" "$worker_report" "$output_file"; then
+      cat "$output_file"
+      rm -f "$output_file"
+      return 0
+    else
+      status="$?"
+    fi
+
+    cat "$output_file"
+
+    fallback_effort="$(fallback_reasoning_effort "$attempt_effort")"
+    if [ -n "$fallback_effort" ] && is_reasoning_unavailable_output "$output_file"; then
+      status_log "Reasoning effort unavailable; retrying with $fallback_effort: $attempt_effort"
+      attempt_effort="$fallback_effort"
+      continue
+    fi
+
+    if [ -n "$attempt_model" ] && [ "$attempt_model" != "none" ] && is_model_unavailable_output "$output_file"; then
+      status_log "Model unavailable; retrying with default model: $attempt_model"
+      attempt_model=""
+      continue
+    fi
+
+    rm -f "$output_file"
+    return "$status"
+  done
 }
 
 run_codex_task() {
   task_file="$1"
   prompt_file="$2"
   worker_report="$3"
+  reasoning_effort="$4"
 
   if [ "${CODEX_WORKER_MODEL+x}" = "x" ]; then
-    if [ -z "${CODEX_WORKER_MODEL}" ] || [ "${CODEX_WORKER_MODEL}" = "none" ]; then
-      run_codex_default "$prompt_file" "$worker_report"
-    else
-      codex exec --skip-git-repo-check --model "$CODEX_WORKER_MODEL" --output-last-message "$worker_report" < "$prompt_file"
-    fi
+    model="$CODEX_WORKER_MODEL"
   elif is_coding_task "$task_file"; then
-    run_codex_with_model_fallback "$prompt_file" "$coding_worker_model" "$worker_report"
+    model="$coding_worker_model"
   else
-    run_codex_default "$prompt_file" "$worker_report"
+    model=""
   fi
+
+  run_codex_with_fallbacks "$prompt_file" "$model" "$reasoning_effort" "$worker_report"
 }
 
 progress_file_for() {
@@ -161,6 +243,18 @@ codex-queue/bin/worker-progress.sh --percent 85 --phase "verification" --message
 ```
 
 0〜100 の整数で、実際に到達した節目だけを報告してください。報告できない場合も task の作業は継続し、完了・失敗は runner が記録します。
+
+## Worker changed-files provenance
+
+意図して作成・更新・削除したリポジトリ内ファイルは、変更後に必ず次の helper へ記録してください。
+
+```sh
+codex-queue/bin/worker-record-change.sh path/to/file another/file
+```
+
+複数ファイルを一度に渡して構いません。task 完了前に最終的な変更ファイル一覧を再確認し、漏れがあれば同じ helper で追記してください。
+
+この記録は「この Worker が意図的に変更したファイル」の provenance です。他 Worker の同時変更、build artifact、cache、`summary/`、queue state は記録しません。共有 worktree 上の timestamp 差分は provenance として扱いません。
 RUNTIME
   } > "$prompt_file"
   printf '%s\n' "$prompt_file"
@@ -183,24 +277,44 @@ while true; do
     changed_since="$(mktemp "${TMPDIR:-/tmp}/codex-worker.XXXXXX")"
     run_output="$(mktemp "${TMPDIR:-/tmp}/codex-worker-output.XXXXXX")"
     worker_report="$(mktemp "${TMPDIR:-/tmp}/codex-worker-report.XXXXXX")"
+    changed_files_manifest="$(mktemp "${TMPDIR:-/tmp}/codex-worker-changes.XXXXXX")"
     runtime_prompt="$(make_runtime_prompt "$running")"
     progress_file="$(progress_file_for "$running")"
+    risk="$(task_risk "$running")"
+    reasoning_effort="$(reasoning_effort_for_task "$running")"
+
     export WORKER_PROGRESS_FILE="$progress_file"
     export WORKER_TASK_FILE="$running"
     export WORKER_PID="$$"
     export WORKER_NAME="$worker_name"
-    set_progress "$progress_file" 5 "starting" "Task claimed"
 
-    if run_codex_task "$running" "$runtime_prompt" "$worker_report" > "$run_output" 2>&1; then
+    provenance_args=""
+    if [ -x "$change_recorder_script" ]; then
+      export WORKER_CHANGED_FILES_FILE="$changed_files_manifest"
+      export WORKER_PROJECT_ROOT="$watch_root"
+      export WORKER_CHANGE_RECORDER="$change_recorder_script"
+      provenance_args="--changed-files-file $changed_files_manifest"
+    fi
+
+    set_progress "$progress_file" 5 "starting" "Task claimed"
+    status_log "Routing: risk=$risk reasoning=$reasoning_effort"
+
+    if run_codex_task "$running" "$runtime_prompt" "$worker_report" "$reasoning_effort" > "$run_output" 2>&1; then
       set_progress "$progress_file" 90 "finalizing" "Codex execution finished"
       cat "$run_output"
-      report_changed_files_since "$changed_since"
+      if [ -n "$provenance_args" ]; then
+        report_recorded_changed_files "$changed_files_manifest"
+      fi
       mv "$running" "$root/done/$base"
       set_progress "$progress_file" 95 "summary" "Writing task summary"
-      summary_file="$("$script_dir/write-task-summary.sh" --status done --task "$root/done/$base" --changed-since "$changed_since" --watch-root "$watch_root" --worker "$worker_name" --kind worker-task --worker-report "$worker_report" || true)"
+      if [ -n "$provenance_args" ]; then
+        summary_file="$("$script_dir/write-task-summary.sh" --status done --task "$root/done/$base" --changed-since "$changed_since" --changed-files-file "$changed_files_manifest" --watch-root "$watch_root" --worker "$worker_name" --kind worker-task --worker-report "$worker_report" || true)"
+      else
+        summary_file="$("$script_dir/write-task-summary.sh" --status done --task "$root/done/$base" --changed-since "$changed_since" --watch-root "$watch_root" --worker "$worker_name" --kind worker-task --worker-report "$worker_report" || true)"
+      fi
       set_progress "$progress_file" 100 "done" "Task completed"
       rm -f "$changed_since"
-      rm -f "$run_output" "$worker_report"
+      rm -f "$run_output" "$worker_report" "$changed_files_manifest"
       rm -f "$runtime_prompt" "$progress_file"
       if [ -n "$summary_file" ]; then
         status_log "Summary: $summary_file"
@@ -209,13 +323,19 @@ while true; do
     else
       set_progress "$progress_file" 90 "failed" "Codex execution failed"
       cat "$run_output"
-      report_changed_files_since "$changed_since"
+      if [ -n "$provenance_args" ]; then
+        report_recorded_changed_files "$changed_files_manifest"
+      fi
       mv "$running" "$root/failed/$base"
       set_progress "$progress_file" 95 "summary" "Writing failure summary"
-      summary_file="$("$script_dir/write-task-summary.sh" --status failed --task "$root/failed/$base" --changed-since "$changed_since" --watch-root "$watch_root" --worker "$worker_name" --kind worker-task --failure-output "$run_output" || true)"
+      if [ -n "$provenance_args" ]; then
+        summary_file="$("$script_dir/write-task-summary.sh" --status failed --task "$root/failed/$base" --changed-since "$changed_since" --changed-files-file "$changed_files_manifest" --watch-root "$watch_root" --worker "$worker_name" --kind worker-task --failure-output "$run_output" || true)"
+      else
+        summary_file="$("$script_dir/write-task-summary.sh" --status failed --task "$root/failed/$base" --changed-since "$changed_since" --watch-root "$watch_root" --worker "$worker_name" --kind worker-task --failure-output "$run_output" || true)"
+      fi
       set_progress "$progress_file" 100 "failed" "Task failed"
       rm -f "$changed_since"
-      rm -f "$run_output" "$worker_report"
+      rm -f "$run_output" "$worker_report" "$changed_files_manifest"
       rm -f "$runtime_prompt" "$progress_file"
       if [ -n "$summary_file" ]; then
         status_log "Summary: $summary_file"
