@@ -10,6 +10,7 @@
     "lint": "eslint",
     "test:desktop:lifecycle": "node --test test/desktop/desktop-lifecycle.test.js",
     "test:desktop:node-runtime": "node --test test/desktop/desktop-node-runtime.test.js",
+    "test:codex-queue": "node --test test/codex-queue/*.test.js",
     "test:e2e": "playwright test",
     "prisma:generate": "node scripts/prisma-generate.js",
     "prisma:generate:postgres": "node scripts/prisma-run-postgres.js generate",
