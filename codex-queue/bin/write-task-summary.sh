@@ -4,6 +4,7 @@ set -eu
 status=""
 task_file=""
 changed_since=""
+changed_files_file=""
 watch_root=""
 worker_name=""
 task_kind="worker-task"
@@ -23,6 +24,10 @@ while [ "$#" -gt 0 ]; do
       ;;
     --changed-since)
       changed_since="$2"
+      shift 2
+      ;;
+    --changed-files-file)
+      changed_files_file="$2"
       shift 2
       ;;
     --watch-root)
@@ -52,8 +57,13 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
-if [ -z "$status" ] || [ -z "$task_file" ] || [ -z "$changed_since" ] || [ -z "$watch_root" ]; then
-  echo "Usage: write-task-summary.sh --status <done|failed> --task <path> --changed-since <file> --watch-root <path> [--worker <name>] [--kind <kind>] [--failure-output <path>] [--worker-report <path>]" >&2
+if [ -z "$status" ] || [ -z "$task_file" ] || [ -z "$watch_root" ]; then
+  echo "Usage: write-task-summary.sh --status <done|failed> --task <path> --watch-root <path> [--changed-files-file <path>] [--changed-since <file>] [--worker <name>] [--kind <kind>] [--failure-output <path>] [--worker-report <path>]" >&2
+  exit 2
+fi
+
+if [ -z "$changed_files_file" ] && [ -z "$changed_since" ]; then
+  echo "Either --changed-files-file or --changed-since is required" >&2
   exit 2
 fi
 
@@ -78,21 +88,52 @@ if [ -e "$summary_file" ]; then
   summary_file="$summary_dir/$time_part-$slug-$$-summary.md"
 fi
 
-changed_files="$(find "$watch_root" -type f -newer "$changed_since" \
-  ! -path "$watch_root/.git/*" \
-  ! -path "$watch_root/codex-queue/tasks/*" \
-  ! -path "$watch_root/codex-queue/tasks-ui/*" \
-  ! -path "$watch_root/codex-queue/tasks-api/*" \
-  ! -path "$watch_root/summary/*" \
-  ! -path "$watch_root/.next/*" \
-  ! -path "$watch_root/codex-queue/.state/*" \
-  ! -path "$watch_root/node_modules/*" \
-  ! -path "$watch_root/coverage/*" \
-  ! -path "$watch_root/playwright-report/*" \
-  ! -path "$watch_root/test-results/*" \
-  ! -path "$watch_root/out/*" \
-  ! -path "$watch_root/build/*" \
-  2>/dev/null | sed "s#^$watch_root/##" | sort || true)"
+find_workspace_activity() {
+  since="$1"
+  find "$watch_root" -type f -newer "$since" \
+    ! -path "$watch_root/.git/*" \
+    ! -path "$watch_root/codex-queue/tasks/*" \
+    ! -path "$watch_root/codex-queue/tasks-ui/*" \
+    ! -path "$watch_root/codex-queue/tasks-api/*" \
+    ! -path "$watch_root/summary/*" \
+    ! -path "$watch_root/.next/*" \
+    ! -path "$watch_root/codex-queue/.state/*" \
+    ! -path "$watch_root/node_modules/*" \
+    ! -path "$watch_root/coverage/*" \
+    ! -path "$watch_root/playwright-report/*" \
+    ! -path "$watch_root/test-results/*" \
+    ! -path "$watch_root/out/*" \
+    ! -path "$watch_root/build/*" \
+    ! -path "$watch_root/src-tauri/target/*" \
+    ! -path "$watch_root/src-tauri/gen/*" \
+    2>/dev/null | sed "s#^$watch_root/##" | sort -u || true
+}
+
+provenance_mode="legacy workspace timestamp"
+workspace_activity=""
+unattributed_activity=""
+if [ -n "$changed_files_file" ]; then
+  provenance_mode="explicit worker provenance manifest"
+  if [ -s "$changed_files_file" ]; then
+    changed_files="$(sed '/^$/d' "$changed_files_file" | sort -u || true)"
+  else
+    changed_files=""
+  fi
+
+  if [ -n "$changed_since" ]; then
+    workspace_activity="$(find_workspace_activity "$changed_since")"
+    if [ -n "$workspace_activity" ]; then
+      activity_file="$(mktemp "${TMPDIR:-/tmp}/codex-summary-activity.XXXXXX")"
+      recorded_file="$(mktemp "${TMPDIR:-/tmp}/codex-summary-recorded.XXXXXX")"
+      printf '%s\n' "$workspace_activity" | sed '/^$/d' | sort -u > "$activity_file"
+      printf '%s\n' "$changed_files" | sed '/^$/d' | sort -u > "$recorded_file"
+      unattributed_activity="$(comm -23 "$activity_file" "$recorded_file" || true)"
+      rm -f "$activity_file" "$recorded_file"
+    fi
+  fi
+else
+  changed_files="$(find_workspace_activity "$changed_since")"
+fi
 
 next_read_files="$(printf '%s\n' "$changed_files" | sed '/^$/d' | head -n 20)"
 
@@ -124,7 +165,6 @@ worker_report_available=0
 worker_report_truncated=0
 if [ "$status" = "done" ] && [ -n "$worker_report" ] && [ -s "$worker_report" ]; then
   worker_report_available=1
-  # Node decodes UTF-8 independently of LC_ALL; for...of counts Unicode code points.
   worker_report_chars="$(node -e '
     const fs = require("node:fs");
     const report = fs.readFileSync(process.argv[1], "utf8");
@@ -173,13 +213,18 @@ write_truncated_worker_report() {
   printf '| worker | `%s` |\n' "${worker_name:-unknown}"
   printf '| status | `%s` |\n' "$status"
   printf '| task file | `%s` |\n' "$(printf '%s\n' "$task_file" | sed "s#^$watch_root/##")"
+  printf '| changed-files provenance | `%s` |\n' "$provenance_mode"
   printf '| raw log | out of scope |\n\n'
 
   printf '## Inputs Read\n\n'
   printf '| 種別 | パス | 確認内容 |\n'
   printf '|---|---|---|\n'
   printf '| task | `%s` | task 完了状態の起点 |\n' "$(printf '%s\n' "$task_file" | sed "s#^$watch_root/##")"
-  printf '| changed files | worker timestamp | task 実行中に更新された成果物の確認 |\n\n'
+  if [ -n "$changed_files_file" ]; then
+    printf '| changed files | Worker provenance manifest | Worker が意図的に作成・更新・削除した成果物だけを記録 |\n\n'
+  else
+    printf '| changed files | worker timestamp | legacy runner の task 実行中 workspace activity を確認 |\n\n'
+  fi
 
   printf '## Changes Made\n\n'
   printf '| パス | 変更内容 | 理由 |\n'
@@ -187,10 +232,18 @@ write_truncated_worker_report() {
   if [ -n "$changed_files" ]; then
     printf '%s\n' "$changed_files" | while IFS= read -r changed_file; do
       [ -n "$changed_file" ] || continue
-      printf '| `%s` | task 実行中に作成または更新 | `%s` の実行結果 |\n' "$changed_file" "$base"
+      if [ -n "$changed_files_file" ]; then
+        printf '| `%s` | Worker が意図的変更として記録 | `%s` の実行結果 |\n' "$changed_file" "$base"
+      else
+        printf '| `%s` | task 実行中に作成または更新 | `%s` の実行結果 |\n' "$changed_file" "$base"
+      fi
     done
   else
-    printf '| none | 変更ファイルなし | worker timestamp 以降の成果物更新なし |\n'
+    if [ -n "$changed_files_file" ]; then
+      printf '| none | Worker が記録した変更ファイルなし | provenance manifest に記録なし |\n'
+    else
+      printf '| none | 変更ファイルなし | worker timestamp 以降の成果物更新なし |\n'
+    fi
   fi
   printf '\n'
 
@@ -199,9 +252,17 @@ write_truncated_worker_report() {
   printf '|---|---|---|---|\n'
   printf '| F-001 | fact | task は `%s` として完了処理された。 | `%s` |\n' "$status" "$(printf '%s\n' "$task_file" | sed "s#^$watch_root/##")"
   if [ -n "$changed_files" ]; then
-    printf '| F-002 | fact | task 実行中に成果物の作成または更新があった。 | Changes Made |\n'
+    if [ -n "$changed_files_file" ]; then
+      printf '| F-002 | fact | Worker が意図的変更として provenance manifest に成果物を記録した。 | Changes Made |\n'
+    else
+      printf '| F-002 | fact | task 実行中に成果物の作成または更新があった。 | Changes Made |\n'
+    fi
   else
-    printf '| F-002 | fact | worker timestamp 以降の成果物更新は検出されなかった。 | Changes Made |\n'
+    if [ -n "$changed_files_file" ]; then
+      printf '| F-002 | fact | Worker provenance manifest に変更ファイルは記録されなかった。 | Changes Made |\n'
+    else
+      printf '| F-002 | fact | worker timestamp 以降の成果物更新は検出されなかった。 | Changes Made |\n'
+    fi
   fi
   if [ "$status" = "failed" ] && [ -n "$failure_reason" ]; then
     printf '| F-003 | fact | 失敗理由の推定: %s | Failure Reason |\n' "$failure_reason"
@@ -244,6 +305,7 @@ write_truncated_worker_report() {
   printf '|---|---|---|\n'
   printf '| summary file created | 完了 | `%s` |\n' "$(printf '%s\n' "$summary_file" | sed "s#^$watch_root/##")"
   printf '| required headings | 完了 | template 必須見出しを含む |\n'
+  printf '| changed-files provenance | %s | %s |\n' "$(if [ -n "$changed_files_file" ]; then printf '完了'; else printf 'legacy'; fi)" "$provenance_mode"
   printf '| raw log suppression | 完了 | raw log 本文は転記していない |\n'
   printf '| `tools/check-summary.sh` | 実行前 | writer script が作成後に実行する |\n\n'
 
@@ -258,6 +320,10 @@ write_truncated_worker_report() {
     fi
   else
     printf '| U-001 | 生成物の内容妥当性はこの summary ではレビューしていない | Next Read の対象成果物 |\n'
+  fi
+  if [ -n "$changed_files_file" ] && [ -n "$unattributed_activity" ]; then
+    unattributed_count="$(printf '%s\n' "$unattributed_activity" | sed '/^$/d' | wc -l | tr -d ' ')"
+    printf '| U-002 | task 実行中に provenance manifest 外の workspace activity を %s 件検出した。他 Worker や並行処理の可能性があるため、この task の変更とは帰属しない。 | 必要時のみ `git status --short` と各 Worker summary を照合 |\n' "$unattributed_count"
   fi
   printf '\n'
 
