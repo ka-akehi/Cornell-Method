@@ -1,12 +1,26 @@
 # Worker Task
 
-CODEX_TASK_RISK: normal
+CODEX_RISK_IMPACT: 1
+CODEX_RISK_REVERSIBILITY: 1
+CODEX_RISK_VERIFICATION: 1
+CODEX_RISK_FLAGS: none
 
 あなたは Worker Codex です。
 このタスクだけを実行してください。
 
-`CODEX_TASK_RISK` は Manager が task 作成時に `low / normal / high / critical` から選択します。
-コーディング task の場合だけ、`CODEX_TASK_RISK` の次に `CODEX_TASK_KIND: coding` を追加します。
+新規 task では `CODEX_TASK_RISK` を直接書きません。Manager が task 分割後に上記4項目を評価し、`enqueue-worker-task.sh` が `low / normal / high / critical` を自動導出します。queued task では評価入力を除去し、`CODEX_TASK_RISK` と短い `CODEX_TASK_RISK_REASON` だけを Worker に渡します。
+
+コーディング task の場合だけ、risk assessment field の次に `CODEX_TASK_KIND: coding` を追加します。
+
+`CODEX_RISK_FLAGS` は該当なしなら `none`、該当する場合は次から comma-separated で指定します。
+
+- `persisted-state`
+- `security`
+- `concurrency`
+- `destructive`
+- `migration-restore`
+- `crypto-trust`
+- `data-loss`
 
 ## 背景
 
