@@ -128,24 +128,14 @@ TASK
 codex-queue/bin/worker-run.sh
 ```
 
-Worker は通常 task では model を指定せずに `codex exec` を実行します。
-コーディング task は、task file に次のマーカーがある場合だけ、既定で `GPT-5.3-Codex-Spark` を使います。Spark がこのアカウントや環境で使えない場合は、Worker が model unavailable を検出して model 指定なしの通常実行へフォールバックします。
+すべての Worker task は `gpt-5.6-luna` を固定モデルとして使用します。通常 task / coding task / UI / API / 共通でモデルは切り替えません。
 
 ```md
 CODEX_TASK_KIND: coding
 ```
 
-コーディング task の専用モデルを明示的に変えたい場合は、次のように `CODEX_CODING_WORKER_MODEL` を指定します。`none` を指定すると最初から model 指定なしで実行します。
-
-```sh
-CODEX_CODING_WORKER_MODEL=<model-id> codex-queue/bin/worker-run.sh
-```
-
-全 task の model を一時的に上書きする場合のみ、次のように `CODEX_WORKER_MODEL` を指定します。
-
-```sh
-CODEX_WORKER_MODEL=<model-id> codex-queue/bin/worker-run.sh
-```
+`CODEX_TASK_KIND: coding` は task の性質を示す metadata としてだけ使用し、モデル選択には使用しません。
+`CODEX_WORKER_MODEL` / `CODEX_CODING_WORKER_MODEL` によるモデル上書きは行いません。Luna が利用できない場合も model 指定なしや別モデルへ自動フォールバックせず、その task を失敗として扱います。
 
 ### Risk-based reasoning routing
 
@@ -196,8 +186,8 @@ CODEX_TASK_RISK_REASON: score=5(i=2,r=1,v=2);flags=persisted-state;floor=high:pe
 
 このため、新規 task では `CODEX_TASK_RISK` を手入力しません。既に queued/running に存在する旧 task については、runner の既存互換として `CODEX_TASK_RISK` がない場合 `normal` として扱います。
 
-選択モデルが `max` / `xhigh` を受理しない場合は、runner が `high` へ一段フォールバックします。
-一時的に reasoning を固定する場合は `CODEX_WORKER_REASONING_EFFORT=low|medium|high|xhigh|max` を指定します。ローカル Codex 設定をそのまま継承したい場合だけ `inherit` を指定します。
+Luna が `max` / `xhigh` reasoning effort を受理しない場合だけ、runner が `high` へ一段フォールバックします。モデル自体は Luna のままです。
+一時的に reasoning を固定する場合は `CODEX_WORKER_REASONING_EFFORT=low|medium|high|xhigh|max` を指定します。ローカル Codex の reasoning 設定をそのまま継承したい場合だけ `inherit` を指定します。`inherit` でもモデルは Luna 固定です。
 
 ```sh
 CODEX_WORKER_REASONING_EFFORT=high codex-queue/bin/worker-run.sh

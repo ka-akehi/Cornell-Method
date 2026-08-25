@@ -115,12 +115,13 @@ CODEX_TASK_RISK: high
 CODEX_TASK_RISK_REASON: score=5(i=2,r=1,v=2);flags=persisted-state;floor=high:persisted-state
 ```
 
-`critical` が `max` を要求し、選択モデルが `max` / `xhigh` を受理しない場合だけ runner が `high` にフォールバックする。
+`critical` が `max` を要求し、Luna がその reasoning effort を受理しない場合だけ runner が `high` にフォールバックする。
 
 ## Coding Task Policy
 
-- Worker は `codex-queue/bin/worker-run.sh` 経由で実行し、通常 task は model を指定せずに実行する
-- コーディング task だけ task file に `CODEX_TASK_KIND: coding` を明記し、既定で `GPT-5.3-Codex-Spark` を使う。Spark がこのアカウントや環境で使えない場合は、Worker が model unavailable を検出して model 指定なしの通常実行へフォールバックする
+- すべての Worker task は `codex-queue/bin/worker-run.sh` 経由で `gpt-5.6-luna` を使用する。通常 task / coding task / UI / API / 共通でモデルを切り替えない
+- `CODEX_TASK_KIND: coding` は task の性質を示す metadata としてだけ使用し、モデル選択には使用しない
+- `CODEX_WORKER_MODEL` / `CODEX_CODING_WORKER_MODEL` によるモデル上書きは行わない。Luna が利用できない場合も別モデルへ自動フォールバックしない
 - reasoning effort は enqueue 時に導出された `CODEX_TASK_RISK` から runner が選ぶ。task ごとにプロンプト本文で Max 等を直接要求しない
 - 仕様詰め、棚卸し、調査、設計レビューの task ではコーディングをさせない
 - 仕様詰め、棚卸し、調査、設計レビューの task には、制約として「コード・設定・依存関係・生成物を変更しない」を明記する

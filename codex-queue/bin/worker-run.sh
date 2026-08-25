@@ -9,7 +9,7 @@ root="${CODEX_QUEUE_ROOT:-$queue_dir/tasks}"
 watch_root="${CODEX_QUEUE_WATCH_ROOT:-$project_root}"
 worker_name="${WORKER_NAME:-Worker-common}"
 interval="${CODEX_WORKER_INTERVAL:-2}"
-coding_worker_model="${CODEX_CODING_WORKER_MODEL:-GPT-5.3-Codex-Spark}"
+worker_model="gpt-5.6-luna"
 state_dir="${CODEX_WORKER_STATE_DIR:-$queue_dir/.state}"
 progress_script="$script_dir/worker-progress.sh"
 change_recorder_script="$script_dir/worker-record-change.sh"
@@ -37,10 +37,6 @@ report_recorded_changed_files() {
     [ -n "$changed_file" ] || continue
     status_log "  $changed_file"
   done
-}
-
-is_coding_task() {
-  grep -Eq '^[[:space:]]*CODEX_TASK_KIND:[[:space:]]*coding[[:space:]]*$' "$1"
 }
 
 task_risk() {
@@ -86,11 +82,6 @@ reasoning_effort_for_task() {
   esac
 }
 
-is_model_unavailable_output() {
-  output_file="$1"
-  grep -Eiq 'model.*not supported|unsupported.*model|invalid_request_error.*model|Model metadata for .* not found' "$output_file"
-}
-
 is_reasoning_unavailable_output() {
   output_file="$1"
   grep -Eiq 'reasoning([^[:alnum:]]+effort)?.*(not supported|unsupported|invalid)|model_reasoning_effort.*(not supported|unsupported|invalid)|unsupported.*reasoning' "$output_file"
@@ -105,34 +96,23 @@ fallback_reasoning_effort() {
 
 run_codex_once() {
   prompt_file="$1"
-  model="$2"
-  reasoning_effort="$3"
-  worker_report="$4"
-  output_file="$5"
+  reasoning_effort="$2"
+  worker_report="$3"
+  output_file="$4"
 
   if [ "$reasoning_effort" = "inherit" ]; then
-    if [ -n "$model" ] && [ "$model" != "none" ]; then
-      codex exec --skip-git-repo-check --model "$model" --output-last-message "$worker_report" < "$prompt_file" > "$output_file" 2>&1
-    else
-      codex exec --skip-git-repo-check --output-last-message "$worker_report" < "$prompt_file" > "$output_file" 2>&1
-    fi
+    codex exec --skip-git-repo-check --model "$worker_model" --output-last-message "$worker_report" < "$prompt_file" > "$output_file" 2>&1
   else
     reasoning_config="model_reasoning_effort=\"$reasoning_effort\""
-    if [ -n "$model" ] && [ "$model" != "none" ]; then
-      codex exec --skip-git-repo-check --model "$model" -c "$reasoning_config" --output-last-message "$worker_report" < "$prompt_file" > "$output_file" 2>&1
-    else
-      codex exec --skip-git-repo-check -c "$reasoning_config" --output-last-message "$worker_report" < "$prompt_file" > "$output_file" 2>&1
-    fi
+    codex exec --skip-git-repo-check --model "$worker_model" -c "$reasoning_config" --output-last-message "$worker_report" < "$prompt_file" > "$output_file" 2>&1
   fi
 }
 
 run_codex_with_fallbacks() {
   prompt_file="$1"
-  model="$2"
-  reasoning_effort="$3"
-  worker_report="$4"
+  reasoning_effort="$2"
+  worker_report="$3"
 
-  attempt_model="$model"
   attempt_effort="$reasoning_effort"
   output_file="$(mktemp "${TMPDIR:-/tmp}/codex-worker-model.XXXXXX")"
 
@@ -140,7 +120,7 @@ run_codex_with_fallbacks() {
     : > "$output_file"
     : > "$worker_report"
 
-    if run_codex_once "$prompt_file" "$attempt_model" "$attempt_effort" "$worker_report" "$output_file"; then
+    if run_codex_once "$prompt_file" "$attempt_effort" "$worker_report" "$output_file"; then
       cat "$output_file"
       rm -f "$output_file"
       return 0
@@ -157,32 +137,17 @@ run_codex_with_fallbacks() {
       continue
     fi
 
-    if [ -n "$attempt_model" ] && [ "$attempt_model" != "none" ] && is_model_unavailable_output "$output_file"; then
-      status_log "Model unavailable; retrying with default model: $attempt_model"
-      attempt_model=""
-      continue
-    fi
-
     rm -f "$output_file"
     return "$status"
   done
 }
 
 run_codex_task() {
-  task_file="$1"
-  prompt_file="$2"
-  worker_report="$3"
-  reasoning_effort="$4"
+  prompt_file="$1"
+  worker_report="$2"
+  reasoning_effort="$3"
 
-  if [ "${CODEX_WORKER_MODEL+x}" = "x" ]; then
-    model="$CODEX_WORKER_MODEL"
-  elif is_coding_task "$task_file"; then
-    model="$coding_worker_model"
-  else
-    model=""
-  fi
-
-  run_codex_with_fallbacks "$prompt_file" "$model" "$reasoning_effort" "$worker_report"
+  run_codex_with_fallbacks "$prompt_file" "$reasoning_effort" "$worker_report"
 }
 
 progress_file_for() {
@@ -277,9 +242,9 @@ while true; do
     fi
 
     set_progress "$progress_file" 5 "starting" "Task claimed"
-    status_log "Routing: risk=$risk reasoning=$reasoning_effort"
+    status_log "Routing: model=$worker_model risk=$risk reasoning=$reasoning_effort"
 
-    if run_codex_task "$running" "$runtime_prompt" "$worker_report" "$reasoning_effort" > "$run_output" 2>&1; then
+    if run_codex_task "$runtime_prompt" "$worker_report" "$reasoning_effort" > "$run_output" 2>&1; then
       set_progress "$progress_file" 90 "finalizing" "Codex execution finished"
       cat "$run_output"
       if [ "$provenance_enabled" -eq 1 ]; then
