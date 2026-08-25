@@ -14,6 +14,7 @@ codex-queue/
   bin/
     enqueue-worker-task.sh
     write-task-summary.sh
+    worker-record-change.sh
     worker-run.sh
     worker-ui-run.sh
     worker-api-run.sh
@@ -50,6 +51,8 @@ codex
 ```sh
 codex-queue/bin/enqueue-worker-task.sh fix-dependency-lock <<'TASK'
 # Worker Task
+
+CODEX_TASK_RISK: normal
 
 あなたは Worker Codex です。
 このタスクだけを実行してください。
@@ -129,6 +132,35 @@ CODEX_CODING_WORKER_MODEL=<model-id> codex-queue/bin/worker-run.sh
 CODEX_WORKER_MODEL=<model-id> codex-queue/bin/worker-run.sh
 ```
 
+### Risk-based reasoning routing
+
+新規 Worker task は `CODEX_TASK_RISK` を付け、失敗時の影響と検証難度に応じて reasoning effort を選びます。
+
+```md
+CODEX_TASK_RISK: low
+CODEX_TASK_RISK: normal
+CODEX_TASK_RISK: high
+CODEX_TASK_RISK: critical
+```
+
+既定 mapping:
+
+| risk | reasoning effort | 主な対象 |
+| --- | --- | --- |
+| `low` | `low` | typo、docs、単純な検索・分類、機械的修正 |
+| `normal` | `medium` | 通常の限定バグ修正、UI/API修正、既存パターンに沿う実装 |
+| `high` | `high` | persistence、複数状態の整合性、concurrency、security、複数境界を跨ぐ変更 |
+| `critical` | `max` | destructive operation、migration、暗号・trust boundary、データ消失につながる難しい変更 |
+
+`CODEX_TASK_RISK` がない既存 task は `normal` として扱います。
+選択モデルが `max` / `xhigh` を受理しない場合は、runner が `high` へ一段フォールバックします。
+一時的に reasoning を固定する場合は `CODEX_WORKER_REASONING_EFFORT=low|medium|high|xhigh|max` を指定します。ローカル Codex 設定をそのまま継承したい場合だけ `inherit` を指定します。
+
+```sh
+CODEX_WORKER_REASONING_EFFORT=high codex-queue/bin/worker-run.sh
+CODEX_WORKER_REASONING_EFFORT=inherit codex-queue/bin/worker-run.sh
+```
+
 UI タスク Worker:
 
 ```sh
@@ -176,6 +208,21 @@ codex-queue/bin/worker-progress.sh --percent 60 --phase "implementation" --messa
 
 Worker は `queued` から `running` に移動できた `*.task.md` だけを実行し、終了後に `done` または `failed` へ移動します。
 
+### Changed-files provenance
+
+共有 worktree の `mtime` だけでは、並列 Worker が変更したファイルを正しく帰属できません。
+そのため `worker-run.sh` は Worker ごとの provenance manifest を作り、Worker が意図的に変更したファイルだけを `worker-record-change.sh` で記録します。
+
+```sh
+codex-queue/bin/worker-record-change.sh \
+  src/server/infrastructure/desktop-storage.js \
+  test/desktop/desktop-storage.test.js
+```
+
+runner は task prompt にこの記録ルールを自動追加します。`summary` の `Changes Made` と `Next Read` は provenance manifest を正本とし、同じ時間帯に別 Worker が更新したファイルや build/cache artifact を task の変更として扱いません。
+
+timestamp による workspace activity は診断用途としてだけ残し、provenance manifest にない activity は「他 Worker / 並行処理の可能性がある未帰属 activity」として扱います。これは shared worktree 自体を隔離する仕組みではないため、同じ責務・同じファイルを同時に変更し得る task は Manager が並列投入しません。
+
 Worker task の完了/失敗時には、`codex-queue/bin/write-task-summary.sh` が `summary/YYYYMMDD/HHMM-*-summary.md` を自動作成します。
 summary には、変更ファイル、確認結果、次に読む最小ファイルを記録します。
 成功時の `Worker Report` には、`codex exec --output-last-message` が出力した assistant の最終メッセージだけを保存します。
@@ -198,14 +245,19 @@ stdout / stderr の raw log、tool trace、`run_output` 全文は summary に保
 ## Operation Rules
 
 - Manager は `running` / `done` / `failed` を直接編集しません。
-- 1 タスク 1 目的を基本にします。
-- 1 タスク 1 ファイルを原則とし、1 つの task file に複数 task を同居させません。
+- 1 タスク 1 目的を維持します。
+- 1 task は **1 cohesive responsibility** を基本にします。1つの振る舞い、不変条件、契約、修正責務を完成させるために必要なら複数ファイルを同じ task で扱います。
+- 実装本体・関連 test・同じ契約を表す型や境界を、ファイルが別という理由だけで別 Worker に分割しません。
+- 独立して検証・統合できる別責務だけを別 task に分けます。複数目的を 1 task に詰め込むことは引き続き禁止します。
 - 仕様詰め、棚卸し、調査、設計レビューの task では、Worker にコーディングをさせません。
 - コーディングが必要になった場合は、仕様詰めや棚卸し task の完了後に別 task として作成し、task file に `CODEX_TASK_KIND: coding` を明記します。
 - 仕様/調査 task と実装 task を 1 つの task file に同居させません。
-- 互いに依存せず並行実行できる作業は、Manager が一度に複数の task file として作成して投入します。
+- 互いに依存せず、対象責務や変更範囲が競合しない作業は、Manager が一度に複数の task file として作成して投入します。
+- 同じ責務、同じ state invariant、同じ主要ファイルを変更し得る task は shared worktree 上で同時実行しません。
 - 依存関係がある作業は、先行 task の summary または変更結果を確認してから次を投入します。
 - Worker がユーザーへ追加質問しなくても着手できる粒度まで、Manager がタスクを具体化します。
+- Manager は task 作成時に `CODEX_TASK_RISK` を決めます。単にコード量ではなく、失敗時の影響、可逆性、検証容易性、security/data/concurrency への影響で分類します。
 - 既存作業を壊さないため、Worker は作業前後に `git status --short` を確認します。
+- Worker は意図的に変更したファイルを `worker-record-change.sh` へ記録します。
 - 実装タスクでは、可能な範囲で lint/build/test などの検証コマンドを実行し、結果を報告します。
 - 長い task log や command output はメイン会話に戻さず、必要な内容は `summary/` の `Next Read` を起点に再確認します。
