@@ -163,7 +163,7 @@ function findSummary(root) {
   return files[0];
 }
 
-test("routes task risk to explicit reasoning effort", async () => {
+test("routes task risk to explicit reasoning effort on Luna", async () => {
   const cases = [
     ["low", "low"],
     ["normal", "medium"],
@@ -180,11 +180,39 @@ test("routes task risk to explicit reasoning effort", async () => {
     try {
       await runWorker(harness);
       const call = fs.readFileSync(harness.argsLog, "utf8");
+      assert.match(call, /\t--model\tgpt-5[.]6-luna(?:\t|\n)/);
       assert.match(
         call,
         new RegExp(`model_reasoning_effort="${effort}"`),
         `${risk} should route to ${effort}`,
       );
+    } finally {
+      fs.rmSync(harness.root, { recursive: true, force: true });
+    }
+  }
+});
+
+test("pins Luna for normal and coding tasks even when legacy model overrides are set", async () => {
+  const cases = [
+    ["normal", "# Worker Task\n\nCODEX_TASK_RISK: normal\n"],
+    [
+      "coding",
+      "# Worker Task\n\nCODEX_TASK_RISK: normal\nCODEX_TASK_KIND: coding\n",
+    ],
+  ];
+
+  for (const [name, taskBody] of cases) {
+    const harness = createHarness(`luna-${name}`, taskBody);
+
+    try {
+      await runWorker(harness, {
+        CODEX_WORKER_MODEL: "gpt-5.6-sol",
+        CODEX_CODING_WORKER_MODEL: "GPT-5.3-Codex-Spark",
+      });
+      const call = fs.readFileSync(harness.argsLog, "utf8");
+      assert.match(call, /\t--model\tgpt-5[.]6-luna(?:\t|\n)/);
+      assert.doesNotMatch(call, /gpt-5[.]6-sol/);
+      assert.doesNotMatch(call, /GPT-5[.]3-Codex-Spark/);
     } finally {
       fs.rmSync(harness.root, { recursive: true, force: true });
     }
@@ -226,6 +254,7 @@ test("reasoning effort override can inherit local Codex configuration", async ()
   try {
     await runWorker(harness, { CODEX_WORKER_REASONING_EFFORT: "inherit" });
     const call = fs.readFileSync(harness.argsLog, "utf8");
+    assert.match(call, /\t--model\tgpt-5[.]6-luna(?:\t|\n)/);
     assert.doesNotMatch(call, /model_reasoning_effort=/);
   } finally {
     fs.rmSync(harness.root, { recursive: true, force: true });
