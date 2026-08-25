@@ -12,6 +12,7 @@ codex-queue/
     manager-codex.md
     worker-task-template.md
   bin/
+    assess-task-risk.sh
     enqueue-worker-task.sh
     write-task-summary.sh
     worker-record-change.sh
@@ -52,7 +53,11 @@ codex
 codex-queue/bin/enqueue-worker-task.sh fix-dependency-lock <<'TASK'
 # Worker Task
 
-CODEX_TASK_RISK: normal
+CODEX_RISK_IMPACT: 1
+CODEX_RISK_REVERSIBILITY: 1
+CODEX_RISK_VERIFICATION: 1
+CODEX_RISK_FLAGS: none
+CODEX_TASK_KIND: coding
 
 あなたは Worker Codex です。
 このタスクだけを実行してください。
@@ -90,6 +95,11 @@ CODEX_QUEUE_ROOT=codex-queue/tasks-ui \
 codex-queue/bin/enqueue-worker-task.sh note-editor-validation-ui <<'TASK'
 # Worker Task
 
+CODEX_RISK_IMPACT: 1
+CODEX_RISK_REVERSIBILITY: 1
+CODEX_RISK_VERIFICATION: 1
+CODEX_RISK_FLAGS: none
+
 ...
 TASK
 ```
@@ -100,6 +110,11 @@ API タスク:
 CODEX_QUEUE_ROOT=codex-queue/tasks-api \
 codex-queue/bin/enqueue-worker-task.sh notes-api-link-fix <<'TASK'
 # Worker Task
+
+CODEX_RISK_IMPACT: 2
+CODEX_RISK_REVERSIBILITY: 1
+CODEX_RISK_VERIFICATION: 2
+CODEX_RISK_FLAGS: persisted-state
 
 ...
 TASK
@@ -134,25 +149,53 @@ CODEX_WORKER_MODEL=<model-id> codex-queue/bin/worker-run.sh
 
 ### Risk-based reasoning routing
 
-新規 Worker task は `CODEX_TASK_RISK` を付け、失敗時の影響と検証難度に応じて reasoning effort を選びます。
+新規 Worker task は、Manager が cohesive responsibility へ分割した後に構造化 Risk Assessment を行います。Manager が `low / normal / high / critical` を直接選ぶのではなく、task file に次の4項目を記述します。
 
 ```md
-CODEX_TASK_RISK: low
-CODEX_TASK_RISK: normal
-CODEX_TASK_RISK: high
-CODEX_TASK_RISK: critical
+CODEX_RISK_IMPACT: 0|1|2|3
+CODEX_RISK_REVERSIBILITY: 0|1|2|3
+CODEX_RISK_VERIFICATION: 0|1|2|3
+CODEX_RISK_FLAGS: none
 ```
 
-既定 mapping:
+`CODEX_RISK_FLAGS` は必要に応じて comma-separated で指定します。
 
-| risk | reasoning effort | 主な対象 |
+- `persisted-state`: 永続状態の書き込み・整合性変更。最低 `high`
+- `security`: auth / authorization / credential / security boundary。最低 `high`
+- `concurrency`: race / lock / concurrent state。最低 `high`
+- `destructive`: user/app state に対する破壊的操作。`critical`
+- `migration-restore`: migration / restore / recovery semantics。`critical`
+- `crypto-trust`: 暗号・署名・鍵・trust boundary。`critical`
+- `data-loss`: 誤動作が現実的にデータ損失へつながり得る。`critical`
+
+3軸の意味:
+
+| 軸 | 0 | 1 | 2 | 3 |
+| --- | --- | --- | --- | --- |
+| Impact | 実質影響なし | 単一機能・局所 | 複数境界・状態 | system-wide / 重大影響 |
+| Reversibility | 即時復旧 | code/config revert | state recovery が必要 | 不可逆・復旧困難 |
+| Verification | 静的確認 | targeted test | integration が必要 | 実機・timing・production-like が必要 |
+
+base score は `Impact + Reversibility + Verification` です。
+
+| score | risk | reasoning effort |
 | --- | --- | --- |
-| `low` | `low` | typo、docs、単純な検索・分類、機械的修正 |
-| `normal` | `medium` | 通常の限定バグ修正、UI/API修正、既存パターンに沿う実装 |
-| `high` | `high` | persistence、複数状態の整合性、concurrency、security、複数境界を跨ぐ変更 |
-| `critical` | `max` | destructive operation、migration、暗号・trust boundary、データ消失につながる難しい変更 |
+| `0-2` | `low` | `low` |
+| `3-5` | `normal` | `medium` |
+| `6-7` | `high` | `high` |
+| `8-9` | `critical` | `max` |
 
-`CODEX_TASK_RISK` がない既存 task は `normal` として扱います。
+`codex-queue/bin/enqueue-worker-task.sh` は enqueue 前に `assess-task-risk.sh` を実行し、4 field の欠落・不正値・未知 flag を fail closed で拒否します。hard escalation flag がある場合は base risk より優先して最低 risk を引き上げます。
+
+enqueue 後の task から assessment input は除去され、Worker には最小 metadata だけが渡ります。
+
+```md
+CODEX_TASK_RISK: high
+CODEX_TASK_RISK_REASON: score=5(i=2,r=1,v=2);flags=persisted-state;floor=high:persisted-state
+```
+
+このため、新規 task では `CODEX_TASK_RISK` を手入力しません。既に queued/running に存在する旧 task については、runner の既存互換として `CODEX_TASK_RISK` がない場合 `normal` として扱います。
+
 選択モデルが `max` / `xhigh` を受理しない場合は、runner が `high` へ一段フォールバックします。
 一時的に reasoning を固定する場合は `CODEX_WORKER_REASONING_EFFORT=low|medium|high|xhigh|max` を指定します。ローカル Codex 設定をそのまま継承したい場合だけ `inherit` を指定します。
 
@@ -256,8 +299,5 @@ stdout / stderr の raw log、tool trace、`run_output` 全文は summary に保
 - 同じ責務、同じ state invariant、同じ主要ファイルを変更し得る task は shared worktree 上で同時実行しません。
 - 依存関係がある作業は、先行 task の summary または変更結果を確認してから次を投入します。
 - Worker がユーザーへ追加質問しなくても着手できる粒度まで、Manager がタスクを具体化します。
-- Manager は task 作成時に `CODEX_TASK_RISK` を決めます。単にコード量ではなく、失敗時の影響、可逆性、検証容易性、security/data/concurrency への影響で分類します。
+- Manager は cohesive task を作成した後に Risk Assessment を実施し、4 assessment field を task に付与します。`CODEX_TASK_RISK` は enqueue 時に自動導出します。
 - 既存作業を壊さないため、Worker は作業前後に `git status --short` を確認します。
-- Worker は意図的に変更したファイルを `worker-record-change.sh` へ記録します。
-- 実装タスクでは、可能な範囲で lint/build/test などの検証コマンドを実行し、結果を報告します。
-- 長い task log や command output はメイン会話に戻さず、必要な内容は `summary/` の `Next Read` を起点に再確認します。
