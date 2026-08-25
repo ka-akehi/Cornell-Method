@@ -25,26 +25,6 @@ status_log() {
   printf '\r\033[2K[%s] %s\n' "$worker_name" "$1"
 }
 
-changed_files_since() {
-  changed_since="$1"
-  find "$watch_root" -type f -newer "$changed_since" \
-    ! -path "$queue_dir/tasks/*" \
-    ! -path "$queue_dir/tasks-ui/*" \
-    ! -path "$queue_dir/tasks-api/*" \
-    ! -path "$watch_root/.git/*" \
-    ! -path "$watch_root/.next/*" \
-    ! -path "$watch_root/codex-queue/.state/*" \
-    ! -path "$watch_root/node_modules/*" \
-    ! -path "$watch_root/coverage/*" \
-    ! -path "$watch_root/playwright-report/*" \
-    ! -path "$watch_root/test-results/*" \
-    ! -path "$watch_root/out/*" \
-    ! -path "$watch_root/build/*" \
-    ! -path "$watch_root/src-tauri/target/*" \
-    ! -path "$watch_root/src-tauri/gen/*" \
-    2>/dev/null | sed "s#^$watch_root/##" | sort || true
-}
-
 report_recorded_changed_files() {
   changed_files_file="$1"
   if [ -z "$changed_files_file" ] || [ ! -s "$changed_files_file" ]; then
@@ -288,12 +268,12 @@ while true; do
     export WORKER_PID="$$"
     export WORKER_NAME="$worker_name"
 
-    provenance_args=""
+    provenance_enabled=0
     if [ -x "$change_recorder_script" ]; then
       export WORKER_CHANGED_FILES_FILE="$changed_files_manifest"
       export WORKER_PROJECT_ROOT="$watch_root"
       export WORKER_CHANGE_RECORDER="$change_recorder_script"
-      provenance_args="--changed-files-file $changed_files_manifest"
+      provenance_enabled=1
     fi
 
     set_progress "$progress_file" 5 "starting" "Task claimed"
@@ -302,12 +282,12 @@ while true; do
     if run_codex_task "$running" "$runtime_prompt" "$worker_report" "$reasoning_effort" > "$run_output" 2>&1; then
       set_progress "$progress_file" 90 "finalizing" "Codex execution finished"
       cat "$run_output"
-      if [ -n "$provenance_args" ]; then
+      if [ "$provenance_enabled" -eq 1 ]; then
         report_recorded_changed_files "$changed_files_manifest"
       fi
       mv "$running" "$root/done/$base"
       set_progress "$progress_file" 95 "summary" "Writing task summary"
-      if [ -n "$provenance_args" ]; then
+      if [ "$provenance_enabled" -eq 1 ]; then
         summary_file="$("$script_dir/write-task-summary.sh" --status done --task "$root/done/$base" --changed-since "$changed_since" --changed-files-file "$changed_files_manifest" --watch-root "$watch_root" --worker "$worker_name" --kind worker-task --worker-report "$worker_report" || true)"
       else
         summary_file="$("$script_dir/write-task-summary.sh" --status done --task "$root/done/$base" --changed-since "$changed_since" --watch-root "$watch_root" --worker "$worker_name" --kind worker-task --worker-report "$worker_report" || true)"
@@ -323,12 +303,12 @@ while true; do
     else
       set_progress "$progress_file" 90 "failed" "Codex execution failed"
       cat "$run_output"
-      if [ -n "$provenance_args" ]; then
+      if [ "$provenance_enabled" -eq 1 ]; then
         report_recorded_changed_files "$changed_files_manifest"
       fi
       mv "$running" "$root/failed/$base"
       set_progress "$progress_file" 95 "summary" "Writing failure summary"
-      if [ -n "$provenance_args" ]; then
+      if [ "$provenance_enabled" -eq 1 ]; then
         summary_file="$("$script_dir/write-task-summary.sh" --status failed --task "$root/failed/$base" --changed-since "$changed_since" --changed-files-file "$changed_files_manifest" --watch-root "$watch_root" --worker "$worker_name" --kind worker-task --failure-output "$run_output" || true)"
       else
         summary_file="$("$script_dir/write-task-summary.sh" --status failed --task "$root/failed/$base" --changed-since "$changed_since" --watch-root "$watch_root" --worker "$worker_name" --kind worker-task --failure-output "$run_output" || true)"
