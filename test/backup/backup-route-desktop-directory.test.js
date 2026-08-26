@@ -60,7 +60,7 @@ function loadRoute(application) {
               backup_storage_failure:
                 "バックアップを保存できません。空き容量とアクセス権を確認してください。",
               backup_configuration_invalid:
-                "バックアップ設定が正しくありません。管理された設定を確認してください。",
+                "バックアップの設定に問題があります。設定を確認してから、もう一度お試しください。",
               backup_unknown_failure:
                 "バックアップに失敗しました。しばらく待ってから再試行してください。",
             }[code],

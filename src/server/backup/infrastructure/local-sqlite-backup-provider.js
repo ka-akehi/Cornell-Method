@@ -82,11 +82,11 @@ function hasErrorCode(error, code) {
 
 function validateBackupDirectory(directoryPath) {
   if (typeof directoryPath !== "string" || directoryPath.trim() === "") {
-    throw configurationError("backup directory が空です");
+    throw storageError("backup directory が空です");
   }
 
   if (!path.isAbsolute(directoryPath)) {
-    throw configurationError("backup directory は絶対パスで指定してください");
+    throw storageError("backup directory は絶対パスで指定してください");
   }
 
   const absolutePath = path.normalize(directoryPath);
@@ -109,7 +109,7 @@ function validateBackupDirectory(directoryPath) {
       }
 
       if (hasErrorCode(error, "ENOTDIR")) {
-        throw configurationError(
+        throw storageError(
           `backup directory の親 path はディレクトリである必要があります: ${directoryPath}`,
         );
       }
@@ -118,13 +118,13 @@ function validateBackupDirectory(directoryPath) {
     }
 
     if (stats.isSymbolicLink()) {
-      throw configurationError(
+      throw storageError(
         `backup directory に symlink は指定できません: ${directoryPath}`,
       );
     }
 
     if (!stats.isDirectory()) {
-      throw configurationError(
+      throw storageError(
         `backup directory はディレクトリである必要があります: ${directoryPath}`,
       );
     }
@@ -193,7 +193,7 @@ function assertSourceOutsideBackupDirectory(dbPath, dir) {
   const lexicalBackupDir = path.resolve(dir);
 
   if (isPathInsideOrEqual(lexicalDbPath, lexicalBackupDir)) {
-    throw configurationError(
+    throw storageError(
       `SQLite DB source must be outside the backup directory: ${dbPath}`,
     );
   }
@@ -206,7 +206,7 @@ function assertSourceOutsideBackupDirectory(dbPath, dir) {
     canonicalBackupDir &&
     isPathInsideOrEqual(canonicalDbPath, canonicalBackupDir)
   ) {
-    throw configurationError(
+    throw storageError(
       `SQLite DB source resolves inside the backup directory: ${dbPath}`,
     );
   }
@@ -272,11 +272,11 @@ function allBackupEntries(dir) {
   }
 
   if (dirStats.isSymbolicLink()) {
-    throw configurationError(`backup directory に symlink は指定できません: ${dir}`);
+    throw storageError(`backup directory に symlink は指定できません: ${dir}`);
   }
 
   if (!dirStats.isDirectory()) {
-    throw configurationError(
+    throw storageError(
       `backup directory はディレクトリである必要があります: ${validatedDir}`,
     );
   }

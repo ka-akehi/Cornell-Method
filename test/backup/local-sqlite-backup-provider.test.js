@@ -170,11 +170,13 @@ test("fails closed for unsafe explicit desktop backup directories", () => {
     ]) {
       assert.throws(
         () => listBackups({ backupsDirectory }),
-        (error) => error instanceof BackupError,
+        (error) =>
+          error instanceof BackupError && error.code === "storage_failure",
       );
       assert.throws(
         () => pruneBackups({ backupsDirectory }),
-        (error) => error instanceof BackupError,
+        (error) =>
+          error instanceof BackupError && error.code === "storage_failure",
       );
       assert.throws(
         () =>
@@ -183,9 +185,56 @@ test("fails closed for unsafe explicit desktop backup directories", () => {
             databaseUrl: "file:./source.db",
             backupsDirectory,
           }),
-        (error) => error instanceof BackupError,
+        (error) =>
+          error instanceof BackupError && error.code === "storage_failure",
       );
     }
+  } finally {
+    removeTempRoot(root);
+  }
+});
+
+test("classifies invalid backup storage separately from invalid database configuration", () => {
+  const root = createTempRoot();
+  const sourceFile = path.join(root, "source.db");
+  const regularFile = path.join(root, "backup-file");
+
+  try {
+    writeFile(sourceFile, "sqlite source");
+    writeFile(regularFile, "not a directory");
+
+    assert.throws(
+      () =>
+        createBackup({
+          projectRoot: root,
+          databaseUrl: "file:./source.db",
+          backupsDirectory: regularFile,
+        }),
+      (error) =>
+        error instanceof BackupError && error.code === "storage_failure",
+    );
+
+    assert.throws(
+      () =>
+        createBackup({
+          projectRoot: root,
+          databaseUrl: "postgres://invalid",
+          backupsDirectory: path.join(root, "backup"),
+        }),
+      (error) =>
+        error instanceof BackupError && error.code === "configuration_invalid",
+    );
+
+    assert.throws(
+      () =>
+        createBackup({
+          projectRoot: root,
+          databaseUrl: "file:./missing.db",
+          backupsDirectory: path.join(root, "backup"),
+        }),
+      (error) =>
+        error instanceof BackupError && error.code === "database_unavailable",
+    );
   } finally {
     removeTempRoot(root);
   }
@@ -242,6 +291,7 @@ test("rejects a source DB whose lexical path is inside backup", () => {
         }),
       (error) =>
         error instanceof BackupError &&
+        error.code === "storage_failure" &&
         error.message.includes("outside the backup directory"),
     );
     assert.equal(fs.existsSync(sourceFile), true);
@@ -270,6 +320,7 @@ test("rejects a source DB whose real path resolves inside backup", () => {
         }),
       (error) =>
         error instanceof BackupError &&
+        error.code === "storage_failure" &&
         error.message.includes("resolves inside the backup directory"),
     );
     assert.equal(fs.existsSync(realSource), true);
