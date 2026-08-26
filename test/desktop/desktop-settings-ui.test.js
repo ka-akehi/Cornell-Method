@@ -60,15 +60,16 @@ test("desktop gear, mobile trigger, and macOS menu share the existing Settings b
   assert.match(css, /\.mobileTrigger:focus-visible\s*\{/);
 });
 
-test("Settings UI exposes three keyboard-navigable categories", () => {
+test("Settings UI exposes two keyboard-navigable categories", () => {
   const modal = readSource(
     "src/app/_components/settings/settings-modal.tsx",
   );
   const compactModal = compact(modal);
 
-  assert.match(modal, /label: "一般"/);
+  assert.doesNotMatch(modal, /label: "一般"/);
   assert.match(modal, /label: "更新"/);
   assert.match(modal, /label: "データとバックアップ"/);
+  assert.doesNotMatch(modal, /利用形態|ローカル利用|読み取り専用/);
   assert.doesNotMatch(modal, /<p className=\{styles\.eyebrow\}>設定<\/p>/);
   assert.doesNotMatch(modal, /<p className=\{styles\.panelKicker\}>一般<\/p>/);
   assert.doesNotMatch(modal, /<p className=\{styles\.panelKicker\}>更新<\/p>/);
@@ -81,7 +82,7 @@ test("Settings UI exposes three keyboard-navigable categories", () => {
     (modal.match(/<h2 id="settings-modal-title">設定<\/h2>/g) ?? []).length,
     1,
   );
-  assert.equal((modal.match(/<h3>一般<\/h3>/g) ?? []).length, 1);
+  assert.equal((modal.match(/<h3>一般<\/h3>/g) ?? []).length, 0);
   assert.equal((modal.match(/<h3>更新<\/h3>/g) ?? []).length, 1);
   assert.equal(
     (modal.match(/<h3>データとバックアップ<\/h3>/g) ?? []).length,
@@ -96,7 +97,8 @@ test("Settings UI exposes three keyboard-navigable categories", () => {
   assert.match(modal, /role="tabpanel"/);
   assert.match(modal, /aria-labelledby=\{`settings-tab-\$\{category\.id\}`\}/);
   assert.match(compactModal, /ArrowRight[\s\S]*ArrowLeft[\s\S]*Home[\s\S]*End/);
-  assert.match(modal, /useState<SettingsCategoryId>\("general"\)/);
+  assert.match(modal, /useState<SettingsCategoryId>\("updates"\)/);
+  assert.doesNotMatch(modal, /general|readOnlyList/);
   assert.doesNotMatch(modal, /fetch\(|window\.open|WebviewWindowBuilder|invoke\(/);
 });
 

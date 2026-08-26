@@ -33,7 +33,6 @@ import { AppChromeIcon } from "../app-chrome-parts";
 import styles from "./settings-modal.module.css";
 
 const settingsCategories = [
-  { id: "general", label: "一般" },
   { id: "updates", label: "更新" },
   { id: "data-and-backup", label: "データとバックアップ" },
 ] as const;
@@ -1253,26 +1252,7 @@ function SettingsCategoryPanel({
     return <UpdatesPanel />;
   }
 
-  if (category === "data-and-backup") {
-    return <DataAndBackupPanel onClose={onClose} />;
-  }
-
-  return (
-    <div className={styles.panelStack}>
-      <h3>一般</h3>
-      <p>この Alpha では変更できる一般設定はありません。</p>
-      <dl className={styles.readOnlyList}>
-        <div>
-          <dt>利用形態</dt>
-          <dd>ローカル利用</dd>
-        </div>
-        <div>
-          <dt>状態</dt>
-          <dd>読み取り専用</dd>
-        </div>
-      </dl>
-    </div>
-  );
+  return <DataAndBackupPanel onClose={onClose} />;
 }
 
 type UpdatePanelPhase = "loading" | "idle" | "checking" | "resolved";
@@ -1515,12 +1495,11 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
   const tabRefs = useRef<
     Record<SettingsCategoryId, HTMLButtonElement | null>
   >({
-    general: null,
     updates: null,
     "data-and-backup": null,
   });
   const [activeCategory, setActiveCategory] =
-    useState<SettingsCategoryId>("general");
+    useState<SettingsCategoryId>("updates");
 
   useEffect(() => {
     const dialog = dialogRef.current;
