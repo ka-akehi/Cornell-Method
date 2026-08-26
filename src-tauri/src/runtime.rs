@@ -224,6 +224,18 @@ impl DesktopDatabaseRecoveryState {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum DesktopRestoreMode {
+    Normal,
+    RecoveryOnly,
+}
+
+impl DesktopRestoreMode {
+    pub(crate) fn is_recovery_only(self) -> bool {
+        matches!(self, Self::RecoveryOnly)
+    }
+}
+
 fn validate_database_recovery_snapshot(
     snapshot: &DesktopDatabaseRecoverySnapshot,
 ) -> AppResult<()> {
@@ -394,7 +406,7 @@ pub(crate) struct DesktopPendingRestoreStatusResponse {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct DesktopPendingRestoreResumeResult {
-    pub(crate) safety_backup_id: String,
+    pub(crate) safety_backup_id: Option<String>,
     size: u64,
 }
 
@@ -430,6 +442,7 @@ struct DesktopPendingRestoreSidecarRequest {
     manifest_token: String,
     confirmed: bool,
     operation_id: String,
+    recovery_only: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -501,6 +514,8 @@ struct DesktopDataBackupSidecarRequest {
     confirmed: Option<bool>,
     #[serde(rename = "operationId", skip_serializing_if = "Option::is_none")]
     operation_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    recovery_only: Option<bool>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -1211,6 +1226,7 @@ fn build_data_backup_sidecar_request(
     storage: &StorageLayout,
     selection_store: &DesktopFileSelectionStore,
     operation_id: Option<String>,
+    restore_mode: DesktopRestoreMode,
 ) -> Result<DesktopDataBackupSidecarRequest, &'static str> {
     let DesktopDataBackupOperationRequest {
         schema_version,
@@ -1225,6 +1241,10 @@ fn build_data_backup_sidecar_request(
     let source = parse_data_backup_location(raw_source)?;
     let destination = parse_data_backup_location(raw_destination)?;
     let operation_name = operation.wire_name();
+    let recovery_only = match &operation {
+        DesktopDataBackupOperation::Restore => Some(restore_mode.is_recovery_only()),
+        DesktopDataBackupOperation::Export | DesktopDataBackupOperation::Delete => None,
+    };
     let (source, destination) = match operation {
         DesktopDataBackupOperation::Export => {
             if source.is_some() {
@@ -1285,6 +1305,7 @@ fn build_data_backup_sidecar_request(
         destination,
         confirmed,
         operation_id,
+        recovery_only,
     })
 }
 
@@ -1377,6 +1398,20 @@ pub(crate) fn run_data_backup_operation_with_operation_id(
     request_value: serde_json::Value,
     operation_id: Option<String>,
 ) -> DesktopDataBackupOperationResponse {
+    run_data_backup_operation_with_restore_mode(
+        app,
+        request_value,
+        operation_id,
+        DesktopRestoreMode::Normal,
+    )
+}
+
+pub(crate) fn run_data_backup_operation_with_restore_mode(
+    app: &AppHandle,
+    request_value: serde_json::Value,
+    operation_id: Option<String>,
+    restore_mode: DesktopRestoreMode,
+) -> DesktopDataBackupOperationResponse {
     let Some(storage) = app.try_state::<StorageLayout>() else {
         return desktop_data_backup_command_error(None, "request", "storage-unavailable");
     };
@@ -1393,6 +1428,7 @@ pub(crate) fn run_data_backup_operation_with_operation_id(
         storage.inner(),
         selection_store.inner(),
         operation_id,
+        restore_mode,
     ) {
         Ok(request) => request,
         Err(error_code) => {
@@ -1598,6 +1634,7 @@ pub(crate) fn read_pending_restore_status(app: &AppHandle) -> DesktopPendingRest
 fn build_pending_restore_sidecar_request(
     request_value: &serde_json::Value,
     operation_id: String,
+    restore_mode: DesktopRestoreMode,
 ) -> Result<DesktopPendingRestoreSidecarRequest, &'static str> {
     let request =
         serde_json::from_value::<DesktopPendingRestoreResumeRequest>(request_value.clone())
@@ -1620,6 +1657,7 @@ fn build_pending_restore_sidecar_request(
         manifest_token: request.manifest_token,
         confirmed: true,
         operation_id,
+        recovery_only: restore_mode.is_recovery_only(),
     })
 }
 
@@ -1672,7 +1710,12 @@ fn parse_pending_restore_resume_message(
         return Err("pending restore sidecar returned an inconsistent error result".to_string());
     }
     if let Some(result) = message.result.as_ref() {
-        if !safe_identifier(&result.safety_backup_id, 128) || result.size == 0 {
+        if result
+            .safety_backup_id
+            .as_ref()
+            .is_some_and(|backup_id| !safe_identifier(backup_id, 128))
+            || result.size == 0
+        {
             return Err("pending restore sidecar returned invalid result metadata".to_string());
         }
     }
@@ -1684,24 +1727,41 @@ pub(crate) fn run_pending_restore_operation_with_operation_id(
     request_value: serde_json::Value,
     operation_id: String,
 ) -> DesktopPendingRestoreResumeResponse {
+    run_pending_restore_operation_with_restore_mode(
+        app,
+        request_value,
+        operation_id,
+        DesktopRestoreMode::Normal,
+    )
+}
+
+pub(crate) fn run_pending_restore_operation_with_restore_mode(
+    app: &AppHandle,
+    request_value: serde_json::Value,
+    operation_id: String,
+    restore_mode: DesktopRestoreMode,
+) -> DesktopPendingRestoreResumeResponse {
     let pending_id = request_value
         .get("pendingId")
         .and_then(serde_json::Value::as_str)
         .map(str::to_string);
     let operation_id_for_error = Some(operation_id.as_str());
     let pending_id_for_error = pending_id.as_deref();
-    let sidecar_request =
-        match build_pending_restore_sidecar_request(&request_value, operation_id.clone()) {
-            Ok(request) => request,
-            Err(error_code) => {
-                return pending_restore_resume_command_error(
-                    operation_id_for_error,
-                    pending_id_for_error,
-                    "validation",
-                    error_code,
-                );
-            }
-        };
+    let sidecar_request = match build_pending_restore_sidecar_request(
+        &request_value,
+        operation_id.clone(),
+        restore_mode,
+    ) {
+        Ok(request) => request,
+        Err(error_code) => {
+            return pending_restore_resume_command_error(
+                operation_id_for_error,
+                pending_id_for_error,
+                "validation",
+                error_code,
+            );
+        }
+    };
     let Some(storage) = app.try_state::<StorageLayout>() else {
         return pending_restore_resume_command_error(
             operation_id_for_error,

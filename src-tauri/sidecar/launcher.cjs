@@ -450,6 +450,7 @@ function validateDesktopDataBackupOperationRequest(value, applicationSupportRoot
     "destination",
     "confirmed",
     "operationId",
+    "recoveryOnly",
   ])
     || !["kind", "schemaVersion", "operation", "source", "destination"].every(
       (key) => Object.hasOwn(value, key),
@@ -460,13 +461,14 @@ function validateDesktopDataBackupOperationRequest(value, applicationSupportRoot
     || !(value.source === null || isRecord(value.source))
     || !(value.destination === null || isRecord(value.destination))
     || (value.confirmed !== undefined && typeof value.confirmed !== "boolean")
-    || (value.operationId !== undefined && !isSafeIdentifier(value.operationId, 128))) {
+    || (value.operationId !== undefined && !isSafeIdentifier(value.operationId, 128))
+    || (value.recoveryOnly !== undefined && typeof value.recoveryOnly !== "boolean")) {
     return { ok: false, errorCode: "invalid-request", operation: null };
   }
 
   const operation = value.operation;
   if (operation === "export") {
-    if (value.source !== null || value.destination === null) {
+    if (value.source !== null || value.destination === null || value.recoveryOnly !== undefined) {
       return { ok: false, errorCode: "invalid-request", operation };
     }
     const errorCode = validateExternalLocation(value.destination, applicationSupportRoot, false);
@@ -503,7 +505,7 @@ function validateDesktopDataBackupOperationRequest(value, applicationSupportRoot
     return { ok: false, errorCode: "invalid-request", operation };
   }
 
-  if (value.source !== null || value.destination !== null) {
+  if (value.source !== null || value.destination !== null || value.recoveryOnly !== undefined) {
     return { ok: false, errorCode: "invalid-request", operation };
   }
   return value.confirmed === true
@@ -685,19 +687,23 @@ function isPendingRestoreToken(value) {
 }
 
 function validatePendingRestoreResumeRequest(value) {
-  if (!hasExactKeys(value, [
+  if (!hasOnlyKeys(value, [
     "kind",
     "schemaVersion",
     "pendingId",
     "manifestToken",
     "confirmed",
     "operationId",
+    "recoveryOnly",
   ])
+    || !["kind", "schemaVersion", "pendingId", "manifestToken", "confirmed", "operationId"]
+      .every((key) => Object.hasOwn(value, key))
     || value.kind !== DESKTOP_PENDING_RESTORE_RESUME_KIND
     || value.schemaVersion !== DESKTOP_PENDING_RESTORE_PROTOCOL_VERSION
     || !isPendingRestoreToken(value.pendingId)
     || !isPendingRestoreToken(value.manifestToken)
-    || !isSafeIdentifier(value.operationId, 128)) {
+    || !isSafeIdentifier(value.operationId, 128)
+    || (value.recoveryOnly !== undefined && typeof value.recoveryOnly !== "boolean")) {
     return { ok: false, errorCode: "invalid-request" };
   }
   if (value.confirmed !== true) return { ok: false, errorCode: "confirmation-required" };
@@ -841,6 +847,7 @@ async function pendingRestoreResume(rawRequest) {
       prismaSchemaPath: options.prismaSchemaPath,
       environment: process.env,
       operationId: request.operationId,
+      recoveryOnly: request.recoveryOnly === true,
     });
     return pendingRestoreResponse({
       ok: true,
@@ -934,6 +941,7 @@ async function dataBackupOperation(rawRequest) {
         prismaSchemaPath: options.prismaSchemaPath,
         environment: process.env,
         operationId: request.operationId,
+        recoveryOnly: request.recoveryOnly === true,
       });
       const response = operationSuccess(validation.operation, null);
       process.stdout.write(`${JSON.stringify(response)}\n`);

@@ -183,7 +183,7 @@ export type DesktopRestoreSource =
 
 export type DesktopRestoreResult = {
   operationId: string;
-  safetyBackupId: string;
+  safetyBackupId: string | null;
   size: number;
 };
 
@@ -231,6 +231,8 @@ export function restoreDesktopDatabase(options: {
   prismaSchemaPath?: string;
   environment?: NodeJS.ProcessEnv;
   operationId?: string;
+  /** Internal Tauri recovery-only capability; ordinary UI requests must omit it. */
+  recoveryOnly?: boolean;
 }): Promise<DesktopRestoreResult>;
 
 export function inspectPendingRestore(options?: {
@@ -253,6 +255,8 @@ export function resumePendingRestore(options: {
   prismaSchemaPath?: string;
   environment?: NodeJS.ProcessEnv;
   operationId?: string;
+  /** Internal Tauri recovery-only capability; ordinary UI requests must omit it. */
+  recoveryOnly?: boolean;
 }): Promise<DesktopRestoreResult & { pendingId: string }>;
 
 export function bootstrapDesktopStorage(options?: {

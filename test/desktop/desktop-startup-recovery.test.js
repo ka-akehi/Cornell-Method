@@ -309,7 +309,7 @@ test("Tauri recovery orchestration does not start the normal sidecar or /notes r
   assert.match(lifecycle, /fn new\(sidecar: Option<SidecarHandle>/);
 });
 
-test("recovery-only restore transitions gate restart and preserve typed rollback", () => {
+test("recovery-only restore transitions gate restart without fictional rollback", () => {
   const lifecycle = fs.readFileSync(
     path.join(projectRoot, "src-tauri", "src", "lifecycle.rs"),
     "utf8",
@@ -328,19 +328,39 @@ test("recovery-only restore transitions gate restart and preserve typed rollback
   assert.ok(restoreStart >= 0 && pendingStart > restoreStart);
   const restoreBlock = lifecycle.slice(restoreStart, pendingStart);
   const pendingBlock = lifecycle.slice(pendingStart);
+  const restoreRecoveryStart = restoreBlock.indexOf("if recovery_only {");
+  const restoreNormalStart = restoreBlock.indexOf("\n    let restarted", restoreRecoveryStart);
+  const pendingRecoveryStart = pendingBlock.indexOf("if recovery_only {");
+  const pendingNormalStart = pendingBlock.indexOf("\n    let restarted", pendingRecoveryStart);
+  assert.ok(restoreRecoveryStart >= 0 && restoreNormalStart > restoreRecoveryStart);
+  assert.ok(pendingRecoveryStart >= 0 && pendingNormalStart > pendingRecoveryStart);
+  const restoreRecoveryBlock = restoreBlock.slice(restoreRecoveryStart, restoreNormalStart);
+  const pendingRecoveryBlock = pendingBlock.slice(pendingRecoveryStart, pendingNormalStart);
 
   assert.match(restoreBlock, /if !recovery_only && state\.quiesce_sidecar_for_data_operation\(\)/);
+  assert.match(restoreBlock, /run_data_backup_operation_with_restore_mode/);
+  assert.match(restoreBlock, /DesktopRestoreMode::RecoveryOnly/);
   assert.match(
     restoreBlock,
     /if recovery_only \{[\s\S]*?if !response\.is_success\(\) \{[\s\S]*?return response;[\s\S]*?restart_sidecar_for_data_operation[\s\S]*?mark_database_recovery_ready/s,
   );
   assert.match(pendingBlock, /if !recovery_only && state\.quiesce_sidecar_for_data_operation\(\)/);
+  assert.match(pendingBlock, /run_pending_restore_operation_with_restore_mode/);
+  assert.match(pendingBlock, /DesktopRestoreMode::RecoveryOnly/);
   assert.match(
     pendingBlock,
     /if recovery_only \{[\s\S]*?if !\(response\.ok && response\.status == "success"\) \{[\s\S]*?return response;[\s\S]*?restart_sidecar_for_data_operation[\s\S]*?mark_database_recovery_ready/s,
   );
+  assert.doesNotMatch(restoreRecoveryBlock, /rollback_backup_id|rollback_request|run_data_backup_operation_with_operation_id/);
+  assert.doesNotMatch(pendingRecoveryBlock, /rollback_backup_id|rollback_request|run_data_backup_operation_with_operation_id/);
   assert.match(restoreBlock, /"sidecar-unavailable"/);
   assert.match(pendingBlock, /"rollback-failed"/);
   assert.match(runtime, /recovery_only: Arc<AtomicBool>/);
+  assert.match(runtime, /pub\(crate\) enum DesktopRestoreMode/);
+  assert.match(runtime, /safety_backup_id: Option<String>/);
+  const uiRequestStart = runtime.indexOf("struct DesktopDataBackupOperationRequest");
+  const sidecarRequestStart = runtime.indexOf("struct DesktopDataBackupSidecarRequest");
+  assert.ok(uiRequestStart >= 0 && sidecarRequestStart > uiRequestStart);
+  assert.doesNotMatch(runtime.slice(uiRequestStart, sidecarRequestStart), /recovery_only/);
   assert.match(runtime, /pub\(crate\) fn mark_ready\(&self\)/);
 });

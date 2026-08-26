@@ -465,7 +465,7 @@ export type DesktopPendingRestoreResumeResult = {
   operationId: string | null;
   pendingId: string | null;
   errorCode: DesktopPendingRestoreResumeErrorCode | null;
-  result: { safetyBackupId: string; size: number } | null;
+  result: { safetyBackupId: string | null; size: number } | null;
 };
 
 export type DesktopPendingRestoreResumeResponse =
@@ -1274,7 +1274,7 @@ function normalizePendingRestoreResumeResponse(
 
   if (value.result !== null && (
     !hasExactKeys(value.result, ["safetyBackupId", "size"]) ||
-    !isDataBackupId(value.result.safetyBackupId) ||
+    !(value.result.safetyBackupId === null || isDataBackupId(value.result.safetyBackupId)) ||
     !Number.isSafeInteger(value.result.size) ||
     (value.result.size as number) < 1
   )) {

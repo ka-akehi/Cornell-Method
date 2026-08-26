@@ -16,6 +16,9 @@ const DESKTOP_DATABASE_NOT_A_FILE_REASON = "database-not-a-file";
 const DESKTOP_UPDATE_STATE_FILE_NAME = "update-state.json";
 const DESKTOP_STAGED_MIGRATION_DIRECTORY_NAME = "database-migrations";
 const DESKTOP_RESTORE_STAGING_DIRECTORY_NAME = "restore-staging";
+const DESKTOP_RESTORE_PRESERVED_LIVE_FILE_PREFIX = ".notebook.sqlite.recovery-";
+const DESKTOP_RESTORE_PRESERVED_LIVE_FILE_SUFFIX = ".artifact";
+const DESKTOP_SQLITE_SIDECAR_SUFFIXES = Object.freeze(["-wal", "-shm", "-journal"]);
 const DESKTOP_RESTORE_OPERATION_ID_MAX_LENGTH = 128;
 const DESKTOP_DELETE_OPERATION_ID_MAX_LENGTH = 128;
 const DESKTOP_DELETE_STAGING_DIRECTORY_PREFIX = ".desktop-delete-";
@@ -1845,7 +1848,7 @@ function requireCanonicalStagedStorageDirectories(storagePaths) {
 }
 
 function rejectSqliteSidecars(databasePath, code) {
-  for (const suffix of ["-wal", "-shm", "-journal"]) {
+  for (const suffix of DESKTOP_SQLITE_SIDECAR_SUFFIXES) {
     const sidecarPath = `${databasePath}${suffix}`;
     try {
       fs.lstatSync(sidecarPath);
@@ -3302,6 +3305,88 @@ function collectDeleteDirectoryFiles(directoryPath, group, targets) {
   }
 }
 
+function parseRestorePreservedLiveArtifactName(name) {
+  if (typeof name !== "string" || !name.startsWith(DESKTOP_RESTORE_PRESERVED_LIVE_FILE_PREFIX)) {
+    return null;
+  }
+  if (!name.endsWith(DESKTOP_RESTORE_PRESERVED_LIVE_FILE_SUFFIX) || !isSafeDeleteEntryName(name)) {
+    throw deleteStorageError(
+      "live recovery artifact の name が不正です",
+      "UNSAFE_NAME",
+    );
+  }
+
+  const body = name.slice(
+    DESKTOP_RESTORE_PRESERVED_LIVE_FILE_PREFIX.length,
+    -DESKTOP_RESTORE_PRESERVED_LIVE_FILE_SUFFIX.length,
+  );
+  const candidates = [{ operationId: body, suffix: "" }];
+  for (const suffix of DESKTOP_SQLITE_SIDECAR_SUFFIXES) {
+    if (body.endsWith(suffix)) {
+      candidates.unshift({
+        operationId: body.slice(0, -suffix.length),
+        suffix,
+      });
+    }
+  }
+
+  let validationError;
+  for (const candidate of candidates) {
+    try {
+      validateRestoreOperationId(candidate.operationId);
+      return Object.freeze(candidate);
+    } catch (error) {
+      validationError = error;
+    }
+  }
+  throw deleteStorageError(
+    "live recovery artifact の operation identity が不正です",
+    "UNSAFE_NAME",
+    validationError,
+  );
+}
+
+function collectDeleteRecoveryArtifacts(liveDirectory, targets) {
+  let entries;
+  try {
+    entries = fs.readdirSync(liveDirectory, { withFileTypes: true });
+  } catch (error) {
+    throw deleteStorageError(
+      "live directory の recovery artifact を列挙できません",
+      "PRECHECK_FAILED",
+      error,
+    );
+  }
+
+  const canonicalLiveDirectory = path.resolve(liveDirectory);
+  for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
+    const { name } = entry;
+    const artifact = parseRestorePreservedLiveArtifactName(name);
+    if (artifact === null) continue;
+
+    const artifactPath = path.join(canonicalLiveDirectory, name);
+    if (
+      !restorePathWithin(canonicalLiveDirectory, artifactPath)
+      || path.dirname(artifactPath) !== canonicalLiveDirectory
+    ) {
+      throw deleteStorageError(
+        "live recovery artifact が canonical live directory 外へ解決されます",
+        "INVALID_PATH",
+      );
+    }
+    const stats = requireDeleteRegularFile(
+      artifactPath,
+      `live recovery artifact ${name}`,
+    );
+    targets.push({
+      group: "live",
+      name,
+      path: artifactPath,
+      stats: deleteFileIdentity(stats),
+    });
+  }
+}
+
 function collectDeletePlan(storagePaths, operationId) {
   const canonical = requireDeleteCanonicalStorageDirectories(storagePaths);
   const { paths, root } = canonical;
@@ -3330,7 +3415,7 @@ function collectDeletePlan(storagePaths, operationId) {
       stats: deleteFileIdentity(databaseStats),
     });
   }
-  for (const suffix of ["-wal", "-shm", "-journal"]) {
+  for (const suffix of DESKTOP_SQLITE_SIDECAR_SUFFIXES) {
     const sidecarPath = `${paths.databasePath}${suffix}`;
     const sidecarStats = requireDeleteRegularFile(sidecarPath, `SQLite sidecar ${suffix}`, {
       allowMissing: true,
@@ -3344,6 +3429,7 @@ function collectDeletePlan(storagePaths, operationId) {
       });
     }
   }
+  collectDeleteRecoveryArtifacts(paths.liveDirectory, targets);
 
   collectDeleteDirectoryFiles(paths.backupsDirectory, "backups", targets);
   collectDeleteDirectoryFiles(paths.settingsDirectory, "settings", targets);
@@ -4941,6 +5027,10 @@ function restoreFingerprintMatches(left, right) {
     && left.digest === right.digest;
 }
 
+function restoreFingerprintContentMatches(left, right) {
+  return left.size === right.size && left.digest === right.digest;
+}
+
 function pendingRestoreError(message, code, cause) {
   return restoreStorageError(message, `PENDING_${code}`, cause);
 }
@@ -6409,8 +6499,182 @@ function restoreTranslateExistingError(error, fallbackCode) {
   return restoreStorageError("restore operation に失敗しました", fallbackCode, error);
 }
 
+function validateRestoreRecoveryOnlyOption(recoveryOnly) {
+  if (typeof recoveryOnly !== "boolean") {
+    throw restoreStorageError("restore recovery mode が不正です", "STAGING_FAILED");
+  }
+  return recoveryOnly;
+}
+
+function inspectRestoreLiveEntry(databasePath) {
+  try {
+    const stats = fs.lstatSync(databasePath);
+    if (stats.isSymbolicLink() || !stats.isFile()) {
+      return Object.freeze({ kind: "non-regular", stats });
+    }
+    return Object.freeze({ kind: "regular", stats });
+  } catch (error) {
+    if (hasErrorCode(error, "ENOENT")) {
+      return Object.freeze({ kind: "missing", stats: null });
+    }
+    throw restoreStorageError("live SQLite database を検査できません", "LIVE_DATABASE_INVALID", error);
+  }
+}
+
+function inspectRestoreLiveSidecars(databasePath) {
+  const sidecars = [];
+  for (const suffix of DESKTOP_SQLITE_SIDECAR_SUFFIXES) {
+    const sidecarPath = `${databasePath}${suffix}`;
+    let stats;
+    try {
+      stats = fs.lstatSync(sidecarPath);
+    } catch (error) {
+      if (hasErrorCode(error, "ENOENT")) continue;
+      throw restoreStorageError("live SQLite sidecar を検査できません", "LIVE_DATABASE_INVALID", error);
+    }
+    if (stats.isSymbolicLink() || !stats.isFile()) {
+      throw restoreStorageError(
+        `live SQLite sidecar が regular file ではありません: ${suffix}`,
+        "LIVE_DATABASE_INVALID",
+      );
+    }
+    sidecars.push({ suffix, path: sidecarPath, stats });
+  }
+  return sidecars;
+}
+
+function restorePreservedLiveArtifactId(operationId, suffix = "") {
+  return `${DESKTOP_RESTORE_PRESERVED_LIVE_FILE_PREFIX}${operationId}${suffix}${DESKTOP_RESTORE_PRESERVED_LIVE_FILE_SUFFIX}`;
+}
+
+function createRestorePreservedLiveFile({
+  sourcePath,
+  destinationDirectory,
+  artifactId,
+  expectedFingerprint = null,
+  label,
+}) {
+  let temporaryPath;
+  let published = false;
+  let sourceBefore;
+  try {
+    const sourceStats = requireRestoreRegularFile(sourcePath, label, "LIVE_DATABASE_INVALID");
+    const destinationStats = requireExistingDirectory(
+      destinationDirectory,
+      "live directory for recovery artifact",
+      "RESTORE_BACKUP_FAILED",
+    );
+    assertSameFilesystem(sourceStats, destinationStats, "live SQLite and recovery artifact");
+    sourceBefore = restoreFileFingerprint(sourcePath, label, "LIVE_DATABASE_INVALID");
+    if (expectedFingerprint !== null && !restoreFingerprintMatches(expectedFingerprint, sourceBefore)) {
+      throw restoreStorageError(`${label} が recovery artifact 前に変更されました`, "SOURCE_CHANGED");
+    }
+    const artifactPath = path.join(destinationDirectory, artifactId);
+    if (!restorePathWithin(destinationDirectory, artifactPath)) {
+      throw restoreStorageError("live recovery artifact path が不正です", "BACKUP_FAILED");
+    }
+    try {
+      fs.lstatSync(artifactPath);
+      throw restoreStorageError("live recovery artifact が既に存在します", "BACKUP_FAILED");
+    } catch (error) {
+      if (isRestoreStorageError(error)) throw error;
+      if (!hasErrorCode(error, "ENOENT")) throw error;
+    }
+    temporaryPath = allocateRestoreTemporaryPath(destinationDirectory, artifactId);
+    fs.copyFileSync(sourcePath, temporaryPath);
+    const descriptor = fs.openSync(temporaryPath, "r+");
+    try {
+      fs.fchmodSync(descriptor, 0o600);
+      fs.fsyncSync(descriptor);
+    } finally {
+      fs.closeSync(descriptor);
+    }
+    const copiedFingerprint = restoreFileFingerprint(
+      temporaryPath,
+      "live recovery artifact",
+      "RESTORE_BACKUP_FAILED",
+    );
+    if (!restoreFingerprintContentMatches(sourceBefore, copiedFingerprint)) {
+      throw restoreStorageError("live recovery artifact の bytes が一致しません", "BACKUP_FAILED");
+    }
+    const sourceAfter = restoreFileFingerprint(sourcePath, `${label} after recovery artifact`, "SOURCE_CHANGED");
+    if (!restoreFingerprintMatches(sourceBefore, sourceAfter)) {
+      throw restoreStorageError(`${label} が recovery artifact 中に変更されました`, "SOURCE_CHANGED");
+    }
+    fs.renameSync(temporaryPath, artifactPath);
+    temporaryPath = null;
+    published = true;
+    syncDirectory(destinationDirectory);
+    return Object.freeze({ artifactId, artifactPath, fingerprint: copiedFingerprint });
+  } catch (error) {
+    if (isRestoreStorageError(error)) throw error;
+    throw restoreStorageError("live recovery artifact を作成できません", "BACKUP_FAILED", error);
+  } finally {
+    if (!published && temporaryPath !== undefined) {
+      try {
+        fs.unlinkSync(temporaryPath);
+      } catch {
+        // Preserve the original artifact failure.
+      }
+    }
+  }
+}
+
+function preserveRestoreLiveArtifacts({
+  storagePaths,
+  liveEntry,
+  liveFingerprint,
+  operationId,
+}) {
+  const sidecars = inspectRestoreLiveSidecars(storagePaths.databasePath);
+  const artifacts = [];
+  if (liveEntry.kind === "regular") {
+    artifacts.push(createRestorePreservedLiveFile({
+      sourcePath: storagePaths.databasePath,
+      destinationDirectory: storagePaths.liveDirectory,
+      artifactId: restorePreservedLiveArtifactId(operationId),
+      expectedFingerprint: liveFingerprint,
+      label: "live SQLite database",
+    }));
+  }
+  for (const sidecar of sidecars) {
+    artifacts.push(createRestorePreservedLiveFile({
+      sourcePath: sidecar.path,
+      destinationDirectory: storagePaths.liveDirectory,
+      artifactId: restorePreservedLiveArtifactId(operationId, sidecar.suffix),
+      expectedFingerprint: null,
+      label: `live SQLite sidecar ${sidecar.suffix}`,
+    }));
+  }
+
+  for (const sidecar of sidecars) {
+    const current = restoreFileFingerprint(
+      sidecar.path,
+      `live SQLite sidecar ${sidecar.suffix}`,
+      "SOURCE_CHANGED",
+    );
+    const artifact = artifacts.find((candidate) => candidate.artifactId.endsWith(`${sidecar.suffix}${DESKTOP_RESTORE_PRESERVED_LIVE_FILE_SUFFIX}`));
+    if (artifact === undefined || !restoreFingerprintContentMatches(artifact.fingerprint, current)) {
+      throw restoreStorageError("live SQLite sidecar が recovery artifact と一致しません", "SOURCE_CHANGED");
+    }
+    try {
+      fs.unlinkSync(sidecar.path);
+    } catch (error) {
+      throw restoreStorageError("live SQLite sidecar を隔離できません", "BACKUP_FAILED", error);
+    }
+  }
+  if (sidecars.length > 0) syncDirectory(storagePaths.liveDirectory);
+  return Object.freeze({
+    main: artifacts.find((artifact) => artifact.artifactId.endsWith(DESKTOP_RESTORE_PRESERVED_LIVE_FILE_SUFFIX)
+      && !artifact.artifactId.endsWith(`-wal${DESKTOP_RESTORE_PRESERVED_LIVE_FILE_SUFFIX}`)
+      && !artifact.artifactId.endsWith(`-shm${DESKTOP_RESTORE_PRESERVED_LIVE_FILE_SUFFIX}`)
+      && !artifact.artifactId.endsWith(`-journal${DESKTOP_RESTORE_PRESERVED_LIVE_FILE_SUFFIX}`)) ?? null,
+    artifacts: Object.freeze(artifacts),
+  });
+}
+
 function checkpointRestoreLiveDatabase(databasePath, sqliteBinary) {
-  const sidecars = ["-wal", "-shm", "-journal"].filter((suffix) => {
+  const sidecars = DESKTOP_SQLITE_SIDECAR_SUFFIXES.filter((suffix) => {
     try {
       fs.lstatSync(`${databasePath}${suffix}`);
       return true;
@@ -6624,6 +6888,157 @@ function switchRestoreDatabase(
   );
 }
 
+function switchRestoreDatabaseReplacingInvalidLive(
+  storagePaths,
+  candidatePath,
+  liveBeforeFingerprint,
+  candidateBeforeSwitch,
+) {
+  let published = false;
+  try {
+    requireRestoreRegularFile(
+      storagePaths.databasePath,
+      "invalid live SQLite database before restore switch",
+      "SWITCH_FAILED",
+    );
+    const liveFingerprint = restoreFileFingerprint(
+      storagePaths.databasePath,
+      "invalid live SQLite database before restore switch",
+      "SWITCH_FAILED",
+    );
+    if (!restoreFingerprintMatches(liveBeforeFingerprint, liveFingerprint)) {
+      throw restoreStorageError("invalid live SQLite bytes が switch 前に変わりました", "SWITCH_FAILED");
+    }
+    const candidateStats = requireRestoreRegularFile(
+      candidatePath,
+      "restore staging candidate",
+      "SWITCH_FAILED",
+    );
+    const candidateFingerprint = restoreFileFingerprint(
+      candidatePath,
+      "restore candidate before restore switch",
+      "SWITCH_FAILED",
+    );
+    if (!restoreFingerprintMatches(candidateBeforeSwitch, candidateFingerprint)) {
+      throw restoreStorageError("restore candidate が switch 前に変更されました", "SOURCE_CHANGED");
+    }
+    const liveDirectoryStats = requireExistingDirectory(
+      storagePaths.liveDirectory,
+      "live directory",
+      "SWITCH_FAILED",
+    );
+    assertSameFilesystem(candidateStats, liveDirectoryStats, "restore candidate and live directory");
+    try {
+      fs.accessSync(storagePaths.liveDirectory, fs.constants.W_OK | fs.constants.X_OK);
+      fs.renameSync(candidatePath, storagePaths.databasePath);
+      published = true;
+      syncDirectory(storagePaths.liveDirectory);
+    } catch (error) {
+      throw restoreStorageError("invalid live SQLite の atomic switch に失敗しました", "SWITCH_FAILED", error);
+    }
+    return restoreFileFingerprint(
+      storagePaths.databasePath,
+      "live SQLite database after restore switch",
+      "SWITCH_FAILED",
+    );
+  } catch (error) {
+    if (isRestoreStorageError(error)) {
+      if (published) error.restoreLiveSwitchCompleted = true;
+      throw error;
+    }
+    const translated = restoreStorageError(
+      "invalid live SQLite の atomic switch に失敗しました",
+      "SWITCH_FAILED",
+      error,
+    );
+    if (published) translated.restoreLiveSwitchCompleted = true;
+    throw translated;
+  }
+}
+
+function switchRestoreDatabaseIntoMissingLive(
+  storagePaths,
+  candidatePath,
+  candidateBeforeSwitch,
+) {
+  let published = false;
+  try {
+    const liveDirectoryStats = requireExistingDirectory(
+      storagePaths.liveDirectory,
+      "live directory",
+      "SWITCH_FAILED",
+    );
+    try {
+      fs.lstatSync(storagePaths.databasePath);
+      throw restoreStorageError("missing live SQLite が switch 前に作成されました", "SWITCH_FAILED");
+    } catch (error) {
+      if (isRestoreStorageError(error)) throw error;
+      if (!hasErrorCode(error, "ENOENT")) {
+        throw restoreStorageError("missing live SQLite を再検査できません", "SWITCH_FAILED", error);
+      }
+    }
+    const candidateStats = requireRestoreRegularFile(
+      candidatePath,
+      "restore staging candidate",
+      "SWITCH_FAILED",
+    );
+    const candidateFingerprint = restoreFileFingerprint(
+      candidatePath,
+      "restore candidate before restore switch",
+      "SWITCH_FAILED",
+    );
+    if (!restoreFingerprintMatches(candidateBeforeSwitch, candidateFingerprint)) {
+      throw restoreStorageError("restore candidate が switch 前に変更されました", "SOURCE_CHANGED");
+    }
+    assertSameFilesystem(candidateStats, liveDirectoryStats, "restore candidate and live directory");
+    try {
+      fs.accessSync(storagePaths.liveDirectory, fs.constants.W_OK | fs.constants.X_OK);
+      // linkSync is the no-replace primitive used for the missing-live case:
+      // a concurrent appearance of the target fails instead of overwriting it.
+      fs.linkSync(candidatePath, storagePaths.databasePath);
+      published = true;
+    } catch (error) {
+      throw restoreStorageError("missing live SQLite の atomic install に失敗しました", "SWITCH_FAILED", error);
+    }
+    const switched = restoreFileFingerprint(
+      storagePaths.databasePath,
+      "live SQLite database after restore switch",
+      "SWITCH_FAILED",
+    );
+    if (!restoreFingerprintMatches(candidateBeforeSwitch, switched)) {
+      const error = restoreStorageError("installed live SQLite bytes が不一致です", "SWITCH_FAILED");
+      error.restoreLiveSwitchCompleted = true;
+      throw error;
+    }
+    try {
+      fs.unlinkSync(candidatePath);
+      syncDirectory(path.dirname(candidatePath));
+      syncDirectory(storagePaths.liveDirectory);
+    } catch (error) {
+      const translated = restoreStorageError(
+        "missing live SQLite の staging cleanup に失敗しました",
+        "SWITCH_FAILED",
+        error,
+      );
+      translated.restoreLiveSwitchCompleted = true;
+      throw translated;
+    }
+    return switched;
+  } catch (error) {
+    if (isRestoreStorageError(error)) {
+      if (published) error.restoreLiveSwitchCompleted = true;
+      throw error;
+    }
+    const translated = restoreStorageError(
+      "missing live SQLite の atomic install に失敗しました",
+      "SWITCH_FAILED",
+      error,
+    );
+    if (published) translated.restoreLiveSwitchCompleted = true;
+    throw translated;
+  }
+}
+
 function rollbackRestoreDatabase(storagePaths, safetyBackup, switchedFingerprint, sqliteBinary, migrationsDirectory, schemaContract) {
   const currentLive = restoreFileFingerprint(
     storagePaths.databasePath,
@@ -6825,7 +7240,13 @@ function validateAndPrepareRestoreCandidate({
   return Object.freeze({ applicationSnapshot, migrationState: migration.state });
 }
 
-function validateRestoreLiveDatabase({ storagePaths, migrationsDirectory, schemaContract, sqliteBinary }) {
+function validateRestoreLiveDatabase({
+  storagePaths,
+  migrationsDirectory,
+  schemaContract,
+  sqliteBinary,
+  recoveryOnly = false,
+}) {
   const inspection = inspectDesktopDatabase({
     storagePaths,
     migrationsDirectory,
@@ -6836,6 +7257,7 @@ function validateRestoreLiveDatabase({ storagePaths, migrationsDirectory, schema
     inspection.status !== DESKTOP_DATABASE_STATUS.READY
     || inspection.migrationState !== DESKTOP_MIGRATION_STATE.COMPLETE
   ) {
+    if (recoveryOnly) return null;
     throw restoreStorageError("current live SQLite schema が ready ではありません", "LIVE_DATABASE_INVALID");
   }
   try {
@@ -6847,12 +7269,14 @@ function validateRestoreLiveDatabase({ storagePaths, migrationsDirectory, schema
       "live",
     );
   } catch (error) {
+    if (recoveryOnly) return null;
     throw restoreTranslateExistingError(error, "LIVE_DATABASE_INVALID");
   }
-  validateRestoreApplicationData(storagePaths.databasePath, sqliteBinary, { strict: true });
   try {
+    validateRestoreApplicationData(storagePaths.databasePath, sqliteBinary, { strict: true });
     return readSqliteDataSnapshot(storagePaths.databasePath, sqliteBinary);
   } catch (error) {
+    if (recoveryOnly) return null;
     throw restoreTranslateExistingError(error, "LIVE_DATABASE_INVALID");
   }
 }
@@ -6949,7 +7373,9 @@ async function restoreDesktopDatabase({
   operationId = createRestoreOperationId(),
   allowPendingPublish = true,
   pendingClaimDirectory = null,
+  recoveryOnly = false,
 } = {}) {
+  validateRestoreRecoveryOnlyOption(recoveryOnly);
   const validatedOperationId = validateRestoreOperationId(operationId);
   const canonical = requireRestoreCanonicalStorageDirectories(
     storagePaths ?? resolveDesktopStoragePaths(),
@@ -6958,9 +7384,33 @@ async function restoreDesktopDatabase({
   let stagingDirectory;
   let stagingDirectoryOwned = false;
   let switchedFingerprint = null;
+  let restoreLiveSwitchCompleted = false;
   let safetyBackup = null;
+  let recoveryInitialLiveEntry = null;
+  let recoveryInitialLiveFingerprint = null;
+  let recoveryInitialSidecars = null;
   let resolvedSource;
   try {
+    if (recoveryOnly) {
+      recoveryInitialLiveEntry = inspectRestoreLiveEntry(paths.databasePath);
+      if (recoveryInitialLiveEntry.kind === "regular") {
+        recoveryInitialLiveFingerprint = restoreFileFingerprint(
+          paths.databasePath,
+          "live SQLite database before recovery restore",
+          "LIVE_DATABASE_INVALID",
+        );
+      }
+      if (recoveryInitialLiveEntry.kind !== "non-regular") {
+        recoveryInitialSidecars = inspectRestoreLiveSidecars(paths.databasePath).map((sidecar) => ({
+          suffix: sidecar.suffix,
+          fingerprint: restoreFileFingerprint(
+            sidecar.path,
+            `live SQLite sidecar ${sidecar.suffix} before recovery restore`,
+            "LIVE_DATABASE_INVALID",
+          ),
+        }));
+      }
+    }
     stagingDirectory = path.join(canonical.stagingRoot, `operation-${validatedOperationId}`);
     stagingDirectoryOwned = restoreOperationStagingDirectory(
       canonical.stagingRoot,
@@ -7020,29 +7470,105 @@ async function restoreDesktopDatabase({
 
     // The current sidecar is quiesced by the Tauri lifecycle adapter before this
     // function is invoked. A standalone launcher invocation has no live writer.
-    checkpointRestoreLiveDatabase(paths.databasePath, sqliteBinary);
-    validateRestoreLiveDatabase({
+    // In recovery-only mode, validate the current live file first and never run
+    // a WAL checkpoint against a database that may be corrupt or unreadable.
+    const liveEntry = inspectRestoreLiveEntry(paths.databasePath);
+    let liveBeforeFingerprint = null;
+    let liveBefore = null;
+    if (recoveryOnly) {
+      if (recoveryInitialLiveEntry === null
+        || liveEntry.kind !== recoveryInitialLiveEntry.kind) {
+        throw restoreStorageError("live SQLite の種類が recovery restore 中に変わりました", "SOURCE_CHANGED");
+      }
+      if (liveEntry.kind === "regular") {
+        liveBeforeFingerprint = restoreFileFingerprint(
+          paths.databasePath,
+          "live SQLite database before recovery switch",
+          "SOURCE_CHANGED",
+        );
+        if (!restoreFingerprintMatches(recoveryInitialLiveFingerprint, liveBeforeFingerprint)) {
+          throw restoreStorageError("live SQLite が recovery restore 中に変更されました", "SOURCE_CHANGED");
+        }
+      }
+      const currentSidecars = liveEntry.kind === "non-regular"
+        ? []
+        : inspectRestoreLiveSidecars(paths.databasePath).map((sidecar) => ({
+          suffix: sidecar.suffix,
+          fingerprint: restoreFileFingerprint(
+            sidecar.path,
+            `live SQLite sidecar ${sidecar.suffix} before recovery switch`,
+            "SOURCE_CHANGED",
+          ),
+        }));
+      if (liveEntry.kind !== "non-regular"
+        && (recoveryInitialSidecars === null
+          || currentSidecars.length !== recoveryInitialSidecars.length
+          || currentSidecars.some((sidecar, index) => {
+            const initialSidecar = recoveryInitialSidecars[index];
+            return initialSidecar.suffix !== sidecar.suffix
+              || !restoreFingerprintMatches(initialSidecar.fingerprint, sidecar.fingerprint);
+          }))) {
+        throw restoreStorageError("live SQLite sidecar が recovery restore 中に変更されました", "SOURCE_CHANGED");
+      }
+    }
+    const liveValidation = validateRestoreLiveDatabase({
       storagePaths: paths,
       migrationsDirectory,
       schemaContract,
       sqliteBinary,
+      recoveryOnly,
     });
-    const liveBeforeFingerprint = restoreFileFingerprint(
-      paths.databasePath,
-      "live SQLite database before restore",
-      "LIVE_DATABASE_INVALID",
-    );
-    const liveBefore = requireRestoreRegularFile(
-      paths.databasePath,
-      "live SQLite database before restore",
-      "LIVE_DATABASE_INVALID",
-    );
-    safetyBackup = createRestoreSafetyBackup(
-      paths,
-      liveBeforeFingerprint,
-      validatedOperationId,
-      sqliteBinary,
-    );
+    if (liveValidation !== null) {
+      if (liveEntry.kind !== "regular") {
+        throw restoreStorageError("current live SQLite が regular file ではありません", "LIVE_DATABASE_INVALID");
+      }
+      checkpointRestoreLiveDatabase(paths.databasePath, sqliteBinary);
+      const checkpointedLiveValidation = validateRestoreLiveDatabase({
+        storagePaths: paths,
+        migrationsDirectory,
+        schemaContract,
+        sqliteBinary,
+      });
+      if (checkpointedLiveValidation === null) {
+        throw restoreStorageError("checkpoint 後の live SQLite が ready ではありません", "LIVE_DATABASE_INVALID");
+      }
+      liveBeforeFingerprint = restoreFileFingerprint(
+        paths.databasePath,
+        "live SQLite database before restore",
+        "LIVE_DATABASE_INVALID",
+      );
+      liveBefore = requireRestoreRegularFile(
+        paths.databasePath,
+        "live SQLite database before restore",
+        "LIVE_DATABASE_INVALID",
+      );
+      safetyBackup = createRestoreSafetyBackup(
+        paths,
+        liveBeforeFingerprint,
+        validatedOperationId,
+        sqliteBinary,
+      );
+    } else {
+      if (!recoveryOnly) {
+        throw restoreStorageError("current live SQLite schema が ready ではありません", "LIVE_DATABASE_INVALID");
+      }
+      if (liveEntry.kind === "non-regular") {
+        throw restoreStorageError("current live SQLite が regular file ではありません", "LIVE_DATABASE_INVALID");
+      }
+      if (liveEntry.kind === "regular" && liveBeforeFingerprint === null) {
+        liveBeforeFingerprint = restoreFileFingerprint(
+          paths.databasePath,
+          "invalid live SQLite database before restore",
+          "LIVE_DATABASE_INVALID",
+        );
+      }
+      preserveRestoreLiveArtifacts({
+        storagePaths: paths,
+        liveEntry,
+        liveFingerprint: liveBeforeFingerprint,
+        operationId: validatedOperationId,
+      });
+    }
     const candidateBeforeSwitch = restoreFileFingerprint(
       candidatePath,
       "restore candidate before switch",
@@ -7056,14 +7582,30 @@ async function restoreDesktopDatabase({
     if (!restoreFingerprintMatches(candidateBeforeSwitch, candidateAfterValidation)) {
       throw restoreStorageError("restore candidate が validation 中に変更されました", "SOURCE_CHANGED");
     }
-    switchedFingerprint = switchRestoreDatabase(
-      paths,
-      candidatePath,
-      liveBefore,
-      safetyBackup,
-      liveBeforeFingerprint,
-      candidateAfterValidation,
-    );
+    if (safetyBackup !== null) {
+      switchedFingerprint = switchRestoreDatabase(
+        paths,
+        candidatePath,
+        liveBefore,
+        safetyBackup,
+        liveBeforeFingerprint,
+        candidateAfterValidation,
+      );
+    } else if (liveEntry.kind === "missing") {
+      switchedFingerprint = switchRestoreDatabaseIntoMissingLive(
+        paths,
+        candidatePath,
+        candidateAfterValidation,
+      );
+    } else {
+      switchedFingerprint = switchRestoreDatabaseReplacingInvalidLive(
+        paths,
+        candidatePath,
+        liveBeforeFingerprint,
+        candidateAfterValidation,
+      );
+    }
+    restoreLiveSwitchCompleted = true;
     try {
       restorePostSwitchReadBack({
         storagePaths: paths,
@@ -7074,53 +7616,66 @@ async function restoreDesktopDatabase({
       });
     } catch (error) {
       const normalized = restoreTranslateExistingError(error, "REOPEN_FAILED");
-      try {
-        rollbackRestoreDatabase(
-          paths,
-          safetyBackup,
-          switchedFingerprint,
-          sqliteBinary,
-          migrationsDirectory,
-          schemaContract,
-        );
-      } catch (rollbackError) {
-        throw restoreStorageError(
-          "restore switch 後の reopen failure を rollback できません",
-          "ROLLBACK_FAILED",
-          rollbackError,
-        );
+      if (safetyBackup !== null) {
+        try {
+          rollbackRestoreDatabase(
+            paths,
+            safetyBackup,
+            switchedFingerprint,
+            sqliteBinary,
+            migrationsDirectory,
+            schemaContract,
+          );
+        } catch (rollbackError) {
+          throw restoreStorageError(
+            "restore switch 後の reopen failure を rollback できません",
+            "ROLLBACK_FAILED",
+            rollbackError,
+          );
+        }
+        switchedFingerprint = null;
+        restoreLiveSwitchCompleted = false;
       }
-      switchedFingerprint = null;
       throw normalized;
     }
     return Object.freeze({
       operationId: validatedOperationId,
-      safetyBackupId: safetyBackup.backupId,
+      safetyBackupId: safetyBackup?.backupId ?? null,
       size: switchedFingerprint.size,
     });
   } catch (error) {
     if (isRestoreStorageError(error)) {
-      if (switchedFingerprint !== null) error.restoreLiveSwitchCompleted = true;
+      if (switchedFingerprint !== null || error.restoreLiveSwitchCompleted === true) {
+        error.restoreLiveSwitchCompleted = true;
+        restoreLiveSwitchCompleted = true;
+      }
       throw error;
     }
     throw restoreTranslateExistingError(error, "STAGING_FAILED");
   } finally {
-    if (stagingDirectory !== undefined && stagingDirectoryOwned) {
-      cleanupRestoreStaging(
-        stagingDirectory,
-        canonical.stagingRoot,
-        canonical.stagingRootCreated,
-      );
-    } else if (canonical.stagingRootCreated) {
-      try {
-        if (fs.readdirSync(canonical.stagingRoot).length === 0) {
-          fs.rmdirSync(canonical.stagingRoot);
-        }
-      } catch (error) {
-        if (!hasErrorCode(error, "ENOENT")) {
-          throw restoreStorageError("restore staging root を cleanup できません", "CLEANUP_FAILED", error);
+    try {
+      if (stagingDirectory !== undefined && stagingDirectoryOwned) {
+        cleanupRestoreStaging(
+          stagingDirectory,
+          canonical.stagingRoot,
+          canonical.stagingRootCreated,
+        );
+      } else if (canonical.stagingRootCreated) {
+        try {
+          if (fs.readdirSync(canonical.stagingRoot).length === 0) {
+            fs.rmdirSync(canonical.stagingRoot);
+          }
+        } catch (error) {
+          if (!hasErrorCode(error, "ENOENT")) {
+            throw restoreStorageError("restore staging root を cleanup できません", "CLEANUP_FAILED", error);
+          }
         }
       }
+    } catch (error) {
+      if (restoreLiveSwitchCompleted || switchedFingerprint !== null) {
+        if (error && typeof error === "object") error.restoreLiveSwitchCompleted = true;
+      }
+      throw error;
     }
   }
 }
@@ -7139,7 +7694,9 @@ async function resumePendingRestore({
   prismaSchemaPath = path.join(DEFAULT_PROJECT_ROOT, "prisma", "schema.prisma"),
   environment = process.env,
   operationId = createRestoreOperationId(),
+  recoveryOnly = false,
 } = {}) {
+  validateRestoreRecoveryOnlyOption(recoveryOnly);
   if (confirmed !== true) {
     throw pendingRestoreError(
       "pending restore は明示確認が必要です",
@@ -7168,6 +7725,7 @@ async function resumePendingRestore({
       operationId,
       allowPendingPublish: false,
       pendingClaimDirectory: claim.processingDirectory,
+      recoveryOnly,
     });
     try {
       consumePendingRestoreClaim(claim);

@@ -58,6 +58,13 @@ function digest(filePath) {
   return crypto.createHash("sha256").update(fs.readFileSync(filePath)).digest("hex");
 }
 
+function queryJson(databasePath, sql) {
+  const output = execFileSync(sqliteBinary, ["-readonly", "-bail", "-json", databasePath, sql], {
+    encoding: "utf8",
+  });
+  return JSON.parse(output.trim() || "[]");
+}
+
 function runSidecar(homeDirectory, command, payload) {
   const args = [launcherPath, command];
   if (payload !== undefined) args.push(JSON.stringify(payload));
@@ -98,6 +105,31 @@ function createNewerCandidate(ready, homeDirectory) {
        NULL, '2099-01-01T00:00:00.000Z', 1, '2099-01-01T00:00:00.000Z');`,
   );
   return candidatePath;
+}
+
+function createPendingCandidate(ready, homeDirectory) {
+  const candidatePath = path.join(homeDirectory, "external-compatible-pending.sqlite");
+  fs.copyFileSync(ready.databasePath, candidatePath);
+  sqlite(
+    candidatePath,
+    `INSERT INTO notebooks
+      (id, title, note_date, source_type, source_title, body, body_mode,
+       summary, created_at, updated_at)
+     VALUES ('pending-recovery-note', 'Pending recovery', '2026-08-25T00:00:00.000Z',
+       'book', 'Source', '# pending', 'markdown', 'summary',
+       '2026-08-25T00:00:00.000Z', '2026-08-25T00:00:00.000Z');`,
+  );
+  const futureSql = "";
+  const futureChecksum = crypto.createHash("sha256").update(futureSql).digest("hex");
+  sqlite(
+    candidatePath,
+    `INSERT INTO _prisma_migrations
+      (id, checksum, migration_name, logs, rolled_back_at, started_at,
+       applied_steps_count, finished_at)
+     VALUES ('future-id', '${futureChecksum}', '20990101000000_future', NULL,
+       NULL, '2099-01-01T00:00:00.000Z', 1, '2099-01-01T00:00:00.000Z');`,
+  );
+  return { candidatePath, futureSql };
 }
 
 function loadBridge(invokeImplementation) {
@@ -284,6 +316,75 @@ test("compatible update can explicitly resume and consume only the claimed pendi
   });
 });
 
+test("recovery-only pending resume applies the missing and corrupt-live boundary and keeps no fake safety backup", {
+  skip: !sqliteCliAvailable,
+}, async () => {
+  for (const liveState of ["missing", "corrupt"]) {
+    await withTemporaryHome(async (homeDirectory) => {
+      const ready = storage.bootstrapDesktopStorage({ homeDirectory, sqliteBinary });
+      const { candidatePath, futureSql } = createPendingCandidate(ready, homeDirectory);
+      await assert.rejects(
+        storage.restoreDesktopDatabase({
+          storagePaths: ready,
+          source: { kind: "external-file", origin: "native-dialog", path: candidatePath },
+          sqliteBinary,
+          operationId: `pending-recovery-initial-${liveState}`,
+        }),
+        (error) => error.code === "RESTORE_NEWER_SCHEMA_PENDING_REQUIRED",
+      );
+
+      const updatedMigrationsDirectory = path.join(homeDirectory, "updated-migrations");
+      fs.cpSync(path.join(projectRoot, "prisma", "migrations"), updatedMigrationsDirectory, { recursive: true });
+      fs.mkdirSync(path.join(updatedMigrationsDirectory, "20990101000000_future"));
+      fs.writeFileSync(
+        path.join(updatedMigrationsDirectory, "20990101000000_future", "migration.sql"),
+        futureSql,
+      );
+
+      let preservedDigest = null;
+      if (liveState === "missing") {
+        fs.unlinkSync(ready.databasePath);
+      } else {
+        fs.writeFileSync(ready.databasePath, "corrupt pending live database");
+        preservedDigest = digest(ready.databasePath);
+      }
+
+      const status = storage.inspectPendingRestore({
+        storagePaths: ready,
+        sqliteBinary,
+        migrationsDirectory: updatedMigrationsDirectory,
+      });
+      assert.equal(status.status, "available");
+      const result = await storage.resumePendingRestore({
+        storagePaths: ready,
+        pendingId: status.pending.pendingId,
+        manifestToken: status.pending.manifestToken,
+        confirmed: true,
+        sqliteBinary,
+        migrationsDirectory: updatedMigrationsDirectory,
+        operationId: `pending-recovery-${liveState}`,
+        recoveryOnly: true,
+      });
+
+      assert.equal(result.safetyBackupId, null);
+      assert.equal(queryJson(ready.databasePath, "SELECT COUNT(*) AS count FROM notebooks")[0].count, 1);
+      assert.equal(storage.inspectPendingRestore({
+        storagePaths: ready,
+        sqliteBinary,
+        migrationsDirectory: updatedMigrationsDirectory,
+      }).status, "none");
+      assert.equal(fs.existsSync(path.join(ready.backupsDirectory, `restore-pending-recovery-${liveState}.sqlite.bak`)), false);
+      assert.equal(fs.existsSync(path.join(ready.applicationSupportRoot, "restore-staging")), false);
+      if (preservedDigest !== null) {
+        assert.equal(
+          digest(path.join(ready.liveDirectory, `.notebook.sqlite.recovery-pending-recovery-${liveState}.artifact`)),
+          preservedDigest,
+        );
+      }
+    });
+  }
+});
+
 test("pending status and confirm bridge expose only typed opaque metadata", async () => {
   const calls = [];
   const bridge = loadBridge((command, args) => {
@@ -316,7 +417,7 @@ test("pending status and confirm bridge expose only typed opaque metadata", asyn
       operationId: "resume-operation",
       pendingId: "a".repeat(64),
       errorCode: null,
-      result: { safetyBackupId: "restore-resume.sqlite.bak", size: 123 },
+      result: { safetyBackupId: null, size: 123 },
     });
   });
   const previousWindow = global.window;
@@ -328,6 +429,7 @@ test("pending status and confirm bridge expose only typed opaque metadata", asyn
     const resume = await bridge.confirmPendingRestore("a".repeat(64), "b".repeat(64));
     assert.equal(resume.kind, "desktop-pending-restore-resume");
     assert.equal(resume.status, "success");
+    assert.equal(resume.result.safetyBackupId, null);
     assert.deepEqual(calls, [
       ["read_desktop_pending_restore_status", undefined],
       [

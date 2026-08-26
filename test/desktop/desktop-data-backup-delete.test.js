@@ -94,6 +94,18 @@ function createFixture(homeDirectory) {
   };
 }
 
+function createRecoveryFixture(homeDirectory) {
+  const ready = bootstrapDesktopStorage({ homeDirectory, sqliteBinary });
+  assert.equal(ready.status, DESKTOP_DATABASE_STATUS.READY);
+  const managedPath = path.join(ready.backupsDirectory, "managed-recovery.sqlite");
+  fs.copyFileSync(ready.databasePath, managedPath, fs.constants.COPYFILE_EXCL);
+  fs.writeFileSync(path.join(ready.settingsDirectory, "update-state.json"), "update", { flag: "wx" });
+  fs.writeFileSync(path.join(ready.settingsDirectory, ".instance.lock"), "lock", { flag: "wx" });
+  const externalExport = path.join(homeDirectory, "external-export.sqlite");
+  fs.writeFileSync(externalExport, "external export", { flag: "wx" });
+  return { ...ready, storagePaths: ready.paths, managedPath, externalExport };
+}
+
 function runSidecar(homeDirectory, request) {
   const result = spawnSync(
     process.execPath,
@@ -123,6 +135,26 @@ function deleteRequest(overrides = {}) {
     operationId: "delete-fixture",
     ...overrides,
   };
+}
+
+function restoreRequest(backupId, operationId) {
+  return {
+    kind: "desktop-data-backup-operation",
+    schemaVersion: 1,
+    operation: "restore",
+    source: { kind: "managed-backup", backupId },
+    destination: null,
+    confirmed: true,
+    operationId,
+    recoveryOnly: true,
+  };
+}
+
+function recoveryArtifactPath(storagePaths, operationId, suffix = "") {
+  return path.join(
+    storagePaths.liveDirectory,
+    `.notebook.sqlite.recovery-${operationId}${suffix}.artifact`,
+  );
 }
 
 function assertNoDeleteStaging(storagePaths) {
@@ -198,6 +230,101 @@ test("complete deletion removes only canonical app data and preserves non-target
     for (const [filePath, before] of preservedBefore) {
       assert.equal(digest(filePath), before, filePath);
     }
+  });
+});
+
+test("complete deletion removes recovery sidecar artifacts after recovery-only restore from a missing live database", {
+  skip: !hasSqliteCli(),
+}, async () => {
+  await withTemporaryHome(async (homeDirectory) => {
+    const fixture = createRecoveryFixture(homeDirectory);
+    const { storagePaths } = fixture;
+    fs.unlinkSync(storagePaths.databasePath);
+    const orphanWalPath = `${storagePaths.databasePath}-wal`;
+    fs.writeFileSync(orphanWalPath, "orphan wal bytes", { flag: "wx" });
+
+    const restoreResponse = runSidecar(
+      homeDirectory,
+      restoreRequest("managed-recovery.sqlite", "recovery-missing-before-delete"),
+    );
+    assert.equal(restoreResponse.ok, true);
+    assert.equal(
+      fs.existsSync(recoveryArtifactPath(storagePaths, "recovery-missing-before-delete", "-wal")),
+      true,
+    );
+
+    const externalBefore = digest(fixture.externalExport);
+    const result = deleteDesktopData({
+      storagePaths,
+      operationId: "delete-after-missing-recovery",
+    });
+
+    assert.equal(result.deletedFileCount, 5);
+    assert.equal(fs.existsSync(storagePaths.databasePath), false);
+    assert.equal(
+      fs.existsSync(recoveryArtifactPath(storagePaths, "recovery-missing-before-delete", "-wal")),
+      false,
+    );
+    assert.equal(fs.existsSync(fixture.managedPath), false);
+    assert.equal(fs.existsSync(path.join(storagePaths.settingsDirectory, ".database-initialized")), false);
+    assert.equal(fs.existsSync(path.join(storagePaths.settingsDirectory, "update-state.json")), false);
+    assert.equal(fs.readFileSync(path.join(storagePaths.settingsDirectory, ".instance.lock"), "utf8"), "lock");
+    assert.equal(digest(fixture.externalExport), externalBefore);
+    assert.deepEqual(fs.readdirSync(storagePaths.liveDirectory), []);
+    assertNoDeleteStaging(storagePaths);
+  });
+});
+
+test("complete deletion removes main and sidecar recovery artifacts after replacing a corrupt live database", {
+  skip: !hasSqliteCli(),
+}, async () => {
+  await withTemporaryHome(async (homeDirectory) => {
+    const fixture = createRecoveryFixture(homeDirectory);
+    const { storagePaths } = fixture;
+    fs.writeFileSync(storagePaths.databasePath, "not a readable sqlite database");
+    const invalidLiveDigest = digest(storagePaths.databasePath);
+    const orphanWalPath = `${storagePaths.databasePath}-wal`;
+    fs.writeFileSync(orphanWalPath, "orphan wal bytes", { flag: "wx" });
+    const orphanWalDigest = digest(orphanWalPath);
+
+    const restoreResponse = runSidecar(
+      homeDirectory,
+      restoreRequest("managed-recovery.sqlite", "recovery-corrupt-before-delete"),
+    );
+    assert.equal(restoreResponse.ok, true);
+    const mainArtifact = recoveryArtifactPath(storagePaths, "recovery-corrupt-before-delete");
+    const walArtifact = recoveryArtifactPath(storagePaths, "recovery-corrupt-before-delete", "-wal");
+    const shmArtifact = recoveryArtifactPath(storagePaths, "recovery-corrupt-before-delete", "-shm");
+    assert.equal(digest(mainArtifact), invalidLiveDigest);
+    assert.equal(digest(walArtifact), orphanWalDigest);
+    assert.equal(fs.existsSync(shmArtifact), true);
+
+    const otherOperationArtifact = recoveryArtifactPath(storagePaths, "previous-recovery-operation");
+    fs.copyFileSync(mainArtifact, otherOperationArtifact, fs.constants.COPYFILE_EXCL);
+    const externalBefore = digest(fixture.externalExport);
+
+    const result = deleteDesktopData({
+      storagePaths,
+      operationId: "delete-after-corrupt-recovery",
+    });
+
+    assert.equal(result.deletedFileCount, 8);
+    for (const filePath of [
+      storagePaths.databasePath,
+      mainArtifact,
+      walArtifact,
+      shmArtifact,
+      otherOperationArtifact,
+      fixture.managedPath,
+      path.join(storagePaths.settingsDirectory, ".database-initialized"),
+      path.join(storagePaths.settingsDirectory, "update-state.json"),
+    ]) {
+      assert.equal(fs.existsSync(filePath), false, filePath);
+    }
+    assert.equal(fs.readFileSync(path.join(storagePaths.settingsDirectory, ".instance.lock"), "utf8"), "lock");
+    assert.equal(digest(fixture.externalExport), externalBefore);
+    assert.deepEqual(fs.readdirSync(storagePaths.liveDirectory), []);
+    assertNoDeleteStaging(storagePaths);
   });
 });
 
@@ -281,10 +408,15 @@ test("unsafe canonical entries fail closed without touching the live database", 
   });
 });
 
-test("rename-stage failure rolls back exact records and leaves no staging artifact", async () => {
+test("malformed recovery artifact names fail closed without expanding the live deletion boundary", async () => {
   await withTemporaryHome(async (homeDirectory) => {
     const fixture = createFixture(homeDirectory);
     const { storagePaths } = fixture;
+    const malformedArtifact = path.join(
+      storagePaths.liveDirectory,
+      ".notebook.sqlite.recovery-.artifact",
+    );
+    fs.writeFileSync(malformedArtifact, "malformed artifact", { flag: "wx" });
     const watchedPaths = [
       storagePaths.databasePath,
       `${storagePaths.databasePath}-wal`,
@@ -292,12 +424,132 @@ test("rename-stage failure rolls back exact records and leaves no staging artifa
       `${storagePaths.databasePath}-journal`,
       path.join(storagePaths.backupsDirectory, "managed.sqlite"),
       path.join(storagePaths.settingsDirectory, ".database-initialized"),
+      path.join(storagePaths.settingsDirectory, "update-state.json"),
+      path.join(storagePaths.settingsDirectory, "window-state.json"),
+      path.join(storagePaths.settingsDirectory, ".instance.owner"),
+      path.join(storagePaths.settingsDirectory, ".instance.lock"),
+      fixture.externalExport,
+    ];
+    const before = new Map(watchedPaths.map((filePath) => [filePath, digest(filePath)]));
+
+    assert.throws(
+      () => deleteDesktopData({ storagePaths, operationId: "malformed-recovery-artifact" }),
+      (error) => error.code === "DELETE_UNSAFE_NAME",
+    );
+    for (const [filePath, expectedDigest] of before) {
+      assert.equal(digest(filePath), expectedDigest, filePath);
+    }
+    assert.equal(fs.existsSync(malformedArtifact), true);
+    assertNoDeleteStaging(storagePaths);
+  });
+});
+
+test("recovery artifacts fail closed when replaced by symlinks or directories", async () => {
+  for (const scenario of [
+    { name: "symlink", errorCode: "DELETE_SYMLINK_PATH" },
+    { name: "directory", errorCode: "DELETE_UNEXPECTED_DIRECTORY" },
+  ]) {
+    await withTemporaryHome(async (homeDirectory) => {
+      const fixture = createFixture(homeDirectory);
+      const { storagePaths } = fixture;
+      const artifactPath = recoveryArtifactPath(storagePaths, "boundary-recovery");
+      let outsidePath;
+      if (scenario.name === "symlink") {
+        outsidePath = path.join(homeDirectory, "outside-recovery-artifact.sqlite");
+        fs.writeFileSync(outsidePath, "must survive", { flag: "wx" });
+        fs.symlinkSync(outsidePath, artifactPath);
+      } else {
+        fs.mkdirSync(artifactPath);
+      }
+      const watchedPaths = [
+        storagePaths.databasePath,
+        `${storagePaths.databasePath}-wal`,
+        `${storagePaths.databasePath}-shm`,
+        `${storagePaths.databasePath}-journal`,
+        path.join(storagePaths.backupsDirectory, "managed.sqlite"),
+        path.join(storagePaths.settingsDirectory, ".database-initialized"),
+        path.join(storagePaths.settingsDirectory, "update-state.json"),
+        path.join(storagePaths.settingsDirectory, "window-state.json"),
+        path.join(storagePaths.settingsDirectory, ".instance.owner"),
+        path.join(storagePaths.settingsDirectory, ".instance.lock"),
+        fixture.externalExport,
+      ];
+      const before = new Map(watchedPaths.map((filePath) => [filePath, digest(filePath)]));
+      const outsideBefore = outsidePath === undefined ? null : digest(outsidePath);
+
+      assert.throws(
+        () => deleteDesktopData({ storagePaths, operationId: `boundary-${scenario.name}` }),
+        (error) => error.code === scenario.errorCode,
+      );
+      for (const [filePath, expectedDigest] of before) {
+        assert.equal(digest(filePath), expectedDigest, filePath);
+      }
+      if (outsidePath !== undefined) assert.equal(digest(outsidePath), outsideBefore);
+      assert.equal(fs.existsSync(artifactPath), true);
+      assertNoDeleteStaging(storagePaths);
+    });
+  }
+});
+
+const mkfifoAvailable = process.platform !== "win32"
+  && spawnSync("mkfifo", ["--help"], { stdio: "ignore" }).error === undefined;
+
+test("special-file recovery artifacts fail closed before any app data is staged", {
+  skip: !mkfifoAvailable,
+}, async () => {
+  await withTemporaryHome(async (homeDirectory) => {
+    const fixture = createFixture(homeDirectory);
+    const { storagePaths } = fixture;
+    const artifactPath = recoveryArtifactPath(storagePaths, "special-recovery");
+    const fifo = spawnSync("mkfifo", [artifactPath], { encoding: "utf8" });
+    assert.equal(fifo.status, 0, fifo.stderr);
+    const watchedPaths = [
+      storagePaths.databasePath,
+      `${storagePaths.databasePath}-wal`,
+      `${storagePaths.databasePath}-shm`,
+      `${storagePaths.databasePath}-journal`,
+      path.join(storagePaths.backupsDirectory, "managed.sqlite"),
+      path.join(storagePaths.settingsDirectory, ".database-initialized"),
+      path.join(storagePaths.settingsDirectory, "update-state.json"),
+      path.join(storagePaths.settingsDirectory, "window-state.json"),
+      path.join(storagePaths.settingsDirectory, ".instance.owner"),
+      path.join(storagePaths.settingsDirectory, ".instance.lock"),
+      fixture.externalExport,
+    ];
+    const before = new Map(watchedPaths.map((filePath) => [filePath, digest(filePath)]));
+
+    assert.throws(
+      () => deleteDesktopData({ storagePaths, operationId: "special-recovery-artifact" }),
+      (error) => error.code === "DELETE_SPECIAL_FILE",
+    );
+    for (const [filePath, expectedDigest] of before) {
+      assert.equal(digest(filePath), expectedDigest, filePath);
+    }
+    assert.equal(fs.statSync(artifactPath).isFIFO(), true);
+    assertNoDeleteStaging(storagePaths);
+  });
+});
+
+test("rename-stage failure rolls back exact records and leaves no staging artifact", async () => {
+  await withTemporaryHome(async (homeDirectory) => {
+    const fixture = createFixture(homeDirectory);
+    const { storagePaths } = fixture;
+    const recoveryArtifact = recoveryArtifactPath(storagePaths, "rename-recovery");
+    fs.writeFileSync(recoveryArtifact, "recovery artifact", { flag: "wx" });
+    const watchedPaths = [
+      storagePaths.databasePath,
+      `${storagePaths.databasePath}-wal`,
+      `${storagePaths.databasePath}-shm`,
+      `${storagePaths.databasePath}-journal`,
+      recoveryArtifact,
+      path.join(storagePaths.backupsDirectory, "managed.sqlite"),
+      path.join(storagePaths.settingsDirectory, ".database-initialized"),
     ];
     const before = new Map(watchedPaths.map((filePath) => [filePath, digest(filePath)]));
     const originalRenameSync = fs.renameSync;
     let injected = false;
     fs.renameSync = (sourcePath, destinationPath) => {
-      if (!injected && sourcePath === `${storagePaths.databasePath}-wal`) {
+      if (!injected && sourcePath === recoveryArtifact) {
         injected = true;
         const error = new Error("injected staging failure");
         error.code = "EACCES";

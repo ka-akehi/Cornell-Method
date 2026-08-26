@@ -1,8 +1,9 @@
 use super::runtime::{
     create_data_backup_operation_id, run_data_backup_operation_with_operation_id,
-    run_pending_restore_operation_with_operation_id, runtime_project_root, start_sidecar,
-    validate_pending_restore_resume_request, DesktopDatabaseRecoveryState, SidecarHandle,
-    StorageLayout,
+    run_data_backup_operation_with_restore_mode, run_pending_restore_operation_with_operation_id,
+    run_pending_restore_operation_with_restore_mode, runtime_project_root, start_sidecar,
+    validate_pending_restore_resume_request, DesktopDatabaseRecoveryState, DesktopRestoreMode,
+    SidecarHandle, StorageLayout,
 };
 use super::window_state::capture_window_state;
 use super::{
@@ -507,10 +508,16 @@ pub(crate) fn run_data_backup_operation_command(
         );
     }
 
-    let response = run_data_backup_operation_with_operation_id(
+    let restore_mode = if recovery_only {
+        DesktopRestoreMode::RecoveryOnly
+    } else {
+        DesktopRestoreMode::Normal
+    };
+    let response = run_data_backup_operation_with_restore_mode(
         app,
         request.clone(),
         Some(operation_id.clone()),
+        restore_mode,
     );
 
     if recovery_only {
@@ -524,27 +531,6 @@ pub(crate) fn run_data_backup_operation_command(
             return response;
         }
 
-        let rollback_backup_id = format!("restore-{operation_id}.sqlite.bak");
-        let rollback_request = serde_json::json!({
-            "kind": "desktop-data-backup-operation",
-            "schemaVersion": 1,
-            "operation": "restore",
-            "source": { "kind": "managed-backup", "backupId": rollback_backup_id },
-            "destination": null,
-            "confirmed": true,
-        });
-        let rollback_response = run_data_backup_operation_with_operation_id(
-            app,
-            rollback_request,
-            Some(format!("rollback-{operation_id}")),
-        );
-        if !rollback_response.is_success() {
-            return super::runtime::desktop_data_backup_command_error(
-                Some("restore"),
-                "operation",
-                "rollback-failed",
-            );
-        }
         return super::runtime::desktop_data_backup_command_error(
             Some("restore"),
             "operation",
@@ -677,8 +663,16 @@ pub(crate) fn run_pending_restore_resume_command(
         );
     }
 
-    let response =
-        run_pending_restore_operation_with_operation_id(app, request, operation_id.clone());
+    let response = if recovery_only {
+        run_pending_restore_operation_with_restore_mode(
+            app,
+            request,
+            operation_id.clone(),
+            DesktopRestoreMode::RecoveryOnly,
+        )
+    } else {
+        run_pending_restore_operation_with_operation_id(app, request, operation_id.clone())
+    };
 
     if recovery_only {
         if !(response.ok && response.status == "success") {
@@ -691,35 +685,6 @@ pub(crate) fn run_pending_restore_resume_command(
             return response;
         }
 
-        let Some(result) = response.result.as_ref() else {
-            return super::runtime::pending_restore_resume_command_error(
-                Some(operation_id.as_str()),
-                Some(pending_id.as_str()),
-                "operation",
-                "protocol-error",
-            );
-        };
-        let rollback_request = serde_json::json!({
-            "kind": "desktop-data-backup-operation",
-            "schemaVersion": 1,
-            "operation": "restore",
-            "source": { "kind": "managed-backup", "backupId": result.safety_backup_id.clone() },
-            "destination": null,
-            "confirmed": true,
-        });
-        let rollback_response = run_data_backup_operation_with_operation_id(
-            app,
-            rollback_request,
-            Some(format!("rollback-{operation_id}")),
-        );
-        if !rollback_response.is_success() {
-            return super::runtime::pending_restore_resume_command_error(
-                Some(operation_id.as_str()),
-                Some(pending_id.as_str()),
-                "operation",
-                "rollback-failed",
-            );
-        }
         return super::runtime::pending_restore_resume_command_error(
             Some(operation_id.as_str()),
             Some(pending_id.as_str()),
@@ -743,11 +708,19 @@ pub(crate) fn run_pending_restore_resume_command(
                 "protocol-error",
             );
         };
+        let Some(safety_backup_id) = result.safety_backup_id.as_ref() else {
+            return super::runtime::pending_restore_resume_command_error(
+                Some(operation_id.as_str()),
+                Some(pending_id.as_str()),
+                "operation",
+                "protocol-error",
+            );
+        };
         let rollback_request = serde_json::json!({
             "kind": "desktop-data-backup-operation",
             "schemaVersion": 1,
             "operation": "restore",
-            "source": { "kind": "managed-backup", "backupId": result.safety_backup_id.clone() },
+            "source": { "kind": "managed-backup", "backupId": safety_backup_id },
             "destination": null,
             "confirmed": true,
         });

@@ -98,6 +98,66 @@ function sidecarOperationRequest(overrides = {}) {
   };
 }
 
+test("recovery-only capability is accepted only for restore and remains typed at the sidecar boundary", () => {
+  const directory = temporaryDirectory();
+  const managedRoot = path.join(directory, "managed");
+  const externalRoot = path.join(directory, "external");
+  const candidatePath = path.join(externalRoot, "candidate.sqlite");
+  fs.mkdirSync(managedRoot);
+  fs.mkdirSync(externalRoot);
+  fs.writeFileSync(candidatePath, "candidate");
+
+  try {
+    assert.deepEqual(
+      launcher.validateDesktopDataBackupOperationRequest(
+        sidecarOperationRequest({
+          operation: "restore",
+          source: { kind: "external-file", origin: "native-dialog", path: candidatePath },
+          destination: null,
+          confirmed: true,
+          recoveryOnly: true,
+        }),
+        managedRoot,
+      ),
+      { ok: true, operation: "restore" },
+    );
+    assert.deepEqual(
+      launcher.validateDesktopDataBackupOperationRequest(
+        sidecarOperationRequest({
+          operation: "restore",
+          source: { kind: "external-file", origin: "native-dialog", path: candidatePath },
+          destination: null,
+          confirmed: true,
+          recoveryOnly: "true",
+        }),
+        managedRoot,
+      ),
+      { ok: false, errorCode: "invalid-request", operation: null },
+    );
+    assert.deepEqual(
+      launcher.validateDesktopDataBackupOperationRequest(
+        sidecarOperationRequest({ recoveryOnly: true }),
+        managedRoot,
+      ),
+      { ok: false, errorCode: "invalid-request", operation: "export" },
+    );
+    assert.deepEqual(
+      launcher.validatePendingRestoreResumeRequest({
+        kind: "desktop-pending-restore-resume",
+        schemaVersion: 1,
+        pendingId: "a".repeat(64),
+        manifestToken: "b".repeat(64),
+        confirmed: true,
+        operationId: "recovery-pending",
+        recoveryOnly: true,
+      }),
+      { ok: true },
+    );
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test("sidecar rejects malformed JSON with a typed request error", () => {
   const result = spawnSync(process.execPath, [launcherPath, "data-backup-operation", "{"], {
     cwd: projectRoot,

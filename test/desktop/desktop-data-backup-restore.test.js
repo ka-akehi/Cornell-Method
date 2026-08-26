@@ -237,6 +237,130 @@ test("restores a valid managed backup through the same pipeline without changing
   });
 });
 
+test("recovery-only managed restore installs a valid candidate when the live database is missing", {
+  skip: !sqliteCliAvailable,
+}, async () => {
+  await withTemporaryHome(async (homeDirectory) => {
+    const ready = createReadyFixture(homeDirectory);
+    const candidatePath = createExternalCandidate(ready, homeDirectory, "recovery-managed-source.sqlite");
+    sqlite(candidatePath, "UPDATE notebooks SET title = 'Recovery managed' WHERE id = 'markdown-note';");
+    const managedPath = path.join(ready.backupsDirectory, "recovery-managed-source.sqlite");
+    fs.copyFileSync(candidatePath, managedPath);
+    fs.unlinkSync(ready.databasePath);
+
+    const response = runSidecar(
+      homeDirectory,
+      request(
+        "restore",
+        { kind: "managed-backup", backupId: "recovery-managed-source.sqlite" },
+        { operationId: "recovery-managed-missing", recoveryOnly: true },
+      ),
+    );
+
+    assert.equal(response.ok, true);
+    assert.equal(queryJson(ready.databasePath, "SELECT title FROM notebooks WHERE id = 'markdown-note'")[0].title, "Recovery managed");
+    assert.equal(response.result, null);
+    assert.equal(fs.existsSync(path.join(ready.backupsDirectory, "restore-recovery-managed-missing.sqlite.bak")), false);
+    assert.deepEqual(
+      fs.readdirSync(ready.liveDirectory).filter((entry) => entry.startsWith(".notebook.sqlite.recovery-")),
+      [],
+    );
+    assertStagingClean(ready);
+  });
+});
+
+test("recovery-only external restore replaces an unreadable live file while preserving its bytes", {
+  skip: !sqliteCliAvailable,
+}, async () => {
+  await withTemporaryHome(async (homeDirectory) => {
+    const ready = createReadyFixture(homeDirectory);
+    const candidatePath = createExternalCandidate(ready, homeDirectory, "recovery-external-source.sqlite");
+    sqlite(candidatePath, "UPDATE notebooks SET title = 'Recovery external' WHERE id = 'markdown-note';");
+    const invalidLiveBytes = Buffer.from("not a readable sqlite database");
+    fs.writeFileSync(ready.databasePath, invalidLiveBytes);
+    const invalidLiveDigest = digest(ready.databasePath);
+    const orphanWalPath = `${ready.databasePath}-wal`;
+    fs.writeFileSync(orphanWalPath, "orphan wal bytes");
+    const orphanWalDigest = digest(orphanWalPath);
+
+    const response = runSidecar(
+      homeDirectory,
+      request(
+        "restore",
+        { kind: "external-file", origin: "native-dialog", path: candidatePath },
+        { operationId: "recovery-external-corrupt", recoveryOnly: true },
+      ),
+    );
+
+    assert.equal(response.ok, true);
+    assert.equal(queryJson(ready.databasePath, "SELECT title FROM notebooks WHERE id = 'markdown-note'")[0].title, "Recovery external");
+    const preservedPath = path.join(
+      ready.liveDirectory,
+      ".notebook.sqlite.recovery-recovery-external-corrupt.artifact",
+    );
+    assert.equal(digest(preservedPath), invalidLiveDigest);
+    assert.equal(fs.existsSync(orphanWalPath), false);
+    assert.equal(
+      digest(path.join(ready.liveDirectory, ".notebook.sqlite.recovery-recovery-external-corrupt-wal.artifact")),
+      orphanWalDigest,
+    );
+    assert.deepEqual(fs.readdirSync(ready.backupsDirectory), []);
+    assertStagingClean(ready);
+  });
+});
+
+test("invalid recovery candidates never publish a missing live database and ordinary restore cannot bypass live validation", {
+  skip: !sqliteCliAvailable,
+}, async () => {
+  await withTemporaryHome(async (homeDirectory) => {
+    const ready = createReadyFixture(homeDirectory);
+    const invalidCandidate = path.join(homeDirectory, "invalid-recovery-candidate.sqlite");
+    fs.writeFileSync(invalidCandidate, "not sqlite");
+    const normalCandidate = createExternalCandidate(ready, homeDirectory, "normal-missing-live.sqlite");
+    fs.unlinkSync(ready.databasePath);
+
+    const invalidResponse = runSidecar(
+      homeDirectory,
+      request(
+        "restore",
+        { kind: "external-file", origin: "native-dialog", path: invalidCandidate },
+        { operationId: "recovery-invalid-candidate", recoveryOnly: true },
+      ),
+    );
+    assert.equal(invalidResponse.errorCode, "source-invalid");
+    assert.equal(fs.existsSync(ready.databasePath), false);
+    assert.deepEqual(fs.readdirSync(ready.backupsDirectory), []);
+    assertStagingClean(ready);
+
+    const normalResponse = runSidecar(
+      homeDirectory,
+      request(
+        "restore",
+        { kind: "external-file", origin: "native-dialog", path: normalCandidate },
+        { operationId: "normal-missing-live" },
+      ),
+    );
+    assert.equal(normalResponse.errorCode, "invalid-live-database");
+    assert.equal(fs.existsSync(ready.databasePath), false);
+    assert.deepEqual(fs.readdirSync(ready.backupsDirectory), []);
+    assertStagingClean(ready);
+
+    fs.symlinkSync(normalCandidate, ready.databasePath);
+    const symlinkResponse = runSidecar(
+      homeDirectory,
+      request(
+        "restore",
+        { kind: "external-file", origin: "native-dialog", path: normalCandidate },
+        { operationId: "recovery-symlink-live", recoveryOnly: true },
+      ),
+    );
+    assert.equal(symlinkResponse.errorCode, "invalid-live-database");
+    assert.equal(fs.lstatSync(ready.databasePath).isSymbolicLink(), true);
+    assert.deepEqual(fs.readdirSync(ready.backupsDirectory), []);
+    assertStagingClean(ready);
+  });
+});
+
 test("requires explicit confirmation and rejects unsafe restore sources without changing live data", {
   skip: !sqliteCliAvailable,
 }, async () => {
