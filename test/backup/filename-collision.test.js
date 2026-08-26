@@ -6,6 +6,7 @@ const path = require("node:path");
 const { test } = require("node:test");
 
 const {
+  BackupError,
   createBackup,
   listBackups,
   pruneBackups,
@@ -195,7 +196,10 @@ test("copy failures do not prune existing generations or expose a pending file",
             databaseUrl: "file:./source.db",
             projectRoot,
           }),
-        (error) => error === copyError,
+        (error) =>
+          error instanceof BackupError &&
+          error.code === "storage_failure" &&
+          error.cause === copyError,
       );
       assert.equal(fs.existsSync(pendingPath), false);
       assert.deepEqual(
@@ -204,6 +208,34 @@ test("copy failures do not prune existing generations or expose a pending file",
           .filter((file) => file.endsWith(".db"))
           .sort(),
         existingFiles,
+      );
+    } finally {
+      fs.copyFileSync = originalCopyFileSync;
+    }
+  });
+});
+
+test("unknown copy failures are classified as storage failures", () => {
+  withTemporaryProject(({ databasePath, projectRoot }) => {
+    fs.writeFileSync(databasePath, "snapshot");
+    const originalCopyFileSync = fs.copyFileSync;
+    const copyError = errorWithCode("EIO");
+
+    fs.copyFileSync = () => {
+      throw copyError;
+    };
+
+    try {
+      assert.throws(
+        () =>
+          createBackup({
+            databaseUrl: "file:./source.db",
+            projectRoot,
+          }),
+        (error) =>
+          error instanceof BackupError &&
+          error.code === "storage_failure" &&
+          error.cause === copyError,
       );
     } finally {
       fs.copyFileSync = originalCopyFileSync;
@@ -276,7 +308,13 @@ test("non-ENOENT stat errors are propagated", () => {
     };
 
     try {
-      assert.throws(() => listBackups({ projectRoot }), (error) => error === statError);
+      assert.throws(
+        () => listBackups({ projectRoot }),
+        (error) =>
+          error instanceof BackupError &&
+          error.code === "storage_failure" &&
+          error.cause === statError,
+      );
     } finally {
       fs.statSync = originalStatSync;
     }
@@ -342,7 +380,10 @@ test("non-EEXIST publish errors are propagated without pruning", () => {
             databaseUrl: "file:./source.db",
             projectRoot,
           }),
-        (error) => error === publishError,
+        (error) =>
+          error instanceof BackupError &&
+          error.code === "storage_failure" &&
+          error.cause === publishError,
       );
       assert.deepEqual(fs.readdirSync(backupDir), [existingFile]);
     } finally {
@@ -486,7 +527,10 @@ test("prune ignores concurrent ENOENT but propagates other unlink errors", () =>
 
       assert.throws(
         () => pruneBackups({ projectRoot }),
-        (error) => error === unlinkError,
+        (error) =>
+          error instanceof BackupError &&
+          error.code === "storage_failure" &&
+          error.cause === unlinkError,
       );
     } finally {
       fs.unlinkSync = originalUnlinkSync;

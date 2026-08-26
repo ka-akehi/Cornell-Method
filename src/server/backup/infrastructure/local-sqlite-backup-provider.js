@@ -7,43 +7,62 @@ const BACKUP_DIR_NAME = "backup";
 const MAX_BACKUPS = 3;
 
 class BackupError extends Error {
-  constructor(message) {
+  constructor(code, message) {
     super(message);
     this.name = "BackupError";
+    this.code = code;
   }
+}
+
+function configurationError(message) {
+  return new BackupError("configuration_invalid", message);
+}
+
+function databaseError(message) {
+  return new BackupError("database_unavailable", message);
+}
+
+function storageError(message, cause) {
+  const error = new BackupError("storage_failure", message);
+  error.cause = cause;
+  return error;
+}
+
+function backupCopyError(error) {
+  return storageError("バックアップを保存できません", error);
 }
 
 function databaseUrlToPath(databaseUrl, projectRoot) {
   const url = databaseUrl ?? DEFAULT_DATABASE_URL;
 
   if (typeof url !== "string" || url.trim() === "") {
-    throw new BackupError("DATABASE_URL が空です");
+    throw configurationError("DATABASE_URL が空です");
   }
 
   if (!url.startsWith("file:")) {
-    throw new BackupError("DATABASE_URL は file: 形式の SQLite パスを指定してください");
+    throw configurationError("DATABASE_URL は file: 形式の SQLite パスを指定してください");
   }
 
   const sqlitePath = url.slice("file:".length);
 
   if (sqlitePath.includes("?") || sqlitePath.includes("#")) {
-    throw new BackupError(
+    throw configurationError(
       "DATABASE_URL の SQLite file: URL に query または fragment は指定できません",
     );
   }
 
   if (sqlitePath.startsWith("//") && !sqlitePath.startsWith("///")) {
-    throw new BackupError(
+    throw configurationError(
       "DATABASE_URL の SQLite file: URL に authority は指定できません",
     );
   }
 
   if (!sqlitePath || sqlitePath.trim() === "") {
-    throw new BackupError("DATABASE_URL の SQLite ファイルパスが空です");
+    throw configurationError("DATABASE_URL の SQLite ファイルパスが空です");
   }
 
   if (sqlitePath === ":memory:") {
-    throw new BackupError(
+    throw configurationError(
       "DATABASE_URL の SQLite インメモリパスは使用できません",
     );
   }
@@ -63,11 +82,11 @@ function hasErrorCode(error, code) {
 
 function validateBackupDirectory(directoryPath) {
   if (typeof directoryPath !== "string" || directoryPath.trim() === "") {
-    throw new BackupError("backup directory が空です");
+    throw configurationError("backup directory が空です");
   }
 
   if (!path.isAbsolute(directoryPath)) {
-    throw new BackupError("backup directory は絶対パスで指定してください");
+    throw configurationError("backup directory は絶対パスで指定してください");
   }
 
   const absolutePath = path.normalize(directoryPath);
@@ -90,22 +109,22 @@ function validateBackupDirectory(directoryPath) {
       }
 
       if (hasErrorCode(error, "ENOTDIR")) {
-        throw new BackupError(
+        throw configurationError(
           `backup directory の親 path はディレクトリである必要があります: ${directoryPath}`,
         );
       }
 
-      throw error;
+      throw storageError("backup directory を確認できません", error);
     }
 
     if (stats.isSymbolicLink()) {
-      throw new BackupError(
+      throw configurationError(
         `backup directory に symlink は指定できません: ${directoryPath}`,
       );
     }
 
     if (!stats.isDirectory()) {
-      throw new BackupError(
+      throw configurationError(
         `backup directory はディレクトリである必要があります: ${directoryPath}`,
       );
     }
@@ -174,7 +193,7 @@ function assertSourceOutsideBackupDirectory(dbPath, dir) {
   const lexicalBackupDir = path.resolve(dir);
 
   if (isPathInsideOrEqual(lexicalDbPath, lexicalBackupDir)) {
-    throw new BackupError(
+    throw configurationError(
       `SQLite DB source must be outside the backup directory: ${dbPath}`,
     );
   }
@@ -187,7 +206,7 @@ function assertSourceOutsideBackupDirectory(dbPath, dir) {
     canonicalBackupDir &&
     isPathInsideOrEqual(canonicalDbPath, canonicalBackupDir)
   ) {
-    throw new BackupError(
+    throw configurationError(
       `SQLite DB source resolves inside the backup directory: ${dbPath}`,
     );
   }
@@ -204,7 +223,7 @@ function backupEntry(dir, file) {
       return null;
     }
 
-    throw error;
+    throw storageError("バックアップファイルを確認できません", error);
   }
 
   const parsedFileName = parseBackupFileName(file);
@@ -221,7 +240,7 @@ function backupEntry(dir, file) {
       return null;
     }
 
-    throw error;
+    throw storageError("バックアップファイルを確認できません", error);
   }
 
   const createdAt = parsedFileName.createdAt || stats.mtime.toISOString();
@@ -249,21 +268,27 @@ function allBackupEntries(dir) {
       return [];
     }
 
-    throw error;
+    throw storageError("バックアップ保存先を確認できません", error);
   }
 
   if (dirStats.isSymbolicLink()) {
-    throw new BackupError(`backup directory に symlink は指定できません: ${dir}`);
+    throw configurationError(`backup directory に symlink は指定できません: ${dir}`);
   }
 
   if (!dirStats.isDirectory()) {
-    throw new BackupError(
+    throw configurationError(
       `backup directory はディレクトリである必要があります: ${validatedDir}`,
     );
   }
 
-  return fs
-    .readdirSync(validatedDir)
+  let files;
+  try {
+    files = fs.readdirSync(validatedDir);
+  } catch (error) {
+    throw storageError("バックアップ保存先を読み取れません", error);
+  }
+
+  return files
     .filter((file) => file.endsWith(".db"))
     .map((file) => backupEntry(validatedDir, file))
     .filter(Boolean)
@@ -307,7 +332,7 @@ function pruneBackups(options = {}) {
       fs.unlinkSync(path.join(dir, entry.file));
     } catch (error) {
       if (!hasErrorCode(error, "ENOENT")) {
-        throw error;
+        throw storageError("古いバックアップを削除できません", error);
       }
     }
   });
@@ -357,14 +382,19 @@ function cleanupPublishedPendingCopyBestEffort(pendingPath, pendingDir) {
 }
 
 function createPendingCopy(dbPath, dir) {
-  const pendingDir = fs.mkdtempSync(path.join(dir, ".backup-pending-"));
+  let pendingDir;
+  try {
+    pendingDir = fs.mkdtempSync(path.join(dir, ".backup-pending-"));
+  } catch (error) {
+    throw storageError("バックアップ一時領域を作成できません", error);
+  }
   const pendingPath = path.join(pendingDir, "snapshot.db");
 
   try {
     fs.copyFileSync(dbPath, pendingPath, fs.constants.COPYFILE_EXCL);
   } catch (error) {
     cleanupPendingCopyBestEffort(pendingDir);
-    throw error;
+    throw backupCopyError(error);
   }
 
   return { pendingDir, pendingPath };
@@ -387,7 +417,7 @@ function copyBackupExclusively(dbPath, dir, timestamp, initialSuffix) {
       }
 
       cleanupPendingCopyBestEffort(pending.pendingDir);
-      throw error;
+      throw storageError("バックアップを保存できません", error);
     }
 
     cleanupPublishedPendingCopyBestEffort(pending.pendingPath, pending.pendingDir);
@@ -406,15 +436,24 @@ function createBackup(options = {}) {
   assertSourceOutsideBackupDirectory(dbPath, dir);
 
   if (!fs.existsSync(dbPath)) {
-    throw new BackupError(`SQLite DB file not found: ${dbPath}`);
+    throw databaseError(`SQLite DB file not found: ${dbPath}`);
   }
 
-  const dbStats = fs.statSync(dbPath);
+  let dbStats;
+  try {
+    dbStats = fs.statSync(dbPath);
+  } catch {
+    throw databaseError("SQLite DB を確認できません");
+  }
   if (!dbStats.isFile()) {
-    throw new BackupError(`SQLite DB path is not a file: ${dbPath}`);
+    throw databaseError(`SQLite DB path is not a file: ${dbPath}`);
   }
 
-  fs.mkdirSync(dir, { recursive: true });
+  try {
+    fs.mkdirSync(dir, { recursive: true });
+  } catch (error) {
+    throw storageError("バックアップ保存先を作成できません", error);
+  }
   dir = resolveBackupDirectory({ backupsDirectory: dir });
 
   const timestamp = timestampForFileName();

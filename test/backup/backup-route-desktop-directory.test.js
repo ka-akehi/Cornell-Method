@@ -52,9 +52,18 @@ function loadRoute(application) {
               status: 500,
               headers: { "content-type": "application/json" },
             }),
-          createServerError: (message) => ({
-            code: "server_error",
-            message,
+          createBackupApiError: (code) => ({
+            code,
+            message: {
+              backup_database_unavailable:
+                "データベースを確認できません。アプリを再起動し、データが表示されるか確認してください。",
+              backup_storage_failure:
+                "バックアップを保存できません。空き容量とアクセス権を確認してください。",
+              backup_configuration_invalid:
+                "バックアップ設定が正しくありません。管理された設定を確認してください。",
+              backup_unknown_failure:
+                "バックアップに失敗しました。しばらく待ってから再試行してください。",
+            }[code],
           }),
         };
       }
@@ -112,4 +121,41 @@ test("backup routes forward the packaged desktop directory to the application se
   assert.equal(createOptions.backupsDirectory, backupsDirectory);
   assert.deepEqual(Object.keys(listOptions), ["backupsDirectory"]);
   assert.deepEqual(Object.keys(createOptions), ["backupsDirectory"]);
+});
+
+test("backup routes expose only stable classified errors", async () => {
+  const sentinel =
+    "DATABASE_URL=file:/private/sentinel.db CORNELL_DESKTOP_BACKUPS_DIRECTORY=/private/sentinel-backups internal exception";
+  const cases = [
+    ["database_unavailable", "backup_database_unavailable"],
+    ["storage_failure", "backup_storage_failure"],
+    ["configuration_invalid", "backup_configuration_invalid"],
+    [undefined, "backup_unknown_failure"],
+  ];
+
+  for (const [providerCode, expectedCode] of cases) {
+    const error = providerCode
+      ? Object.assign(new Error(sentinel), { code: providerCode })
+      : sentinel;
+    const route = loadRoute({
+      listBackupEntries() {
+        throw error;
+      },
+      createBackupEntry() {
+        throw error;
+      },
+    });
+
+    for (const handler of [route.GET, route.POST]) {
+      const response = await handler();
+      const body = await response.json();
+      assert.equal(response.status, 500);
+      assert.equal(body.code, expectedCode);
+      assert.equal(typeof body.message, "string");
+      assert.doesNotMatch(
+        JSON.stringify(body),
+        /sentinel|DATABASE_URL|CORNELL_DESKTOP_BACKUPS_DIRECTORY|internal exception/,
+      );
+    }
+  }
 });

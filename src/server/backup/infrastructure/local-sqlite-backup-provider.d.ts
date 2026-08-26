@@ -1,4 +1,12 @@
-export class BackupError extends Error {}
+export type BackupErrorCode =
+  | "database_unavailable"
+  | "storage_failure"
+  | "configuration_invalid";
+
+export class BackupError extends Error {
+  constructor(code: BackupErrorCode, message: string);
+  code: BackupErrorCode;
+}
 
 export type BackupEntry = {
   file: string;
@@ -13,6 +21,7 @@ export type CreatedBackup = {
 
 export type BackupDirectoryOptions = {
   projectRoot?: string;
+  databaseUrl?: string;
   backupsDirectory?: string;
 };
 

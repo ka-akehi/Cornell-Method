@@ -5,6 +5,7 @@ import type {
 
 export function listBackupEntries(options?: {
   projectRoot?: string;
+  databaseUrl?: string;
   backupsDirectory?: string;
 }): BackupEntry[];
 
