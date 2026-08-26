@@ -36,11 +36,44 @@ const DESKTOP_MANAGED_BACKUP_CATALOG_COMMAND: &str = "managed-backup-catalog";
 const DESKTOP_PENDING_RESTORE_PROTOCOL_VERSION: u8 = 1;
 const DESKTOP_PENDING_RESTORE_STATUS_COMMAND: &str = "pending-restore-status";
 const DESKTOP_PENDING_RESTORE_RESUME_COMMAND: &str = "pending-restore-resume";
+const DESKTOP_DATABASE_RECOVERY_SCHEMA_VERSION: u8 = 1;
+const DESKTOP_DATABASE_RECOVERY_STATE_FIRST_RUN: &str = "first-run";
+const DESKTOP_DATABASE_RECOVERY_STATE_RESTORE_AVAILABLE: &str = "restore-available";
+const DESKTOP_DATABASE_RECOVERY_STATE_DIAGNOSTIC_REQUIRED: &str = "diagnostic-required";
+const DESKTOP_DATABASE_RECOVERY_STATE_RESTORE_UNAVAILABLE: &str = "restore-unavailable";
+const DESKTOP_DATABASE_RECOVERY_REASON_DATABASE_MISSING: &str = "database-missing";
+const DESKTOP_DATABASE_RECOVERY_REASON_DATABASE_MISSING_AFTER_INITIALIZATION: &str =
+    "database-missing-after-initialization";
+const DESKTOP_DATABASE_RECOVERY_REASON_DATABASE_NOT_A_FILE: &str = "database-not-a-file";
+const DESKTOP_DATABASE_RECOVERY_REASON_DATABASE_READ_FAILED: &str = "database-read-failed";
+const DESKTOP_DATABASE_RECOVERY_REASON_DATABASE_INTEGRITY_FAILED: &str =
+    "database-integrity-failed";
+const DESKTOP_DATABASE_RECOVERY_REASON_DATABASE_FOREIGN_KEY_FAILED: &str =
+    "database-foreign-key-failed";
+const DESKTOP_DATABASE_RECOVERY_REASON_DATABASE_SCHEMA_INVALID: &str = "database-schema-invalid";
+const DESKTOP_DATABASE_RECOVERY_REASON_DATABASE_MIGRATION_REQUIRED: &str =
+    "database-migration-required";
+const DESKTOP_DATABASE_RECOVERY_REASON_DATABASE_INITIALIZATION_FAILED: &str =
+    "database-initialization-failed";
+const DESKTOP_DATABASE_RECOVERY_REASON_DATABASE_INITIALIZATION_MARKER_INVALID: &str =
+    "database-initialization-marker-invalid";
+const DESKTOP_DATABASE_RECOVERY_REASON_STORAGE_UNAVAILABLE: &str = "storage-unavailable";
 const DESKTOP_DIALOG_BINARY: &str = "/usr/bin/osascript";
 const MAX_DESKTOP_DIALOG_OUTPUT_BYTES: usize = 16 * 1024;
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct DesktopDatabaseRecoverySnapshot {
+    pub(crate) schema_version: u8,
+    pub(crate) state: String,
+    pub(crate) reason_code: String,
+    pub(crate) managed_backup_available: bool,
+    pub(crate) pending_restore_available: bool,
+    pub(crate) can_start_empty: bool,
+}
+
 #[derive(Clone, Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct BootstrapMessage {
     kind: String,
     status: String,
@@ -53,6 +86,8 @@ struct BootstrapMessage {
     logs_directory: Option<String>,
     pending_restore_directory: Option<String>,
     reason: Option<String>,
+    created: Option<bool>,
+    recovery_snapshot: Option<DesktopDatabaseRecoverySnapshot>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -111,6 +146,120 @@ impl StorageLayout {
     pub(crate) fn database_url(&self) -> &str {
         &self.database_url
     }
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct DesktopDatabaseRecoverySnapshotResponse {
+    kind: &'static str,
+    schema_version: u8,
+    status: &'static str,
+    snapshot: Option<DesktopDatabaseRecoverySnapshot>,
+}
+
+#[derive(Clone, Debug, Default)]
+pub(crate) struct DesktopDatabaseRecoveryState {
+    snapshot: Option<DesktopDatabaseRecoverySnapshot>,
+    recovery_only: bool,
+}
+
+impl DesktopDatabaseRecoveryState {
+    pub(crate) fn new(snapshot: Option<DesktopDatabaseRecoverySnapshot>) -> Self {
+        Self {
+            snapshot,
+            recovery_only: false,
+        }
+    }
+
+    pub(crate) fn recovery_only(snapshot: DesktopDatabaseRecoverySnapshot) -> Self {
+        Self {
+            snapshot: Some(snapshot),
+            recovery_only: true,
+        }
+    }
+
+    pub(crate) fn response(&self) -> DesktopDatabaseRecoverySnapshotResponse {
+        let status = if self.recovery_only {
+            "recovery"
+        } else {
+            "ready"
+        };
+        DesktopDatabaseRecoverySnapshotResponse {
+            kind: "desktop-database-recovery-snapshot",
+            schema_version: DESKTOP_DATABASE_RECOVERY_SCHEMA_VERSION,
+            status,
+            snapshot: self.snapshot.clone(),
+        }
+    }
+
+    pub(crate) fn unavailable_response() -> DesktopDatabaseRecoverySnapshotResponse {
+        DesktopDatabaseRecoverySnapshotResponse {
+            kind: "desktop-database-recovery-snapshot",
+            schema_version: DESKTOP_DATABASE_RECOVERY_SCHEMA_VERSION,
+            status: "recovery",
+            snapshot: Some(DesktopDatabaseRecoverySnapshot {
+                schema_version: DESKTOP_DATABASE_RECOVERY_SCHEMA_VERSION,
+                state: DESKTOP_DATABASE_RECOVERY_STATE_DIAGNOSTIC_REQUIRED.to_string(),
+                reason_code: DESKTOP_DATABASE_RECOVERY_REASON_STORAGE_UNAVAILABLE.to_string(),
+                managed_backup_available: false,
+                pending_restore_available: false,
+                can_start_empty: false,
+            }),
+        }
+    }
+}
+
+fn validate_database_recovery_snapshot(
+    snapshot: &DesktopDatabaseRecoverySnapshot,
+) -> AppResult<()> {
+    if snapshot.schema_version != DESKTOP_DATABASE_RECOVERY_SCHEMA_VERSION {
+        return Err(
+            "desktop database recovery snapshot has an unsupported schema version".to_string(),
+        );
+    }
+    if !matches!(
+        snapshot.state.as_str(),
+        DESKTOP_DATABASE_RECOVERY_STATE_FIRST_RUN
+            | DESKTOP_DATABASE_RECOVERY_STATE_RESTORE_AVAILABLE
+            | DESKTOP_DATABASE_RECOVERY_STATE_DIAGNOSTIC_REQUIRED
+            | DESKTOP_DATABASE_RECOVERY_STATE_RESTORE_UNAVAILABLE
+    ) {
+        return Err("desktop database recovery snapshot has an invalid state".to_string());
+    }
+    if !matches!(
+        snapshot.reason_code.as_str(),
+        DESKTOP_DATABASE_RECOVERY_REASON_DATABASE_MISSING
+            | DESKTOP_DATABASE_RECOVERY_REASON_DATABASE_MISSING_AFTER_INITIALIZATION
+            | DESKTOP_DATABASE_RECOVERY_REASON_DATABASE_NOT_A_FILE
+            | DESKTOP_DATABASE_RECOVERY_REASON_DATABASE_READ_FAILED
+            | DESKTOP_DATABASE_RECOVERY_REASON_DATABASE_INTEGRITY_FAILED
+            | DESKTOP_DATABASE_RECOVERY_REASON_DATABASE_FOREIGN_KEY_FAILED
+            | DESKTOP_DATABASE_RECOVERY_REASON_DATABASE_SCHEMA_INVALID
+            | DESKTOP_DATABASE_RECOVERY_REASON_DATABASE_MIGRATION_REQUIRED
+            | DESKTOP_DATABASE_RECOVERY_REASON_DATABASE_INITIALIZATION_FAILED
+            | DESKTOP_DATABASE_RECOVERY_REASON_DATABASE_INITIALIZATION_MARKER_INVALID
+            | DESKTOP_DATABASE_RECOVERY_REASON_STORAGE_UNAVAILABLE
+    ) {
+        return Err("desktop database recovery snapshot has an invalid reason code".to_string());
+    }
+    if snapshot.state == DESKTOP_DATABASE_RECOVERY_STATE_FIRST_RUN && !snapshot.can_start_empty {
+        return Err("first-run recovery snapshot must allow an empty start".to_string());
+    }
+    if snapshot.state != DESKTOP_DATABASE_RECOVERY_STATE_FIRST_RUN && snapshot.can_start_empty {
+        return Err("non-first-run recovery snapshot must not allow an empty start".to_string());
+    }
+    if snapshot.state == DESKTOP_DATABASE_RECOVERY_STATE_RESTORE_AVAILABLE
+        && !snapshot.managed_backup_available
+        && !snapshot.pending_restore_available
+    {
+        return Err("restore-available snapshot has no recovery source".to_string());
+    }
+    if snapshot.state == DESKTOP_DATABASE_RECOVERY_STATE_RESTORE_UNAVAILABLE
+        && (snapshot.managed_backup_available || snapshot.pending_restore_available)
+    {
+        return Err("restore-unavailable snapshot has a recovery source".to_string());
+    }
+    Ok(())
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -949,7 +1098,16 @@ fn database_url_path(database_url: &str) -> AppResult<PathBuf> {
     Ok(path)
 }
 
-pub(crate) fn run_bootstrap(root: &Path) -> AppResult<StorageLayout> {
+#[derive(Clone, Debug)]
+pub(crate) enum BootstrapOutcome {
+    Ready {
+        storage: StorageLayout,
+        recovery_snapshot: Option<DesktopDatabaseRecoverySnapshot>,
+    },
+    Recovery(DesktopDatabaseRecoverySnapshot),
+}
+
+pub(crate) fn run_bootstrap(root: &Path) -> AppResult<BootstrapOutcome> {
     let storage = resolve_storage_layout(root)?;
     run_bootstrap_with_storage(root, &storage)
 }
@@ -1636,34 +1794,46 @@ pub(crate) fn resolve_storage_layout(root: &Path) -> AppResult<StorageLayout> {
 pub(crate) fn run_bootstrap_with_storage(
     root: &Path,
     storage: &StorageLayout,
-) -> AppResult<StorageLayout> {
+) -> AppResult<BootstrapOutcome> {
     let output = launch_command(root, "bootstrap", Some(storage))?;
-    let message = parse_bootstrap_message(&output.stdout).ok();
-
-    if let Some(message) = message.as_ref() {
-        if message.kind != "bootstrap" {
-            return Err("desktop storage bootstrap returned an unknown message".to_string());
-        }
-        if message.status != "ready" {
-            return Err(format!(
-                "desktop storage is {} ({}); startup stopped without migration or repair",
-                message.status,
-                message.reason.as_deref().unwrap_or("no reason")
-            ));
-        }
+    let message = parse_bootstrap_message(&output.stdout)?;
+    if message.kind != "bootstrap" {
+        return Err("desktop storage bootstrap returned an unknown message".to_string());
     }
-
     if !output.status.success() {
-        return Err(format!(
-            "desktop storage bootstrap failed with status {}",
-            output
-                .status
-                .code()
-                .map_or_else(|| "unknown".to_string(), |code| code.to_string())
-        ));
+        return Err("desktop storage bootstrap process failed".to_string());
     }
-    let message =
-        message.ok_or_else(|| "desktop storage bootstrap did not return a result".to_string())?;
+
+    if message.status == "recovery" {
+        if message.application_support_root.is_some()
+            || message.live_directory.is_some()
+            || message.database_path.is_some()
+            || message.database_url.is_some()
+            || message.backups_directory.is_some()
+            || message.settings_directory.is_some()
+            || message.logs_directory.is_some()
+            || message.pending_restore_directory.is_some()
+            || message.reason.is_some()
+            || message.created.is_some()
+        {
+            return Err(
+                "desktop storage bootstrap recovery result contained private fields".to_string(),
+            );
+        }
+        let snapshot = message.recovery_snapshot.ok_or_else(|| {
+            "desktop storage bootstrap recovery result omitted its snapshot".to_string()
+        })?;
+        validate_database_recovery_snapshot(&snapshot)?;
+        return Ok(BootstrapOutcome::Recovery(snapshot));
+    }
+    if message.status != "ready" {
+        return Err("desktop storage bootstrap returned an invalid status".to_string());
+    }
+
+    if let Some(snapshot) = message.recovery_snapshot.as_ref() {
+        validate_database_recovery_snapshot(snapshot)?;
+    }
+    let recovery_snapshot = message.recovery_snapshot.clone();
     let returned = storage_layout_from_message(message)?;
     if returned.application_support_root != storage.application_support_root
         || returned.database_path != storage.database_path
@@ -1671,7 +1841,10 @@ pub(crate) fn run_bootstrap_with_storage(
     {
         return Err("desktop storage bootstrap changed the resolved layout".to_string());
     }
-    Ok(storage.clone())
+    Ok(BootstrapOutcome::Ready {
+        storage: storage.clone(),
+        recovery_snapshot,
+    })
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -2155,9 +2328,61 @@ mod tests {
             logs_directory: None,
             pending_restore_directory: None,
             reason: Some("migration-missing".to_string()),
+            created: None,
+            recovery_snapshot: None,
         };
         assert_ne!(message.status, "ready");
         assert_eq!(message.reason.as_deref(), Some("migration-missing"));
+    }
+
+    #[test]
+    fn database_recovery_snapshot_is_allowlisted_and_minimal() {
+        let snapshot = DesktopDatabaseRecoverySnapshot {
+            schema_version: DESKTOP_DATABASE_RECOVERY_SCHEMA_VERSION,
+            state: DESKTOP_DATABASE_RECOVERY_STATE_RESTORE_AVAILABLE.to_string(),
+            reason_code: DESKTOP_DATABASE_RECOVERY_REASON_DATABASE_INTEGRITY_FAILED.to_string(),
+            managed_backup_available: true,
+            pending_restore_available: false,
+            can_start_empty: false,
+        };
+        validate_database_recovery_snapshot(&snapshot).expect("valid recovery snapshot");
+        let encoded = serde_json::to_value(&snapshot).expect("serialize recovery snapshot");
+        assert_eq!(
+            encoded,
+            serde_json::json!({
+                "schemaVersion": 1,
+                "state": "restore-available",
+                "reasonCode": "database-integrity-failed",
+                "managedBackupAvailable": true,
+                "pendingRestoreAvailable": false,
+                "canStartEmpty": false,
+            })
+        );
+        assert!(!encoded.to_string().contains("DATABASE_URL"));
+        assert!(!encoded.to_string().contains("/Users/"));
+    }
+
+    #[test]
+    fn database_recovery_snapshot_rejects_unknown_state_and_inconsistent_flags() {
+        let unknown_state = DesktopDatabaseRecoverySnapshot {
+            schema_version: DESKTOP_DATABASE_RECOVERY_SCHEMA_VERSION,
+            state: "unexpected".to_string(),
+            reason_code: DESKTOP_DATABASE_RECOVERY_REASON_DATABASE_READ_FAILED.to_string(),
+            managed_backup_available: false,
+            pending_restore_available: false,
+            can_start_empty: false,
+        };
+        assert!(validate_database_recovery_snapshot(&unknown_state).is_err());
+
+        let no_source = DesktopDatabaseRecoverySnapshot {
+            schema_version: DESKTOP_DATABASE_RECOVERY_SCHEMA_VERSION,
+            state: DESKTOP_DATABASE_RECOVERY_STATE_RESTORE_AVAILABLE.to_string(),
+            reason_code: DESKTOP_DATABASE_RECOVERY_REASON_DATABASE_READ_FAILED.to_string(),
+            managed_backup_available: false,
+            pending_restore_available: false,
+            can_start_empty: false,
+        };
+        assert!(validate_database_recovery_snapshot(&no_source).is_err());
     }
 
     #[test]

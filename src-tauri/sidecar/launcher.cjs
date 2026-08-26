@@ -20,6 +20,26 @@ const DESKTOP_MANAGED_BACKUP_CATALOG_KIND = "desktop-managed-backup-catalog";
 const DESKTOP_PENDING_RESTORE_PROTOCOL_VERSION = 1;
 const DESKTOP_PENDING_RESTORE_STATUS_KIND = "desktop-pending-restore-status";
 const DESKTOP_PENDING_RESTORE_RESUME_KIND = "desktop-pending-restore-resume";
+const DESKTOP_DATABASE_RECOVERY_SCHEMA_VERSION = 1;
+const DESKTOP_DATABASE_RECOVERY_STATES = new Set([
+  "first-run",
+  "restore-available",
+  "diagnostic-required",
+  "restore-unavailable",
+]);
+const DESKTOP_DATABASE_RECOVERY_REASON_CODES = new Set([
+  "database-missing",
+  "database-missing-after-initialization",
+  "database-not-a-file",
+  "database-read-failed",
+  "database-integrity-failed",
+  "database-foreign-key-failed",
+  "database-schema-invalid",
+  "database-migration-required",
+  "database-initialization-failed",
+  "database-initialization-marker-invalid",
+  "storage-unavailable",
+]);
 
 let runtimeChild = null;
 let shutdownPromise = null;
@@ -65,22 +85,110 @@ function storageOptions(root) {
   };
 }
 
+function unavailableDatabaseRecoverySnapshot() {
+  return {
+    schemaVersion: DESKTOP_DATABASE_RECOVERY_SCHEMA_VERSION,
+    state: "diagnostic-required",
+    reasonCode: "storage-unavailable",
+    managedBackupAvailable: false,
+    pendingRestoreAvailable: false,
+    canStartEmpty: false,
+  };
+}
+
+function sanitizeDatabaseRecoverySnapshot(snapshot) {
+  if (snapshot === null || typeof snapshot !== "object" || Array.isArray(snapshot)) {
+    return unavailableDatabaseRecoverySnapshot();
+  }
+  const keys = [
+    "schemaVersion",
+    "state",
+    "reasonCode",
+    "managedBackupAvailable",
+    "pendingRestoreAvailable",
+    "canStartEmpty",
+  ];
+  if (Object.keys(snapshot).length !== keys.length
+    || keys.some((key) => !Object.hasOwn(snapshot, key))) {
+    return unavailableDatabaseRecoverySnapshot();
+  }
+  if (snapshot.schemaVersion !== DESKTOP_DATABASE_RECOVERY_SCHEMA_VERSION
+    || !DESKTOP_DATABASE_RECOVERY_STATES.has(snapshot.state)
+    || !DESKTOP_DATABASE_RECOVERY_REASON_CODES.has(snapshot.reasonCode)
+    || typeof snapshot.managedBackupAvailable !== "boolean"
+    || typeof snapshot.pendingRestoreAvailable !== "boolean"
+    || typeof snapshot.canStartEmpty !== "boolean"
+    || (snapshot.state === "first-run" && snapshot.canStartEmpty !== true)
+    || (snapshot.state !== "first-run" && snapshot.canStartEmpty !== false)) {
+    return unavailableDatabaseRecoverySnapshot();
+  }
+  if (snapshot.state === "restore-available"
+    && !snapshot.managedBackupAvailable
+    && !snapshot.pendingRestoreAvailable) {
+    return unavailableDatabaseRecoverySnapshot();
+  }
+  if (snapshot.state === "restore-unavailable"
+    && (snapshot.managedBackupAvailable || snapshot.pendingRestoreAvailable)) {
+    return unavailableDatabaseRecoverySnapshot();
+  }
+  return {
+    schemaVersion: snapshot.schemaVersion,
+    state: snapshot.state,
+    reasonCode: snapshot.reasonCode,
+    managedBackupAvailable: snapshot.managedBackupAvailable,
+    pendingRestoreAvailable: snapshot.pendingRestoreAvailable,
+    canStartEmpty: snapshot.canStartEmpty,
+  };
+}
+
+function bootstrapRecoveryMessage(snapshot) {
+  return {
+    kind: "bootstrap",
+    status: "recovery",
+    recoverySnapshot: sanitizeDatabaseRecoverySnapshot(snapshot),
+  };
+}
+
 function bootstrap() {
   const root = projectRoot();
-  const options = storageOptions(root);
-  const result = options.storage.bootstrapDesktopStorage({
-    storagePaths: options.storagePaths,
-    nodeExecutable: options.nodeExecutable,
-    migrationsDirectory: options.migrationsDirectory,
-    prismaBinary: options.prismaBinary,
-    prismaConfigPath: options.prismaConfigPath,
-    prismaProjectRoot: options.prismaProjectRoot,
-    environment: process.env,
-  });
+  let options;
+  try {
+    options = storageOptions(root);
+  } catch {
+    const message = bootstrapRecoveryMessage(unavailableDatabaseRecoverySnapshot());
+    process.stdout.write(`${JSON.stringify(message)}\n`);
+    return null;
+  }
+
+  let result;
+  try {
+    result = options.storage.bootstrapDesktopStorage({
+      storagePaths: options.storagePaths,
+      nodeExecutable: options.nodeExecutable,
+      migrationsDirectory: options.migrationsDirectory,
+      prismaBinary: options.prismaBinary,
+      prismaConfigPath: options.prismaConfigPath,
+      prismaProjectRoot: options.prismaProjectRoot,
+      environment: process.env,
+    });
+  } catch {
+    const message = bootstrapRecoveryMessage(unavailableDatabaseRecoverySnapshot());
+    process.stdout.write(`${JSON.stringify(message)}\n`);
+    return null;
+  }
+
+  const recoverySnapshot = result.recoverySnapshot === null
+    || result.recoverySnapshot === undefined
+    ? null
+    : sanitizeDatabaseRecoverySnapshot(result.recoverySnapshot);
+  if (result.status !== options.storage.DESKTOP_DATABASE_STATUS.READY) {
+    process.stdout.write(`${JSON.stringify(bootstrapRecoveryMessage(recoverySnapshot))}\n`);
+    return result;
+  }
 
   process.stdout.write(`${JSON.stringify({
     kind: "bootstrap",
-    status: result.status,
+    status: "ready",
     applicationSupportRoot: result.applicationSupportRoot,
     liveDirectory: result.liveDirectory,
     databasePath: result.databasePath,
@@ -91,13 +199,8 @@ function bootstrap() {
     pendingRestoreDirectory: result.pendingRestoreDirectory,
     reason: result.reason,
     created: result.created,
+    recoverySnapshot,
   })}\n`);
-
-  if (result.status !== options.storage.DESKTOP_DATABASE_STATUS.READY) {
-    const error = new Error(`desktop database is not ready: ${result.status} (${result.reason})`);
-    error.code = result.status;
-    throw error;
-  }
 
   return result;
 }
@@ -1254,5 +1357,7 @@ module.exports = {
   validateDesktopDataBackupOperationRequest,
   stopRuntime,
   printStoragePaths,
+  sanitizeDatabaseRecoverySnapshot,
+  unavailableDatabaseRecoverySnapshot,
   waitForHttpReady,
 };

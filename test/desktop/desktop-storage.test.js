@@ -261,6 +261,14 @@ test("initializes the live SQLite database from the current migrations", () => {
       fs.readFileSync(markerPath, "utf8"),
       DESKTOP_DATABASE_INITIALIZATION_MARKER_CONTENT,
     );
+    assert.deepEqual(result.recoverySnapshot, {
+      schemaVersion: 1,
+      state: "first-run",
+      reasonCode: "database-missing",
+      managedBackupAvailable: false,
+      pendingRestoreAvailable: false,
+      canStartEmpty: true,
+    });
     assert.deepEqual(result.appliedMigrations, migrationNames);
     assert.equal(result.migrationState, DESKTOP_MIGRATION_STATE.COMPLETE);
     for (const directoryPath of [
@@ -327,17 +335,22 @@ test("retries initial migration after a claimed empty database migration fails",
       },
     };
 
-    assert.throws(
-      () =>
-        bootstrapDesktopStorage({
-          ...migrationOptions,
-          environment: {
-            ...migrationOptions.environment,
-            FAKE_PRISMA_MODE: "fail",
-          },
-        }),
-      (error) => error.code === "INITIAL_MIGRATION_FAILED",
-    );
+    const failed = bootstrapDesktopStorage({
+      ...migrationOptions,
+      environment: {
+        ...migrationOptions.environment,
+        FAKE_PRISMA_MODE: "fail",
+      },
+    });
+    assert.equal(failed.status, DESKTOP_DATABASE_STATUS.INITIALIZATION_REQUIRED);
+    assert.deepEqual(failed.recoverySnapshot, {
+      schemaVersion: 1,
+      state: "first-run",
+      reasonCode: "database-initialization-failed",
+      managedBackupAvailable: false,
+      pendingRestoreAvailable: false,
+      canStartEmpty: true,
+    });
     assert.equal(fs.existsSync(paths.databasePath), false);
     assert.equal(fs.existsSync(initializationMarkerPath(homeDirectory)), false);
     assert.equal(
@@ -379,18 +392,20 @@ test("keeps a migration-written database for recovery after process failure", ()
       },
     };
 
-    assert.throws(
-      () => bootstrapDesktopStorage(migrationOptions),
-      (error) => error.code === "INITIAL_MIGRATION_FAILED",
-    );
+    const result = bootstrapDesktopStorage(migrationOptions);
 
     const failedContent = Buffer.from("migration wrote data", "utf8");
+    assert.equal(result.status, DESKTOP_DATABASE_STATUS.UNUSABLE);
+    assert.deepEqual(result.recoverySnapshot, {
+      schemaVersion: 1,
+      state: "diagnostic-required",
+      reasonCode: "database-initialization-failed",
+      managedBackupAvailable: false,
+      pendingRestoreAvailable: false,
+      canStartEmpty: false,
+    });
     assert.deepEqual(fs.readFileSync(paths.databasePath), failedContent);
     assert.equal(fs.existsSync(initializationMarkerPath(homeDirectory)), false);
-
-    const result = bootstrapDesktopStorage(migrationOptions);
-    assert.equal(result.status, DESKTOP_DATABASE_STATUS.UNUSABLE);
-    assert.equal(result.created, false);
     assert.deepEqual(fs.readFileSync(paths.databasePath), failedContent);
   });
 });
@@ -448,7 +463,7 @@ test("does not change an existing ready database on bootstrap rerun", {
   });
 });
 
-test("skips detailed integrity checks during lightweight bootstrap inspection", {
+test("performs detailed integrity checks before starting the normal database runtime", {
   skip: !sqliteCliAvailable,
 }, () => {
   withTempHome((homeDirectory) => {
@@ -489,7 +504,16 @@ test("skips detailed integrity checks during lightweight bootstrap inspection", 
       sqliteBinary,
     });
 
-    assert.equal(lightweightBootstrap.status, DESKTOP_DATABASE_STATUS.READY);
+    assert.equal(lightweightBootstrap.status, DESKTOP_DATABASE_STATUS.UNUSABLE);
+    assert.equal(lightweightBootstrap.reason, "foreign-key-check-failed");
+    assert.deepEqual(lightweightBootstrap.recoverySnapshot, {
+      schemaVersion: 1,
+      state: "diagnostic-required",
+      reasonCode: "database-foreign-key-failed",
+      managedBackupAvailable: false,
+      pendingRestoreAvailable: false,
+      canStartEmpty: false,
+    });
     assert.equal(lightweightBootstrap.created, false);
     assert.equal(lightweightInspection.status, DESKTOP_DATABASE_STATUS.READY);
     assert.equal(
@@ -502,7 +526,7 @@ test("skips detailed integrity checks during lightweight bootstrap inspection", 
 
     assert.deepEqual(
       lightweightBootstrapRun.queries.filter(isFullIntegrityCheck),
-      [],
+      ["PRAGMA integrity_check", "PRAGMA foreign_key_check"],
     );
     assert.deepEqual(
       detailedInspectionRun.queries.filter(isFullIntegrityCheck),
@@ -568,6 +592,14 @@ test("stops recovery when the marker remains after the live database disappears"
       DESKTOP_DATABASE_MISSING_AFTER_INITIALIZATION_REASON,
     );
     assert.equal(result.created, false);
+    assert.deepEqual(result.recoverySnapshot, {
+      schemaVersion: 1,
+      state: "restore-available",
+      reasonCode: "database-missing-after-initialization",
+      managedBackupAvailable: true,
+      pendingRestoreAvailable: false,
+      canStartEmpty: false,
+    });
     assert.equal(fs.existsSync(paths.databasePath), false);
     assert.deepEqual(
       fs.readFileSync(markerPath, "utf8"),
@@ -599,6 +631,14 @@ test("fails closed for an invalid initialization marker without changing the dat
       result.reason,
       DESKTOP_DATABASE_INITIALIZATION_MARKER_INVALID_REASON,
     );
+    assert.deepEqual(result.recoverySnapshot, {
+      schemaVersion: 1,
+      state: "diagnostic-required",
+      reasonCode: "database-initialization-marker-invalid",
+      managedBackupAvailable: false,
+      pendingRestoreAvailable: false,
+      canStartEmpty: false,
+    });
     assert.equal(fileDigest(result.databasePath), beforeDigest);
     assert.equal(fs.readFileSync(markerPath, "utf8"), "invalid marker");
   });
@@ -641,6 +681,14 @@ test("fails closed when the live database path is a symlink to a valid SQLite da
     assert.equal(result.status, DESKTOP_DATABASE_STATUS.UNUSABLE);
     assert.equal(result.reason, DESKTOP_DATABASE_NOT_A_FILE_REASON);
     assert.equal(result.created, false);
+    assert.deepEqual(result.recoverySnapshot, {
+      schemaVersion: 1,
+      state: "restore-available",
+      reasonCode: "database-not-a-file",
+      managedBackupAvailable: true,
+      pendingRestoreAvailable: false,
+      canStartEmpty: false,
+    });
     assert.equal(fileDigest(targetPath), targetDigest);
     assert.deepEqual(fs.readFileSync(markerPath), markerContent);
     assert.deepEqual(fs.readFileSync(backupPath), backupContent);
@@ -698,6 +746,14 @@ test("distinguishes a database with a missing migration and does not apply it", 
     assert.equal(result.migrationState, DESKTOP_MIGRATION_STATE.MISSING);
     assert.deepEqual(result.pendingMigrations, [lastMigration]);
     assert.equal(result.created, false);
+    assert.deepEqual(result.recoverySnapshot, {
+      schemaVersion: 1,
+      state: "diagnostic-required",
+      reasonCode: "database-migration-required",
+      managedBackupAvailable: false,
+      pendingRestoreAvailable: false,
+      canStartEmpty: false,
+    });
     assert.equal(fileDigest(result.databasePath), beforeDigest);
   });
 });

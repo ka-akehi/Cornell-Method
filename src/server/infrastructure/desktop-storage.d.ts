@@ -7,6 +7,28 @@ export const DESKTOP_DATABASE_INITIALIZATION_MARKER_INVALID_REASON:
 export const DESKTOP_DATABASE_MISSING_AFTER_INITIALIZATION_REASON:
   "database-missing-after-initialization";
 export const DESKTOP_DATABASE_NOT_A_FILE_REASON: "database-not-a-file";
+export const DESKTOP_DATABASE_RECOVERY_SCHEMA_VERSION: 1;
+export const DESKTOP_DATABASE_RECOVERY_STATE: {
+  readonly FIRST_RUN: "first-run";
+  readonly RESTORE_AVAILABLE: "restore-available";
+  readonly DIAGNOSTIC_REQUIRED: "diagnostic-required";
+  readonly RESTORE_UNAVAILABLE: "restore-unavailable";
+};
+export const DESKTOP_DATABASE_RECOVERY_REASON_CODES: {
+  readonly DATABASE_MISSING: "database-missing";
+  readonly DATABASE_MISSING_AFTER_INITIALIZATION:
+    "database-missing-after-initialization";
+  readonly DATABASE_NOT_A_FILE: "database-not-a-file";
+  readonly DATABASE_READ_FAILED: "database-read-failed";
+  readonly DATABASE_INTEGRITY_FAILED: "database-integrity-failed";
+  readonly DATABASE_FOREIGN_KEY_FAILED: "database-foreign-key-failed";
+  readonly DATABASE_SCHEMA_INVALID: "database-schema-invalid";
+  readonly DATABASE_MIGRATION_REQUIRED: "database-migration-required";
+  readonly DATABASE_INITIALIZATION_FAILED: "database-initialization-failed";
+  readonly DATABASE_INITIALIZATION_MARKER_INVALID:
+    "database-initialization-marker-invalid";
+  readonly STORAGE_UNAVAILABLE: "storage-unavailable";
+};
 export const DESKTOP_STAGED_MIGRATION_STATUS: {
   readonly NO_PENDING: "no-pending";
   readonly SWITCHED: "switched";
@@ -61,6 +83,34 @@ export type DesktopStoragePaths = {
   databaseUrl: string;
 };
 
+export type DesktopDatabaseRecoveryState =
+  | "first-run"
+  | "restore-available"
+  | "diagnostic-required"
+  | "restore-unavailable";
+
+export type DesktopDatabaseRecoveryReasonCode =
+  | "database-missing"
+  | "database-missing-after-initialization"
+  | "database-not-a-file"
+  | "database-read-failed"
+  | "database-integrity-failed"
+  | "database-foreign-key-failed"
+  | "database-schema-invalid"
+  | "database-migration-required"
+  | "database-initialization-failed"
+  | "database-initialization-marker-invalid"
+  | "storage-unavailable";
+
+export type DesktopDatabaseRecoverySnapshot = {
+  schemaVersion: 1;
+  state: DesktopDatabaseRecoveryState;
+  reasonCode: DesktopDatabaseRecoveryReasonCode;
+  managedBackupAvailable: boolean;
+  pendingRestoreAvailable: boolean;
+  canStartEmpty: boolean;
+};
+
 export type DesktopDatabaseInspection = DesktopStoragePaths & {
   status: string;
   migrationState: string;
@@ -71,6 +121,7 @@ export type DesktopDatabaseInspection = DesktopStoragePaths & {
   appliedMigrations?: string[];
   reason: string;
   created?: boolean;
+  recoverySnapshot?: DesktopDatabaseRecoverySnapshot | null;
   paths?: DesktopStoragePaths;
 };
 

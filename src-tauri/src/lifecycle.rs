@@ -225,9 +225,9 @@ pub(crate) struct AppState {
 }
 
 impl AppState {
-    pub(crate) fn new(sidecar: SidecarHandle, window_state_path: PathBuf) -> Self {
+    pub(crate) fn new(sidecar: Option<SidecarHandle>, window_state_path: PathBuf) -> Self {
         Self {
-            sidecar: Arc::new(Mutex::new(Some(sidecar))),
+            sidecar: Arc::new(Mutex::new(sidecar)),
             data_operation: Mutex::new(()),
             close: Arc::new(CloseCoordinator::new()),
             window_state_path,

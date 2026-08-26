@@ -31,7 +31,8 @@ use runtime::{
     managed_backup_catalog_command_error, pending_restore_resume_command_error,
     pending_restore_status_command_error, read_managed_backup_catalog, read_pending_restore_status,
     resolve_storage_layout, run_bootstrap_with_storage, runtime_project_root, start_sidecar,
-    DesktopDataBackupOperationResponse, DesktopFileDialogResult, DesktopFileSelectionStore,
+    BootstrapOutcome, DesktopDataBackupOperationResponse, DesktopDatabaseRecoverySnapshotResponse,
+    DesktopDatabaseRecoveryState, DesktopFileDialogResult, DesktopFileSelectionStore,
     DesktopManagedBackupCatalogResponse, DesktopPendingRestoreResumeResponse,
     DesktopPendingRestoreStatusResponse, StorageLayout,
 };
@@ -114,6 +115,15 @@ async fn read_desktop_pending_restore_status(
     tauri::async_runtime::spawn_blocking(move || read_pending_restore_status(&app))
         .await
         .unwrap_or_else(|_| pending_restore_status_command_error("command-worker-failed"))
+}
+
+#[tauri::command]
+fn read_desktop_database_recovery_snapshot(
+    app: tauri::AppHandle,
+) -> DesktopDatabaseRecoverySnapshotResponse {
+    app.try_state::<DesktopDatabaseRecoveryState>()
+        .map(|state| state.inner().response())
+        .unwrap_or_else(DesktopDatabaseRecoveryState::unavailable_response)
 }
 
 #[tauri::command]
@@ -284,6 +294,7 @@ fn run_application(instance: InstanceGuard) -> AppResult<()> {
             run_desktop_data_backup_operation,
             read_desktop_managed_backup_catalog,
             read_desktop_pending_restore_status,
+            read_desktop_database_recovery_snapshot,
             resume_desktop_pending_restore
         ])
         .setup(move |app| {
@@ -322,40 +333,70 @@ fn run_application(instance: InstanceGuard) -> AppResult<()> {
                     "desktop staged migration failed ({code}); startup recovery completed: {reason}"
                 );
             }
-            let storage = run_bootstrap_with_storage(&root, &storage).map_err(boxed_error)?;
-            let pending_status = read_pending_restore_status(app.handle());
-            if pending_status.status == "invalid" {
-                if let Some(error_code) = pending_status.error_code.as_deref() {
-                    eprintln!("desktop pending restore is invalid: {error_code}");
-                }
-            }
+            let bootstrap_outcome =
+                run_bootstrap_with_storage(&root, &storage).map_err(boxed_error)?;
+            let (storage, recovery_state, recovery_only) = match bootstrap_outcome {
+                BootstrapOutcome::Ready {
+                    storage,
+                    recovery_snapshot,
+                } => (
+                    storage,
+                    DesktopDatabaseRecoveryState::new(recovery_snapshot),
+                    false,
+                ),
+                BootstrapOutcome::Recovery(snapshot) => (
+                    storage.clone(),
+                    DesktopDatabaseRecoveryState::recovery_only(snapshot),
+                    true,
+                ),
+            };
+            app.manage(recovery_state);
             app.manage(update_state);
-            let sidecar = start_sidecar(&root, &storage).map_err(boxed_error)?;
-            let runtime_url = sidecar.runtime_url();
+
+            let sidecar = if recovery_only {
+                None
+            } else {
+                let pending_status = read_pending_restore_status(app.handle());
+                if pending_status.status == "invalid" {
+                    if let Some(error_code) = pending_status.error_code.as_deref() {
+                        eprintln!("desktop pending restore is invalid: {error_code}");
+                    }
+                }
+                Some(start_sidecar(&root, &storage).map_err(boxed_error)?)
+            };
+            let runtime_url = sidecar.as_ref().map(|sidecar| sidecar.runtime_url());
             let window_state_path = window_state_path(storage.settings_directory());
             let state = Arc::new(AppState::new(sidecar, window_state_path));
-            let close_for_navigation = state.close_coordinator();
-            let app_for_navigation = app.handle().clone();
+            if recovery_only {
+                state.allow_application_exit();
+            }
             let primary_url_for_navigation = runtime_url.clone();
-            let window = match WebviewWindowBuilder::new(
+            let window_url = match runtime_url.clone() {
+                Some(runtime_url) => WebviewUrl::External(runtime_url),
+                None => WebviewUrl::App("index.html".into()),
+            };
+            let mut window_builder = WebviewWindowBuilder::new(
                 app,
                 PRIMARY_WINDOW_LABEL,
-                WebviewUrl::External(runtime_url),
+                window_url,
             )
             .title(PRIMARY_WINDOW_TITLE)
             .inner_size(DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT)
             .resizable(true)
-            .visible(false)
-            .on_navigation(move |url| {
-                handle_navigation(
-                    url,
-                    &close_for_navigation,
-                    &app_for_navigation,
-                    &primary_url_for_navigation,
-                )
-            })
-            .build()
-            {
+            .visible(false);
+            if let Some(primary_url_for_navigation) = primary_url_for_navigation {
+                let close_for_navigation = state.close_coordinator();
+                let app_for_navigation = app.handle().clone();
+                window_builder = window_builder.on_navigation(move |url| {
+                    handle_navigation(
+                        url,
+                        &close_for_navigation,
+                        &app_for_navigation,
+                        &primary_url_for_navigation,
+                    )
+                });
+            }
+            let window = match window_builder.build() {
                 Ok(window) => window,
                 Err(error) => {
                     return Err(Box::new(error));
@@ -364,21 +405,30 @@ fn run_application(instance: InstanceGuard) -> AppResult<()> {
             restore_window_state(&window, state.window_state_path());
             app.manage(state.clone());
 
-            let close_state = state.clone();
-            let close_app = app.handle().clone();
-            let close_window = window.clone();
-            window.on_window_event(move |event| {
-                if let WindowEvent::CloseRequested { api, .. } = event {
-                    api.prevent_close();
-                    request_close(close_window.clone(), close_app.clone(), close_state.clone());
-                }
-            });
+            if !recovery_only {
+                let close_state = state.clone();
+                let close_app = app.handle().clone();
+                let close_window = window.clone();
+                window.on_window_event(move |event| {
+                    if let WindowEvent::CloseRequested { api, .. } = event {
+                        api.prevent_close();
+                        request_close(
+                            close_window.clone(),
+                            close_app.clone(),
+                            close_state.clone(),
+                        );
+                    }
+                });
+            }
             window
                 .show()
                 .map_err(|error| boxed_error(error.to_string()))?;
             window
                 .set_focus()
                 .map_err(|error| boxed_error(error.to_string()))?;
+            if recovery_only {
+                return Ok(());
+            }
             if recovery_outcome == RecoveryOutcome::RestartRequired {
                 state.allow_application_exit();
                 app.handle().request_restart();

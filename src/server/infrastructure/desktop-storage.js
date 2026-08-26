@@ -67,6 +67,26 @@ const DESKTOP_DATABASE_STATUS = Object.freeze({
   MIGRATION_REQUIRED: "migration-required",
   UNUSABLE: "unusable",
 });
+const DESKTOP_DATABASE_RECOVERY_SCHEMA_VERSION = 1;
+const DESKTOP_DATABASE_RECOVERY_STATE = Object.freeze({
+  FIRST_RUN: "first-run",
+  RESTORE_AVAILABLE: "restore-available",
+  DIAGNOSTIC_REQUIRED: "diagnostic-required",
+  RESTORE_UNAVAILABLE: "restore-unavailable",
+});
+const DESKTOP_DATABASE_RECOVERY_REASON_CODES = Object.freeze({
+  DATABASE_MISSING: "database-missing",
+  DATABASE_MISSING_AFTER_INITIALIZATION: "database-missing-after-initialization",
+  DATABASE_NOT_A_FILE: "database-not-a-file",
+  DATABASE_READ_FAILED: "database-read-failed",
+  DATABASE_INTEGRITY_FAILED: "database-integrity-failed",
+  DATABASE_FOREIGN_KEY_FAILED: "database-foreign-key-failed",
+  DATABASE_SCHEMA_INVALID: "database-schema-invalid",
+  DATABASE_MIGRATION_REQUIRED: "database-migration-required",
+  DATABASE_INITIALIZATION_FAILED: "database-initialization-failed",
+  DATABASE_INITIALIZATION_MARKER_INVALID: "database-initialization-marker-invalid",
+  STORAGE_UNAVAILABLE: "storage-unavailable",
+});
 const DESKTOP_MIGRATION_STATE = Object.freeze({
   COMPLETE: "complete",
   INCOMPLETE: "incomplete",
@@ -1202,6 +1222,150 @@ function databaseMissingAfterInitializationResult(paths) {
     paths,
     DESKTOP_DATABASE_MISSING_AFTER_INITIALIZATION_REASON,
   );
+}
+
+function recoveryAvailability(paths, { sqliteBinary, migrationsDirectory } = {}) {
+  let managedBackupAvailable = false;
+  let pendingRestoreAvailable = false;
+
+  try {
+    const catalog = listManagedBackupCatalog({ storagePaths: paths });
+    managedBackupAvailable = catalog.status === "ready" && catalog.backups.length > 0;
+  } catch {
+    // An invalid or unreadable catalog is not a trusted recovery source.
+  }
+
+  try {
+    const pending = inspectPendingRestore({
+      storagePaths: paths,
+      sqliteBinary,
+      migrationsDirectory,
+    });
+    pendingRestoreAvailable = pending.status === "available";
+  } catch {
+    // Pending restore is available only after its existing read-only contract
+    // has validated the artifact.
+  }
+
+  return { managedBackupAvailable, pendingRestoreAvailable };
+}
+
+function recoveryReasonCode(reason, fallback = DESKTOP_DATABASE_RECOVERY_REASON_CODES.DATABASE_READ_FAILED) {
+  if (Object.values(DESKTOP_DATABASE_RECOVERY_REASON_CODES).includes(reason)) {
+    return reason;
+  }
+
+  return {
+    "database-missing": DESKTOP_DATABASE_RECOVERY_REASON_CODES.DATABASE_MISSING,
+    [DESKTOP_DATABASE_MISSING_AFTER_INITIALIZATION_REASON]:
+      DESKTOP_DATABASE_RECOVERY_REASON_CODES.DATABASE_MISSING_AFTER_INITIALIZATION,
+    [DESKTOP_DATABASE_NOT_A_FILE_REASON]:
+      DESKTOP_DATABASE_RECOVERY_REASON_CODES.DATABASE_NOT_A_FILE,
+    "database-stat-failed": DESKTOP_DATABASE_RECOVERY_REASON_CODES.DATABASE_READ_FAILED,
+    "database-open-failed": DESKTOP_DATABASE_RECOVERY_REASON_CODES.DATABASE_READ_FAILED,
+    "integrity-check-failed": DESKTOP_DATABASE_RECOVERY_REASON_CODES.DATABASE_INTEGRITY_FAILED,
+    "foreign-key-check-failed": DESKTOP_DATABASE_RECOVERY_REASON_CODES.DATABASE_FOREIGN_KEY_FAILED,
+    "schema-read-failed": DESKTOP_DATABASE_RECOVERY_REASON_CODES.DATABASE_SCHEMA_INVALID,
+    "migration-table-missing": DESKTOP_DATABASE_RECOVERY_REASON_CODES.DATABASE_SCHEMA_INVALID,
+    "migration-table-read-failed": DESKTOP_DATABASE_RECOVERY_REASON_CODES.DATABASE_SCHEMA_INVALID,
+    "migration-table-invalid": DESKTOP_DATABASE_RECOVERY_REASON_CODES.DATABASE_SCHEMA_INVALID,
+    "migration-state-read-failed": DESKTOP_DATABASE_RECOVERY_REASON_CODES.DATABASE_SCHEMA_INVALID,
+    "migration-state-invalid": DESKTOP_DATABASE_RECOVERY_REASON_CODES.DATABASE_SCHEMA_INVALID,
+    "migration-history-duplicate": DESKTOP_DATABASE_RECOVERY_REASON_CODES.DATABASE_SCHEMA_INVALID,
+    "migration-history-unknown": DESKTOP_DATABASE_RECOVERY_REASON_CODES.DATABASE_SCHEMA_INVALID,
+    "migration-history-gap": DESKTOP_DATABASE_RECOVERY_REASON_CODES.DATABASE_SCHEMA_INVALID,
+    "migration-checksum-mismatch": DESKTOP_DATABASE_RECOVERY_REASON_CODES.DATABASE_SCHEMA_INVALID,
+    "required-table-missing": DESKTOP_DATABASE_RECOVERY_REASON_CODES.DATABASE_SCHEMA_INVALID,
+    "database-undeterminable": DESKTOP_DATABASE_RECOVERY_REASON_CODES.DATABASE_READ_FAILED,
+    "migration-source-unavailable": DESKTOP_DATABASE_RECOVERY_REASON_CODES.DATABASE_SCHEMA_INVALID,
+    "migration-incomplete": DESKTOP_DATABASE_RECOVERY_REASON_CODES.DATABASE_MIGRATION_REQUIRED,
+    "migration-missing": DESKTOP_DATABASE_RECOVERY_REASON_CODES.DATABASE_MIGRATION_REQUIRED,
+  }[reason] ?? fallback;
+}
+
+function recoveryStateForInspection(
+  inspection,
+  { managedBackupAvailable, pendingRestoreAvailable },
+  stateOverride,
+) {
+  if (Object.values(DESKTOP_DATABASE_RECOVERY_STATE).includes(stateOverride)) {
+    return stateOverride;
+  }
+
+  if (
+    inspection.status === DESKTOP_DATABASE_STATUS.INITIALIZATION_REQUIRED
+    && inspection.reason === "database-missing"
+  ) {
+    return DESKTOP_DATABASE_RECOVERY_STATE.FIRST_RUN;
+  }
+
+  if (managedBackupAvailable || pendingRestoreAvailable) {
+    return DESKTOP_DATABASE_RECOVERY_STATE.RESTORE_AVAILABLE;
+  }
+
+  if (inspection.reason === DESKTOP_DATABASE_MISSING_AFTER_INITIALIZATION_REASON) {
+    return DESKTOP_DATABASE_RECOVERY_STATE.RESTORE_UNAVAILABLE;
+  }
+
+  return DESKTOP_DATABASE_RECOVERY_STATE.DIAGNOSTIC_REQUIRED;
+}
+
+function createDesktopDatabaseRecoverySnapshot({
+  inspection,
+  storagePaths,
+  sqliteBinary,
+  migrationsDirectory,
+  reasonCode,
+  state,
+  managedBackupAvailable,
+  pendingRestoreAvailable,
+} = {}) {
+  const availability = recoveryAvailability(
+    storagePaths ?? inspection?.paths ?? inspection,
+    { sqliteBinary, migrationsDirectory },
+  );
+  const resolvedManagedBackupAvailable = managedBackupAvailable ?? availability.managedBackupAvailable;
+  const resolvedPendingRestoreAvailable = pendingRestoreAvailable ?? availability.pendingRestoreAvailable;
+  const resolvedState = recoveryStateForInspection(
+    inspection,
+    {
+      managedBackupAvailable: resolvedManagedBackupAvailable,
+      pendingRestoreAvailable: resolvedPendingRestoreAvailable,
+    },
+    state,
+  );
+
+  return Object.freeze({
+    schemaVersion: DESKTOP_DATABASE_RECOVERY_SCHEMA_VERSION,
+    state: resolvedState,
+    reasonCode: recoveryReasonCode(
+      reasonCode ?? inspection?.reason,
+      DESKTOP_DATABASE_RECOVERY_REASON_CODES.DATABASE_READ_FAILED,
+    ),
+    managedBackupAvailable: resolvedManagedBackupAvailable,
+    pendingRestoreAvailable: resolvedPendingRestoreAvailable,
+    canStartEmpty: resolvedState === DESKTOP_DATABASE_RECOVERY_STATE.FIRST_RUN,
+  });
+}
+
+function bootstrapRecoveryResult(
+  paths,
+  inspection,
+  created,
+  { sqliteBinary, migrationsDirectory, ...snapshotOptions } = {},
+) {
+  return {
+    ...inspection,
+    created,
+    paths,
+    recoverySnapshot: createDesktopDatabaseRecoverySnapshot({
+      inspection,
+      storagePaths: paths,
+      sqliteBinary,
+      migrationsDirectory,
+      ...snapshotOptions,
+    }),
+  };
 }
 
 function inspectDesktopDatabase({
@@ -4061,21 +4225,28 @@ function runStagedUpdateMigration({
   });
 }
 
-function finalizeReadyDatabase(paths, inspection, created) {
+function finalizeReadyDatabase(paths, inspection, created, recoverySnapshot = null) {
   try {
     ensureDatabaseInitializationMarker(paths);
   } catch {
+    const failed = unusableResult(
+      paths,
+      DESKTOP_DATABASE_INITIALIZATION_MARKER_INVALID_REASON,
+    );
     return {
-      ...unusableResult(
-        paths,
-        DESKTOP_DATABASE_INITIALIZATION_MARKER_INVALID_REASON,
-      ),
+      ...failed,
       created,
       paths,
+      recoverySnapshot: createDesktopDatabaseRecoverySnapshot({
+        inspection: failed,
+        storagePaths: paths,
+        state: DESKTOP_DATABASE_RECOVERY_STATE.DIAGNOSTIC_REQUIRED,
+        reasonCode: DESKTOP_DATABASE_RECOVERY_REASON_CODES.DATABASE_INITIALIZATION_MARKER_INVALID,
+      }),
     };
   }
 
-  return { ...inspection, created, paths };
+  return { ...inspection, created, paths, recoverySnapshot };
 }
 
 function bootstrapDesktopStorage({
@@ -4096,7 +4267,7 @@ function bootstrapDesktopStorage({
     storagePaths: paths,
     migrationsDirectory,
     sqliteBinary,
-    integrityCheck: false,
+    integrityCheck: true,
   });
 
   if (current.status !== DESKTOP_DATABASE_STATUS.INITIALIZATION_REQUIRED) {
@@ -4104,26 +4275,60 @@ function bootstrapDesktopStorage({
       return finalizeReadyDatabase(paths, current, false);
     }
 
-    return { ...current, created: false, paths };
+    return bootstrapRecoveryResult(paths, current, false, {
+      sqliteBinary,
+      migrationsDirectory,
+    });
   }
 
-  readMigrationManifest(migrationsDirectory);
-  const claim = claimNewDatabaseFile(paths.databasePath);
+  const firstRunSnapshot = createDesktopDatabaseRecoverySnapshot({
+    inspection: current,
+    storagePaths: paths,
+    sqliteBinary,
+    migrationsDirectory,
+  });
+
+  try {
+    readMigrationManifest(migrationsDirectory);
+  } catch {
+    return bootstrapRecoveryResult(paths, current, false, {
+      sqliteBinary,
+      migrationsDirectory,
+      state: DESKTOP_DATABASE_RECOVERY_STATE.DIAGNOSTIC_REQUIRED,
+      reasonCode: DESKTOP_DATABASE_RECOVERY_REASON_CODES.DATABASE_SCHEMA_INVALID,
+    });
+  }
+
+  let claim;
+  try {
+    claim = claimNewDatabaseFile(paths.databasePath);
+  } catch {
+    return bootstrapRecoveryResult(paths, current, false, {
+      sqliteBinary,
+      migrationsDirectory,
+      state: DESKTOP_DATABASE_RECOVERY_STATE.DIAGNOSTIC_REQUIRED,
+      reasonCode: DESKTOP_DATABASE_RECOVERY_REASON_CODES.DATABASE_INITIALIZATION_FAILED,
+    });
+  }
   if (claim === false) {
     const raced = inspectDesktopDatabase({
       storagePaths: paths,
       migrationsDirectory,
       sqliteBinary,
-      integrityCheck: false,
+      integrityCheck: true,
     });
 
     if (raced.status === DESKTOP_DATABASE_STATUS.READY) {
-      return finalizeReadyDatabase(paths, raced, false);
+      return finalizeReadyDatabase(paths, raced, false, firstRunSnapshot);
     }
 
-    return { ...raced, created: false, paths };
+    return bootstrapRecoveryResult(paths, raced, false, {
+      sqliteBinary,
+      migrationsDirectory,
+    });
   }
 
+  let initialMigrationError = null;
   try {
     applyInitialMigrations({
       databasePath: paths.databasePath,
@@ -4135,10 +4340,32 @@ function bootstrapDesktopStorage({
       environment,
     });
   } catch (error) {
+    initialMigrationError = error;
     cleanupClaimedDatabaseFile(claim);
-    throw error;
   } finally {
     closeClaimedDatabaseFile(claim);
+  }
+
+  if (initialMigrationError !== null) {
+    let failedInspection;
+    try {
+      failedInspection = inspectDesktopDatabase({
+        storagePaths: paths,
+        migrationsDirectory,
+        sqliteBinary,
+        integrityCheck: true,
+      });
+    } catch {
+      failedInspection = unusableResult(paths, "database-undeterminable");
+    }
+    return bootstrapRecoveryResult(paths, failedInspection, true, {
+      sqliteBinary,
+      migrationsDirectory,
+      state: failedInspection.reason === "database-missing"
+        ? DESKTOP_DATABASE_RECOVERY_STATE.FIRST_RUN
+        : undefined,
+      reasonCode: DESKTOP_DATABASE_RECOVERY_REASON_CODES.DATABASE_INITIALIZATION_FAILED,
+    });
   }
 
   const initialized = inspectDesktopDatabase({
@@ -4149,10 +4376,13 @@ function bootstrapDesktopStorage({
   });
 
   if (initialized.status === DESKTOP_DATABASE_STATUS.READY) {
-    return finalizeReadyDatabase(paths, initialized, true);
+    return finalizeReadyDatabase(paths, initialized, true, firstRunSnapshot);
   }
 
-  return { ...initialized, created: true, paths };
+  return bootstrapRecoveryResult(paths, initialized, true, {
+    sqliteBinary,
+    migrationsDirectory,
+  });
 }
 
 function restoreStorageError(message, code, cause) {
@@ -6975,6 +7205,9 @@ module.exports = {
   DESKTOP_DATABASE_INITIALIZATION_MARKER_NAME,
   DESKTOP_DATABASE_MISSING_AFTER_INITIALIZATION_REASON,
   DESKTOP_DATABASE_NOT_A_FILE_REASON,
+  DESKTOP_DATABASE_RECOVERY_REASON_CODES,
+  DESKTOP_DATABASE_RECOVERY_SCHEMA_VERSION,
+  DESKTOP_DATABASE_RECOVERY_STATE,
   DESKTOP_DATABASE_STATUS,
   DESKTOP_MIGRATION_STATE,
   DESKTOP_PENDING_RESTORE_PROTOCOL_VERSION,
