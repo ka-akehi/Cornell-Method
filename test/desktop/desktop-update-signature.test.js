@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-require-imports -- This focused test uses Node's built-in test runner. */
 "use strict";
 
 const assert = require("node:assert/strict");
