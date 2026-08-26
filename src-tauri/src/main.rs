@@ -1,5 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod diagnostics;
 mod instance;
 mod lifecycle;
 mod menu;
@@ -22,6 +23,11 @@ mod window_state;
 
 use std::sync::Arc;
 
+use diagnostics::{
+    choose_diagnostic_export_destination, diagnostic_dialog_command_error,
+    diagnostic_export_command_error, export_diagnostics_command, DiagnosticDialogResponse,
+    DiagnosticExportResponse, DiagnosticsState,
+};
 use instance::{acquire_instance, start_focus_listener, InstanceAcquire, InstanceGuard};
 use lifecycle::{handle_navigation, request_close, run_data_backup_operation_command, AppState};
 use menu::{build_desktop_menu, handle_desktop_menu_event};
@@ -138,6 +144,25 @@ async fn resume_desktop_pending_restore(
     .unwrap_or_else(|_| {
         pending_restore_resume_command_error(None, None, "request", "command-worker-failed")
     })
+}
+
+#[tauri::command]
+async fn choose_diagnostic_export_destination_command(
+    app: tauri::AppHandle,
+) -> DiagnosticDialogResponse {
+    tauri::async_runtime::spawn_blocking(move || choose_diagnostic_export_destination(&app))
+        .await
+        .unwrap_or_else(|_| diagnostic_dialog_command_error("command-worker-failed"))
+}
+
+#[tauri::command]
+async fn export_desktop_diagnostics(
+    app: tauri::AppHandle,
+    request: serde_json::Value,
+) -> DiagnosticExportResponse {
+    tauri::async_runtime::spawn_blocking(move || export_diagnostics_command(&app, request))
+        .await
+        .unwrap_or_else(|_| diagnostic_export_command_error("request", "command-worker-failed"))
 }
 
 fn start_startup_update_check(app: tauri::AppHandle) {
@@ -289,6 +314,8 @@ fn run_application(instance: InstanceGuard) -> AppResult<()> {
             read_update_state,
             verify_pending_update,
             apply_verified_update,
+            choose_diagnostic_export_destination_command,
+            export_desktop_diagnostics,
             choose_data_backup_save_destination_command,
             choose_data_backup_external_source_command,
             run_desktop_data_backup_operation,
@@ -307,18 +334,28 @@ fn run_application(instance: InstanceGuard) -> AppResult<()> {
             let storage = resolve_storage_layout(&root).map_err(boxed_error)?;
             app.manage(storage.clone());
             app.manage(DesktopFileSelectionStore::default());
+            app.manage(DiagnosticsState::new(storage.logs_directory().to_path_buf()));
             let staging_directory = storage.staging_directory();
             let update_state =
                 UpdateStateStore::load_or_default(storage.settings_directory(), &staging_directory);
             if let Some(issue) = update_state.load_issue() {
+                diagnostics::record_failure_for_app(app.handle(), "startup", issue.code());
                 eprintln!("desktop update state unavailable: {}", issue.code());
             }
             let migration_outcome = run_startup_staged_migration(&root, &storage, &update_state)
                 .map_err(boxed_error)?;
+            if let StartupStagedMigrationOutcome::Failed { code, .. } = &migration_outcome {
+                diagnostics::record_failure_for_app(app.handle(), "storage", code);
+            }
             let recovery_outcome = match run_startup_update_recovery(&root, &storage, &update_state)
             {
                 Ok(outcome) => outcome,
                 Err(recovery_error) => {
+                    diagnostics::record_failure_for_app(
+                        app.handle(),
+                        "recovery",
+                        "startup-recovery-failed",
+                    );
                     let error = match &migration_outcome {
                         StartupStagedMigrationOutcome::Failed { code, reason } => format!(
                             "{reason} (code {code}); startup update recovery failed: {recovery_error}"
@@ -333,8 +370,13 @@ fn run_application(instance: InstanceGuard) -> AppResult<()> {
                     "desktop staged migration failed ({code}); startup recovery completed: {reason}"
                 );
             }
-            let bootstrap_outcome =
-                run_bootstrap_with_storage(&root, &storage).map_err(boxed_error)?;
+            let bootstrap_outcome = match run_bootstrap_with_storage(&root, &storage) {
+                Ok(outcome) => outcome,
+                Err(error) => {
+                    diagnostics::record_failure_for_app(app.handle(), "startup", "bootstrap-failed");
+                    return Err(boxed_error(error));
+                }
+            };
             let (storage, recovery_state, recovery_only) = match bootstrap_outcome {
                 BootstrapOutcome::Ready {
                     storage,
@@ -345,7 +387,14 @@ fn run_application(instance: InstanceGuard) -> AppResult<()> {
                     false,
                 ),
                 BootstrapOutcome::Recovery(snapshot) => (
-                    storage.clone(),
+                    {
+                        diagnostics::record_failure_for_app(
+                            app.handle(),
+                            "recovery",
+                            &snapshot.reason_code,
+                        );
+                        storage.clone()
+                    },
                     DesktopDatabaseRecoveryState::recovery_only(snapshot),
                     true,
                 ),
@@ -359,10 +408,17 @@ fn run_application(instance: InstanceGuard) -> AppResult<()> {
                 let pending_status = read_pending_restore_status(app.handle());
                 if pending_status.status == "invalid" {
                     if let Some(error_code) = pending_status.error_code.as_deref() {
+                        diagnostics::record_failure_for_app(app.handle(), "pending-restore", error_code);
                         eprintln!("desktop pending restore is invalid: {error_code}");
                     }
                 }
-                Some(start_sidecar(&root, &storage).map_err(boxed_error)?)
+                match start_sidecar(&root, &storage) {
+                    Ok(sidecar) => Some(sidecar),
+                    Err(error) => {
+                        diagnostics::record_failure_for_app(app.handle(), "sidecar", "sidecar-start-failed");
+                        return Err(boxed_error(error));
+                    }
+                }
             };
             let runtime_url = sidecar.as_ref().map(|sidecar| sidecar.runtime_url());
             let window_state_path = window_state_path(storage.settings_directory());
@@ -445,6 +501,11 @@ fn run_application(instance: InstanceGuard) -> AppResult<()> {
             tauri::RunEvent::Exit => {
                 if let Some(state) = app.try_state::<Arc<AppState>>() {
                     if let Err(error) = state.inner().cleanup_sidecar() {
+                        diagnostics::record_failure_for_app(
+                            app,
+                            "sidecar",
+                            "sidecar-exit-cleanup-failed",
+                        );
                         eprintln!("desktop final exit sidecar cleanup failed: {error}");
                     }
                 }

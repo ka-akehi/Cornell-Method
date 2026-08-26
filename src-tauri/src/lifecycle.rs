@@ -10,6 +10,7 @@ use super::{
     manual_update_check_worker, read_update_state_worker, verify_pending_update_command_worker,
     AppResult, PRIMARY_WINDOW_LABEL,
 };
+use crate::diagnostics;
 use crate::update_check::{ManualUpdateCheckCommandError, ManualUpdateCheckResponse};
 use crate::update_state::{UpdateStateError, UpdateStateSnapshot, UpdateStateStore};
 use crate::update_verification::{VerifyPendingUpdateCommandError, VerifyPendingUpdateResponse};
@@ -519,6 +520,9 @@ pub(crate) fn run_data_backup_operation_command(
         Some(operation_id.clone()),
         restore_mode,
     );
+    if !response.is_success() {
+        diagnostics::record_failure_for_app(app, "restore", "restore-operation-failed");
+    }
 
     if recovery_only {
         if !response.is_success() {
@@ -539,6 +543,9 @@ pub(crate) fn run_data_backup_operation_command(
     }
 
     let restarted = state.restart_sidecar_for_data_operation(&root, storage.inner());
+    if restarted.is_err() {
+        diagnostics::record_failure_for_app(app, "sidecar", "sidecar-restart-failed");
+    }
     if let Ok(runtime_url) = restarted {
         navigate_to_restarted_runtime(app, &runtime_url);
         return response;
@@ -673,6 +680,9 @@ pub(crate) fn run_pending_restore_resume_command(
     } else {
         run_pending_restore_operation_with_operation_id(app, request, operation_id.clone())
     };
+    if !(response.ok && response.status == "success") {
+        diagnostics::record_failure_for_app(app, "pending-restore", "pending-restore-failed");
+    }
 
     if recovery_only {
         if !(response.ok && response.status == "success") {
@@ -694,6 +704,9 @@ pub(crate) fn run_pending_restore_resume_command(
     }
 
     let restarted = state.restart_sidecar_for_data_operation(&root, storage.inner());
+    if restarted.is_err() {
+        diagnostics::record_failure_for_app(app, "sidecar", "sidecar-restart-failed");
+    }
     if let Ok(runtime_url) = restarted {
         navigate_to_restarted_runtime(app, &runtime_url);
         return response;

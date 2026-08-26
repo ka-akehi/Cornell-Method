@@ -36,6 +36,10 @@ const DESKTOP_DATABASE_RECOVERY_SCHEMA_VERSION = 1;
 const PENDING_RESTORE_STATUS_COMMAND = "read_desktop_pending_restore_status";
 const PENDING_RESTORE_RESUME_COMMAND = "resume_desktop_pending_restore";
 const DESKTOP_PENDING_RESTORE_PROTOCOL_VERSION = 1;
+const DIAGNOSTIC_EXPORT_PROTOCOL_VERSION = 1;
+const DIAGNOSTIC_DESTINATION_COMMAND =
+  "choose_diagnostic_export_destination_command";
+const DIAGNOSTIC_EXPORT_COMMAND = "export_desktop_diagnostics";
 const MIN_DYNAMIC_PORT = 1;
 const MAX_DYNAMIC_PORT = 65_535;
 const NOTES_PATH = "/notes";
@@ -288,6 +292,106 @@ export type DesktopDataBackupOperationResponse = {
 
 export type DesktopDataBackupOperationResult =
   | DesktopDataBackupOperationResponse
+  | { kind: "unsupported-web" };
+
+export type DesktopDiagnosticSelection = {
+  kind: "diagnostic-export";
+  selectionId: string;
+  fileName: string;
+};
+
+export type DesktopDiagnosticDialogStatus = "selected" | "cancelled" | "error";
+
+export type DesktopDiagnosticErrorCode =
+  | "command-worker-failed"
+  | "command-unavailable"
+  | "storage-unavailable"
+  | "selection-store-failed"
+  | "dialog-unavailable"
+  | "dialog-response-too-large"
+  | "dialog-invalid-response"
+  | "dialog-error"
+  | "unsupported-platform"
+  | "relative-path"
+  | "invalid-path"
+  | "managed-path"
+  | "unsafe-path"
+  | "symlink-path"
+  | "path-unavailable"
+  | "path-not-file"
+  | "path-not-found"
+  | "invalid-selection"
+  | "selection-not-found"
+  | "selection-kind-mismatch"
+  | "invalid-request"
+  | "unsupported-protocol-version"
+  | "destination-exists"
+  | "diagnostics-unavailable"
+  | "log-lock-failed"
+  | "temporary-artifact-exists"
+  | "serialization-failed"
+  | "archive-too-large"
+  | "archive-write-failed"
+  | "publish-failed"
+  | "cleanup-failed"
+  | "unsafe-log-entry"
+  | "unsafe-log-directory"
+  | "log-directory-unavailable"
+  | "log-read-failed"
+  | "log-invalid"
+  | "log-file-too-large"
+  | "log-prune-failed"
+  | "internal-error";
+
+export type DesktopDiagnosticDialogResponse = {
+  kind: "desktop-diagnostic-dialog";
+  schemaVersion: 1;
+  dialog: "diagnostic-export";
+  operation: "select-destination";
+  status: DesktopDiagnosticDialogStatus;
+  phase: "dialog";
+  ok: boolean;
+  selection: DesktopDiagnosticSelection | null;
+  errorCode: DesktopDiagnosticErrorCode | null;
+};
+
+export type DesktopDiagnosticDialogResult =
+  | DesktopDiagnosticDialogResponse
+  | { kind: "unsupported-web" };
+
+export type DesktopDiagnosticsExportRequest = {
+  schemaVersion: 1;
+  operation: "export";
+  selectionId: string;
+};
+
+export type DesktopDiagnosticExportStatus = "success" | "error";
+export type DesktopDiagnosticExportPhase =
+  | "request"
+  | "validation"
+  | "archive"
+  | "publish";
+
+export type DesktopDiagnosticExportResult = {
+  fileName: string;
+  size: number;
+};
+
+export type DesktopDiagnosticExportResponse = {
+  kind: "desktop-diagnostic-export";
+  schemaVersion: 1;
+  dialog: "diagnostic-export";
+  operation: "export";
+  status: DesktopDiagnosticExportStatus;
+  phase: DesktopDiagnosticExportPhase;
+  ok: boolean;
+  selection: DesktopDiagnosticSelection | null;
+  errorCode: DesktopDiagnosticErrorCode | null;
+  result: DesktopDiagnosticExportResult | null;
+};
+
+export type DesktopDiagnosticExportResultResponse =
+  | DesktopDiagnosticExportResponse
   | { kind: "unsupported-web" };
 
 export type DesktopDatabaseRecoverySnapshotState =
@@ -892,6 +996,282 @@ function isDesktopDataBackupOperationErrorCode(
       "restore-failed",
     ].includes(value)
   );
+}
+
+function isDiagnosticSelectionId(value: unknown): value is string {
+  return (
+    typeof value === "string" &&
+    value.length > 0 &&
+    value.length <= 128 &&
+    /^[A-Za-z0-9._-]+$/.test(value)
+  );
+}
+
+function isDiagnosticBasename(value: unknown): value is string {
+  return (
+    typeof value === "string" &&
+    value.length > 0 &&
+    value.length <= 255 &&
+    value !== "." &&
+    value !== ".." &&
+    !/[\\/\u0000-\u001f\u007f]/.test(value)
+  );
+}
+
+function isDiagnosticSelection(
+  value: unknown,
+): value is DesktopDiagnosticSelection {
+  return (
+    isRecord(value) &&
+    hasExactKeys(value, ["kind", "selectionId", "fileName"]) &&
+    value.kind === "diagnostic-export" &&
+    isDiagnosticSelectionId(value.selectionId) &&
+    isDiagnosticBasename(value.fileName)
+  );
+}
+
+function isDiagnosticErrorCode(
+  value: unknown,
+): value is DesktopDiagnosticErrorCode {
+  return (
+    typeof value === "string" &&
+    [
+      "command-worker-failed",
+      "command-unavailable",
+      "storage-unavailable",
+      "selection-store-failed",
+      "dialog-unavailable",
+      "dialog-response-too-large",
+      "dialog-invalid-response",
+      "dialog-error",
+      "unsupported-platform",
+      "relative-path",
+      "invalid-path",
+      "managed-path",
+      "unsafe-path",
+      "symlink-path",
+      "path-unavailable",
+      "path-not-file",
+      "path-not-found",
+      "invalid-selection",
+      "selection-not-found",
+      "selection-kind-mismatch",
+      "invalid-request",
+      "unsupported-protocol-version",
+      "destination-exists",
+      "diagnostics-unavailable",
+      "log-lock-failed",
+      "temporary-artifact-exists",
+      "serialization-failed",
+      "archive-too-large",
+      "archive-write-failed",
+      "publish-failed",
+      "cleanup-failed",
+      "unsafe-log-entry",
+      "unsafe-log-directory",
+      "log-directory-unavailable",
+      "log-read-failed",
+      "log-invalid",
+      "log-file-too-large",
+      "log-prune-failed",
+      "internal-error",
+    ].includes(value)
+  );
+}
+
+function isDiagnosticExportRequest(
+  value: unknown,
+): value is DesktopDiagnosticsExportRequest {
+  return (
+    isRecord(value) &&
+    hasExactKeys(value, ["schemaVersion", "operation", "selectionId"]) &&
+    value.schemaVersion === DIAGNOSTIC_EXPORT_PROTOCOL_VERSION &&
+    value.operation === "export" &&
+    isDiagnosticSelectionId(value.selectionId)
+  );
+}
+
+function unavailableDiagnosticDialog(
+  errorCode: DesktopDiagnosticErrorCode = "command-unavailable",
+): DesktopDiagnosticDialogResponse {
+  return {
+    kind: "desktop-diagnostic-dialog",
+    schemaVersion: DIAGNOSTIC_EXPORT_PROTOCOL_VERSION,
+    dialog: "diagnostic-export",
+    operation: "select-destination",
+    status: "error",
+    phase: "dialog",
+    ok: false,
+    selection: null,
+    errorCode,
+  };
+}
+
+function unavailableDiagnosticExport(
+  errorCode: DesktopDiagnosticErrorCode = "command-unavailable",
+): DesktopDiagnosticExportResponse {
+  return {
+    kind: "desktop-diagnostic-export",
+    schemaVersion: DIAGNOSTIC_EXPORT_PROTOCOL_VERSION,
+    dialog: "diagnostic-export",
+    operation: "export",
+    status: "error",
+    phase: "request",
+    ok: false,
+    selection: null,
+    errorCode,
+    result: null,
+  };
+}
+
+function normalizeDiagnosticDialogResponse(
+  value: unknown,
+): DesktopDiagnosticDialogResponse {
+  if (
+    !isRecord(value) ||
+    !hasExactKeys(value, [
+      "kind",
+      "schemaVersion",
+      "dialog",
+      "operation",
+      "status",
+      "phase",
+      "ok",
+      "selection",
+      "errorCode",
+    ]) ||
+    value.kind !== "desktop-diagnostic-dialog" ||
+    value.schemaVersion !== DIAGNOSTIC_EXPORT_PROTOCOL_VERSION ||
+    value.dialog !== "diagnostic-export" ||
+    value.operation !== "select-destination" ||
+    value.phase !== "dialog" ||
+    !["selected", "cancelled", "error"].includes(value.status as string) ||
+    typeof value.ok !== "boolean" ||
+    !(value.selection === null || isDiagnosticSelection(value.selection)) ||
+    !(value.errorCode === null || isDiagnosticErrorCode(value.errorCode))
+  ) {
+    return unavailableDiagnosticDialog();
+  }
+
+  const status = value.status as DesktopDiagnosticDialogStatus;
+  if (
+    (status === "selected" &&
+      (!value.ok || value.selection === null || value.errorCode !== null)) ||
+    (status === "cancelled" &&
+      (value.ok || value.selection !== null || value.errorCode !== null)) ||
+    (status === "error" &&
+      (value.ok || value.selection !== null || value.errorCode === null))
+  ) {
+    return unavailableDiagnosticDialog();
+  }
+
+  return {
+    kind: "desktop-diagnostic-dialog",
+    schemaVersion: DIAGNOSTIC_EXPORT_PROTOCOL_VERSION,
+    dialog: "diagnostic-export",
+    operation: "select-destination",
+    status,
+    phase: "dialog",
+    ok: status === "selected",
+    selection:
+      status === "selected"
+        ? (value.selection as DesktopDiagnosticSelection)
+        : null,
+    errorCode:
+      status === "error"
+        ? (value.errorCode as DesktopDiagnosticErrorCode)
+        : null,
+  };
+}
+
+function normalizeDiagnosticExportResponse(
+  value: unknown,
+  expectedSelectionId: string,
+): DesktopDiagnosticExportResponse {
+  if (
+    !isRecord(value) ||
+    !hasExactKeys(value, [
+      "kind",
+      "schemaVersion",
+      "dialog",
+      "operation",
+      "status",
+      "phase",
+      "ok",
+      "selection",
+      "errorCode",
+      "result",
+    ]) ||
+    value.kind !== "desktop-diagnostic-export" ||
+    value.schemaVersion !== DIAGNOSTIC_EXPORT_PROTOCOL_VERSION ||
+    value.dialog !== "diagnostic-export" ||
+    value.operation !== "export" ||
+    !["success", "error"].includes(value.status as string) ||
+    !["request", "validation", "archive", "publish"].includes(
+      value.phase as string,
+    ) ||
+    typeof value.ok !== "boolean" ||
+    !(value.selection === null || isDiagnosticSelection(value.selection)) ||
+    !(value.errorCode === null || isDiagnosticErrorCode(value.errorCode)) ||
+    !(value.result === null || isRecord(value.result))
+  ) {
+    return unavailableDiagnosticExport();
+  }
+
+  if (value.selection !== null) {
+    if (value.selection.selectionId !== expectedSelectionId) {
+      return unavailableDiagnosticExport();
+    }
+  }
+
+  if (value.result !== null) {
+    if (
+      !hasExactKeys(value.result, ["fileName", "size"]) ||
+      !isDiagnosticBasename(value.result.fileName) ||
+      typeof value.result.size !== "number" ||
+      !Number.isSafeInteger(value.result.size) ||
+      value.result.size < 1
+    ) {
+      return unavailableDiagnosticExport();
+    }
+  }
+
+  const status = value.status as DesktopDiagnosticExportStatus;
+  const phase = value.phase as DesktopDiagnosticExportPhase;
+  if (
+    (status === "success" &&
+      (!value.ok ||
+        phase !== "publish" ||
+        value.selection === null ||
+        value.errorCode !== null ||
+        value.result === null)) ||
+    (status === "error" &&
+      (value.ok || value.errorCode === null || value.result !== null))
+  ) {
+    return unavailableDiagnosticExport();
+  }
+
+  return {
+    kind: "desktop-diagnostic-export",
+    schemaVersion: DIAGNOSTIC_EXPORT_PROTOCOL_VERSION,
+    dialog: "diagnostic-export",
+    operation: "export",
+    status,
+    phase,
+    ok: status === "success",
+    selection:
+      status === "success"
+        ? (value.selection as DesktopDiagnosticSelection)
+        : null,
+    errorCode:
+      status === "error"
+        ? (value.errorCode as DesktopDiagnosticErrorCode)
+        : null,
+    result:
+      status === "success"
+        ? (value.result as DesktopDiagnosticExportResult)
+        : null,
+  };
 }
 
 function unavailableDialogResult(
@@ -1929,6 +2309,45 @@ export function requestDataBackupOperation(
       () => unavailableOperationResult(request.operation),
     )
     .catch(() => unavailableOperationResult(request.operation));
+}
+
+export function requestDiagnosticExportDestination(): Promise<DesktopDiagnosticDialogResult> {
+  if (typeof window === "undefined" || !hasTauriRuntime()) {
+    return Promise.resolve({ kind: "unsupported-web" });
+  }
+
+  return Promise.resolve()
+    .then(() => invoke<unknown>(DIAGNOSTIC_DESTINATION_COMMAND))
+    .then(
+      normalizeDiagnosticDialogResponse,
+      () => unavailableDiagnosticDialog(),
+    )
+    .catch(() => unavailableDiagnosticDialog());
+}
+
+export function requestDesktopDiagnostics(
+  selectionId: string,
+): Promise<DesktopDiagnosticExportResultResponse> {
+  if (typeof window === "undefined" || !hasTauriRuntime()) {
+    return Promise.resolve({ kind: "unsupported-web" });
+  }
+
+  const request = {
+    schemaVersion: DIAGNOSTIC_EXPORT_PROTOCOL_VERSION,
+    operation: "export" as const,
+    selectionId,
+  };
+  if (!isDiagnosticExportRequest(request)) {
+    return Promise.resolve(unavailableDiagnosticExport("invalid-request"));
+  }
+
+  return Promise.resolve()
+    .then(() => invoke<unknown>(DIAGNOSTIC_EXPORT_COMMAND, { request }))
+    .then(
+      (value) => normalizeDiagnosticExportResponse(value, selectionId),
+      () => unavailableDiagnosticExport(),
+    )
+    .catch(() => unavailableDiagnosticExport());
 }
 
 export function requestDesktopDatabaseRecoverySnapshot(): Promise<DesktopDatabaseRecoverySnapshotResult> {

@@ -3,11 +3,93 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Cornell Method Notebook</title>
+    <meta name="color-scheme" content="light" />
+    <title>ノートの復旧 | Cornell Method Notebook</title>
+    <style>
+      :root { color-scheme: light; --canvas:#f3f5f8; --surface:#fff; --surface-muted:#f8fafc; --ink:#17253a; --ink-soft:#5b6b80; --line:#dce3ec; --line-strong:#c7d2e0; --blue:#2167b1; --blue-dark:#174c86; --blue-wash:#eaf3ff; --green:#23735b; --green-wash:#eaf7f1; --amber:#8c5c13; --amber-wash:#fff7e5; --red:#9f3f42; --red-wash:#fff0f0; --shadow:0 18px 48px rgba(26,48,79,.09); font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans","Yu Gothic","Noto Sans JP",sans-serif; }
+      * { box-sizing:border-box; }
+      html,body { min-width:320px; min-height:100%; margin:0; }
+      body { background:var(--canvas); color:var(--ink); line-height:1.65; }
+      button { min-height:46px; border:1px solid transparent; border-radius:9px; padding:.7rem 1rem; font:inherit; font-weight:700; cursor:pointer; transition:background-color 140ms ease,border-color 140ms ease,color 140ms ease,transform 140ms ease; }
+      button:focus-visible { outline:3px solid rgba(33,103,177,.34); outline-offset:3px; }
+      button:active:not(:disabled) { transform:translateY(1px); }
+      button:disabled { cursor:not-allowed; opacity:.55; }
+      .page-shell { width:min(100% - 2rem,780px); margin:0 auto; padding:2rem 0 2.5rem; }
+      .utility-bar { display:flex; align-items:center; gap:.75rem; margin-bottom:3.5rem; color:var(--ink-soft); font-size:.78rem; font-weight:800; letter-spacing:.11em; text-transform:uppercase; }
+      .utility-mark { display:grid; width:28px; height:28px; place-items:center; border:1px solid var(--line-strong); border-radius:8px; background:var(--surface); }
+      .utility-mark::before { width:10px; height:12px; border:2px solid var(--blue); border-radius:2px; content:""; }
+      .eyebrow { margin:0; color:var(--blue-dark); }
+      .hero { max-width:650px; margin-bottom:2rem; }
+      .status-line { display:inline-flex; align-items:center; gap:.55rem; margin:0 0 .75rem; color:var(--ink-soft); font-size:.9rem; }
+      .status-dot { width:9px; height:9px; border-radius:50%; background:var(--blue); box-shadow:0 0 0 4px var(--blue-wash); }
+      h1,h2,h3 { line-height:1.25; }
+      h1 { margin:0 0 .8rem; font-size:clamp(1.9rem,5vw,2.65rem); letter-spacing:-.035em; }
+      h2 { margin:0 0 .55rem; font-size:1.25rem; }
+      h3 { margin:0; font-size:1rem; }
+      .hero-copy,.section-copy { margin:0; color:var(--ink-soft); }
+      .hero-copy { max-width:60ch; font-size:1.03rem; }
+      .message { margin:0 0 1rem; border:1px solid var(--line); border-radius:10px; padding:.85rem 1rem; background:var(--surface); }
+      .message.error { border-color:#edc9ca; background:var(--red-wash); color:var(--red); }
+      .message.success { border-color:#bfe2d2; background:var(--green-wash); color:var(--green); }
+      .stack { display:grid; gap:1rem; }
+      .panel { border:1px solid var(--line); border-radius:14px; background:var(--surface); box-shadow:var(--shadow); }
+      .primary-panel { padding:clamp(1.25rem,4vw,2rem); }
+      .primary-panel h2 { font-size:1.45rem; }
+      .panel-header { display:flex; align-items:flex-start; justify-content:space-between; gap:1rem; }
+      .panel-header>div { min-width:0; }
+      .purpose-note { display:flex; gap:.7rem; margin:1.25rem 0 1.5rem; border-top:1px solid var(--line); border-bottom:1px solid var(--line); padding:1rem 0; color:var(--ink-soft); font-size:.92rem; }
+      .purpose-note::before { flex:0 0 auto; width:4px; border-radius:4px; background:var(--blue); content:""; }
+      .primary-action { width:100%; background:var(--blue); color:#fff; }
+      .primary-action:hover:not(:disabled) { background:var(--blue-dark); }
+      .secondary-action { background:var(--surface); border-color:var(--line-strong); color:var(--ink); }
+      .secondary-action:hover:not(:disabled) { border-color:var(--blue); color:var(--blue-dark); }
+      .quiet-action { min-height:42px; padding-inline:.8rem; background:transparent; border-color:var(--line-strong); color:var(--blue-dark); font-size:.9rem; }
+      .quiet-action:hover:not(:disabled) { background:var(--blue-wash); }
+      .inline-status { min-height:1.7em; margin:.75rem 0 0; color:var(--ink-soft); font-size:.9rem; }
+      .recovery-panel { padding:clamp(1.25rem,4vw,1.75rem); }
+      .recovery-panel[hidden],.managed-section[hidden],.pending-section[hidden],.confirmation[hidden],.terminal[hidden],.message[hidden] { display:none; }
+      .recovery-groups { display:grid; gap:1.5rem; margin-top:1.5rem; }
+      .recovery-group { border-top:1px solid var(--line); padding-top:1.25rem; }
+      .group-heading { display:flex; align-items:baseline; justify-content:space-between; gap:1rem; }
+      .group-heading p { margin:0; color:var(--ink-soft); font-size:.86rem; }
+      .backup-list { display:grid; gap:.65rem; margin:.85rem 0 0; padding:0; list-style:none; }
+      .backup-item { display:flex; align-items:center; justify-content:space-between; gap:1rem; border:1px solid var(--line); border-radius:10px; padding:.75rem; background:var(--surface-muted); }
+      .backup-meta { min-width:0; }
+      .backup-name { display:block; overflow-wrap:anywhere; font-weight:700; }
+      .backup-details { display:block; color:var(--ink-soft); font-size:.82rem; }
+      .backup-item button { flex:0 0 auto; }
+      .pending-callout { border-color:#c8dfd6; background:var(--green-wash); }
+      .pending-callout .section-copy { color:#356d5b; }
+      .empty-copy { margin:.85rem 0 0; color:var(--ink-soft); font-size:.9rem; }
+      .confirmation { border:1px solid #a9c7e6; border-radius:12px; padding:1.25rem; background:var(--blue-wash); }
+      .confirmation p { margin:.65rem 0 1rem; color:var(--ink); }
+      .confirmation-actions { display:flex; flex-wrap:wrap; gap:.65rem; }
+      .confirmation-actions button { flex:1 1 150px; }
+      .terminal { border-color:#ead9ad; background:var(--amber-wash); box-shadow:none; }
+      .terminal .section-copy { color:var(--amber); }
+      .footer-actions { display:flex; justify-content:flex-end; margin-top:1.25rem; }
+      .footer-note { margin:.65rem 0 0; color:var(--ink-soft); font-size:.82rem; text-align:right; }
+      @media (max-width:540px) { .page-shell{width:min(100% - 1.25rem,780px);padding-top:1.25rem}.utility-bar{margin-bottom:2.5rem}.panel-header,.group-heading,.backup-item{align-items:stretch;flex-direction:column}.backup-item button{width:100%}.footer-actions{display:block}.footer-actions button{width:100%}.footer-note{text-align:left} }
+      @media (prefers-reduced-motion:reduce) { *,*::before,*::after { scroll-behavior:auto!important; transition-duration:.01ms!important; animation-duration:.01ms!important; } }
+    </style>
   </head>
   <body>
-    <main>
-      <p>ノートを準備しています…</p>
+    <main id="recovery-app" class="page-shell" aria-labelledby="page-title" aria-busy="true">
+      <header class="utility-bar"><span class="utility-mark" aria-hidden="true"></span><p class="eyebrow">Cornell Method Notebook · Recovery</p></header>
+      <section class="hero" aria-describedby="reason-copy"><p class="status-line"><span class="status-dot" aria-hidden="true"></span><span>ローカルの復旧画面</span></p><h1 id="page-title">ノートを開けませんでした</h1><p id="reason-copy" class="hero-copy">復旧画面を準備しています…</p></section>
+      <div id="global-message" class="message" role="alert" aria-live="assertive" hidden></div>
+      <div class="stack">
+        <section class="panel primary-panel" aria-labelledby="diagnostic-heading"><div class="panel-header"><div><h2 id="diagnostic-heading">まず診断情報を保存してください</h2><p class="section-copy">状況を確認するために必要な情報を、選んだ保存先へまとめます。</p></div></div><p class="purpose-note">診断情報にはノート本文や見出しは含まれません。保存が完了したら、この画面を閉じます。</p><button id="diagnostic-button" class="primary-action" type="button" disabled>診断情報を書き出して終了</button><p id="diagnostic-status" class="inline-status" role="status" aria-live="polite"></p></section>
+        <section id="recovery-panel" class="panel recovery-panel" aria-labelledby="recovery-heading" hidden><div class="panel-header"><div><h2 id="recovery-heading">バックアップから復元する</h2><p id="recovery-copy" class="section-copy">バックアップを確認してから、復元を実行できます。</p></div></div><div class="recovery-groups">
+          <section id="managed-section" class="recovery-group managed-section" aria-labelledby="managed-heading" hidden><div class="group-heading"><div><h3 id="managed-heading">このアプリで保存したバックアップ</h3><p id="managed-status" role="status" aria-live="polite"></p></div><button id="managed-refresh" class="quiet-action" type="button">一覧を再読み込み</button></div><ul id="backup-list" class="backup-list"></ul></section>
+          <section id="pending-section" class="recovery-group pending-section" aria-labelledby="pending-heading" hidden><div class="pending-callout panel"><div class="panel-header"><div><h3 id="pending-heading">保留中の復元</h3><p class="section-copy">前回の復元処理を再開できます。内容を確認してから続けてください。</p></div><button id="pending-button" class="quiet-action" type="button">保留中の復元を再開</button></div></div><p id="pending-status" class="inline-status" role="status" aria-live="polite"></p></section>
+          <section class="recovery-group" aria-labelledby="external-heading"><h3 id="external-heading">別のバックアップを使う</h3><p class="section-copy">手元にある SQLite バックアップを選びます。選択したファイルは確認後にだけ使われます。</p><button id="external-button" class="secondary-action" type="button" disabled>外部のバックアップを選ぶ</button><p id="external-status" class="inline-status" role="status" aria-live="polite"></p></section>
+        </div></section>
+        <section id="confirmation" class="confirmation" role="dialog" aria-modal="true" aria-labelledby="confirmation-heading" hidden><h2 id="confirmation-heading">バックアップを確認</h2><p id="confirmation-copy">選択したバックアップで現在のアプリデータを置き換えます。</p><div class="confirmation-actions"><button id="confirm-restore" class="primary-action" type="button">復元する</button><button id="cancel-restore" class="secondary-action" type="button">キャンセル</button></div><p id="restore-status" class="inline-status" role="status" aria-live="polite"></p></section>
+        <section id="terminal" class="panel primary-panel terminal" aria-labelledby="terminal-heading" hidden><h2 id="terminal-heading">復旧画面を準備できませんでした</h2><p class="section-copy">アプリを終了してもう一度お試しください。</p></section>
+      </div>
+      <footer><div class="footer-actions"><button id="exit-button" class="secondary-action" type="button" disabled>そのまま終了</button></div><p id="exit-status" class="footer-note" role="status" aria-live="polite"></p></footer>
     </main>
+    <script src="./recovery.js" defer></script>
   </body>
 </html>

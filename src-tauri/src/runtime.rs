@@ -144,6 +144,10 @@ impl StorageLayout {
         &self.backups_directory
     }
 
+    pub(crate) fn logs_directory(&self) -> &Path {
+        &self.logs_directory
+    }
+
     pub(crate) fn database_url(&self) -> &str {
         &self.database_url
     }
@@ -290,9 +294,10 @@ fn validate_database_recovery_snapshot(
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum DesktopFileDialogKind {
+pub(crate) enum DesktopFileDialogKind {
     SaveDestination,
     OpenExternalSource,
+    DiagnosticExport,
 }
 
 impl DesktopFileDialogKind {
@@ -300,6 +305,7 @@ impl DesktopFileDialogKind {
         match self {
             Self::SaveDestination => "save-destination",
             Self::OpenExternalSource => "open-external-source",
+            Self::DiagnosticExport => "diagnostic-export",
         }
     }
 
@@ -311,9 +317,9 @@ impl DesktopFileDialogKind {
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct DesktopFileSelection {
-    kind: &'static str,
-    selection_id: String,
-    file_name: String,
+    pub(crate) kind: &'static str,
+    pub(crate) selection_id: String,
+    pub(crate) file_name: String,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -702,7 +708,7 @@ fn safe_identifier(value: &str, max_len: usize) -> bool {
             .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-'))
 }
 
-fn validate_external_file_path(
+pub(crate) fn validate_external_file_path(
     path: &Path,
     application_support_root: &Path,
     requires_existing_file: bool,
@@ -790,7 +796,7 @@ pub(crate) fn create_data_backup_operation_id() -> Result<String, &'static str> 
 }
 
 impl DesktopFileSelectionStore {
-    fn insert(
+    pub(crate) fn insert(
         &self,
         dialog_kind: DesktopFileDialogKind,
         path: PathBuf,
@@ -816,13 +822,17 @@ impl DesktopFileSelectionStore {
             SelectedExternalFile { dialog_kind, path },
         );
         Ok(DesktopFileSelection {
-            kind: "external-file",
+            kind: if dialog_kind == DesktopFileDialogKind::DiagnosticExport {
+                "diagnostic-export"
+            } else {
+                "external-file"
+            },
             selection_id,
             file_name,
         })
     }
 
-    fn resolve(
+    pub(crate) fn resolve(
         &self,
         selection_id: &str,
         expected_dialog_kind: DesktopFileDialogKind,
@@ -873,11 +883,23 @@ on error
   return "error"
 end try"#
         }
+        DesktopFileDialogKind::DiagnosticExport => {
+            r#"try
+  set chosenItem to choose file name with prompt "Choose a diagnostic export destination"
+  return "selected" & linefeed & POSIX path of chosenItem
+on error number -128
+  return "cancel"
+on error
+  return "error"
+end try"#
+        }
     }
 }
 
 #[cfg(target_os = "macos")]
-fn run_native_file_dialog(dialog: DesktopFileDialogKind) -> Result<Option<PathBuf>, &'static str> {
+pub(crate) fn run_native_file_dialog(
+    dialog: DesktopFileDialogKind,
+) -> Result<Option<PathBuf>, &'static str> {
     let output = Command::new(DESKTOP_DIALOG_BINARY)
         .args(["-e", desktop_file_dialog_script(dialog)])
         .output()
@@ -904,7 +926,9 @@ fn run_native_file_dialog(dialog: DesktopFileDialogKind) -> Result<Option<PathBu
 }
 
 #[cfg(not(target_os = "macos"))]
-fn run_native_file_dialog(_dialog: DesktopFileDialogKind) -> Result<Option<PathBuf>, &'static str> {
+pub(crate) fn run_native_file_dialog(
+    _dialog: DesktopFileDialogKind,
+) -> Result<Option<PathBuf>, &'static str> {
     Err("unsupported-platform")
 }
 
