@@ -29,6 +29,12 @@ test("backup page uses the AppChrome visual tokens and thin paper dividers", () 
   assert.match(page, /bg-\[var\(--app-accent-deep\)\]/);
   assert.match(page, /focus-visible:outline-\[var\(--app-focus\)\]/);
   assert.match(page, /divide-y divide-\[var\(--app-line\)\]/);
+  assert.match(page, /<h1 className="text-2xl font-semibold text-\[var\(--app-ink\)\]">\s*バックアップ\s*<\/h1>/);
+  assert.doesNotMatch(page, />\s*Backup\s*</);
+  assert.doesNotMatch(
+    page,
+    /SQLite DB の手動バックアップを作成し、最新バックアップを確認します。/,
+  );
   assert.match(
     page,
     /flex min-w-0 flex-col gap-2 sm:flex-row sm:items-start sm:justify-between/,

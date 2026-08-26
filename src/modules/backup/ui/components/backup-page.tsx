@@ -92,15 +92,9 @@ export function BackupPage() {
     <div className="space-y-6">
       <div className="app-page-header flex flex-col gap-4 border-b border-[var(--app-line)] pb-5 sm:flex-row sm:items-end sm:justify-between">
         <div className="min-w-0 space-y-1.5">
-          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--app-accent-deep)]">
-            Backup
-          </p>
           <h1 className="text-2xl font-semibold text-[var(--app-ink)]">
             バックアップ
           </h1>
-          <p className="max-w-2xl text-sm leading-6 text-[var(--app-muted-ink)]">
-            SQLite DB の手動バックアップを作成し、最新バックアップを確認します。
-          </p>
         </div>
         <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:flex-wrap">
           <Link
