@@ -1,7 +1,8 @@
 use super::runtime::{
     create_data_backup_operation_id, run_data_backup_operation_with_operation_id,
     run_pending_restore_operation_with_operation_id, runtime_project_root, start_sidecar,
-    validate_pending_restore_resume_request, SidecarHandle, StorageLayout,
+    validate_pending_restore_resume_request, DesktopDatabaseRecoveryState, SidecarHandle,
+    StorageLayout,
 };
 use super::window_state::capture_window_state;
 use super::{
@@ -212,6 +213,10 @@ impl CloseCoordinator {
         self.exit_allowed.store(true, Ordering::Release);
     }
 
+    fn disallow_exit(&self) {
+        self.exit_allowed.store(false, Ordering::Release);
+    }
+
     fn exit_is_allowed(&self) -> bool {
         self.exit_allowed.load(Ordering::Acquire)
     }
@@ -240,6 +245,10 @@ impl AppState {
 
     pub(crate) fn allow_application_exit(&self) {
         self.close.allow_exit();
+    }
+
+    pub(crate) fn disallow_application_exit(&self) {
+        self.close.disallow_exit();
     }
 
     pub(crate) fn application_exit_is_allowed(&self) -> bool {
@@ -341,6 +350,18 @@ fn navigate_to_restarted_runtime(app: &AppHandle, runtime_url: &tauri::Url) {
     if let Err(error) = window.eval(&format!("window.location.replace({url_literal});")) {
         eprintln!("restarted desktop runtime could not be opened: {error}");
     }
+}
+
+fn database_recovery_is_only(app: &AppHandle) -> bool {
+    app.try_state::<DesktopDatabaseRecoveryState>()
+        .is_some_and(|state| state.inner().is_recovery_only())
+}
+
+fn mark_database_recovery_ready(app: &AppHandle, state: &AppState) {
+    if let Some(recovery_state) = app.try_state::<DesktopDatabaseRecoveryState>() {
+        recovery_state.inner().mark_ready();
+    }
+    state.disallow_application_exit();
 }
 
 pub(crate) fn run_data_backup_operation_command(
@@ -477,7 +498,8 @@ pub(crate) fn run_data_backup_operation_command(
             );
         }
     };
-    if state.quiesce_sidecar_for_data_operation().is_err() {
+    let recovery_only = database_recovery_is_only(app);
+    if !recovery_only && state.quiesce_sidecar_for_data_operation().is_err() {
         return super::runtime::desktop_data_backup_command_error(
             Some("restore"),
             "operation",
@@ -490,6 +512,46 @@ pub(crate) fn run_data_backup_operation_command(
         request.clone(),
         Some(operation_id.clone()),
     );
+
+    if recovery_only {
+        if !response.is_success() {
+            return response;
+        }
+
+        if let Ok(runtime_url) = state.restart_sidecar_for_data_operation(&root, storage.inner()) {
+            mark_database_recovery_ready(app, state);
+            navigate_to_restarted_runtime(app, &runtime_url);
+            return response;
+        }
+
+        let rollback_backup_id = format!("restore-{operation_id}.sqlite.bak");
+        let rollback_request = serde_json::json!({
+            "kind": "desktop-data-backup-operation",
+            "schemaVersion": 1,
+            "operation": "restore",
+            "source": { "kind": "managed-backup", "backupId": rollback_backup_id },
+            "destination": null,
+            "confirmed": true,
+        });
+        let rollback_response = run_data_backup_operation_with_operation_id(
+            app,
+            rollback_request,
+            Some(format!("rollback-{operation_id}")),
+        );
+        if !rollback_response.is_success() {
+            return super::runtime::desktop_data_backup_command_error(
+                Some("restore"),
+                "operation",
+                "rollback-failed",
+            );
+        }
+        return super::runtime::desktop_data_backup_command_error(
+            Some("restore"),
+            "operation",
+            "sidecar-unavailable",
+        );
+    }
+
     let restarted = state.restart_sidecar_for_data_operation(&root, storage.inner());
     if let Ok(runtime_url) = restarted {
         navigate_to_restarted_runtime(app, &runtime_url);
@@ -605,7 +667,8 @@ pub(crate) fn run_pending_restore_resume_command(
             );
         }
     };
-    if state.quiesce_sidecar_for_data_operation().is_err() {
+    let recovery_only = database_recovery_is_only(app);
+    if !recovery_only && state.quiesce_sidecar_for_data_operation().is_err() {
         return super::runtime::pending_restore_resume_command_error(
             Some(operation_id.as_str()),
             Some(pending_id.as_str()),
@@ -616,6 +679,55 @@ pub(crate) fn run_pending_restore_resume_command(
 
     let response =
         run_pending_restore_operation_with_operation_id(app, request, operation_id.clone());
+
+    if recovery_only {
+        if !(response.ok && response.status == "success") {
+            return response;
+        }
+
+        if let Ok(runtime_url) = state.restart_sidecar_for_data_operation(&root, storage.inner()) {
+            mark_database_recovery_ready(app, state);
+            navigate_to_restarted_runtime(app, &runtime_url);
+            return response;
+        }
+
+        let Some(result) = response.result.as_ref() else {
+            return super::runtime::pending_restore_resume_command_error(
+                Some(operation_id.as_str()),
+                Some(pending_id.as_str()),
+                "operation",
+                "protocol-error",
+            );
+        };
+        let rollback_request = serde_json::json!({
+            "kind": "desktop-data-backup-operation",
+            "schemaVersion": 1,
+            "operation": "restore",
+            "source": { "kind": "managed-backup", "backupId": result.safety_backup_id.clone() },
+            "destination": null,
+            "confirmed": true,
+        });
+        let rollback_response = run_data_backup_operation_with_operation_id(
+            app,
+            rollback_request,
+            Some(format!("rollback-{operation_id}")),
+        );
+        if !rollback_response.is_success() {
+            return super::runtime::pending_restore_resume_command_error(
+                Some(operation_id.as_str()),
+                Some(pending_id.as_str()),
+                "operation",
+                "rollback-failed",
+            );
+        }
+        return super::runtime::pending_restore_resume_command_error(
+            Some(operation_id.as_str()),
+            Some(pending_id.as_str()),
+            "operation",
+            "sidecar-unavailable",
+        );
+    }
+
     let restarted = state.restart_sidecar_for_data_operation(&root, storage.inner());
     if let Ok(runtime_url) = restarted {
         navigate_to_restarted_runtime(app, &runtime_url);

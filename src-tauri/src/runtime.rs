@@ -9,6 +9,7 @@ use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpStream;
 use std::path::{Component, Path, PathBuf};
 use std::process::{Child, Command, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -157,29 +158,43 @@ pub(crate) struct DesktopDatabaseRecoverySnapshotResponse {
     snapshot: Option<DesktopDatabaseRecoverySnapshot>,
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub(crate) struct DesktopDatabaseRecoveryState {
     snapshot: Option<DesktopDatabaseRecoverySnapshot>,
-    recovery_only: bool,
+    recovery_only: Arc<AtomicBool>,
+}
+
+impl Default for DesktopDatabaseRecoveryState {
+    fn default() -> Self {
+        Self::new(None)
+    }
 }
 
 impl DesktopDatabaseRecoveryState {
     pub(crate) fn new(snapshot: Option<DesktopDatabaseRecoverySnapshot>) -> Self {
         Self {
             snapshot,
-            recovery_only: false,
+            recovery_only: Arc::new(AtomicBool::new(false)),
         }
     }
 
     pub(crate) fn recovery_only(snapshot: DesktopDatabaseRecoverySnapshot) -> Self {
         Self {
             snapshot: Some(snapshot),
-            recovery_only: true,
+            recovery_only: Arc::new(AtomicBool::new(true)),
         }
     }
 
+    pub(crate) fn is_recovery_only(&self) -> bool {
+        self.recovery_only.load(Ordering::Acquire)
+    }
+
+    pub(crate) fn mark_ready(&self) {
+        self.recovery_only.store(false, Ordering::Release);
+    }
+
     pub(crate) fn response(&self) -> DesktopDatabaseRecoverySnapshotResponse {
-        let status = if self.recovery_only {
+        let status = if self.is_recovery_only() {
             "recovery"
         } else {
             "ready"

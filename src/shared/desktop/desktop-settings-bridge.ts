@@ -30,6 +30,9 @@ const DATA_BACKUP_EXTERNAL_SOURCE_COMMAND =
 const DATA_BACKUP_OPERATION_COMMAND = "run_desktop_data_backup_operation";
 const MANAGED_BACKUP_CATALOG_COMMAND = "read_desktop_managed_backup_catalog";
 const DESKTOP_MANAGED_BACKUP_CATALOG_PROTOCOL_VERSION = 1;
+const DATABASE_RECOVERY_SNAPSHOT_COMMAND =
+  "read_desktop_database_recovery_snapshot";
+const DESKTOP_DATABASE_RECOVERY_SCHEMA_VERSION = 1;
 const PENDING_RESTORE_STATUS_COMMAND = "read_desktop_pending_restore_status";
 const PENDING_RESTORE_RESUME_COMMAND = "resume_desktop_pending_restore";
 const DESKTOP_PENDING_RESTORE_PROTOCOL_VERSION = 1;
@@ -287,6 +290,45 @@ export type DesktopDataBackupOperationResult =
   | DesktopDataBackupOperationResponse
   | { kind: "unsupported-web" };
 
+export type DesktopDatabaseRecoverySnapshotState =
+  | "first-run"
+  | "restore-available"
+  | "diagnostic-required"
+  | "restore-unavailable";
+
+export type DesktopDatabaseRecoveryReasonCode =
+  | "database-missing"
+  | "database-missing-after-initialization"
+  | "database-not-a-file"
+  | "database-read-failed"
+  | "database-integrity-failed"
+  | "database-foreign-key-failed"
+  | "database-schema-invalid"
+  | "database-migration-required"
+  | "database-initialization-failed"
+  | "database-initialization-marker-invalid"
+  | "storage-unavailable";
+
+export type DesktopDatabaseRecoverySnapshot = {
+  schemaVersion: 1;
+  state: DesktopDatabaseRecoverySnapshotState;
+  reasonCode: DesktopDatabaseRecoveryReasonCode;
+  managedBackupAvailable: boolean;
+  pendingRestoreAvailable: boolean;
+  canStartEmpty: boolean;
+};
+
+export type DesktopDatabaseRecoverySnapshotResponse = {
+  kind: "desktop-database-recovery-snapshot";
+  schemaVersion: 1;
+  status: "ready" | "recovery";
+  snapshot: DesktopDatabaseRecoverySnapshot | null;
+};
+
+export type DesktopDatabaseRecoverySnapshotResult =
+  | DesktopDatabaseRecoverySnapshotResponse
+  | { kind: "unsupported-web" };
+
 export type DesktopManagedBackupCatalogEntry = {
   backupId: string;
   fileName: string;
@@ -541,6 +583,53 @@ function isManagedBackupCatalogErrorCode(
       "protocol-error",
       "invalid-catalog",
     ].includes(value)
+  );
+}
+
+function isDatabaseRecoverySnapshot(
+  value: unknown,
+): value is DesktopDatabaseRecoverySnapshot {
+  return (
+    isRecord(value) &&
+    hasExactKeys(value, [
+      "schemaVersion",
+      "state",
+      "reasonCode",
+      "managedBackupAvailable",
+      "pendingRestoreAvailable",
+      "canStartEmpty",
+    ]) &&
+    value.schemaVersion === DESKTOP_DATABASE_RECOVERY_SCHEMA_VERSION &&
+    [
+      "first-run",
+      "restore-available",
+      "diagnostic-required",
+      "restore-unavailable",
+    ].includes(value.state as string) &&
+    [
+      "database-missing",
+      "database-missing-after-initialization",
+      "database-not-a-file",
+      "database-read-failed",
+      "database-integrity-failed",
+      "database-foreign-key-failed",
+      "database-schema-invalid",
+      "database-migration-required",
+      "database-initialization-failed",
+      "database-initialization-marker-invalid",
+      "storage-unavailable",
+    ].includes(value.reasonCode as string) &&
+    typeof value.managedBackupAvailable === "boolean" &&
+    typeof value.pendingRestoreAvailable === "boolean" &&
+    typeof value.canStartEmpty === "boolean" &&
+    (value.state === "first-run"
+      ? value.canStartEmpty === true
+      : value.canStartEmpty === false) &&
+    (value.state !== "restore-available" ||
+      value.managedBackupAvailable ||
+      value.pendingRestoreAvailable) &&
+    (value.state !== "restore-unavailable" ||
+      (!value.managedBackupAvailable && !value.pendingRestoreAvailable))
   );
 }
 
@@ -848,6 +937,40 @@ function unavailableManagedBackupCatalog(
     errorCode,
     backups: [],
   };
+}
+
+function unavailableDatabaseRecoverySnapshot(): DesktopDatabaseRecoverySnapshotResponse {
+  return {
+    kind: "desktop-database-recovery-snapshot",
+    schemaVersion: DESKTOP_DATABASE_RECOVERY_SCHEMA_VERSION,
+    status: "recovery",
+    snapshot: {
+      schemaVersion: DESKTOP_DATABASE_RECOVERY_SCHEMA_VERSION,
+      state: "diagnostic-required",
+      reasonCode: "storage-unavailable",
+      managedBackupAvailable: false,
+      pendingRestoreAvailable: false,
+      canStartEmpty: false,
+    },
+  };
+}
+
+function normalizeDatabaseRecoverySnapshotResponse(
+  value: unknown,
+): DesktopDatabaseRecoverySnapshotResponse {
+  if (
+    !isRecord(value) ||
+    !hasExactKeys(value, ["kind", "schemaVersion", "status", "snapshot"]) ||
+    value.kind !== "desktop-database-recovery-snapshot" ||
+    value.schemaVersion !== DESKTOP_DATABASE_RECOVERY_SCHEMA_VERSION ||
+    !["ready", "recovery"].includes(value.status as string) ||
+    !(value.snapshot === null || isDatabaseRecoverySnapshot(value.snapshot)) ||
+    (value.status === "recovery" && value.snapshot === null)
+  ) {
+    return unavailableDatabaseRecoverySnapshot();
+  }
+
+  return value as DesktopDatabaseRecoverySnapshotResponse;
 }
 
 function normalizeManagedBackupCatalogResponse(
@@ -1806,6 +1929,20 @@ export function requestDataBackupOperation(
       () => unavailableOperationResult(request.operation),
     )
     .catch(() => unavailableOperationResult(request.operation));
+}
+
+export function requestDesktopDatabaseRecoverySnapshot(): Promise<DesktopDatabaseRecoverySnapshotResult> {
+  if (typeof window === "undefined" || !hasTauriRuntime()) {
+    return Promise.resolve({ kind: "unsupported-web" });
+  }
+
+  return Promise.resolve()
+    .then(() => invoke<unknown>(DATABASE_RECOVERY_SNAPSHOT_COMMAND))
+    .then(
+      normalizeDatabaseRecoverySnapshotResponse,
+      unavailableDatabaseRecoverySnapshot,
+    )
+    .catch(unavailableDatabaseRecoverySnapshot);
 }
 
 export function requestManagedBackupCatalog(): Promise<DesktopManagedBackupCatalogResult> {

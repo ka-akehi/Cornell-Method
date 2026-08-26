@@ -405,21 +405,22 @@ fn run_application(instance: InstanceGuard) -> AppResult<()> {
             restore_window_state(&window, state.window_state_path());
             app.manage(state.clone());
 
-            if !recovery_only {
-                let close_state = state.clone();
-                let close_app = app.handle().clone();
-                let close_window = window.clone();
-                window.on_window_event(move |event| {
-                    if let WindowEvent::CloseRequested { api, .. } = event {
-                        api.prevent_close();
-                        request_close(
-                            close_window.clone(),
-                            close_app.clone(),
-                            close_state.clone(),
-                        );
+            let close_state = state.clone();
+            let close_app = app.handle().clone();
+            let close_window = window.clone();
+            window.on_window_event(move |event| {
+                if let WindowEvent::CloseRequested { api, .. } = event {
+                    if close_state.application_exit_is_allowed() {
+                        return;
                     }
-                });
-            }
+                    api.prevent_close();
+                    request_close(
+                        close_window.clone(),
+                        close_app.clone(),
+                        close_state.clone(),
+                    );
+                }
+            });
             window
                 .show()
                 .map_err(|error| boxed_error(error.to_string()))?;
