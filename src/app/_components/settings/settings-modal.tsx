@@ -2,6 +2,7 @@
 
 import { createPortal } from "react-dom";
 import {
+  useCallback,
   useEffect,
   useRef,
   useState,
@@ -10,24 +11,38 @@ import {
   type ReactNode,
 } from "react";
 import {
+  confirmPendingRestore,
   readUpdateStateSnapshot,
+  requestDataBackupExternalSource,
+  requestDataBackupOperation,
+  requestDataBackupSaveDestination,
+  requestManagedBackupCatalog,
   requestManualUpdateCheck,
   type DesktopManualUpdateCheckResult,
+  requestPendingRestoreStatus,
+  type DesktopDataBackupDialogErrorCode,
+  type DesktopDataBackupOperationResponse,
+  type DesktopManagedBackupCatalogEntry,
+  type DesktopManagedBackupCatalogErrorCode,
+  type DesktopPendingRestoreResumeErrorCode,
+  type DesktopPendingRestoreStatusErrorCode,
+  type DesktopPendingRestoreStatusSummary,
   type DesktopUpdateStateSnapshot,
 } from "@/shared/desktop/desktop-settings-bridge";
 import { AppChromeIcon } from "../app-chrome-parts";
 import styles from "./settings-modal.module.css";
 
 const settingsCategories = [
-  { id: "general", label: "General" },
-  { id: "updates", label: "Updates" },
-  { id: "data-and-backup", label: "Data and Backup" },
+  { id: "general", label: "一般" },
+  { id: "updates", label: "更新" },
+  { id: "data-and-backup", label: "データとバックアップ" },
 ] as const;
 
 type SettingsCategoryId = (typeof settingsCategories)[number]["id"];
 
 const focusableSelector =
   "a[href], button:not([disabled]), [tabindex]:not([tabindex='-1'])";
+const COMPLETE_DELETE_CONFIRMATION = "完全に削除";
 
 function getFocusableElements(container: HTMLElement) {
   return Array.from(
@@ -35,6 +50,1195 @@ function getFocusableElements(container: HTMLElement) {
   ).filter(
     (element) =>
       !element.hasAttribute("aria-hidden") && !element.closest("[hidden]"),
+  );
+}
+
+type DataBackupNoticeRetry =
+  | "catalog"
+  | "pending-status"
+  | "external-source"
+  | null;
+
+type DataBackupNotice = {
+  role: "status" | "alert";
+  message: string;
+  retry: DataBackupNoticeRetry;
+};
+
+type DataBackupCatalogState = {
+  phase: "loading" | "ready" | "empty" | "error" | "unsupported";
+  backups: DesktopManagedBackupCatalogEntry[];
+  errorCode: DesktopManagedBackupCatalogErrorCode | null;
+};
+
+type DataBackupPendingState = {
+  phase: "loading" | "none" | "available" | "invalid" | "unsupported";
+  pending: DesktopPendingRestoreStatusSummary | null;
+  errorCode: DesktopPendingRestoreStatusErrorCode | null;
+};
+
+type DataBackupConfirmation =
+  | {
+      kind: "managed";
+      backup: DesktopManagedBackupCatalogEntry;
+    }
+  | {
+      kind: "external";
+      selectionId: string;
+      fileName: string;
+    }
+  | {
+      kind: "pending";
+      pendingId: string;
+      manifestToken: string;
+      pending: DesktopPendingRestoreStatusSummary;
+    }
+  | {
+      kind: "delete";
+    };
+
+type DataBackupOperationContext =
+  | "export"
+  | "managed-restore"
+  | "external-restore"
+  | "delete";
+
+function restoreRetryForContext(
+  context: DataBackupOperationContext,
+): DataBackupNoticeRetry {
+  if (context === "managed-restore") {
+    return "catalog";
+  }
+  if (context === "external-restore") {
+    return "external-source";
+  }
+  return null;
+}
+
+const initialDataBackupCatalogState: DataBackupCatalogState = {
+  phase: "loading",
+  backups: [],
+  errorCode: null,
+};
+
+const initialDataBackupPendingState: DataBackupPendingState = {
+  phase: "loading",
+  pending: null,
+  errorCode: null,
+};
+
+function formatDataBackupSize(size: number) {
+  if (size < 1024) {
+    return `${size} B`;
+  }
+
+  const units = ["KB", "MB", "GB", "TB"];
+  let value = size;
+  let unitIndex = -1;
+  while (value >= 1024 && unitIndex < units.length - 1) {
+    value /= 1024;
+    unitIndex += 1;
+  }
+
+  const rounded = value >= 10 ? Math.round(value) : Math.round(value * 10) / 10;
+  return `${rounded} ${units[unitIndex]}`;
+}
+
+function formatDataBackupDate(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "日時を表示できません";
+  }
+
+  return new Intl.DateTimeFormat("ja-JP", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(date);
+}
+
+function managedBackupErrorMessage(
+  errorCode: DesktopManagedBackupCatalogErrorCode | null,
+) {
+  switch (errorCode) {
+    case "invalid-catalog":
+      return "バックアップ一覧を確認できませんでした。もう一度読み込んでください。";
+    case "storage-unavailable":
+      return "バックアップを読み込めませんでした。Desktop アプリの状態を確認してください。";
+    default:
+      return "バックアップ一覧を読み込めませんでした。もう一度お試しください。";
+  }
+}
+
+function pendingStatusErrorMessage(
+  errorCode: DesktopPendingRestoreStatusErrorCode | null,
+) {
+  switch (errorCode) {
+    case "pending-invalid":
+    case "pending-extra-entry":
+    case "pending-multiple":
+      return "保留中の復元情報を確認できません。状態を確認してから再試行してください。";
+    case "pending-manifest-mismatch":
+      return "保留中の復元情報が一致しません。外部ファイルまたはバックアップを再選択してください。";
+    case "pending-cleanup-required":
+      return "保留中の復元を整理する必要があります。Desktop アプリを確認してから再試行してください。";
+    default:
+      return "保留中の復元状態を読み込めませんでした。もう一度お試しください。";
+  }
+}
+
+function dataBackupDialogErrorMessage(
+  errorCode: DesktopDataBackupDialogErrorCode | null,
+) {
+  switch (errorCode) {
+    case "destination-exists":
+      return "選択した保存先には既にファイルがあります。別の保存先を選択してください。";
+    case "path-not-found":
+    case "path-not-file":
+    case "path-unavailable":
+      return "選択したファイルを確認できません。もう一度選択してください。";
+    case "unsupported-platform":
+      return "この操作は Desktop アプリでのみ利用できます。";
+    default:
+      return "ファイル選択を完了できませんでした。もう一度お試しください。";
+  }
+}
+
+function dataBackupOperationNotice(
+  result: DesktopDataBackupOperationResponse,
+  context: DataBackupOperationContext,
+): DataBackupNotice {
+  if (result.status === "cancelled") {
+    return {
+      role: "status",
+      message: "操作をキャンセルしました。データは変更されていません。",
+      retry: null,
+    };
+  }
+
+  if (result.status === "success") {
+    if (context === "export" && result.result !== null) {
+      return {
+        role: "status",
+        message: `SQLite を ${result.result.fileName} として書き出しました（${formatDataBackupSize(result.result.size)}）。`,
+        retry: null,
+      };
+    }
+
+    if (context !== "export") {
+      if (context === "delete") {
+        return {
+          role: "status",
+          message: "データを完全に削除しました。アプリを再起動して初期状態を確認してください。",
+          retry: null,
+        };
+      }
+      return {
+        role: "status",
+        message: "復元が完了しました。現在のデータを確認してください。",
+        retry: null,
+      };
+    }
+
+    return {
+      role: "alert",
+      message: "書き出し結果を確認できませんでした。もう一度お試しください。",
+      retry: null,
+    };
+  }
+
+  switch (result.errorCode) {
+    case "newer-schema-pending-required":
+      return {
+        role: "alert",
+        message:
+          "このバックアップは現在のアプリより新しい形式です。互換性のある更新後に、保留中の復元を確認してください。",
+        retry: restoreRetryForContext(context),
+      };
+    case "integrity-check-failed":
+    case "foreign-key-check-failed":
+    case "schema-read-back-failed":
+    case "schema-mismatch":
+    case "required-data-invalid":
+    case "markdown-invalid":
+    case "canvas-invalid":
+    case "search-text-mismatch":
+    case "source-invalid":
+      return {
+        role: "alert",
+        message:
+          "選択したバックアップを検証できませんでした。別のバックアップを選択してください。",
+        retry: restoreRetryForContext(context),
+      };
+    case "quiesce-failed":
+    case "switch-failed":
+    case "reopen-failed":
+    case "rollback-failed":
+    case "restore-failed":
+      return {
+        role: "alert",
+        message:
+          "復元を完了できませんでした。現在のデータは安全のため保護されています。状態を確認してから再試行してください。",
+        retry: restoreRetryForContext(context),
+      };
+    case "destination-exists":
+      return {
+        role: "alert",
+        message: "同名ファイルがあるため書き出せませんでした。別の保存先を選択してください。",
+        retry: null,
+      };
+    case "selection-not-found":
+    case "selection-kind-mismatch":
+    case "invalid-selection":
+      return {
+        role: "alert",
+        message: "選択を確認できませんでした。もう一度選択してください。",
+        retry: restoreRetryForContext(context),
+      };
+    case "layout-invalid":
+    case "symlink-path":
+    case "unsafe-name":
+    case "unexpected-directory":
+    case "special-file":
+    case "preflight-failed":
+    case "permission-failed":
+    case "staging-conflict":
+      return {
+        role: "alert",
+        message:
+          "削除対象の構成を安全に確認できなかったため、削除を開始しませんでした。状態を確認してから再試行してください。",
+        retry: context === "delete" ? null : restoreRetryForContext(context),
+      };
+    case "partial-delete":
+    case "cleanup-required":
+    case "delete-failed":
+      return {
+        role: "alert",
+        message:
+          "データの完全削除を完了できませんでした。安全のため処理を停止しています。アプリを再起動して状態を確認してから再試行してください。",
+        retry: null,
+      };
+    default:
+      return {
+        role: "alert",
+        message: "操作を完了できませんでした。もう一度お試しください。",
+        retry: restoreRetryForContext(context),
+      };
+  }
+}
+
+function pendingResumeNotice(
+  errorCode: DesktopPendingRestoreResumeErrorCode | null,
+): DataBackupNotice {
+  switch (errorCode) {
+    case "newer-schema-pending-required":
+      return {
+        role: "alert",
+        message:
+          "この復元は現在のアプリより新しい形式です。互換性のある更新後にもう一度お試しください。",
+        retry: "pending-status",
+      };
+    case "pending-invalid":
+      return {
+        role: "alert",
+        message: "保留中の復元情報を検証できませんでした。状態を確認してから再試行してください。",
+        retry: "pending-status",
+      };
+    case "pending-manifest-mismatch":
+    case "pending-id-mismatch":
+      return {
+        role: "alert",
+        message: "保留中の復元情報が一致しません。状態を再確認してからお試しください。",
+        retry: "pending-status",
+      };
+    case "pending-cleanup-required":
+      return {
+        role: "alert",
+        message: "保留中の復元を整理する必要があります。自動では変更せず、状態を確認してください。",
+        retry: "pending-status",
+      };
+    case "quiesce-failed":
+    case "switch-failed":
+    case "reopen-failed":
+    case "rollback-failed":
+    case "restore-failed":
+      return {
+        role: "alert",
+        message:
+          "保留中の復元を完了できませんでした。保留状態を保持しています。状態を確認してから再試行してください。",
+        retry: "pending-status",
+      };
+    default:
+      return {
+        role: "alert",
+        message: "保留中の復元を完了できませんでした。状態を確認してから再試行してください。",
+        retry: "pending-status",
+      };
+  }
+}
+
+function pendingSourceLabel(sourceKind: DesktopPendingRestoreStatusSummary["sourceKind"]) {
+  return sourceKind === "managed-backup" ? "アプリ管理バックアップ" : "外部 SQLite";
+}
+
+function confirmationDescription(confirmation: DataBackupConfirmation) {
+  if (confirmation.kind === "managed") {
+    return `「${confirmation.backup.fileName}」を使って、現在のデータを置き換えます。`;
+  }
+
+  if (confirmation.kind === "external") {
+    return `「${confirmation.fileName}」を使って、現在のデータを置き換えます。`;
+  }
+
+  if (confirmation.kind === "delete") {
+    return "現在のアプリデータを完全に削除します。削除後はアプリを再起動すると初期状態から開始します。";
+  }
+
+  return "保留中の復元を再開すると、現在のデータが置き換わります。未保存の変更は自動保存・破棄されません。";
+}
+
+function DataAndBackupPanel({ onClose }: { onClose: () => void }) {
+  const [catalogState, setCatalogState] = useState<DataBackupCatalogState>(
+    initialDataBackupCatalogState,
+  );
+  const [pendingState, setPendingState] = useState<DataBackupPendingState>(
+    initialDataBackupPendingState,
+  );
+  const [confirmation, setConfirmation] =
+    useState<DataBackupConfirmation | null>(null);
+  const [deleteConfirmationText, setDeleteConfirmationText] = useState("");
+  const [dialogLoading, setDialogLoading] = useState<
+    "export" | "external" | null
+  >(null);
+  const [operationBusy, setOperationBusy] = useState(false);
+  const [operationMessage, setOperationMessage] = useState<string | null>(
+    null,
+  );
+  const [notice, setNotice] = useState<DataBackupNotice | null>(null);
+  const mountedRef = useRef(true);
+  const actionInFlightRef = useRef(false);
+  const dialogInFlightRef = useRef(false);
+  const catalogRequestInFlightRef = useRef(false);
+  const pendingRequestInFlightRef = useRef(false);
+  const exportSelectionIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
+  const refreshCatalog = useCallback(async () => {
+    if (catalogRequestInFlightRef.current) {
+      return;
+    }
+
+    catalogRequestInFlightRef.current = true;
+    if (mountedRef.current) {
+      setCatalogState({
+        phase: "loading",
+        backups: [],
+        errorCode: null,
+      });
+      setNotice(null);
+    }
+
+    try {
+      const result = await requestManagedBackupCatalog();
+      if (!mountedRef.current) {
+        return;
+      }
+
+      if (result.kind === "unsupported-web") {
+        setCatalogState({
+          phase: "unsupported",
+          backups: [],
+          errorCode: null,
+        });
+      } else if (result.status === "ready") {
+        setCatalogState({
+          phase: "ready",
+          backups: result.backups,
+          errorCode: null,
+        });
+      } else if (result.status === "empty") {
+        setCatalogState({
+          phase: "empty",
+          backups: [],
+          errorCode: null,
+        });
+      } else {
+        setCatalogState({
+          phase: "error",
+          backups: [],
+          errorCode: result.errorCode,
+        });
+        setNotice({
+          role: "alert",
+          message: managedBackupErrorMessage(result.errorCode),
+          retry: "catalog",
+        });
+      }
+    } finally {
+      catalogRequestInFlightRef.current = false;
+    }
+  }, []);
+
+  const refreshPendingStatus = useCallback(async () => {
+    if (pendingRequestInFlightRef.current) {
+      return;
+    }
+
+    pendingRequestInFlightRef.current = true;
+    if (mountedRef.current) {
+      setPendingState({
+        phase: "loading",
+        pending: null,
+        errorCode: null,
+      });
+    }
+
+    try {
+      const result = await requestPendingRestoreStatus();
+      if (!mountedRef.current) {
+        return;
+      }
+
+      if (result.kind === "unsupported-web") {
+        setPendingState({
+          phase: "unsupported",
+          pending: null,
+          errorCode: null,
+        });
+      } else if (result.status === "none") {
+        setPendingState({
+          phase: "none",
+          pending: null,
+          errorCode: null,
+        });
+      } else if (result.status === "available" && result.pending !== null) {
+        setPendingState({
+          phase: "available",
+          pending: result.pending,
+          errorCode: null,
+        });
+      } else {
+        setPendingState({
+          phase: "invalid",
+          pending: null,
+          errorCode: result.errorCode,
+        });
+        setNotice({
+          role: "alert",
+          message: pendingStatusErrorMessage(result.errorCode),
+          retry: "pending-status",
+        });
+      }
+    } finally {
+      pendingRequestInFlightRef.current = false;
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshCatalog();
+    void refreshPendingStatus();
+  }, [refreshCatalog, refreshPendingStatus]);
+
+  const isLoading =
+    catalogState.phase === "loading" || pendingState.phase === "loading";
+  const isBusy = isLoading || dialogLoading !== null || operationBusy;
+  const isUnsupportedWeb =
+    catalogState.phase === "unsupported" || pendingState.phase === "unsupported";
+  const canStartAction = !isBusy && !isUnsupportedWeb && confirmation === null;
+
+  const runDataBackupOperation = async (
+    request: Parameters<typeof requestDataBackupOperation>[0],
+    context: DataBackupOperationContext,
+  ) => {
+    if (actionInFlightRef.current || !mountedRef.current) {
+      return null;
+    }
+
+    actionInFlightRef.current = true;
+    setOperationBusy(true);
+    setOperationMessage(
+      context === "export"
+        ? "SQLite を書き出し中…"
+        : context === "delete"
+          ? "アプリデータを削除中…"
+          : "復元を実行中…",
+    );
+    setNotice(null);
+
+    try {
+      const result = await requestDataBackupOperation(request);
+      if (mountedRef.current) {
+        if (result.kind === "unsupported-web") {
+          setNotice({
+            role: "alert",
+            message: "この操作は Desktop アプリでのみ利用できます。",
+            retry: null,
+          });
+        } else {
+          setNotice(dataBackupOperationNotice(result, context));
+        }
+      }
+      return result;
+    } finally {
+      actionInFlightRef.current = false;
+      if (mountedRef.current) {
+        setOperationBusy(false);
+        setOperationMessage(null);
+      }
+    }
+  };
+
+  const handleExport = async () => {
+    if (
+      !canStartAction ||
+      actionInFlightRef.current ||
+      dialogInFlightRef.current
+    ) {
+      return;
+    }
+
+    dialogInFlightRef.current = true;
+    setDialogLoading("export");
+    setNotice(null);
+
+    try {
+      const result = await requestDataBackupSaveDestination();
+      if (!mountedRef.current) {
+        return;
+      }
+
+      if (result.kind === "unsupported-web") {
+        setNotice({
+          role: "alert",
+          message: "この操作は Desktop アプリでのみ利用できます。",
+          retry: null,
+        });
+        return;
+      }
+
+      if (result.status === "cancelled") {
+        return;
+      }
+
+      if (result.status !== "selected" || result.selection === null) {
+        setNotice({
+          role: "alert",
+          message: dataBackupDialogErrorMessage(result.errorCode),
+          retry: null,
+        });
+        return;
+      }
+
+      exportSelectionIdRef.current = result.selection.selectionId;
+      const selectionId = exportSelectionIdRef.current;
+      if (selectionId === null) {
+        return;
+      }
+
+      await runDataBackupOperation(
+        {
+          schemaVersion: 1,
+          operation: "export",
+          source: null,
+          destination: {
+            kind: "external-selection",
+            selectionId,
+          },
+        },
+        "export",
+      );
+    } finally {
+      dialogInFlightRef.current = false;
+      exportSelectionIdRef.current = null;
+      if (mountedRef.current) {
+        setDialogLoading(null);
+      }
+    }
+  };
+
+  const handleExternalRestoreSource = async () => {
+    if (
+      !canStartAction ||
+      actionInFlightRef.current ||
+      dialogInFlightRef.current
+    ) {
+      return;
+    }
+
+    dialogInFlightRef.current = true;
+    setDialogLoading("external");
+    setNotice(null);
+
+    try {
+      const result = await requestDataBackupExternalSource();
+      if (!mountedRef.current) {
+        return;
+      }
+
+      if (result.kind === "unsupported-web") {
+        setNotice({
+          role: "alert",
+          message: "この操作は Desktop アプリでのみ利用できます。",
+          retry: null,
+        });
+        return;
+      }
+
+      if (result.status === "cancelled") {
+        return;
+      }
+
+      if (result.status !== "selected" || result.selection === null) {
+        setNotice({
+          role: "alert",
+          message: dataBackupDialogErrorMessage(result.errorCode),
+          retry: "external-source",
+        });
+        return;
+      }
+
+      setConfirmation({
+        kind: "external",
+        selectionId: result.selection.selectionId,
+        fileName: result.selection.fileName,
+      });
+    } finally {
+      dialogInFlightRef.current = false;
+      if (mountedRef.current) {
+        setDialogLoading(null);
+      }
+    }
+  };
+
+  const handleManagedRestoreIntent = (
+    backup: DesktopManagedBackupCatalogEntry,
+  ) => {
+    if (!canStartAction || actionInFlightRef.current) {
+      return;
+    }
+
+    setNotice(null);
+    setConfirmation({ kind: "managed", backup });
+  };
+
+  const handlePendingRestoreIntent = () => {
+    if (
+      !canStartAction ||
+      actionInFlightRef.current ||
+      pendingState.phase !== "available" ||
+      pendingState.pending === null
+    ) {
+      return;
+    }
+
+    setNotice(null);
+    setConfirmation({
+      kind: "pending",
+      pendingId: pendingState.pending.pendingId,
+      manifestToken: pendingState.pending.manifestToken,
+      pending: pendingState.pending,
+    });
+  };
+
+  const handleDeleteIntent = () => {
+    if (!canStartAction || actionInFlightRef.current) {
+      return;
+    }
+
+    setNotice(null);
+    setDeleteConfirmationText("");
+    setConfirmation({ kind: "delete" });
+  };
+
+  const handleCancelConfirmation = () => {
+    if (operationBusy || confirmation === null) {
+      return;
+    }
+
+    const message =
+      confirmation.kind === "pending"
+        ? "復元の再開を取り消しました。保留中のデータは変更していません。"
+        : confirmation.kind === "delete"
+          ? "完全削除の確認を取り消しました。データは変更されていません。"
+        : "復元の確認を取り消しました。データは変更されていません。";
+    setConfirmation(null);
+    setDeleteConfirmationText("");
+    setNotice({ role: "status", message, retry: null });
+  };
+
+  const handleConfirm = async () => {
+    if (
+      confirmation === null ||
+      operationBusy ||
+      actionInFlightRef.current
+    ) {
+      return;
+    }
+
+    const selectedConfirmation = confirmation;
+    if (selectedConfirmation.kind === "delete") {
+      if (deleteConfirmationText !== COMPLETE_DELETE_CONFIRMATION) {
+        return;
+      }
+      const result = await runDataBackupOperation(
+        {
+          schemaVersion: 1,
+          operation: "delete",
+          source: null,
+          destination: null,
+          confirmed: true,
+        },
+        "delete",
+      );
+      if (
+        mountedRef.current &&
+        result !== null &&
+        result.kind !== "unsupported-web" &&
+        result.status === "success"
+      ) {
+        setConfirmation(null);
+        setDeleteConfirmationText("");
+      }
+      return;
+    }
+    if (selectedConfirmation.kind === "pending") {
+      actionInFlightRef.current = true;
+      setOperationBusy(true);
+      setOperationMessage("保留中の復元を再開中…");
+      setNotice(null);
+
+      try {
+        const result = await confirmPendingRestore(
+          selectedConfirmation.pendingId,
+          selectedConfirmation.manifestToken,
+        );
+        if (!mountedRef.current) {
+          return;
+        }
+
+        if (result.kind === "unsupported-web") {
+          setConfirmation(null);
+          setNotice({
+            role: "alert",
+            message: "この操作は Desktop アプリでのみ利用できます。",
+            retry: null,
+          });
+        } else if (result.status === "success") {
+          setConfirmation(null);
+          await refreshPendingStatus();
+          if (mountedRef.current) {
+            setNotice({
+              role: "status",
+              message: "復元の再開が完了しました。保留状態を更新しました。",
+              retry: null,
+            });
+          }
+        } else {
+          setConfirmation(null);
+          setNotice(pendingResumeNotice(result.errorCode));
+        }
+      } finally {
+        actionInFlightRef.current = false;
+        if (mountedRef.current) {
+          setOperationBusy(false);
+          setOperationMessage(null);
+        }
+      }
+      return;
+    }
+
+    const source =
+      selectedConfirmation.kind === "managed"
+        ? {
+            kind: "managed-backup" as const,
+            backupId: selectedConfirmation.backup.backupId,
+          }
+        : {
+            kind: "external-selection" as const,
+            selectionId: selectedConfirmation.selectionId,
+          };
+    const context: DataBackupOperationContext =
+      selectedConfirmation.kind === "managed"
+        ? "managed-restore"
+        : "external-restore";
+
+    const result = await runDataBackupOperation(
+      {
+        schemaVersion: 1,
+        operation: "restore",
+        source,
+        destination: null,
+        confirmed: true,
+      },
+      context,
+    );
+
+    if (mountedRef.current && result !== null) {
+      setConfirmation(null);
+    }
+  };
+
+  const handleRetry = () => {
+    if (notice?.retry === "catalog") {
+      void refreshCatalog();
+    } else if (notice?.retry === "pending-status") {
+      setNotice(null);
+      void refreshPendingStatus();
+    } else if (notice?.retry === "external-source") {
+      void handleExternalRestoreSource();
+    }
+  };
+
+  const noticeContent = notice ? (
+    <div
+      className={`${styles.dataBackupStatus} ${
+        notice.role === "alert" ? styles.dataBackupStatusError : ""
+      }`}
+      role={notice.role}
+      aria-live="polite"
+    >
+      <span>{notice.message}</span>
+      {notice.retry !== null ? (
+        <button
+          type="button"
+          className={styles.dataBackupInlineButton}
+          disabled={isBusy || confirmation !== null}
+          onClick={handleRetry}
+        >
+          {notice.retry === "catalog"
+            ? "バックアップ一覧を再読み込み"
+            : notice.retry === "pending-status"
+              ? "保留状態を再確認"
+              : "外部ファイルを再選択"}
+        </button>
+      ) : null}
+    </div>
+  ) : null;
+
+  return (
+    <div className={styles.panelStack}>
+      <h3>データとバックアップ</h3>
+      <p>
+        Desktop のローカルデータを安全に書き出し、確認後に復元できます。Web
+        起動時は操作を実行せず、既存のバックアップ画面を利用してください。
+      </p>
+
+      {operationMessage !== null ? (
+        <div
+          className={styles.dataBackupStatus}
+          role="status"
+          aria-busy="true"
+        >
+          {operationMessage}
+        </div>
+      ) : null}
+      {noticeContent}
+
+      {confirmation !== null ? (
+        <section
+          className={styles.dataBackupConfirmation}
+          aria-labelledby="data-backup-confirmation-title"
+        >
+          <p className={styles.panelKicker}>確認</p>
+          <h4 id="data-backup-confirmation-title">
+            {confirmation.kind === "pending"
+              ? "復元の再開を確認"
+              : confirmation.kind === "delete"
+                ? "データの完全削除を確認"
+                : "復元を確認"}
+          </h4>
+          <p>{confirmationDescription(confirmation)}</p>
+          {confirmation.kind === "managed" ? (
+            <dl className={styles.dataBackupMeta}>
+              <div>
+                <dt>ファイル</dt>
+                <dd>{confirmation.backup.fileName}</dd>
+              </div>
+              <div>
+                <dt>サイズ</dt>
+                <dd>{formatDataBackupSize(confirmation.backup.size)}</dd>
+              </div>
+              <div>
+                <dt>作成日時</dt>
+                <dd>{formatDataBackupDate(confirmation.backup.createdAt)}</dd>
+              </div>
+            </dl>
+          ) : confirmation.kind === "external" ? (
+            <dl className={styles.dataBackupMeta}>
+              <div>
+                <dt>ファイル</dt>
+                <dd>{confirmation.fileName}</dd>
+              </div>
+            </dl>
+          ) : confirmation.kind === "pending" ? (
+            <dl className={styles.dataBackupMeta}>
+              <div>
+                <dt>種類</dt>
+                <dd>{pendingSourceLabel(confirmation.pending.sourceKind)}</dd>
+              </div>
+              <div>
+                <dt>作成日時</dt>
+                <dd>{formatDataBackupDate(confirmation.pending.createdAt)}</dd>
+              </div>
+              <div>
+                <dt>サイズ</dt>
+                <dd>
+                  {formatDataBackupSize(confirmation.pending.candidateSize)}
+                </dd>
+              </div>
+            </dl>
+          ) : (
+            <ul className={styles.dataBackupTargetList}>
+              <li>削除対象: live/notebook.sqlite と SQLite sidecar</li>
+              <li>削除対象: アプリ管理バックアップとアプリ管理の設定</li>
+              <li>対象外: pending-restore、ログ、外部の書き出し、Web のバックアップ、アプリ本体</li>
+            </ul>
+          )}
+          {confirmation.kind === "delete" ? (
+            <label
+              className={styles.dataBackupConfirmationField}
+              htmlFor="data-backup-delete-confirmation"
+            >
+              <span>確認文字列「完全に削除」を入力してください</span>
+              <input
+                id="data-backup-delete-confirmation"
+                type="text"
+                value={deleteConfirmationText}
+                autoFocus
+                autoComplete="off"
+                spellCheck={false}
+                aria-describedby="data-backup-delete-confirmation-help"
+                aria-invalid={
+                  deleteConfirmationText.length > 0 &&
+                  deleteConfirmationText !== COMPLETE_DELETE_CONFIRMATION
+                }
+                onChange={(event) => setDeleteConfirmationText(event.target.value)}
+              />
+              <span id="data-backup-delete-confirmation-help">
+                入力が一致するまで削除ボタンは無効です。
+              </span>
+            </label>
+          ) : null}
+          <div className={styles.dataBackupConfirmationActions}>
+            <button
+              type="button"
+              className={styles.dataBackupSecondaryButton}
+              disabled={operationBusy}
+              onClick={handleCancelConfirmation}
+            >
+              キャンセル
+            </button>
+            <button
+              type="button"
+              className={
+                confirmation.kind === "delete"
+                  ? styles.dataBackupDangerButton
+                  : styles.dataBackupButton
+              }
+              disabled={
+                operationBusy ||
+                (confirmation.kind === "delete" &&
+                  deleteConfirmationText !== COMPLETE_DELETE_CONFIRMATION)
+              }
+              aria-busy={operationBusy}
+              onClick={() => void handleConfirm()}
+            >
+              {confirmation.kind === "pending"
+                ? "復元を再開"
+                : confirmation.kind === "delete"
+                  ? "完全に削除する"
+                  : "復元を実行"}
+            </button>
+          </div>
+        </section>
+      ) : null}
+
+      <section className={styles.dataBackupSection} aria-labelledby="data-backup-export-title">
+        <div className={styles.dataBackupSectionHeading}>
+          <h4 id="data-backup-export-title">SQLiteを書き出す</h4>
+          <p>現在の SQLite を選択した保存先へコピーします。</p>
+        </div>
+        <button
+          type="button"
+          className={styles.dataBackupButton}
+          disabled={!canStartAction}
+          aria-busy={dialogLoading === "export" || operationBusy}
+          onClick={() => void handleExport()}
+        >
+          {dialogLoading === "export" || operationBusy
+            ? "書き出し中…"
+            : "SQLiteを書き出す"}
+        </button>
+      </section>
+
+      <section className={styles.dataBackupSection} aria-labelledby="data-backup-managed-title">
+        <div className={styles.dataBackupSectionHeading}>
+          <h4 id="data-backup-managed-title">アプリ管理バックアップから復元</h4>
+          <p>この Desktop アプリが管理するバックアップの候補から選択します。</p>
+        </div>
+        {catalogState.phase === "loading" ? (
+          <div className={styles.dataBackupStatus} role="status" aria-busy="true">
+            バックアップ一覧を読み込み中…
+          </div>
+        ) : catalogState.phase === "unsupported" ? (
+          <div className={styles.dataBackupStatus} role="status">
+            Desktop アプリでのみ利用できます。
+          </div>
+        ) : catalogState.phase === "error" ? (
+          <div className={`${styles.dataBackupStatus} ${styles.dataBackupStatusError}`} role="alert">
+            <span>{managedBackupErrorMessage(catalogState.errorCode)}</span>
+            <button
+              type="button"
+              className={styles.dataBackupInlineButton}
+              disabled={isBusy || confirmation !== null}
+              onClick={() => void refreshCatalog()}
+            >
+              一覧を再読み込み
+            </button>
+          </div>
+        ) : catalogState.phase === "empty" ? (
+          <p className={styles.dataBackupEmpty} role="status">
+            利用できるアプリ管理バックアップはありません。
+          </p>
+        ) : (
+          <ul className={styles.dataBackupList}>
+            {catalogState.backups.map((backup) => (
+              <li className={styles.dataBackupListItem} key={backup.backupId}>
+                <dl className={styles.dataBackupMeta}>
+                  <div>
+                    <dt>ファイル</dt>
+                    <dd>{backup.fileName}</dd>
+                  </div>
+                  <div>
+                    <dt>サイズ</dt>
+                    <dd>{formatDataBackupSize(backup.size)}</dd>
+                  </div>
+                  <div>
+                    <dt>作成日時</dt>
+                    <dd>{formatDataBackupDate(backup.createdAt)}</dd>
+                  </div>
+                </dl>
+                <button
+                  type="button"
+                  className={styles.dataBackupSecondaryButton}
+                  disabled={!canStartAction}
+                  onClick={() => handleManagedRestoreIntent(backup)}
+                >
+                  このバックアップを復元
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      <section className={styles.dataBackupSection} aria-labelledby="data-backup-external-title">
+        <div className={styles.dataBackupSectionHeading}>
+          <h4 id="data-backup-external-title">外部 SQLite を復元</h4>
+          <p>外部ファイルを選び、内容を確認してから復元します。</p>
+        </div>
+        <button
+          type="button"
+          className={styles.dataBackupButton}
+          disabled={!canStartAction}
+          aria-busy={dialogLoading === "external" || operationBusy}
+          onClick={() => void handleExternalRestoreSource()}
+        >
+          {dialogLoading === "external" ? "ファイルを選択中…" : "外部 SQLite を復元"}
+        </button>
+      </section>
+
+      <section className={styles.dataBackupSection} aria-labelledby="data-backup-pending-title">
+        <div className={styles.dataBackupSectionHeading}>
+          <h4 id="data-backup-pending-title">保留中の復元</h4>
+          <p>新しいスキーマのため保留された復元は、明示的に再開できます。</p>
+        </div>
+        {pendingState.phase === "loading" ? (
+          <div className={styles.dataBackupStatus} role="status" aria-busy="true">
+            保留中の復元状態を読み込み中…
+          </div>
+        ) : pendingState.phase === "unsupported" ? (
+          <div className={styles.dataBackupStatus} role="status">
+            Desktop アプリでのみ利用できます。
+          </div>
+        ) : pendingState.phase === "invalid" ? (
+          <div className={`${styles.dataBackupStatus} ${styles.dataBackupStatusError}`} role="alert">
+            <span>{pendingStatusErrorMessage(pendingState.errorCode)}</span>
+            <button
+              type="button"
+              className={styles.dataBackupInlineButton}
+              disabled={isBusy || confirmation !== null}
+              onClick={() => {
+                setNotice(null);
+                void refreshPendingStatus();
+              }}
+            >
+              状態を再確認
+            </button>
+          </div>
+        ) : pendingState.phase === "available" && pendingState.pending !== null ? (
+          <div className={styles.dataBackupPendingCard}>
+            <dl className={styles.dataBackupMeta}>
+              <div>
+                <dt>種類</dt>
+                <dd>{pendingSourceLabel(pendingState.pending.sourceKind)}</dd>
+              </div>
+              <div>
+                <dt>作成日時</dt>
+                <dd>{formatDataBackupDate(pendingState.pending.createdAt)}</dd>
+              </div>
+              <div>
+                <dt>サイズ</dt>
+                <dd>{formatDataBackupSize(pendingState.pending.candidateSize)}</dd>
+              </div>
+            </dl>
+            <button
+              type="button"
+              className={styles.dataBackupSecondaryButton}
+              disabled={!canStartAction}
+              onClick={handlePendingRestoreIntent}
+            >
+              復元を再開
+            </button>
+          </div>
+        ) : (
+          <p className={styles.dataBackupEmpty} role="status">
+            保留中の復元はありません。
+          </p>
+        )}
+      </section>
+
+      <section
+        className={`${styles.dataBackupSection} ${styles.dataBackupDangerSection}`}
+        aria-labelledby="data-backup-delete-title"
+      >
+        <div className={styles.dataBackupSectionHeading}>
+          <h4 id="data-backup-delete-title">アプリデータを完全に削除</h4>
+          <p>
+            live SQLite、SQLite sidecar、アプリ管理バックアップ、アプリ管理の設定を
+            削除します。pending-restore、ログ、外部の書き出し、通常の Web のバックアップ、
+            アプリ本体は削除しません。
+          </p>
+        </div>
+        <button
+          type="button"
+          className={styles.dataBackupDangerButton}
+          disabled={!canStartAction}
+          aria-busy={operationBusy}
+          onClick={handleDeleteIntent}
+        >
+          {operationBusy ? "削除中…" : "完全削除の確認を開く"}
+        </button>
+      </section>
+
+      <a className={styles.routeLink} href="/backup" onClick={onClose}>
+        既存のバックアップ画面を開く
+      </a>
+    </div>
   );
 }
 
@@ -50,24 +1254,11 @@ function SettingsCategoryPanel({
   }
 
   if (category === "data-and-backup") {
-    return (
-      <div className={styles.panelStack}>
-        <p className={styles.panelKicker}>Data and Backup</p>
-        <h3>データとバックアップ</h3>
-        <p>
-          Settings からのバックアップ、復元、削除操作は準備中です。現在の Web
-          用バックアップ画面はそのまま利用できます。
-        </p>
-        <a className={styles.routeLink} href="/backup" onClick={onClose}>
-          既存のバックアップ画面を開く
-        </a>
-      </div>
-    );
+    return <DataAndBackupPanel onClose={onClose} />;
   }
 
   return (
     <div className={styles.panelStack}>
-      <p className={styles.panelKicker}>General</p>
       <h3>一般</h3>
       <p>この Alpha では変更できる一般設定はありません。</p>
       <dl className={styles.readOnlyList}>
@@ -291,7 +1482,6 @@ function UpdatesPanel() {
 
   return (
     <div className={styles.panelStack}>
-      <p className={styles.panelKicker}>Updates</p>
       <h3>更新</h3>
       <p>利用可能な更新があるか、手動で確認できます。</p>
       <div className={styles.updateControls}>
@@ -438,7 +1628,6 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
       >
         <header className={styles.header}>
           <div>
-            <p className={styles.eyebrow}>Settings</p>
             <h2 id="settings-modal-title">設定</h2>
             <p id="settings-modal-description" className={styles.description}>
               アプリの設定を確認できます。

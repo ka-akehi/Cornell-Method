@@ -23,11 +23,17 @@ mod window_state;
 use std::sync::Arc;
 
 use instance::{acquire_instance, start_focus_listener, InstanceAcquire, InstanceGuard};
-use lifecycle::{handle_navigation, request_close, AppState};
+use lifecycle::{handle_navigation, request_close, run_data_backup_operation_command, AppState};
 use menu::{build_desktop_menu, handle_desktop_menu_event};
 use runtime::{
+    choose_data_backup_external_source, choose_data_backup_save_destination,
+    desktop_data_backup_command_error, desktop_file_dialog_command_error,
+    managed_backup_catalog_command_error, pending_restore_resume_command_error,
+    pending_restore_status_command_error, read_managed_backup_catalog, read_pending_restore_status,
     resolve_storage_layout, run_bootstrap_with_storage, runtime_project_root, start_sidecar,
-    StorageLayout,
+    DesktopDataBackupOperationResponse, DesktopFileDialogResult, DesktopFileSelectionStore,
+    DesktopManagedBackupCatalogResponse, DesktopPendingRestoreResumeResponse,
+    DesktopPendingRestoreStatusResponse, StorageLayout,
 };
 use tauri::{Manager, WebviewUrl, WebviewWindowBuilder, WindowEvent};
 use update_apply::{apply_verified_update_worker, ApplyUpdateCommandError, ApplyUpdateResponse};
@@ -56,6 +62,72 @@ type AppResult<T> = Result<T, String>;
 
 fn boxed_error(message: String) -> Box<dyn std::error::Error> {
     Box::new(std::io::Error::other(message))
+}
+
+#[tauri::command]
+async fn choose_data_backup_save_destination_command(
+    app: tauri::AppHandle,
+) -> DesktopFileDialogResult {
+    tauri::async_runtime::spawn_blocking(move || choose_data_backup_save_destination(&app))
+        .await
+        .unwrap_or_else(|_| {
+            desktop_file_dialog_command_error("save-destination", "command-worker-failed")
+        })
+}
+
+#[tauri::command]
+async fn choose_data_backup_external_source_command(
+    app: tauri::AppHandle,
+) -> DesktopFileDialogResult {
+    tauri::async_runtime::spawn_blocking(move || choose_data_backup_external_source(&app))
+        .await
+        .unwrap_or_else(|_| {
+            desktop_file_dialog_command_error("open-external-source", "command-worker-failed")
+        })
+}
+
+#[tauri::command]
+async fn run_desktop_data_backup_operation(
+    app: tauri::AppHandle,
+    request: serde_json::Value,
+) -> DesktopDataBackupOperationResponse {
+    tauri::async_runtime::spawn_blocking(move || run_data_backup_operation_command(&app, request))
+        .await
+        .unwrap_or_else(|_| {
+            desktop_data_backup_command_error(None, "request", "command-worker-failed")
+        })
+}
+
+#[tauri::command]
+async fn read_desktop_managed_backup_catalog(
+    app: tauri::AppHandle,
+) -> DesktopManagedBackupCatalogResponse {
+    tauri::async_runtime::spawn_blocking(move || read_managed_backup_catalog(&app))
+        .await
+        .unwrap_or_else(|_| managed_backup_catalog_command_error("command-worker-failed"))
+}
+
+#[tauri::command]
+async fn read_desktop_pending_restore_status(
+    app: tauri::AppHandle,
+) -> DesktopPendingRestoreStatusResponse {
+    tauri::async_runtime::spawn_blocking(move || read_pending_restore_status(&app))
+        .await
+        .unwrap_or_else(|_| pending_restore_status_command_error("command-worker-failed"))
+}
+
+#[tauri::command]
+async fn resume_desktop_pending_restore(
+    app: tauri::AppHandle,
+    request: serde_json::Value,
+) -> DesktopPendingRestoreResumeResponse {
+    tauri::async_runtime::spawn_blocking(move || {
+        lifecycle::run_pending_restore_resume_command(&app, request)
+    })
+    .await
+    .unwrap_or_else(|_| {
+        pending_restore_resume_command_error(None, None, "request", "command-worker-failed")
+    })
 }
 
 fn start_startup_update_check(app: tauri::AppHandle) {
@@ -206,7 +278,13 @@ fn run_application(instance: InstanceGuard) -> AppResult<()> {
             manual_update_check,
             read_update_state,
             verify_pending_update,
-            apply_verified_update
+            apply_verified_update,
+            choose_data_backup_save_destination_command,
+            choose_data_backup_external_source_command,
+            run_desktop_data_backup_operation,
+            read_desktop_managed_backup_catalog,
+            read_desktop_pending_restore_status,
+            resume_desktop_pending_restore
         ])
         .setup(move |app| {
             let mut instance = instance;
@@ -217,6 +295,7 @@ fn run_application(instance: InstanceGuard) -> AppResult<()> {
             let root = runtime_project_root(app.handle()).map_err(boxed_error)?;
             let storage = resolve_storage_layout(&root).map_err(boxed_error)?;
             app.manage(storage.clone());
+            app.manage(DesktopFileSelectionStore::default());
             let staging_directory = storage.staging_directory();
             let update_state =
                 UpdateStateStore::load_or_default(storage.settings_directory(), &staging_directory);
@@ -244,6 +323,12 @@ fn run_application(instance: InstanceGuard) -> AppResult<()> {
                 );
             }
             let storage = run_bootstrap_with_storage(&root, &storage).map_err(boxed_error)?;
+            let pending_status = read_pending_restore_status(app.handle());
+            if pending_status.status == "invalid" {
+                if let Some(error_code) = pending_status.error_code.as_deref() {
+                    eprintln!("desktop pending restore is invalid: {error_code}");
+                }
+            }
             app.manage(update_state);
             let sidecar = start_sidecar(&root, &storage).map_err(boxed_error)?;
             let runtime_url = sidecar.runtime_url();
@@ -296,7 +381,7 @@ fn run_application(instance: InstanceGuard) -> AppResult<()> {
                 .map_err(|error| boxed_error(error.to_string()))?;
             if recovery_outcome == RecoveryOutcome::RestartRequired {
                 state.allow_application_exit();
-                app.request_restart();
+                app.handle().request_restart();
             } else {
                 start_startup_update_check(app.handle().clone());
             }
@@ -304,10 +389,16 @@ fn run_application(instance: InstanceGuard) -> AppResult<()> {
         })
         .build(tauri::generate_context!())
         .map_err(|error| error.to_string())?
-        .run(|app, event| {
-            if let tauri::RunEvent::ExitRequested { api, .. } = event {
-                handle_exit_requested(app, api);
+        .run(|app, event| match event {
+            tauri::RunEvent::ExitRequested { api, .. } => handle_exit_requested(app, api),
+            tauri::RunEvent::Exit => {
+                if let Some(state) = app.try_state::<Arc<AppState>>() {
+                    if let Err(error) = state.inner().cleanup_sidecar() {
+                        eprintln!("desktop final exit sidecar cleanup failed: {error}");
+                    }
+                }
             }
+            _ => {}
         });
     Ok(())
 }

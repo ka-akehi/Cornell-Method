@@ -29,6 +29,14 @@ export const DESKTOP_DATABASE_STATUS: {
   readonly UNUSABLE: "unusable";
 };
 
+export const DESKTOP_PENDING_RESTORE_PROTOCOL_VERSION: 1;
+export const DESKTOP_PENDING_RESTORE_STATUS: {
+  readonly AVAILABLE: "available";
+  readonly PROCESSING: "processing";
+  readonly CONSUMED: "consumed";
+  readonly CLEANUP_REQUIRED: "cleanup-required";
+};
+
 export const DESKTOP_MIGRATION_STATE: {
   readonly COMPLETE: "complete";
   readonly INCOMPLETE: "incomplete";
@@ -77,6 +85,16 @@ export function ensureDesktopStorageDirectories(
 
 export function databasePathToUrl(databasePath: string): string;
 
+export type DesktopDeleteResult = {
+  operationId: string;
+  deletedFileCount: number;
+};
+
+export function deleteDesktopData(options?: {
+  storagePaths?: DesktopStoragePaths;
+  operationId?: string;
+}): DesktopDeleteResult;
+
 export function createDesktopSidecarDatabaseEnvironment(
   storagePaths?: DesktopStoragePaths,
 ): {
@@ -107,6 +125,84 @@ export function runStagedUpdateMigration(options: {
   environment?: NodeJS.ProcessEnv;
   now?: number;
 }): StagedUpdateMigrationResult;
+
+export type DesktopRestoreSource =
+  | { kind: "managed-backup"; backupId: string }
+  | { kind: "external-file"; origin: "native-dialog"; path: string };
+
+export type DesktopRestoreResult = {
+  operationId: string;
+  safetyBackupId: string;
+  size: number;
+};
+
+export type DesktopManagedBackupCatalogEntry = {
+  backupId: string;
+  fileName: string;
+  size: number;
+  createdAt: string;
+};
+
+export type DesktopManagedBackupCatalog = {
+  status: "ready" | "empty";
+  backups: DesktopManagedBackupCatalogEntry[];
+};
+
+export function listManagedBackupCatalog(options?: {
+  storagePaths?: DesktopStoragePaths;
+}): DesktopManagedBackupCatalog;
+
+export type DesktopPendingRestoreSummary = {
+  pendingId: string;
+  manifestToken: string;
+  sourceKind: "managed-backup" | "external-file";
+  createdAt: string;
+  candidateDigest: string;
+  candidateSize: number;
+  candidateSchemaIdentity: string;
+};
+
+export type DesktopPendingRestoreStatusResult = {
+  status: "none" | "available" | "invalid";
+  errorCode: string | null;
+  pending: DesktopPendingRestoreSummary | null;
+};
+
+export function restoreDesktopDatabase(options: {
+  storagePaths: DesktopStoragePaths;
+  source: DesktopRestoreSource;
+  sqliteBinary?: string;
+  migrationsDirectory?: string;
+  nodeExecutable?: string;
+  prismaBinary?: string;
+  prismaConfigPath?: string;
+  prismaProjectRoot?: string;
+  prismaSchemaPath?: string;
+  environment?: NodeJS.ProcessEnv;
+  operationId?: string;
+}): Promise<DesktopRestoreResult>;
+
+export function inspectPendingRestore(options?: {
+  storagePaths?: DesktopStoragePaths;
+  sqliteBinary?: string;
+  migrationsDirectory?: string;
+}): DesktopPendingRestoreStatusResult;
+
+export function resumePendingRestore(options: {
+  storagePaths: DesktopStoragePaths;
+  pendingId: string;
+  manifestToken: string;
+  confirmed: true;
+  sqliteBinary?: string;
+  migrationsDirectory?: string;
+  nodeExecutable?: string;
+  prismaBinary?: string;
+  prismaConfigPath?: string;
+  prismaProjectRoot?: string;
+  prismaSchemaPath?: string;
+  environment?: NodeJS.ProcessEnv;
+  operationId?: string;
+}): Promise<DesktopRestoreResult & { pendingId: string }>;
 
 export function bootstrapDesktopStorage(options?: {
   homeDirectory?: string;

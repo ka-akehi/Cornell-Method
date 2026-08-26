@@ -66,9 +66,29 @@ test("Settings UI exposes three keyboard-navigable categories", () => {
   );
   const compactModal = compact(modal);
 
-  assert.match(modal, /label: "General"/);
-  assert.match(modal, /label: "Updates"/);
-  assert.match(modal, /label: "Data and Backup"/);
+  assert.match(modal, /label: "一般"/);
+  assert.match(modal, /label: "更新"/);
+  assert.match(modal, /label: "データとバックアップ"/);
+  assert.doesNotMatch(modal, /<p className=\{styles\.eyebrow\}>設定<\/p>/);
+  assert.doesNotMatch(modal, /<p className=\{styles\.panelKicker\}>一般<\/p>/);
+  assert.doesNotMatch(modal, /<p className=\{styles\.panelKicker\}>更新<\/p>/);
+  assert.doesNotMatch(
+    modal,
+    /<p className=\{styles\.panelKicker\}>データとバックアップ<\/p>/,
+  );
+  assert.match(modal, /<h2 id="settings-modal-title">設定<\/h2>/);
+  assert.equal(
+    (modal.match(/<h2 id="settings-modal-title">設定<\/h2>/g) ?? []).length,
+    1,
+  );
+  assert.equal((modal.match(/<h3>一般<\/h3>/g) ?? []).length, 1);
+  assert.equal((modal.match(/<h3>更新<\/h3>/g) ?? []).length, 1);
+  assert.equal(
+    (modal.match(/<h3>データとバックアップ<\/h3>/g) ?? []).length,
+    1,
+  );
+  assert.match(modal, /<p className=\{styles\.panelKicker\}>確認<\/p>/);
+  assert.doesNotMatch(modal, /label: "(?:General|Updates|Data and Backup)"/);
   assert.match(modal, /role="tablist"/);
   assert.match(modal, /role="tab"/);
   assert.match(modal, /aria-selected=\{isActive\}/);
@@ -78,6 +98,37 @@ test("Settings UI exposes three keyboard-navigable categories", () => {
   assert.match(compactModal, /ArrowRight[\s\S]*ArrowLeft[\s\S]*Home[\s\S]*End/);
   assert.match(modal, /useState<SettingsCategoryId>\("general"\)/);
   assert.doesNotMatch(modal, /fetch\(|window\.open|WebviewWindowBuilder|invoke\(/);
+});
+
+test("Settings modal keeps a fixed frame and scrolls only the panel region", () => {
+  const css = readSource(
+    "src/app/_components/settings/settings-modal.module.css",
+  );
+
+  assert.match(
+    css,
+    /\.dialog\s*\{[\s\S]*?height:\s*min\(44rem,\s*calc\(100svh - 2rem\)\);/,
+  );
+  assert.match(css, /\.header\s*\{[\s\S]*?flex:\s*0 0 auto;/);
+  assert.match(css, /\.body\s*\{[\s\S]*?flex:\s*1 1 auto;[\s\S]*?min-height:\s*0;/);
+  assert.match(
+    css,
+    /\.panelRegion\s*\{[\s\S]*?min-height:\s*0;[\s\S]*?overflow:\s*auto;/,
+  );
+
+  const mobileCss = css.slice(css.indexOf("@media (max-width: 640px)"));
+  assert.match(
+    mobileCss,
+    /\.dialog\s*\{[\s\S]*?height:\s*100svh;[\s\S]*?max-height:\s*100svh;[\s\S]*?min-height:\s*100svh;/,
+  );
+  assert.match(
+    mobileCss,
+    /\.body\s*\{[\s\S]*?display:\s*flex;[\s\S]*?flex-direction:\s*column;/,
+  );
+  assert.match(
+    mobileCss,
+    /\.panelRegion\s*\{[\s\S]*?flex:\s*1 1 auto;[\s\S]*?min-height:\s*0;/,
+  );
 });
 
 test("Updates panel uses the manual bridge and keeps result copy safe", () => {
@@ -123,6 +174,103 @@ test("Updates panel uses the manual bridge and keeps result copy safe", () => {
   assert.match(css, /\.updateCheckButton\s*\{/);
   assert.match(css, /\.updateStatus\s*\{/);
   assert.match(css, /\.updateStatusError\s*\{/);
+});
+
+test("Data and Backup panel consumes the stable bridge with explicit destructive-delete boundaries", () => {
+  const modal = readSource(
+    "src/app/_components/settings/settings-modal.tsx",
+  );
+  const css = readSource(
+    "src/app/_components/settings/settings-modal.module.css",
+  );
+  const compactModal = compact(modal);
+
+  assert.match(modal, /function DataAndBackupPanel/);
+  assert.match(modal, /requestDataBackupSaveDestination\(\)/);
+  assert.match(modal, /requestDataBackupExternalSource\(\)/);
+  assert.match(modal, /requestDataBackupOperation\(/);
+  assert.match(modal, /requestManagedBackupCatalog\(\)/);
+  assert.match(modal, /requestPendingRestoreStatus\(\)/);
+  assert.match(modal, /confirmPendingRestore\(/);
+  assert.match(modal, /void refreshCatalog\(\)/);
+  assert.match(modal, /void refreshPendingStatus\(\)/);
+
+  assert.match(
+    compactModal,
+    /operation:\s*"export"[\s\S]*source:\s*null[\s\S]*destination:\s*\{\s*kind:\s*"external-selection",\s*selectionId,/,
+  );
+  assert.match(
+    compactModal,
+    /operation:\s*"restore"[\s\S]*source,[\s\S]*destination:\s*null,[\s\S]*confirmed:\s*true/,
+  );
+  assert.match(
+    compactModal,
+    /operation:\s*"delete"[\s\S]*source:\s*null,[\s\S]*destination:\s*null,[\s\S]*confirmed:\s*true/,
+  );
+  assert.match(modal, /完全に削除/);
+  assert.match(modal, /deleteConfirmationText/);
+  assert.match(modal, /disabled=\{!canStartAction\}/);
+  assert.match(modal, /aria-invalid=/);
+  assert.match(
+    compactModal,
+    /kind:\s*"managed-backup"\s+as\s+const,\s*backupId:\s*selectedConfirmation\.backup\.backupId/,
+  );
+  assert.match(
+    compactModal,
+    /kind:\s*"external-selection"\s+as\s+const,\s*selectionId:\s*selectedConfirmation\.selectionId/,
+  );
+
+  const managedIntentStart = modal.indexOf(
+    "const handleManagedRestoreIntent",
+  );
+  const pendingIntentStart = modal.indexOf(
+    "const handlePendingRestoreIntent",
+  );
+  const cancelStart = modal.indexOf("const handleCancelConfirmation");
+  assert.ok(managedIntentStart >= 0 && pendingIntentStart > managedIntentStart);
+  assert.doesNotMatch(
+    modal.slice(managedIntentStart, pendingIntentStart),
+    /requestDataBackupOperation|confirmPendingRestore/,
+  );
+  assert.ok(cancelStart > pendingIntentStart);
+  assert.match(
+    modal.slice(cancelStart, modal.indexOf("const handleConfirm", cancelStart)),
+    /データは変更されていません[\s\S]*setConfirmation\(null\)/,
+  );
+  assert.match(modal, /result\.status === "cancelled"\)\s*\{\s*return;/);
+
+  assert.match(
+    modal,
+    /setConfirmation\(\{\s*kind: "external"[\s\S]*selectionId: result\.selection\.selectionId[\s\S]*fileName: result\.selection\.fileName/s,
+  );
+  assert.match(
+    modal,
+    /confirmPendingRestore\([\s\S]*selectedConfirmation\.pendingId[\s\S]*selectedConfirmation\.manifestToken/s,
+  );
+  assert.match(
+    modal,
+    /result\.status === "success"\)[\s\S]*refreshPendingStatus\(\)/,
+  );
+  assert.match(modal, /role="status"/);
+  assert.match(modal, /role="alert"/);
+  assert.match(modal, /aria-busy=/);
+  assert.match(modal, /disabled=\{!canStartAction\}/);
+  assert.match(modal, /disabled=\{operationBusy\}/);
+  assert.match(modal, /aria-live="polite"/);
+
+  assert.match(modal, /fileName/);
+  assert.match(modal, /formatDataBackupSize/);
+  assert.match(modal, /formatDataBackupDate/);
+  assert.doesNotMatch(modal, /data-(?:backup|pending)-(?:id|token)=/i);
+  assert.doesNotMatch(
+    modal,
+    /<dd>\{(?:confirmation\.)?(?:selectionId|pendingId|manifestToken)\}<\/dd>/,
+  );
+  assert.doesNotMatch(modal, /fetch\(|window\.open|invoke\(|\bfs\.|pathname|filePath/);
+  assert.match(modal, /href="\/backup"/);
+  assert.match(css, /\.dataBackupSection\s*\{/);
+  assert.match(css, /\.dataBackupConfirmation\s*\{/);
+  assert.match(css, /\.dataBackupStatusError\s*\{/);
 });
 
 test("Settings modal keeps dialog and focus behavior in the separated component", () => {
@@ -174,7 +322,7 @@ test("Settings UI does not add another window, runtime, filesystem, or API path"
 
   assert.doesNotMatch(
     source,
-    /window\.open|WebviewWindow|new window|new WebView|Tauri|sidecar|runtime|filesystem|Prisma|SQLite|fetch\(|axios|invoke\(|child_process|\bfs\./i,
+    /window\.open|WebviewWindow|new window|new WebView|Tauri|runtime|filesystem|Prisma|fetch\(|axios|invoke\(|child_process|\bfs\./i,
   );
   assert.match(source, /href="\/backup"/);
 });

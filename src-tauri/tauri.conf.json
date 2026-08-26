@@ -25,21 +25,22 @@
     "resources": {
       "../.desktop-runtime/node": "runtime/node",
       "../.desktop-runtime/package.json": "runtime/package.json",
-      "../.desktop-runtime/node_modules/**/*": "runtime/node_modules/",
-      "../.desktop-runtime/node_modules/.bin/**/*": "runtime/node_modules/.bin/",
-      "../.desktop-runtime/node_modules/.prisma/**/*": "runtime/node_modules/.prisma/",
+      "../.desktop-runtime/node_modules": "runtime/node_modules",
       "sidecar/launcher.cjs": "runtime/sidecar/launcher.cjs",
       "../.next/BUILD_ID": "runtime/.next/BUILD_ID",
       "../.next/*.json": "runtime/.next/",
-      "../.next/server/**/*": "runtime/.next/server/",
-      "../.next/static/**/*": "runtime/.next/static/",
-      "../prisma/**/*": "runtime/prisma/",
+      "../.next/server": "runtime/.next/server",
+      "../.next/static": "runtime/.next/static",
+      "../prisma": "runtime/prisma",
       "../config/project-env.js": "runtime/config/project-env.js",
       "../src/generated/**/*": "runtime/src/generated/",
       "../src/server/infrastructure/desktop-storage.js": "runtime/src/server/infrastructure/desktop-storage.js",
       "../next.config.ts": "runtime/next.config.ts",
       "../prisma.config.ts": "runtime/prisma.config.ts",
       "../public/**/*": "runtime/public/"
+    },
+    "macOS": {
+      "signingIdentity": "-"
     }
   }
 }

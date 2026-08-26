@@ -33,9 +33,14 @@ test("apply is an explicit no-argument command and is absent from automatic path
     /#\[tauri::command\]\s*async fn apply_verified_update\(\s*app: tauri::AppHandle,\s*\)/s,
   );
   assert.match(applyCommand, /spawn_blocking\(move \|\| apply_verified_update_worker\(app\)\)/);
+  const handlerStart = main.indexOf("generate_handler![");
+  const handlerEnd = main.indexOf("]", handlerStart);
+  assert.notEqual(handlerStart, -1);
+  assert.notEqual(handlerEnd, -1);
+  const handler = main.slice(handlerStart, handlerEnd);
   assert.match(
-    main,
-    /generate_handler!\[\s*manual_update_check,\s*read_update_state,\s*verify_pending_update,\s*apply_verified_update\s*\]/s,
+    handler,
+    /manual_update_check[\s\S]*read_update_state[\s\S]*verify_pending_update[\s\S]*apply_verified_update/,
   );
   assert.doesNotMatch(applyCommand, /PathBuf|path:|url:|token|user_data|database/);
   assert.doesNotMatch(startup, /apply_verified_update|request_restart|ApplyPreparation/);

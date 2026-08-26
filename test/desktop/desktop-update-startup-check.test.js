@@ -57,12 +57,17 @@ test("startup worker reports only fixed codes and has no manual or package side 
     worker,
     /CheckTrigger::Manual|download|sha-?256|signature|apply|rollback|notification|event dispatch/i,
   );
+  const handlerStart = main.indexOf("generate_handler![");
+  const handlerEnd = main.indexOf("]", handlerStart);
+  assert.notEqual(handlerStart, -1);
+  assert.notEqual(handlerEnd, -1);
+  const handler = main.slice(handlerStart, handlerEnd);
   assert.match(
-    main,
-    /\.invoke_handler\(tauri::generate_handler!\[\s*manual_update_check,\s*read_update_state,\s*verify_pending_update,\s*apply_verified_update\s*\]\)/s,
+    handler,
+    /manual_update_check[\s\S]*read_update_state[\s\S]*verify_pending_update[\s\S]*apply_verified_update/,
   );
   assert.equal(
-    (main.match(/generate_handler!\[\s*manual_update_check,\s*read_update_state,\s*verify_pending_update,\s*apply_verified_update\s*\]/gs) || []).length,
+    (main.match(/generate_handler!\[/g) || []).length,
     1,
   );
   assert.doesNotMatch(main, /fetch_manifest_from_github/);

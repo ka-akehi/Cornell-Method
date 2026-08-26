@@ -46,7 +46,12 @@
 .trigger:focus-visible,
 .closeButton:focus-visible,
 .tab:focus-visible,
-.routeLink:focus-visible {
+.routeLink:focus-visible,
+.dataBackupButton:focus-visible,
+.dataBackupSecondaryButton:focus-visible,
+.dataBackupInlineButton:focus-visible,
+.dataBackupDangerButton:focus-visible,
+.dataBackupConfirmationField input:focus-visible {
   outline: 2px solid var(--app-focus);
   outline-offset: 2px;
 }
@@ -122,6 +127,7 @@
 .dialog {
   display: flex;
   width: min(100%, 56rem);
+  height: min(44rem, calc(100svh - 2rem));
   max-height: min(44rem, calc(100svh - 2rem));
   flex-direction: column;
   overflow: hidden;
@@ -134,6 +140,7 @@
 
 .header {
   display: flex;
+  flex: 0 0 auto;
   align-items: flex-start;
   justify-content: space-between;
   gap: 1rem;
@@ -142,7 +149,6 @@
   background: var(--app-paper-surface);
 }
 
-.eyebrow,
 .panelKicker {
   margin: 0;
   color: var(--app-accent-deep);
@@ -201,12 +207,15 @@
 
 .body {
   display: grid;
+  min-width: 0;
+  flex: 1 1 auto;
   min-height: 0;
   grid-template-columns: minmax(10rem, 13rem) minmax(0, 1fr);
 }
 
 .categoryNavigation {
   display: grid;
+  min-width: 0;
   align-content: start;
   gap: 0.25rem;
   padding: 1.25rem;
@@ -241,6 +250,7 @@
 
 .panelRegion {
   min-width: 0;
+  min-height: 0;
   overflow: auto;
   padding: clamp(1.25rem, 4vw, 2.5rem);
 }
@@ -336,6 +346,250 @@
   color: var(--app-danger, #8f3f2f);
 }
 
+.dataBackupSection {
+  display: grid;
+  gap: 0.75rem;
+  padding-top: 1.1rem;
+  border-top: 1px solid var(--app-line);
+}
+
+.dataBackupSectionHeading {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.dataBackupSectionHeading h4,
+.dataBackupConfirmation h4 {
+  margin: 0;
+  color: var(--app-ink);
+  font-size: 1rem;
+  line-height: 1.4;
+}
+
+.dataBackupSectionHeading p,
+.dataBackupConfirmation p {
+  margin: 0;
+  color: var(--app-muted-ink);
+  font-size: 0.875rem;
+  line-height: 1.55;
+}
+
+.dataBackupButton,
+.dataBackupSecondaryButton {
+  min-height: 2.75rem;
+  padding: 0.6rem 0.9rem;
+  border-radius: 0.45rem;
+  font-size: 0.875rem;
+  font-weight: 700;
+  line-height: 1.35;
+  cursor: pointer;
+}
+
+.dataBackupButton {
+  width: fit-content;
+  border: 1px solid var(--app-accent-deep);
+  background: var(--app-accent-deep);
+  color: #fff8eb;
+}
+
+.dataBackupDangerButton {
+  width: fit-content;
+  min-height: 2.75rem;
+  padding: 0.6rem 0.9rem;
+  border: 1px solid var(--app-danger, #8f3f2f);
+  border-radius: 0.45rem;
+  background: var(--app-danger, #8f3f2f);
+  color: #fff8eb;
+  font-size: 0.875rem;
+  font-weight: 700;
+  line-height: 1.35;
+  cursor: pointer;
+}
+
+.dataBackupDangerButton:hover:not(:disabled) {
+  border-color: var(--app-ink);
+  background: var(--app-ink);
+}
+
+.dataBackupButton:hover:not(:disabled) {
+  background: var(--app-ink);
+}
+
+.dataBackupSecondaryButton {
+  width: fit-content;
+  border: 1px solid var(--app-line-strong);
+  background: var(--app-surface);
+  color: var(--app-accent-deep);
+}
+
+.dataBackupSecondaryButton:hover:not(:disabled) {
+  border-color: var(--app-accent);
+  background: var(--app-accent-soft);
+}
+
+.dataBackupButton:disabled,
+.dataBackupSecondaryButton:disabled,
+.dataBackupInlineButton:disabled,
+.dataBackupDangerButton:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
+}
+
+.dataBackupStatus {
+  display: flex;
+  max-width: 100%;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.7rem;
+  padding: 0.65rem 0.8rem;
+  border: 1px solid var(--app-line);
+  border-radius: 0.35rem;
+  background: var(--app-surface);
+  color: var(--app-accent-deep);
+  font-size: 0.875rem;
+  line-height: 1.55;
+}
+
+.dataBackupStatusError {
+  border-color: rgb(155 61 42 / 34%);
+  color: var(--app-danger, #8f3f2f);
+}
+
+.dataBackupInlineButton {
+  min-height: 2rem;
+  padding: 0.25rem 0.35rem;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font-size: 0.82rem;
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 0.18em;
+  cursor: pointer;
+}
+
+.dataBackupConfirmation {
+  display: grid;
+  gap: 0.75rem;
+  padding: 1rem;
+  border: 1px solid rgb(185 104 29 / 32%);
+  border-radius: 0.45rem;
+  background: rgb(243 228 207 / 52%);
+}
+
+.dataBackupConfirmationActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.65rem;
+  flex-wrap: wrap;
+}
+
+.dataBackupDangerSection {
+  border-top-color: rgb(155 61 42 / 34%);
+}
+
+.dataBackupTargetList {
+  display: grid;
+  gap: 0.35rem;
+  margin: 0;
+  padding-left: 1.15rem;
+  color: var(--app-ink);
+  font-size: 0.875rem;
+  line-height: 1.55;
+}
+
+.dataBackupConfirmationField {
+  display: grid;
+  gap: 0.35rem;
+  color: var(--app-ink);
+  font-size: 0.875rem;
+  font-weight: 700;
+  line-height: 1.45;
+}
+
+.dataBackupConfirmationField input {
+  box-sizing: border-box;
+  width: min(100%, 22rem);
+  min-height: 2.75rem;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid var(--app-line-strong);
+  border-radius: 0.4rem;
+  background: var(--app-paper-surface);
+  color: var(--app-ink);
+  font: inherit;
+  font-weight: 500;
+}
+
+.dataBackupConfirmationField input[aria-invalid="true"] {
+  border-color: var(--app-danger, #8f3f2f);
+}
+
+.dataBackupConfirmationField > span:last-child {
+  color: var(--app-muted-ink);
+  font-size: 0.78rem;
+  font-weight: 500;
+}
+
+.dataBackupMeta {
+  display: grid;
+  gap: 0;
+  margin: 0;
+  border-top: 1px solid var(--app-line);
+}
+
+.dataBackupMeta div {
+  display: grid;
+  grid-template-columns: minmax(5.5rem, 0.35fr) minmax(0, 1fr);
+  gap: 0.75rem;
+  padding: 0.55rem 0;
+  border-bottom: 1px solid var(--app-line);
+}
+
+.dataBackupMeta dt {
+  color: var(--app-muted-ink);
+  font-size: 0.78rem;
+  font-weight: 650;
+}
+
+.dataBackupMeta dd {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: var(--app-ink);
+  font-size: 0.875rem;
+}
+
+.dataBackupEmpty {
+  margin: 0;
+  color: var(--app-muted-ink);
+  font-size: 0.875rem;
+}
+
+.dataBackupList {
+  display: grid;
+  gap: 0.75rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.dataBackupListItem,
+.dataBackupPendingCard {
+  display: grid;
+  gap: 0.65rem;
+  padding: 0.75rem 0;
+  border-bottom: 1px solid var(--app-line);
+}
+
+.dataBackupListItem:first-child {
+  padding-top: 0;
+}
+
+.dataBackupListItem:last-child {
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+
 .updateVersion {
   overflow-wrap: anywhere;
 }
@@ -388,6 +642,7 @@
 
   .dialog {
     width: 100%;
+    height: 100svh;
     max-height: 100svh;
     min-height: 100svh;
     border: 0;
@@ -401,6 +656,7 @@
 
   .categoryNavigation {
     display: flex;
+    flex: 0 0 auto;
     overflow-x: auto;
     padding: 0.75rem 1rem;
     border-right: 0;
@@ -414,6 +670,19 @@
 
   .panelRegion {
     flex: 1 1 auto;
+    min-height: 0;
+  }
+
+  .dataBackupMeta div {
+    grid-template-columns: minmax(5rem, 0.45fr) minmax(0, 1fr);
+  }
+
+  .dataBackupConfirmationActions {
+    justify-content: stretch;
+  }
+
+  .dataBackupConfirmationActions > button {
+    flex: 1 1 8rem;
   }
 }
 

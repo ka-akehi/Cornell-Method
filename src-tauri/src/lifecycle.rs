@@ -1,4 +1,8 @@
-use super::runtime::SidecarHandle;
+use super::runtime::{
+    create_data_backup_operation_id, run_data_backup_operation_with_operation_id,
+    run_pending_restore_operation_with_operation_id, runtime_project_root, start_sidecar,
+    validate_pending_restore_resume_request, SidecarHandle, StorageLayout,
+};
 use super::window_state::capture_window_state;
 use super::{
     manual_update_check_worker, read_update_state_worker, verify_pending_update_command_worker,
@@ -8,9 +12,10 @@ use crate::update_check::{ManualUpdateCheckCommandError, ManualUpdateCheckRespon
 use crate::update_state::{UpdateStateError, UpdateStateSnapshot, UpdateStateStore};
 use crate::update_verification::{VerifyPendingUpdateCommandError, VerifyPendingUpdateResponse};
 use serde::Serialize;
+use serde_json::Value;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{mpsc, Arc, Mutex};
+use std::sync::{mpsc, Arc, Mutex, MutexGuard};
 use std::thread;
 use std::time::Duration;
 use tauri::{AppHandle, Manager, WebviewWindow};
@@ -214,6 +219,7 @@ impl CloseCoordinator {
 
 pub(crate) struct AppState {
     sidecar: Arc<Mutex<Option<SidecarHandle>>>,
+    data_operation: Mutex<()>,
     close: Arc<CloseCoordinator>,
     window_state_path: PathBuf,
 }
@@ -222,6 +228,7 @@ impl AppState {
     pub(crate) fn new(sidecar: SidecarHandle, window_state_path: PathBuf) -> Self {
         Self {
             sidecar: Arc::new(Mutex::new(Some(sidecar))),
+            data_operation: Mutex::new(()),
             close: Arc::new(CloseCoordinator::new()),
             window_state_path,
         }
@@ -242,6 +249,432 @@ impl AppState {
     pub(crate) fn window_state_path(&self) -> &Path {
         &self.window_state_path
     }
+
+    pub(crate) fn cleanup_sidecar(&self) -> AppResult<()> {
+        let mut sidecar = self
+            .sidecar
+            .lock()
+            .map_err(|_| "sidecar state lock is poisoned".to_string())?;
+        let Some(handle) = sidecar.as_mut() else {
+            return Ok(());
+        };
+        handle.stop()?;
+        *sidecar = None;
+        Ok(())
+    }
+
+    pub(crate) fn lock_data_operation(&self) -> AppResult<MutexGuard<'_, ()>> {
+        self.data_operation
+            .lock()
+            .map_err(|_| "desktop data operation lock is poisoned".to_string())
+    }
+
+    pub(crate) fn quiesce_sidecar_for_data_operation(&self) -> AppResult<()> {
+        let mut sidecar = self
+            .sidecar
+            .lock()
+            .map_err(|_| "sidecar state lock is poisoned".to_string())?;
+        let Some(handle) = sidecar.as_mut() else {
+            return Err("sidecar is not running".to_string());
+        };
+        handle.stop()?;
+        *sidecar = None;
+        Ok(())
+    }
+
+    pub(crate) fn restart_sidecar_for_data_operation(
+        &self,
+        root: &Path,
+        storage: &StorageLayout,
+    ) -> AppResult<tauri::Url> {
+        let handle = start_sidecar(root, storage)?;
+        let runtime_url = handle.runtime_url();
+        let mut sidecar = self
+            .sidecar
+            .lock()
+            .map_err(|_| "sidecar state lock is poisoned".to_string())?;
+        if sidecar.is_some() {
+            return Err("sidecar unexpectedly resumed before restart".to_string());
+        }
+        *sidecar = Some(handle);
+        Ok(runtime_url)
+    }
+}
+
+fn data_operation_is_restore(request: &Value) -> bool {
+    request
+        .get("operation")
+        .and_then(Value::as_str)
+        .is_some_and(|operation| operation == "restore")
+}
+
+fn data_operation_is_delete(request: &Value) -> bool {
+    request
+        .get("operation")
+        .and_then(Value::as_str)
+        .is_some_and(|operation| operation == "delete")
+}
+
+fn delete_request_has_confirmation_boundary(request: &Value) -> Result<(), &'static str> {
+    if request.get("confirmed") != Some(&Value::Bool(true)) {
+        return Err("confirmation-required");
+    }
+    if !request.get("source").is_some_and(Value::is_null)
+        || !request.get("destination").is_some_and(Value::is_null)
+    {
+        return Err("invalid-request");
+    }
+    Ok(())
+}
+
+fn data_operation_name(request: &Value) -> Option<&str> {
+    request.get("operation").and_then(Value::as_str)
+}
+
+fn navigate_to_restarted_runtime(app: &AppHandle, runtime_url: &tauri::Url) {
+    let Some(window) = app.get_webview_window(PRIMARY_WINDOW_LABEL) else {
+        return;
+    };
+    let Ok(url_literal) = serde_json::to_string(runtime_url.as_str()) else {
+        return;
+    };
+    if let Err(error) = window.eval(&format!("window.location.replace({url_literal});")) {
+        eprintln!("restarted desktop runtime could not be opened: {error}");
+    }
+}
+
+pub(crate) fn run_data_backup_operation_command(
+    app: &AppHandle,
+    request: Value,
+) -> super::runtime::DesktopDataBackupOperationResponse {
+    let Some(state) = app.try_state::<Arc<AppState>>() else {
+        return super::runtime::desktop_data_backup_command_error(
+            data_operation_name(&request),
+            "request",
+            "quiesce-failed",
+        );
+    };
+    let Ok(_operation_guard) = state.lock_data_operation() else {
+        return super::runtime::desktop_data_backup_command_error(
+            data_operation_name(&request),
+            "request",
+            "quiesce-failed",
+        );
+    };
+    if data_operation_is_delete(&request) {
+        if let Err(error_code) = delete_request_has_confirmation_boundary(&request) {
+            return super::runtime::desktop_data_backup_command_error(
+                Some("delete"),
+                "validation",
+                error_code,
+            );
+        }
+        let Some(update_state) = app.try_state::<UpdateStateStore>() else {
+            return super::runtime::desktop_data_backup_command_error(
+                Some("delete"),
+                "request",
+                "quiesce-failed",
+            );
+        };
+        let _update_operation = match update_state.try_acquire_operation() {
+            Ok(Some(operation)) => operation,
+            Ok(None) | Err(_) => {
+                return super::runtime::desktop_data_backup_command_error(
+                    Some("delete"),
+                    "operation",
+                    "quiesce-failed",
+                );
+            }
+        };
+        let Some(storage) = app.try_state::<StorageLayout>() else {
+            return super::runtime::desktop_data_backup_command_error(
+                Some("delete"),
+                "request",
+                "storage-unavailable",
+            );
+        };
+        let root = match runtime_project_root(app) {
+            Ok(root) => root,
+            Err(_) => {
+                return super::runtime::desktop_data_backup_command_error(
+                    Some("delete"),
+                    "request",
+                    "runtime-unavailable",
+                );
+            }
+        };
+        let operation_id = match create_data_backup_operation_id() {
+            Ok(operation_id) => operation_id,
+            Err(error_code) => {
+                return super::runtime::desktop_data_backup_command_error(
+                    Some("delete"),
+                    "request",
+                    error_code,
+                );
+            }
+        };
+        if state.quiesce_sidecar_for_data_operation().is_err() {
+            return super::runtime::desktop_data_backup_command_error(
+                Some("delete"),
+                "operation",
+                "quiesce-failed",
+            );
+        }
+
+        let response =
+            run_data_backup_operation_with_operation_id(app, request, Some(operation_id));
+        if response.is_success() {
+            // Keep the sidecar stopped after a successful delete. The next app
+            // startup owns the clean bootstrap boundary.
+            state.allow_application_exit();
+            return response;
+        }
+        if response.is_validation_phase() {
+            if let Ok(runtime_url) =
+                state.restart_sidecar_for_data_operation(&root, storage.inner())
+            {
+                navigate_to_restarted_runtime(app, &runtime_url);
+                return response;
+            }
+            return super::runtime::desktop_data_backup_command_error(
+                Some("delete"),
+                "operation",
+                "quiesce-failed",
+            );
+        }
+        // An operation/cleanup/partial failure leaves the sidecar stopped so
+        // that it cannot bootstrap or write an uncertain data set.
+        state.allow_application_exit();
+        return response;
+    }
+    if !data_operation_is_restore(&request) {
+        return super::runtime::run_data_backup_operation(app, request);
+    }
+    let Some(storage) = app.try_state::<StorageLayout>() else {
+        return super::runtime::desktop_data_backup_command_error(
+            Some("restore"),
+            "request",
+            "storage-unavailable",
+        );
+    };
+    let root = match runtime_project_root(app) {
+        Ok(root) => root,
+        Err(_) => {
+            return super::runtime::desktop_data_backup_command_error(
+                Some("restore"),
+                "request",
+                "runtime-unavailable",
+            );
+        }
+    };
+    let operation_id = match create_data_backup_operation_id() {
+        Ok(operation_id) => operation_id,
+        Err(error_code) => {
+            return super::runtime::desktop_data_backup_command_error(
+                Some("restore"),
+                "request",
+                error_code,
+            );
+        }
+    };
+    if state.quiesce_sidecar_for_data_operation().is_err() {
+        return super::runtime::desktop_data_backup_command_error(
+            Some("restore"),
+            "operation",
+            "quiesce-failed",
+        );
+    }
+
+    let response = run_data_backup_operation_with_operation_id(
+        app,
+        request.clone(),
+        Some(operation_id.clone()),
+    );
+    let restarted = state.restart_sidecar_for_data_operation(&root, storage.inner());
+    if let Ok(runtime_url) = restarted {
+        navigate_to_restarted_runtime(app, &runtime_url);
+        return response;
+    }
+
+    if response.is_success() {
+        let rollback_backup_id = format!("restore-{operation_id}.sqlite.bak");
+        let rollback_request = serde_json::json!({
+            "kind": "desktop-data-backup-operation",
+            "schemaVersion": 1,
+            "operation": "restore",
+            "source": { "kind": "managed-backup", "backupId": rollback_backup_id },
+            "destination": null,
+            "confirmed": true,
+        });
+        let rollback_response = run_data_backup_operation_with_operation_id(
+            app,
+            rollback_request,
+            Some(format!("rollback-{operation_id}")),
+        );
+        if !rollback_response.is_success() {
+            return super::runtime::desktop_data_backup_command_error(
+                Some("restore"),
+                "operation",
+                "rollback-failed",
+            );
+        }
+        if let Ok(runtime_url) = state.restart_sidecar_for_data_operation(&root, storage.inner()) {
+            navigate_to_restarted_runtime(app, &runtime_url);
+            return super::runtime::desktop_data_backup_command_error(
+                Some("restore"),
+                "operation",
+                "quiesce-failed",
+            );
+        }
+        return super::runtime::desktop_data_backup_command_error(
+            Some("restore"),
+            "operation",
+            "rollback-failed",
+        );
+    }
+
+    super::runtime::desktop_data_backup_command_error(
+        Some("restore"),
+        "operation",
+        "quiesce-failed",
+    )
+}
+
+pub(crate) fn run_pending_restore_resume_command(
+    app: &AppHandle,
+    request: Value,
+) -> super::runtime::DesktopPendingRestoreResumeResponse {
+    let pending_id = request
+        .get("pendingId")
+        .and_then(Value::as_str)
+        .map(str::to_string);
+    let (pending_id, _manifest_token) = match validate_pending_restore_resume_request(&request) {
+        Ok(identity) => identity,
+        Err(error_code) => {
+            return super::runtime::pending_restore_resume_command_error(
+                None,
+                pending_id.as_deref(),
+                "validation",
+                error_code,
+            );
+        }
+    };
+    let Some(state) = app.try_state::<Arc<AppState>>() else {
+        return super::runtime::pending_restore_resume_command_error(
+            None,
+            Some(pending_id.as_str()),
+            "request",
+            "quiesce-failed",
+        );
+    };
+    let Ok(_operation_guard) = state.lock_data_operation() else {
+        return super::runtime::pending_restore_resume_command_error(
+            None,
+            Some(pending_id.as_str()),
+            "request",
+            "quiesce-failed",
+        );
+    };
+    let Some(storage) = app.try_state::<StorageLayout>() else {
+        return super::runtime::pending_restore_resume_command_error(
+            None,
+            Some(pending_id.as_str()),
+            "request",
+            "storage-unavailable",
+        );
+    };
+    let root = match runtime_project_root(app) {
+        Ok(root) => root,
+        Err(_) => {
+            return super::runtime::pending_restore_resume_command_error(
+                None,
+                Some(pending_id.as_str()),
+                "request",
+                "runtime-unavailable",
+            );
+        }
+    };
+    let operation_id = match create_data_backup_operation_id() {
+        Ok(operation_id) => operation_id,
+        Err(error_code) => {
+            return super::runtime::pending_restore_resume_command_error(
+                None,
+                Some(pending_id.as_str()),
+                "request",
+                error_code,
+            );
+        }
+    };
+    if state.quiesce_sidecar_for_data_operation().is_err() {
+        return super::runtime::pending_restore_resume_command_error(
+            Some(operation_id.as_str()),
+            Some(pending_id.as_str()),
+            "operation",
+            "quiesce-failed",
+        );
+    }
+
+    let response =
+        run_pending_restore_operation_with_operation_id(app, request, operation_id.clone());
+    let restarted = state.restart_sidecar_for_data_operation(&root, storage.inner());
+    if let Ok(runtime_url) = restarted {
+        navigate_to_restarted_runtime(app, &runtime_url);
+        return response;
+    }
+
+    if response.ok && response.status == "success" {
+        let Some(result) = response.result.as_ref() else {
+            return super::runtime::pending_restore_resume_command_error(
+                Some(operation_id.as_str()),
+                Some(pending_id.as_str()),
+                "operation",
+                "protocol-error",
+            );
+        };
+        let rollback_request = serde_json::json!({
+            "kind": "desktop-data-backup-operation",
+            "schemaVersion": 1,
+            "operation": "restore",
+            "source": { "kind": "managed-backup", "backupId": result.safety_backup_id.clone() },
+            "destination": null,
+            "confirmed": true,
+        });
+        let rollback_response = run_data_backup_operation_with_operation_id(
+            app,
+            rollback_request,
+            Some(format!("rollback-{operation_id}")),
+        );
+        if !rollback_response.is_success() {
+            return super::runtime::pending_restore_resume_command_error(
+                Some(operation_id.as_str()),
+                Some(pending_id.as_str()),
+                "operation",
+                "rollback-failed",
+            );
+        }
+        if let Ok(runtime_url) = state.restart_sidecar_for_data_operation(&root, storage.inner()) {
+            navigate_to_restarted_runtime(app, &runtime_url);
+            return super::runtime::pending_restore_resume_command_error(
+                Some(operation_id.as_str()),
+                Some(pending_id.as_str()),
+                "operation",
+                "quiesce-failed",
+            );
+        }
+        return super::runtime::pending_restore_resume_command_error(
+            Some(operation_id.as_str()),
+            Some(pending_id.as_str()),
+            "operation",
+            "rollback-failed",
+        );
+    }
+
+    super::runtime::pending_restore_resume_command_error(
+        Some(operation_id.as_str()),
+        Some(pending_id.as_str()),
+        "operation",
+        "quiesce-failed",
+    )
 }
 
 pub(crate) fn request_explicit_update_restart(
@@ -266,20 +699,10 @@ fn finalize_close(window: WebviewWindow, app: AppHandle, state: Arc<AppState>) {
         eprintln!("{error}");
     }
 
-    let mut sidecar = match state.sidecar.lock() {
-        Ok(sidecar) => sidecar,
-        Err(_) => {
-            eprintln!("sidecar state lock is poisoned; application remains open");
-            return;
-        }
-    };
-    if let Some(handle) = sidecar.as_mut() {
-        if let Err(error) = handle.stop() {
-            eprintln!("{error}; application remains open to avoid an orphan runtime");
-            return;
-        }
+    if let Err(error) = state.cleanup_sidecar() {
+        eprintln!("{error}; application remains open to avoid an orphan runtime");
+        return;
     }
-    *sidecar = None;
     state.allow_application_exit();
     let _ = window.destroy();
     app.exit(0);
@@ -292,6 +715,11 @@ fn dispatch_close_request_event(window: &WebviewWindow) -> Result<(), String> {
 }
 
 pub(crate) fn request_close(window: WebviewWindow, app: AppHandle, state: Arc<AppState>) {
+    if state.application_exit_is_allowed() {
+        let _ = window.destroy();
+        app.exit(0);
+        return;
+    }
     let (generation, receiver) = match state.close.begin() {
         Ok(request) => request,
         Err(_) => return,

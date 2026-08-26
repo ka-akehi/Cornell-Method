@@ -625,7 +625,7 @@ fn resolve_bundle_paths(
     })?;
     require_safe_directory(parent, "current app bundle parent")?;
     Ok(BundlePaths {
-        current,
+        current: current.clone(),
         rollback: parent.join(format!("{BUNDLE_ROLLBACK_PREFIX}{digest}.app")),
         switch_temp: parent.join(format!("{BUNDLE_SWITCH_PREFIX}{digest}.app")),
         failed: parent.join(format!("{BUNDLE_FAILED_PREFIX}{digest}.app")),
@@ -650,7 +650,7 @@ fn resolve_bundle_paths_from_current(
     let _candidate_source = candidate_source_path(candidate, storage)?;
     require_safe_directory(parent, "current app bundle parent")?;
     Ok(BundlePaths {
-        current,
+        current: current.clone(),
         rollback: parent.join(format!("{BUNDLE_ROLLBACK_PREFIX}{digest}.app")),
         switch_temp: parent.join(format!("{BUNDLE_SWITCH_PREFIX}{digest}.app")),
         failed: parent.join(format!("{BUNDLE_FAILED_PREFIX}{digest}.app")),
@@ -861,7 +861,7 @@ fn validate_complete_switch_temp(
     paths: &BundlePaths,
     candidate: &CandidateBundle,
 ) -> Result<(), String> {
-    require_candidate_bundle_at(&paths.switch_temp, &candidate.pending)?;
+    require_candidate_bundle_at(&candidate.source_path, &candidate.pending)?;
     require_safe_bundle_tree(&paths.switch_temp, "bundle switch temporary")?;
     require_safe_bundle_tree(&candidate.source_path, "candidate bundle source")?;
     compare_bundle_trees(
@@ -1904,6 +1904,12 @@ fn validate_internal_symlink(
                 "symlink chain contains a cycle",
             ));
         }
+        if hops >= MAX_SYMLINK_HOPS {
+            return Err(unsafe_internal_symlink_error(
+                label,
+                "symlink chain exceeds the maximum hop count",
+            ));
+        }
 
         let raw_target = fs::read_link(&current).map_err(|error| {
             recovery_error(
@@ -1926,12 +1932,6 @@ fn validate_internal_symlink(
             bundle_path_from_archive_path(bundle_root, &resolved_archive_path, label)?;
         let metadata = metadata_no_follow_inside_bundle(bundle_root, &target_path, label)?;
         if metadata.file_type().is_symlink() {
-            if hops >= MAX_SYMLINK_HOPS {
-                return Err(unsafe_internal_symlink_error(
-                    label,
-                    "symlink chain exceeds the maximum hop count",
-                ));
-            }
             current = target_path;
             hops += 1;
             continue;
@@ -2172,10 +2172,9 @@ fn ensure_file_copy(path: &Path, bytes: &[u8], failure_code: &str) -> Result<(),
         }
         return Ok(());
     }
-    let mut file = OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .mode(0o600)
+    let mut options = OpenOptions::new();
+    options.write(true).create_new(true);
+    let mut file = OpenOptionsMode::mode(options, 0o600)
         .open(path)
         .map_err(|error| recovery_error(failure_code, error.to_string()))?;
     file.write_all(bytes)
@@ -2380,7 +2379,18 @@ mod tests {
         macho.extend_from_slice(&0_u32.to_le_bytes());
         macho.extend_from_slice(&0_u32.to_le_bytes());
         macho.extend_from_slice(&0_u32.to_le_bytes());
-        fs::write(contents.join("MacOS/notebook"), macho).expect("candidate executable");
+        let executable = contents.join("MacOS/notebook");
+        fs::write(&executable, macho).expect("candidate executable");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+
+            let mut permissions = fs::metadata(&executable)
+                .expect("candidate executable metadata")
+                .permissions();
+            permissions.set_mode(0o755);
+            fs::set_permissions(&executable, permissions).expect("candidate executable mode");
+        }
         fs::write(contents.join("Resources.marker"), b"source-candidate").expect("marker");
         app
     }

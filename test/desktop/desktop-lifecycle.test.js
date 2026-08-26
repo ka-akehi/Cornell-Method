@@ -577,6 +577,47 @@ test("application-level exit requests are prevented and share one close bridge",
   assert.match(main, /if state\.application_exit_is_allowed\(\) \{\s*return;/);
 });
 
+test("final exit cleanup shares an idempotent sidecar boundary with close", () => {
+  const main = fs.readFileSync(
+    path.join(projectRoot, "src-tauri", "src", "main.rs"),
+    "utf8",
+  );
+  const lifecycle = fs.readFileSync(
+    path.join(projectRoot, "src-tauri", "src", "lifecycle.rs"),
+    "utf8",
+  );
+  const runtime = fs.readFileSync(
+    path.join(projectRoot, "src-tauri", "src", "runtime.rs"),
+    "utf8",
+  );
+
+  assert.match(
+    main,
+    /tauri::RunEvent::Exit\s*=>\s*\{[\s\S]*try_state::<Arc<AppState>>\(\)[\s\S]*cleanup_sidecar\(\)/,
+  );
+  assert.match(
+    lifecycle,
+    /pub\(crate\) fn cleanup_sidecar\(&self\) -> AppResult<\(\)>[\s\S]*let Some\(handle\) = sidecar\.as_mut\(\) else \{\s*return Ok\(\(\)\);[\s\S]*handle\.stop\(\)\?[\s\S]*\*sidecar = None;/,
+  );
+
+  const finalizeStart = lifecycle.indexOf("fn finalize_close");
+  const dispatchStart = lifecycle.indexOf("fn dispatch_close_request_event", finalizeStart);
+  assert.ok(finalizeStart >= 0 && dispatchStart > finalizeStart);
+  const finalizeClose = lifecycle.slice(finalizeStart, dispatchStart);
+  assert.match(finalizeClose, /state\.cleanup_sidecar\(\)/);
+  assert.doesNotMatch(finalizeClose, /handle\.stop\(\)/);
+
+  assert.match(runtime, /struct SidecarHandle\s*\{[\s\S]*stopped: bool/);
+  assert.match(
+    runtime,
+    /pub\(crate\) fn stop\(&mut self\) -> AppResult<\(\)>\s*\{\s*if self\.stopped \{\s*return Ok\(\(\)\);/,
+  );
+  assert.match(runtime, /self\.stopped = true;\s*Ok\(\(\)\)/);
+
+  assert.match(main, /tauri::RunEvent::ExitRequested\s*\{\s*api, \.\.,?\s*\} =>/);
+  assert.match(main, /api\.prevent_exit\(\)/);
+});
+
 test("close request cleanup is scoped to the request generation", () => {
   const lifecycle = fs.readFileSync(
     path.join(projectRoot, "src-tauri", "src", "lifecycle.rs"),

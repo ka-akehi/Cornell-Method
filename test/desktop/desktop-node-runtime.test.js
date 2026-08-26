@@ -7,9 +7,13 @@ const { spawnSync } = require("node:child_process");
 const { test } = require("node:test");
 
 const {
+  PRISMA_SCHEMA_ENGINE_FILE,
   UNSUPPORTED_TARGET_MESSAGE,
+  copyPrismaSchemaEngine,
   desktopRuntimeDirectory,
   desktopNodeRuntimePath,
+  prismaSchemaEnginePath,
+  prepareDesktopRuntime,
   prepareDesktopNodeRuntime,
   productionRuntimePackage,
   validateBuildTarget,
@@ -24,6 +28,82 @@ const helperPath = path.join(
 
 function temporaryDirectory() {
   return fs.mkdtempSync(path.join(os.tmpdir(), "cornell-desktop-node-runtime-"));
+}
+
+function writeMinimalRuntimeProject(projectRoot) {
+  fs.writeFileSync(
+    path.join(projectRoot, "package.json"),
+    `${JSON.stringify(
+      {
+        name: "desktop-runtime-fixture",
+        version: "0.0.0",
+        dependencies: {},
+      },
+      null,
+      2,
+    )}\n`,
+    "utf8",
+  );
+  fs.writeFileSync(
+    path.join(projectRoot, "package-lock.json"),
+    `${JSON.stringify(
+      {
+        name: "desktop-runtime-fixture",
+        version: "0.0.0",
+        lockfileVersion: 3,
+        requires: true,
+        packages: {
+          "": {
+            name: "desktop-runtime-fixture",
+            version: "0.0.0",
+          },
+        },
+      },
+      null,
+      2,
+    )}\n`,
+    "utf8",
+  );
+
+  const generatedClient = path.join(
+    projectRoot,
+    "node_modules",
+    ".prisma",
+    "client",
+  );
+  fs.mkdirSync(generatedClient, { recursive: true });
+  fs.writeFileSync(path.join(generatedClient, "client.js"), "module.exports = {};\n");
+}
+
+function writeSuccessfulNpmRunner(projectRoot) {
+  const npmRunner = path.join(projectRoot, "fake-npm.cjs");
+  fs.writeFileSync(npmRunner, "process.exit(0);\n", "utf8");
+  return npmRunner;
+}
+
+function relativeFiles(directory) {
+  const files = [];
+
+  function visit(currentDirectory, relativeDirectory) {
+    for (const entry of fs.readdirSync(currentDirectory, { withFileTypes: true })) {
+      const relativePath = path.join(relativeDirectory, entry.name);
+      const absolutePath = path.join(currentDirectory, entry.name);
+      if (entry.isDirectory()) {
+        visit(absolutePath, relativePath);
+      } else if (entry.isFile()) {
+        files.push(relativePath.split(path.sep).join("/"));
+      }
+    }
+  }
+
+  visit(directory, "");
+  return files.sort();
+}
+
+function nextStaticAssetReferences(html) {
+  return [...html.matchAll(/(?:href|src)="(\/_next\/static\/[^\"]+)"/g)].map(
+    ([, reference]) => reference,
+  );
 }
 
 test("desktop build maps the generated Node runtime into runtime/node", () => {
@@ -52,17 +132,12 @@ test("desktop build maps the generated Node runtime into runtime/node", () => {
     "runtime/package.json",
   );
   assert.equal(
-    config.bundle.resources["../.desktop-runtime/node_modules/**/*"],
-    "runtime/node_modules/",
+    config.bundle.resources["../.desktop-runtime/node_modules"],
+    "runtime/node_modules",
   );
-  assert.equal(
-    config.bundle.resources["../.desktop-runtime/node_modules/.bin/**/*"],
-    "runtime/node_modules/.bin/",
-  );
-  assert.equal(
-    config.bundle.resources["../.desktop-runtime/node_modules/.prisma/**/*"],
-    "runtime/node_modules/.prisma/",
-  );
+  assert.equal(config.bundle.resources["../.desktop-runtime/node_modules/**/*"], undefined);
+  assert.equal(config.bundle.resources["../.desktop-runtime/node_modules/.bin/**/*"], undefined);
+  assert.equal(config.bundle.resources["../.desktop-runtime/node_modules/.prisma/**/*"], undefined);
   assert.equal(config.bundle.resources["../.desktop-runtime/"], undefined);
   assert.equal(config.bundle.resources["../node_modules/**/*"], undefined);
   assert.equal(config.bundle.resources["../package.json"], undefined);
@@ -76,19 +151,120 @@ test("desktop build maps the generated Node runtime into runtime/node", () => {
     "runtime/.next/",
   );
   assert.equal(
-    config.bundle.resources["../.next/server/**/*"],
-    "runtime/.next/server/",
+    config.bundle.resources["../.next/server"],
+    "runtime/.next/server",
   );
+  assert.equal(config.bundle.resources["../.next/server/**/*"], undefined);
   assert.equal(
-    config.bundle.resources["../.next/static/**/*"],
-    "runtime/.next/static/",
+    config.bundle.resources["../.next/static"],
+    "runtime/.next/static",
   );
+  assert.equal(config.bundle.resources["../.next/static/**/*"], undefined);
+  assert.equal(config.bundle.macOS.signingIdentity, "-");
+  assert.equal(config.bundle.resources["../prisma"], "runtime/prisma");
+  assert.equal(config.bundle.resources["../prisma/**/*"], undefined);
   assert.match(gitignore, /^\/.desktop-runtime\/\*$/m);
   assert.match(gitignore, /^!\/.desktop-runtime\/\.gitkeep$/m);
   assert.equal(
     fs.existsSync(path.join(projectRoot, ".desktop-runtime", ".gitkeep")),
     true,
   );
+});
+
+test("packaged Next static assets preserve generated HTML asset paths", (t) => {
+  const config = JSON.parse(
+    fs.readFileSync(path.join(projectRoot, "src-tauri", "tauri.conf.json"), "utf8"),
+  );
+  const sourceStaticDirectory = path.join(projectRoot, ".next", "static");
+  const notesHtmlPath = path.join(
+    projectRoot,
+    ".next",
+    "server",
+    "app",
+    "notes.html",
+  );
+  const buildIdPath = path.join(projectRoot, ".next", "BUILD_ID");
+
+  if (
+    !fs.existsSync(sourceStaticDirectory) ||
+    !fs.existsSync(notesHtmlPath) ||
+    !fs.existsSync(buildIdPath)
+  ) {
+    t.skip("run npm run build before checking generated Next asset paths");
+    return;
+  }
+
+  const staticResourceSource = "../.next/static";
+  const staticResourceDestination = config.bundle.resources[staticResourceSource];
+  assert.equal(staticResourceDestination, "runtime/.next/static");
+
+  const sourceStaticFiles = relativeFiles(sourceStaticDirectory);
+  const buildId = fs.readFileSync(buildIdPath, "utf8").trim();
+  assert.notEqual(buildId, "");
+  assert.ok(sourceStaticFiles.some((file) => file.startsWith("chunks/")));
+  assert.ok(sourceStaticFiles.some((file) => file.startsWith("css/")));
+  assert.ok(sourceStaticFiles.includes(`${buildId}/_buildManifest.js`));
+
+  const packageDirectory = temporaryDirectory();
+  try {
+    const packagedStaticDirectory = path.join(
+      packageDirectory,
+      staticResourceDestination,
+    );
+    fs.cpSync(sourceStaticDirectory, packagedStaticDirectory, { recursive: true });
+
+    assert.deepEqual(relativeFiles(packagedStaticDirectory), sourceStaticFiles);
+    assert.equal(
+      fs.existsSync(path.join(packagedStaticDirectory, `${buildId}/_buildManifest.js`)),
+      true,
+    );
+
+    const assetReferences = nextStaticAssetReferences(
+      fs.readFileSync(notesHtmlPath, "utf8"),
+    );
+    assert.ok(assetReferences.some((reference) => reference.includes("/css/")));
+    assert.ok(assetReferences.some((reference) => reference.includes("/chunks/")));
+
+    for (const reference of assetReferences) {
+      const relativeStaticPath = reference.slice("/_next/static/".length);
+      assert.equal(
+        fs.existsSync(path.join(packagedStaticDirectory, relativeStaticPath)),
+        true,
+        reference,
+      );
+    }
+  } finally {
+    fs.rmSync(packageDirectory, { recursive: true, force: true });
+  }
+});
+
+test("packaged launcher uses canonical Prisma and Next entries", () => {
+  const launcher = fs.readFileSync(
+    path.join(projectRoot, "src-tauri", "sidecar", "launcher.cjs"),
+    "utf8",
+  );
+
+  assert.match(
+    launcher,
+    /path\.join\(root, "node_modules", "prisma", "build", "index\.js"\)/,
+  );
+  assert.match(
+    launcher,
+    /path\.join\(root, "node_modules", "next", "dist", "bin", "next"\)/,
+  );
+  assert.doesNotMatch(launcher, /path\.join\(root, "node_modules", "\.bin"/);
+
+  const runtimeEntryStart = launcher.indexOf("function runtimeEntry");
+  const spawnRuntimeStart = launcher.indexOf("function spawnRuntime", runtimeEntryStart);
+  assert.notEqual(runtimeEntryStart, -1);
+  assert.notEqual(spawnRuntimeStart, -1);
+  const runtimeEntry = launcher.slice(runtimeEntryStart, spawnRuntimeStart);
+  assert.match(runtimeEntry, /CORNELL_DESKTOP_RUNTIME_ENTRY/);
+  assert.match(
+    runtimeEntry,
+    /configured && \(process\.env\.NODE_ENV !== "production" \|\| debugOverride\)/,
+  );
+  assert.match(runtimeEntry, /CORNELL_DESKTOP_ALLOW_RUNTIME_OVERRIDE/);
 });
 
 test("desktop runtime package contains production dependencies only", () => {
@@ -117,6 +293,116 @@ test("desktop runtime package contains production dependencies only", () => {
     desktopRuntimeDirectory(projectRoot),
     path.join(projectRoot, ".desktop-runtime"),
   );
+});
+
+test("production runtime copies the darwin-arm64 Prisma schema engine", (t) => {
+  if (process.platform !== "darwin" || process.arch !== "arm64") {
+    t.skip("the packaged Prisma engine is Apple Silicon macOS only");
+    return;
+  }
+
+  const source = prismaSchemaEnginePath(projectRoot);
+  assert.equal(path.basename(source), PRISMA_SCHEMA_ENGINE_FILE);
+  assert.equal(fs.existsSync(source), true);
+  const sourceStats = fs.statSync(source);
+  assert.equal(sourceStats.isFile(), true);
+  assert.notEqual(sourceStats.mode & 0o111, 0);
+
+  const directory = temporaryDirectory();
+  try {
+    const runtimeDirectory = path.join(directory, ".desktop-runtime");
+    const destination = copyPrismaSchemaEngine(projectRoot, runtimeDirectory);
+    const destinationStats = fs.statSync(destination);
+
+    assert.equal(
+      destination,
+      path.join(
+        runtimeDirectory,
+        "node_modules",
+        "@prisma",
+        "engines",
+        PRISMA_SCHEMA_ENGINE_FILE,
+      ),
+    );
+    assert.equal(destinationStats.isFile(), true);
+    assert.equal(destinationStats.mode & 0o777, 0o755);
+    assert.equal(
+      fs.readFileSync(destination).equals(fs.readFileSync(source)),
+      true,
+    );
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("Prisma schema engine source must exist as an executable regular file", () => {
+  for (const sourceType of ["missing", "directory", "non-executable"]) {
+    const directory = temporaryDirectory();
+    try {
+      const source = prismaSchemaEnginePath(directory);
+      if (sourceType === "directory") {
+        fs.mkdirSync(source, { recursive: true });
+      } else if (sourceType === "non-executable") {
+        fs.mkdirSync(path.dirname(source), { recursive: true });
+        fs.writeFileSync(source, "not-an-engine\n", { mode: 0o644 });
+        fs.chmodSync(source, 0o644);
+      }
+
+      assert.throws(
+        () => copyPrismaSchemaEngine(directory, path.join(directory, "runtime")),
+        (error) =>
+          error instanceof Error &&
+          error.message.includes("Prisma schema engine") &&
+          error.message.includes(source),
+      );
+    } finally {
+      fs.rmSync(directory, { recursive: true, force: true });
+    }
+  }
+});
+
+test("runtime preparation fails closed when the root Prisma schema engine is missing", () => {
+  const directory = temporaryDirectory();
+  const previousNpmExecPath = process.env.npm_execpath;
+  try {
+    writeMinimalRuntimeProject(directory);
+    process.env.npm_execpath = writeSuccessfulNpmRunner(directory);
+
+    assert.throws(
+      () =>
+        prepareDesktopRuntime({
+          arch: "arm64",
+          platform: "darwin",
+          projectRoot: directory,
+          sourcePath: process.execPath,
+        }),
+      (error) =>
+        error instanceof Error &&
+        error.message.startsWith("Prisma schema engine is unavailable:") &&
+        error.message.includes(prismaSchemaEnginePath(directory)),
+    );
+
+    assert.equal(
+      fs.existsSync(
+        path.join(
+          directory,
+          ".desktop-runtime",
+          "node_modules",
+          "@prisma",
+          "engines",
+          PRISMA_SCHEMA_ENGINE_FILE,
+        ),
+      ),
+      false,
+    );
+  } finally {
+    if (previousNpmExecPath === undefined) {
+      delete process.env.npm_execpath;
+    } else {
+      process.env.npm_execpath = previousNpmExecPath;
+    }
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
 });
 
 test("build helper rejects every target other than Apple Silicon macOS", () => {

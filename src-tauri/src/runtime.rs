@@ -1,12 +1,15 @@
 use super::{instance, AppResult};
-use serde::Deserialize;
+use ring::rand::{SecureRandom, SystemRandom};
+use serde::{Deserialize, Serialize};
+use std::collections::{HashMap, HashSet};
 use std::env;
+use std::fmt::Write as FmtWrite;
 use std::fs;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpStream;
 use std::path::{Component, Path, PathBuf};
 use std::process::{Child, Command, Stdio};
-use std::sync::mpsc;
+use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -26,6 +29,15 @@ const PACKAGED_APP_BUNDLE_NAME: &str = "Cornell Method Notebook.app";
 const PACKAGED_CONTENTS_DIRECTORY_NAME: &str = "Contents";
 const PACKAGED_RESOURCES_DIRECTORY_NAME: &str = "Resources";
 const PACKAGED_RUNTIME_DIRECTORY_NAME: &str = "runtime";
+const DESKTOP_DATA_BACKUP_PROTOCOL_VERSION: u8 = 1;
+const DESKTOP_DATA_BACKUP_COMMAND: &str = "data-backup-operation";
+const DESKTOP_MANAGED_BACKUP_CATALOG_PROTOCOL_VERSION: u8 = 1;
+const DESKTOP_MANAGED_BACKUP_CATALOG_COMMAND: &str = "managed-backup-catalog";
+const DESKTOP_PENDING_RESTORE_PROTOCOL_VERSION: u8 = 1;
+const DESKTOP_PENDING_RESTORE_STATUS_COMMAND: &str = "pending-restore-status";
+const DESKTOP_PENDING_RESTORE_RESUME_COMMAND: &str = "pending-restore-resume";
+const DESKTOP_DIALOG_BINARY: &str = "/usr/bin/osascript";
+const MAX_DESKTOP_DIALOG_OUTPUT_BYTES: usize = 16 * 1024;
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -101,6 +113,676 @@ impl StorageLayout {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum DesktopFileDialogKind {
+    SaveDestination,
+    OpenExternalSource,
+}
+
+impl DesktopFileDialogKind {
+    fn wire_name(self) -> &'static str {
+        match self {
+            Self::SaveDestination => "save-destination",
+            Self::OpenExternalSource => "open-external-source",
+        }
+    }
+
+    fn requires_existing_file(self) -> bool {
+        matches!(self, Self::OpenExternalSource)
+    }
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct DesktopFileSelection {
+    kind: &'static str,
+    selection_id: String,
+    file_name: String,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct DesktopFileDialogResult {
+    kind: &'static str,
+    schema_version: u8,
+    dialog: &'static str,
+    ok: bool,
+    status: &'static str,
+    phase: &'static str,
+    selection: Option<DesktopFileSelection>,
+    error_code: Option<&'static str>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct DesktopDataBackupExportResult {
+    file_name: String,
+    size: u64,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct DesktopDataBackupOperationResponse {
+    kind: String,
+    schema_version: u8,
+    ok: bool,
+    status: String,
+    operation: Option<String>,
+    phase: String,
+    error_code: Option<String>,
+    result: Option<DesktopDataBackupExportResult>,
+}
+
+impl DesktopDataBackupOperationResponse {
+    pub(crate) fn is_success(&self) -> bool {
+        self.ok && self.status == "success"
+    }
+
+    pub(crate) fn is_validation_phase(&self) -> bool {
+        self.phase == "validation"
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct DesktopManagedBackupCatalogEntry {
+    backup_id: String,
+    file_name: String,
+    size: u64,
+    created_at: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct DesktopManagedBackupCatalogResponse {
+    kind: String,
+    schema_version: u8,
+    pub(crate) status: String,
+    phase: String,
+    pub(crate) error_code: Option<String>,
+    pub(crate) backups: Vec<DesktopManagedBackupCatalogEntry>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct DesktopPendingRestoreSummary {
+    pending_id: String,
+    manifest_token: String,
+    source_kind: String,
+    created_at: String,
+    candidate_digest: String,
+    candidate_size: u64,
+    candidate_schema_identity: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct DesktopPendingRestoreStatusResponse {
+    kind: String,
+    schema_version: u8,
+    pub(crate) status: String,
+    phase: String,
+    operation_id: Option<String>,
+    pub(crate) error_code: Option<String>,
+    pending: Option<DesktopPendingRestoreSummary>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct DesktopPendingRestoreResumeResult {
+    pub(crate) safety_backup_id: String,
+    size: u64,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct DesktopPendingRestoreResumeResponse {
+    kind: String,
+    schema_version: u8,
+    pub(crate) ok: bool,
+    pub(crate) status: String,
+    phase: String,
+    operation_id: Option<String>,
+    pending_id: Option<String>,
+    error_code: Option<String>,
+    pub(crate) result: Option<DesktopPendingRestoreResumeResult>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct DesktopPendingRestoreResumeRequest {
+    schema_version: u8,
+    pending_id: String,
+    manifest_token: String,
+    confirmed: bool,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DesktopPendingRestoreSidecarRequest {
+    kind: &'static str,
+    schema_version: u8,
+    pending_id: String,
+    manifest_token: String,
+    confirmed: bool,
+    operation_id: String,
+}
+
+#[derive(Clone, Debug)]
+struct SelectedExternalFile {
+    dialog_kind: DesktopFileDialogKind,
+    path: PathBuf,
+}
+
+#[derive(Clone, Debug, Default)]
+pub(crate) struct DesktopFileSelectionStore {
+    selections: Arc<Mutex<HashMap<String, SelectedExternalFile>>>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct DesktopDataBackupOperationRequest {
+    schema_version: u8,
+    operation: DesktopDataBackupOperation,
+    source: serde_json::Value,
+    destination: serde_json::Value,
+    #[serde(default)]
+    confirmed: Option<bool>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+enum DesktopDataBackupOperation {
+    #[serde(rename = "export")]
+    Export,
+    #[serde(rename = "restore")]
+    Restore,
+    #[serde(rename = "delete")]
+    Delete,
+}
+
+impl DesktopDataBackupOperation {
+    fn wire_name(&self) -> &'static str {
+        match self {
+            Self::Export => "export",
+            Self::Restore => "restore",
+            Self::Delete => "delete",
+        }
+    }
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(tag = "kind", rename_all = "kebab-case", deny_unknown_fields)]
+enum DesktopDataBackupLocation {
+    #[serde(rename = "managed-backup")]
+    ManagedBackup {
+        #[serde(rename = "backupId")]
+        backup_id: String,
+    },
+    #[serde(rename = "external-selection")]
+    ExternalSelection {
+        #[serde(rename = "selectionId")]
+        selection_id: String,
+    },
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DesktopDataBackupSidecarRequest {
+    kind: &'static str,
+    schema_version: u8,
+    operation: &'static str,
+    source: Option<DesktopDataBackupSidecarLocation>,
+    destination: Option<DesktopDataBackupSidecarLocation>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    confirmed: Option<bool>,
+    #[serde(rename = "operationId", skip_serializing_if = "Option::is_none")]
+    operation_id: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(tag = "kind", rename_all = "kebab-case")]
+enum DesktopDataBackupSidecarLocation {
+    #[serde(rename = "managed-backup")]
+    ManagedBackup {
+        #[serde(rename = "backupId")]
+        backup_id: String,
+    },
+    #[serde(rename = "external-file")]
+    ExternalFile { origin: &'static str, path: String },
+}
+
+fn desktop_data_backup_response(
+    operation: Option<&str>,
+    ok: bool,
+    status: &str,
+    phase: &str,
+    error_code: Option<&str>,
+) -> DesktopDataBackupOperationResponse {
+    DesktopDataBackupOperationResponse {
+        kind: "desktop-data-backup-operation".to_string(),
+        schema_version: DESKTOP_DATA_BACKUP_PROTOCOL_VERSION,
+        ok,
+        status: status.to_string(),
+        operation: operation.map(str::to_string),
+        phase: phase.to_string(),
+        error_code: error_code.map(str::to_string),
+        result: None,
+    }
+}
+
+pub(crate) fn desktop_data_backup_command_error(
+    operation: Option<&str>,
+    phase: &str,
+    error_code: &str,
+) -> DesktopDataBackupOperationResponse {
+    desktop_data_backup_response(operation, false, "error", phase, Some(error_code))
+}
+
+fn managed_backup_catalog_response(
+    status: &str,
+    error_code: Option<&str>,
+    backups: Vec<DesktopManagedBackupCatalogEntry>,
+) -> DesktopManagedBackupCatalogResponse {
+    DesktopManagedBackupCatalogResponse {
+        kind: "desktop-managed-backup-catalog".to_string(),
+        schema_version: DESKTOP_MANAGED_BACKUP_CATALOG_PROTOCOL_VERSION,
+        status: status.to_string(),
+        phase: "catalog".to_string(),
+        error_code: error_code.map(str::to_string),
+        backups,
+    }
+}
+
+pub(crate) fn managed_backup_catalog_command_error(
+    error_code: &str,
+) -> DesktopManagedBackupCatalogResponse {
+    managed_backup_catalog_response("error", Some(error_code), Vec::new())
+}
+
+fn pending_restore_status_response(
+    status: &str,
+    error_code: Option<&str>,
+    pending: Option<DesktopPendingRestoreSummary>,
+) -> DesktopPendingRestoreStatusResponse {
+    DesktopPendingRestoreStatusResponse {
+        kind: "desktop-pending-restore-status".to_string(),
+        schema_version: DESKTOP_PENDING_RESTORE_PROTOCOL_VERSION,
+        status: status.to_string(),
+        phase: "status".to_string(),
+        operation_id: None,
+        error_code: error_code.map(str::to_string),
+        pending,
+    }
+}
+
+pub(crate) fn pending_restore_status_command_error(
+    error_code: &str,
+) -> DesktopPendingRestoreStatusResponse {
+    pending_restore_status_response("invalid", Some(error_code), None)
+}
+
+fn pending_restore_resume_response(
+    ok: bool,
+    status: &str,
+    phase: &str,
+    operation_id: Option<&str>,
+    pending_id: Option<&str>,
+    error_code: Option<&str>,
+    result: Option<DesktopPendingRestoreResumeResult>,
+) -> DesktopPendingRestoreResumeResponse {
+    DesktopPendingRestoreResumeResponse {
+        kind: "desktop-pending-restore-resume".to_string(),
+        schema_version: DESKTOP_PENDING_RESTORE_PROTOCOL_VERSION,
+        ok,
+        status: status.to_string(),
+        phase: phase.to_string(),
+        operation_id: operation_id.map(str::to_string),
+        pending_id: pending_id.map(str::to_string),
+        error_code: error_code.map(str::to_string),
+        result,
+    }
+}
+
+pub(crate) fn pending_restore_resume_command_error(
+    operation_id: Option<&str>,
+    pending_id: Option<&str>,
+    phase: &str,
+    error_code: &str,
+) -> DesktopPendingRestoreResumeResponse {
+    pending_restore_resume_response(
+        false,
+        "error",
+        phase,
+        operation_id,
+        pending_id,
+        Some(error_code),
+        None,
+    )
+}
+
+fn pending_restore_token_is_safe(value: &str) -> bool {
+    value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_hexdigit())
+}
+
+pub(crate) fn validate_pending_restore_resume_request(
+    value: &serde_json::Value,
+) -> Result<(String, String), &'static str> {
+    let request = serde_json::from_value::<DesktopPendingRestoreResumeRequest>(value.clone())
+        .map_err(|_| "invalid-request")?;
+    if request.schema_version != DESKTOP_PENDING_RESTORE_PROTOCOL_VERSION {
+        return Err("unsupported-protocol-version");
+    }
+    if !pending_restore_token_is_safe(&request.pending_id)
+        || !pending_restore_token_is_safe(&request.manifest_token)
+    {
+        return Err("invalid-request");
+    }
+    if !request.confirmed {
+        return Err("confirmation-required");
+    }
+    Ok((request.pending_id, request.manifest_token))
+}
+
+fn desktop_file_dialog_result(
+    dialog: DesktopFileDialogKind,
+    ok: bool,
+    status: &'static str,
+    selection: Option<DesktopFileSelection>,
+    error_code: Option<&'static str>,
+) -> DesktopFileDialogResult {
+    DesktopFileDialogResult {
+        kind: "desktop-file-dialog",
+        schema_version: DESKTOP_DATA_BACKUP_PROTOCOL_VERSION,
+        dialog: dialog.wire_name(),
+        ok,
+        status,
+        phase: "dialog",
+        selection,
+        error_code,
+    }
+}
+
+pub(crate) fn desktop_file_dialog_command_error(
+    dialog: &'static str,
+    error_code: &'static str,
+) -> DesktopFileDialogResult {
+    let dialog = match dialog {
+        "save-destination" => DesktopFileDialogKind::SaveDestination,
+        _ => DesktopFileDialogKind::OpenExternalSource,
+    };
+    desktop_file_dialog_result(dialog, false, "error", None, Some(error_code))
+}
+
+fn safe_identifier(value: &str, max_len: usize) -> bool {
+    !value.is_empty()
+        && value.len() <= max_len
+        && value != "."
+        && value != ".."
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-'))
+}
+
+fn validate_external_file_path(
+    path: &Path,
+    application_support_root: &Path,
+    requires_existing_file: bool,
+) -> Result<(), &'static str> {
+    if !path.is_absolute() {
+        return Err("relative-path");
+    }
+    let path_text = path.to_str().ok_or("invalid-path")?;
+    if path_text.is_empty()
+        || path_text.contains('\\')
+        || path_text
+            .bytes()
+            .any(|byte| byte == 0 || byte.is_ascii_control())
+    {
+        return Err("invalid-path");
+    }
+    if path.starts_with(application_support_root) {
+        return Err("managed-path");
+    }
+
+    let mut normalized = PathBuf::new();
+    let mut components = Vec::new();
+    for component in path.components() {
+        match component {
+            Component::CurDir | Component::ParentDir => return Err("unsafe-path"),
+            Component::Prefix(_) | Component::RootDir | Component::Normal(_) => {
+                normalized.push(component.as_os_str());
+                components.push(component);
+            }
+        }
+    }
+    if normalized != path || components.is_empty() {
+        return Err("unsafe-path");
+    }
+
+    let mut current = PathBuf::new();
+    for (index, component) in components.iter().enumerate() {
+        current.push(component.as_os_str());
+        let is_leaf = index + 1 == components.len();
+        match fs::symlink_metadata(&current) {
+            Ok(metadata) => {
+                if metadata.file_type().is_symlink() {
+                    return Err("symlink-path");
+                }
+                if !is_leaf && !metadata.is_dir() {
+                    return Err("path-unavailable");
+                }
+                if is_leaf && !metadata.is_file() {
+                    return Err("path-not-file");
+                }
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound && is_leaf => {
+                if requires_existing_file {
+                    return Err("path-not-found");
+                }
+            }
+            Err(_) => return Err("path-unavailable"),
+        }
+    }
+    Ok(())
+}
+
+fn create_selection_id() -> Result<String, &'static str> {
+    let mut bytes = [0_u8; 32];
+    SystemRandom::new()
+        .fill(&mut bytes)
+        .map_err(|_| "selection-store-failed")?;
+    let mut value = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        write!(&mut value, "{byte:02x}").map_err(|_| "selection-store-failed")?;
+    }
+    Ok(value)
+}
+
+pub(crate) fn create_data_backup_operation_id() -> Result<String, &'static str> {
+    let mut bytes = [0_u8; 32];
+    SystemRandom::new()
+        .fill(&mut bytes)
+        .map_err(|_| "selection-store-failed")?;
+    let mut value = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        write!(&mut value, "{byte:02x}").map_err(|_| "selection-store-failed")?;
+    }
+    Ok(value)
+}
+
+impl DesktopFileSelectionStore {
+    fn insert(
+        &self,
+        dialog_kind: DesktopFileDialogKind,
+        path: PathBuf,
+    ) -> Result<DesktopFileSelection, &'static str> {
+        let file_name = path
+            .file_name()
+            .and_then(|value| value.to_str())
+            .filter(|value| {
+                !value.is_empty()
+                    && !value
+                        .bytes()
+                        .any(|byte| byte == 0 || byte.is_ascii_control())
+            })
+            .ok_or("invalid-path")?
+            .to_string();
+        let selection_id = create_selection_id()?;
+        let mut selections = self
+            .selections
+            .lock()
+            .map_err(|_| "selection-store-failed")?;
+        selections.insert(
+            selection_id.clone(),
+            SelectedExternalFile { dialog_kind, path },
+        );
+        Ok(DesktopFileSelection {
+            kind: "external-file",
+            selection_id,
+            file_name,
+        })
+    }
+
+    fn resolve(
+        &self,
+        selection_id: &str,
+        expected_dialog_kind: DesktopFileDialogKind,
+        application_support_root: &Path,
+    ) -> Result<PathBuf, &'static str> {
+        if !safe_identifier(selection_id, 128) {
+            return Err("invalid-selection");
+        }
+        let selected = self
+            .selections
+            .lock()
+            .map_err(|_| "selection-store-failed")?
+            .get(selection_id)
+            .cloned()
+            .ok_or("selection-not-found")?;
+        if selected.dialog_kind != expected_dialog_kind {
+            return Err("selection-kind-mismatch");
+        }
+        validate_external_file_path(
+            &selected.path,
+            application_support_root,
+            expected_dialog_kind.requires_existing_file(),
+        )?;
+        Ok(selected.path)
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn desktop_file_dialog_script(dialog: DesktopFileDialogKind) -> &'static str {
+    match dialog {
+        DesktopFileDialogKind::SaveDestination => {
+            r#"try
+  set chosenItem to choose file name with prompt "Choose an export destination"
+  return "selected" & linefeed & POSIX path of chosenItem
+on error number -128
+  return "cancel"
+on error
+  return "error"
+end try"#
+        }
+        DesktopFileDialogKind::OpenExternalSource => {
+            r#"try
+  set chosenItem to choose file with prompt "Choose a Cornell Method SQLite file"
+  return "selected" & linefeed & POSIX path of chosenItem
+on error number -128
+  return "cancel"
+on error
+  return "error"
+end try"#
+        }
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn run_native_file_dialog(dialog: DesktopFileDialogKind) -> Result<Option<PathBuf>, &'static str> {
+    let output = Command::new(DESKTOP_DIALOG_BINARY)
+        .args(["-e", desktop_file_dialog_script(dialog)])
+        .output()
+        .map_err(|_| "dialog-unavailable")?;
+    if output.stdout.len() > MAX_DESKTOP_DIALOG_OUTPUT_BYTES {
+        return Err("dialog-response-too-large");
+    }
+    let output = String::from_utf8(output.stdout).map_err(|_| "dialog-invalid-response")?;
+    let output = output
+        .trim_end_matches(|character| character == '\r' || character == '\n')
+        .replace("\r\n", "\n");
+    if output == "cancel" {
+        return Ok(None);
+    }
+    let path = output
+        .strip_prefix("selected\n")
+        .filter(|path| !path.is_empty())
+        .ok_or(if output == "error" {
+            "dialog-error"
+        } else {
+            "dialog-invalid-response"
+        })?;
+    Ok(Some(PathBuf::from(path)))
+}
+
+#[cfg(not(target_os = "macos"))]
+fn run_native_file_dialog(_dialog: DesktopFileDialogKind) -> Result<Option<PathBuf>, &'static str> {
+    Err("unsupported-platform")
+}
+
+fn choose_data_backup_file(
+    app: &AppHandle,
+    dialog: DesktopFileDialogKind,
+) -> DesktopFileDialogResult {
+    let Some(storage) = app.try_state::<StorageLayout>() else {
+        return desktop_file_dialog_result(
+            dialog,
+            false,
+            "error",
+            None,
+            Some("storage-unavailable"),
+        );
+    };
+    let Some(selection_store) = app.try_state::<DesktopFileSelectionStore>() else {
+        return desktop_file_dialog_result(
+            dialog,
+            false,
+            "error",
+            None,
+            Some("selection-store-failed"),
+        );
+    };
+    let path = match run_native_file_dialog(dialog) {
+        Ok(Some(path)) => path,
+        Ok(None) => return desktop_file_dialog_result(dialog, false, "cancelled", None, None),
+        Err(error_code) => {
+            return desktop_file_dialog_result(dialog, false, "error", None, Some(error_code));
+        }
+    };
+    if let Err(error_code) = validate_external_file_path(
+        &path,
+        storage.application_support_root(),
+        dialog.requires_existing_file(),
+    ) {
+        return desktop_file_dialog_result(dialog, false, "error", None, Some(error_code));
+    }
+    match selection_store.inner().insert(dialog, path) {
+        Ok(selection) => {
+            desktop_file_dialog_result(dialog, true, "selected", Some(selection), None)
+        }
+        Err(error_code) => {
+            desktop_file_dialog_result(dialog, false, "error", None, Some(error_code))
+        }
+    }
+}
+
+pub(crate) fn choose_data_backup_save_destination(app: &AppHandle) -> DesktopFileDialogResult {
+    choose_data_backup_file(app, DesktopFileDialogKind::SaveDestination)
+}
+
+pub(crate) fn choose_data_backup_external_source(app: &AppHandle) -> DesktopFileDialogResult {
+    choose_data_backup_file(app, DesktopFileDialogKind::OpenExternalSource)
+}
+
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct ReadyMessage {
@@ -127,6 +809,7 @@ pub(crate) struct SidecarHandle {
     root_pid: u32,
     process_group_id: Option<u32>,
     runtime_url: tauri::Url,
+    stopped: bool,
 }
 
 pub(crate) fn runtime_project_root(app: &AppHandle) -> AppResult<PathBuf> {
@@ -306,6 +989,589 @@ fn launch_command(
     launcher_command(root, command_name, storage)?
         .output()
         .map_err(|error| format!("desktop launcher process could not start: {error}"))
+}
+
+fn resolve_data_backup_location(
+    location: &DesktopDataBackupLocation,
+    expected_dialog_kind: Option<DesktopFileDialogKind>,
+    storage: &StorageLayout,
+    selection_store: &DesktopFileSelectionStore,
+) -> Result<DesktopDataBackupSidecarLocation, &'static str> {
+    match location {
+        DesktopDataBackupLocation::ManagedBackup { backup_id } => {
+            if !safe_identifier(backup_id, 128) {
+                return Err("managed-source-invalid");
+            }
+            Ok(DesktopDataBackupSidecarLocation::ManagedBackup {
+                backup_id: backup_id.clone(),
+            })
+        }
+        DesktopDataBackupLocation::ExternalSelection { selection_id } => {
+            let expected_dialog_kind = expected_dialog_kind.ok_or("invalid-request")?;
+            let path = selection_store.resolve(
+                selection_id,
+                expected_dialog_kind,
+                storage.application_support_root(),
+            )?;
+            let path = path.to_str().ok_or("invalid-path")?.to_string();
+            Ok(DesktopDataBackupSidecarLocation::ExternalFile {
+                origin: "native-dialog",
+                path,
+            })
+        }
+    }
+}
+
+fn parse_data_backup_location(
+    value: serde_json::Value,
+) -> Result<Option<DesktopDataBackupLocation>, &'static str> {
+    if value.is_null() {
+        return Ok(None);
+    }
+    serde_json::from_value(value)
+        .map(Some)
+        .map_err(|_| "invalid-request")
+}
+
+fn build_data_backup_sidecar_request(
+    request: DesktopDataBackupOperationRequest,
+    storage: &StorageLayout,
+    selection_store: &DesktopFileSelectionStore,
+    operation_id: Option<String>,
+) -> Result<DesktopDataBackupSidecarRequest, &'static str> {
+    let DesktopDataBackupOperationRequest {
+        schema_version,
+        operation,
+        source: raw_source,
+        destination: raw_destination,
+        confirmed,
+    } = request;
+    if schema_version != DESKTOP_DATA_BACKUP_PROTOCOL_VERSION {
+        return Err("unsupported-protocol-version");
+    }
+    let source = parse_data_backup_location(raw_source)?;
+    let destination = parse_data_backup_location(raw_destination)?;
+    let operation_name = operation.wire_name();
+    let (source, destination) = match operation {
+        DesktopDataBackupOperation::Export => {
+            if source.is_some() {
+                return Err("invalid-request");
+            }
+            let destination = destination.as_ref().ok_or("invalid-request")?;
+            if !matches!(
+                destination,
+                DesktopDataBackupLocation::ExternalSelection { .. }
+            ) {
+                return Err("invalid-request");
+            }
+            let destination = resolve_data_backup_location(
+                destination,
+                Some(DesktopFileDialogKind::SaveDestination),
+                storage,
+                selection_store,
+            )?;
+            (None, Some(destination))
+        }
+        DesktopDataBackupOperation::Restore => {
+            if destination.is_some() {
+                return Err("invalid-request");
+            }
+            if confirmed != Some(true) {
+                return Err("confirmation-required");
+            }
+            let source = source.as_ref().ok_or("invalid-request")?;
+            let expected_dialog_kind = match source {
+                DesktopDataBackupLocation::ManagedBackup { .. } => None,
+                DesktopDataBackupLocation::ExternalSelection { .. } => {
+                    Some(DesktopFileDialogKind::OpenExternalSource)
+                }
+            };
+            let source = resolve_data_backup_location(
+                source,
+                expected_dialog_kind,
+                storage,
+                selection_store,
+            )?;
+            (Some(source), None)
+        }
+        DesktopDataBackupOperation::Delete => {
+            if source.is_some() || destination.is_some() {
+                return Err("invalid-request");
+            }
+            if confirmed != Some(true) {
+                return Err("confirmation-required");
+            }
+            (None, None)
+        }
+    };
+    Ok(DesktopDataBackupSidecarRequest {
+        kind: "desktop-data-backup-operation",
+        schema_version: DESKTOP_DATA_BACKUP_PROTOCOL_VERSION,
+        operation: operation_name,
+        source,
+        destination,
+        confirmed,
+        operation_id,
+    })
+}
+
+fn launch_data_backup_operation(
+    root: &Path,
+    storage: &StorageLayout,
+    request: &DesktopDataBackupSidecarRequest,
+) -> AppResult<std::process::Output> {
+    let payload = serde_json::to_string(request)
+        .map_err(|_| "desktop data and backup request could not be encoded".to_string())?;
+    launcher_command(root, DESKTOP_DATA_BACKUP_COMMAND, Some(storage))?
+        .arg(payload)
+        .output()
+        .map_err(|error| format!("desktop data and backup sidecar could not start: {error}"))
+}
+
+fn parse_data_backup_operation_message(
+    output: &[u8],
+    expected_operation: &str,
+) -> AppResult<DesktopDataBackupOperationResponse> {
+    let message = String::from_utf8_lossy(output)
+        .lines()
+        .rev()
+        .find_map(|line| serde_json::from_str::<DesktopDataBackupOperationResponse>(line).ok())
+        .ok_or_else(|| "desktop data and backup sidecar did not return a result".to_string())?;
+    if message.kind != "desktop-data-backup-operation"
+        || message.schema_version != DESKTOP_DATA_BACKUP_PROTOCOL_VERSION
+        || !matches!(message.status.as_str(), "success" | "cancelled" | "error")
+        || !matches!(
+            message.phase.as_str(),
+            "request" | "validation" | "operation" | "complete"
+        )
+    {
+        return Err("desktop data and backup sidecar returned an invalid result".to_string());
+    }
+    if message.operation.as_deref() != Some(expected_operation) {
+        return Err("desktop data and backup sidecar returned an unexpected operation".to_string());
+    }
+    if let Some(result) = message.result.as_ref() {
+        if message.operation.as_deref() != Some("export")
+            || result.file_name.is_empty()
+            || result.file_name.len() > 255
+            || result.file_name.contains('/')
+            || result.file_name.contains('\\')
+            || result.file_name.contains('\0')
+            || result.size == 0
+        {
+            return Err(
+                "desktop data and backup sidecar returned an invalid export result".to_string(),
+            );
+        }
+    }
+    if message.status == "success" && (!message.ok || message.error_code.is_some()) {
+        return Err(
+            "desktop data and backup sidecar returned an inconsistent success result".to_string(),
+        );
+    }
+    if message.status == "success"
+        && message.operation.as_deref() == Some("export")
+        && message.result.is_none()
+    {
+        return Err("desktop data and backup sidecar export result is missing".to_string());
+    }
+    if message.status == "cancelled"
+        && (message.ok || message.error_code.is_some() || message.result.is_some())
+    {
+        return Err(
+            "desktop data and backup sidecar returned an inconsistent cancel result".to_string(),
+        );
+    }
+    if message.status == "error"
+        && (message.ok || message.error_code.is_none() || message.result.is_some())
+    {
+        return Err(
+            "desktop data and backup sidecar returned an inconsistent error result".to_string(),
+        );
+    }
+    Ok(message)
+}
+
+pub(crate) fn run_data_backup_operation(
+    app: &AppHandle,
+    request_value: serde_json::Value,
+) -> DesktopDataBackupOperationResponse {
+    run_data_backup_operation_with_operation_id(app, request_value, None)
+}
+
+pub(crate) fn run_data_backup_operation_with_operation_id(
+    app: &AppHandle,
+    request_value: serde_json::Value,
+    operation_id: Option<String>,
+) -> DesktopDataBackupOperationResponse {
+    let Some(storage) = app.try_state::<StorageLayout>() else {
+        return desktop_data_backup_command_error(None, "request", "storage-unavailable");
+    };
+    let Some(selection_store) = app.try_state::<DesktopFileSelectionStore>() else {
+        return desktop_data_backup_command_error(None, "request", "selection-store-failed");
+    };
+    let request = match serde_json::from_value::<DesktopDataBackupOperationRequest>(request_value) {
+        Ok(request) => request,
+        Err(_) => return desktop_data_backup_command_error(None, "request", "invalid-request"),
+    };
+    let operation = request.operation.wire_name();
+    let sidecar_request = match build_data_backup_sidecar_request(
+        request,
+        storage.inner(),
+        selection_store.inner(),
+        operation_id,
+    ) {
+        Ok(request) => request,
+        Err(error_code) => {
+            return desktop_data_backup_command_error(Some(operation), "validation", error_code);
+        }
+    };
+    let root = match runtime_project_root(app) {
+        Ok(root) => root,
+        Err(_) => {
+            return desktop_data_backup_command_error(
+                Some(operation),
+                "request",
+                "runtime-unavailable",
+            );
+        }
+    };
+    let output = match launch_data_backup_operation(&root, storage.inner(), &sidecar_request) {
+        Ok(output) => output,
+        Err(_) => {
+            return desktop_data_backup_command_error(
+                Some(operation),
+                "operation",
+                "sidecar-unavailable",
+            );
+        }
+    };
+    match parse_data_backup_operation_message(&output.stdout, operation) {
+        Ok(response) => response,
+        Err(_) => desktop_data_backup_command_error(Some(operation), "operation", "protocol-error"),
+    }
+}
+
+fn managed_backup_catalog_error_code_is_safe(value: &str) -> bool {
+    matches!(value, "storage-unavailable" | "invalid-catalog")
+}
+
+fn managed_backup_catalog_timestamp_is_safe(value: &str) -> bool {
+    if value.len() != 24 || !value.ends_with('Z') {
+        return false;
+    }
+    let bytes = value.as_bytes();
+    for (index, expected) in [
+        (4, b'-'),
+        (7, b'-'),
+        (10, b'T'),
+        (13, b':'),
+        (16, b':'),
+        (19, b'.'),
+        (23, b'Z'),
+    ] {
+        if bytes[index] != expected {
+            return false;
+        }
+    }
+    bytes.iter().enumerate().all(|(index, byte)| {
+        ![4, 7, 10, 13, 16, 19, 23].contains(&index) && byte.is_ascii_digit()
+            || [4, 7, 10, 13, 16, 19, 23].contains(&index)
+    })
+}
+
+fn parse_managed_backup_catalog_message(
+    output: &[u8],
+) -> AppResult<DesktopManagedBackupCatalogResponse> {
+    let message = String::from_utf8_lossy(output)
+        .lines()
+        .rev()
+        .find_map(|line| serde_json::from_str::<DesktopManagedBackupCatalogResponse>(line).ok())
+        .ok_or_else(|| "managed backup catalog sidecar did not return a result".to_string())?;
+    if message.kind != "desktop-managed-backup-catalog"
+        || message.schema_version != DESKTOP_MANAGED_BACKUP_CATALOG_PROTOCOL_VERSION
+        || message.phase != "catalog"
+        || !matches!(message.status.as_str(), "ready" | "empty" | "error")
+        || message
+            .error_code
+            .as_deref()
+            .is_some_and(|code| !managed_backup_catalog_error_code_is_safe(code))
+    {
+        return Err("managed backup catalog returned an invalid result".to_string());
+    }
+
+    let mut identifiers = HashSet::new();
+    for entry in &message.backups {
+        if !safe_identifier(&entry.backup_id, 128)
+            || entry.file_name != entry.backup_id
+            || !safe_identifier(&entry.file_name, 128)
+            || !managed_backup_catalog_timestamp_is_safe(&entry.created_at)
+            || !identifiers.insert(entry.backup_id.as_str())
+        {
+            return Err("managed backup catalog returned invalid metadata".to_string());
+        }
+    }
+    if message.backups.windows(2).any(|entries| {
+        entries[0].created_at < entries[1].created_at
+            || (entries[0].created_at == entries[1].created_at
+                && entries[0].backup_id > entries[1].backup_id)
+    }) {
+        return Err("managed backup catalog returned a non-deterministic order".to_string());
+    }
+
+    match message.status.as_str() {
+        "ready" if message.error_code.is_none() && !message.backups.is_empty() => {}
+        "empty" if message.error_code.is_none() && message.backups.is_empty() => {}
+        "error" if message.error_code.is_some() && message.backups.is_empty() => {}
+        _ => return Err("managed backup catalog returned an inconsistent result".to_string()),
+    }
+    Ok(message)
+}
+
+fn launch_managed_backup_catalog(
+    root: &Path,
+    storage: &StorageLayout,
+) -> AppResult<std::process::Output> {
+    launcher_command(root, DESKTOP_MANAGED_BACKUP_CATALOG_COMMAND, Some(storage))?
+        .output()
+        .map_err(|error| format!("managed backup catalog sidecar could not start: {error}"))
+}
+
+pub(crate) fn read_managed_backup_catalog(app: &AppHandle) -> DesktopManagedBackupCatalogResponse {
+    let Some(storage) = app.try_state::<StorageLayout>() else {
+        return managed_backup_catalog_command_error("storage-unavailable");
+    };
+    let root = match runtime_project_root(app) {
+        Ok(root) => root,
+        Err(_) => return managed_backup_catalog_command_error("runtime-unavailable"),
+    };
+    let output = match launch_managed_backup_catalog(&root, storage.inner()) {
+        Ok(output) => output,
+        Err(_) => return managed_backup_catalog_command_error("sidecar-unavailable"),
+    };
+    if !output.status.success() {
+        return managed_backup_catalog_command_error("sidecar-unavailable");
+    }
+    match parse_managed_backup_catalog_message(&output.stdout) {
+        Ok(response) => response,
+        Err(_) => managed_backup_catalog_command_error("invalid-catalog"),
+    }
+}
+
+fn launch_pending_restore_status(
+    root: &Path,
+    storage: &StorageLayout,
+) -> AppResult<std::process::Output> {
+    launcher_command(root, DESKTOP_PENDING_RESTORE_STATUS_COMMAND, Some(storage))?
+        .output()
+        .map_err(|error| format!("pending restore status sidecar could not start: {error}"))
+}
+
+fn parse_pending_restore_status_message(
+    output: &[u8],
+) -> AppResult<DesktopPendingRestoreStatusResponse> {
+    let message = String::from_utf8_lossy(output)
+        .lines()
+        .rev()
+        .find_map(|line| serde_json::from_str::<DesktopPendingRestoreStatusResponse>(line).ok())
+        .ok_or_else(|| "pending restore status sidecar did not return a result".to_string())?;
+    if message.kind != "desktop-pending-restore-status"
+        || message.schema_version != DESKTOP_PENDING_RESTORE_PROTOCOL_VERSION
+        || message.phase != "status"
+        || !matches!(message.status.as_str(), "none" | "available" | "invalid")
+        || message.operation_id.is_some()
+    {
+        return Err("pending restore status returned an invalid result".to_string());
+    }
+    match message.status.as_str() {
+        "none" if message.error_code.is_none() && message.pending.is_none() => {}
+        "available" if message.error_code.is_none() && message.pending.is_some() => {}
+        "invalid" if message.error_code.is_some() && message.pending.is_none() => {}
+        _ => return Err("pending restore status returned an inconsistent result".to_string()),
+    }
+    if let Some(pending) = message.pending.as_ref() {
+        if !pending_restore_token_is_safe(&pending.pending_id)
+            || !pending_restore_token_is_safe(&pending.manifest_token)
+            || !pending_restore_token_is_safe(&pending.candidate_digest)
+            || !pending_restore_token_is_safe(&pending.candidate_schema_identity)
+            || pending.candidate_size == 0
+            || pending.source_kind != "managed-backup" && pending.source_kind != "external-file"
+            || pending.created_at.is_empty()
+        {
+            return Err("pending restore status returned invalid metadata".to_string());
+        }
+    }
+    Ok(message)
+}
+
+pub(crate) fn read_pending_restore_status(app: &AppHandle) -> DesktopPendingRestoreStatusResponse {
+    let Some(storage) = app.try_state::<StorageLayout>() else {
+        return pending_restore_status_command_error("storage-unavailable");
+    };
+    let root = match runtime_project_root(app) {
+        Ok(root) => root,
+        Err(_) => return pending_restore_status_command_error("runtime-unavailable"),
+    };
+    let output = match launch_pending_restore_status(&root, storage.inner()) {
+        Ok(output) => output,
+        Err(_) => return pending_restore_status_command_error("sidecar-unavailable"),
+    };
+    match parse_pending_restore_status_message(&output.stdout) {
+        Ok(response) => response,
+        Err(_) => pending_restore_status_command_error("protocol-error"),
+    }
+}
+
+fn build_pending_restore_sidecar_request(
+    request_value: &serde_json::Value,
+    operation_id: String,
+) -> Result<DesktopPendingRestoreSidecarRequest, &'static str> {
+    let request =
+        serde_json::from_value::<DesktopPendingRestoreResumeRequest>(request_value.clone())
+            .map_err(|_| "invalid-request")?;
+    if request.schema_version != DESKTOP_PENDING_RESTORE_PROTOCOL_VERSION {
+        return Err("unsupported-protocol-version");
+    }
+    if !pending_restore_token_is_safe(&request.pending_id)
+        || !pending_restore_token_is_safe(&request.manifest_token)
+    {
+        return Err("invalid-request");
+    }
+    if !request.confirmed {
+        return Err("confirmation-required");
+    }
+    Ok(DesktopPendingRestoreSidecarRequest {
+        kind: "desktop-pending-restore-resume",
+        schema_version: DESKTOP_PENDING_RESTORE_PROTOCOL_VERSION,
+        pending_id: request.pending_id,
+        manifest_token: request.manifest_token,
+        confirmed: true,
+        operation_id,
+    })
+}
+
+fn launch_pending_restore_operation(
+    root: &Path,
+    storage: &StorageLayout,
+    request: &DesktopPendingRestoreSidecarRequest,
+) -> AppResult<std::process::Output> {
+    let payload = serde_json::to_string(request)
+        .map_err(|_| "pending restore request could not be encoded".to_string())?;
+    launcher_command(root, DESKTOP_PENDING_RESTORE_RESUME_COMMAND, Some(storage))?
+        .arg(payload)
+        .output()
+        .map_err(|error| format!("pending restore sidecar could not start: {error}"))
+}
+
+fn parse_pending_restore_resume_message(
+    output: &[u8],
+    expected_operation_id: &str,
+    expected_pending_id: &str,
+) -> AppResult<DesktopPendingRestoreResumeResponse> {
+    let message = String::from_utf8_lossy(output)
+        .lines()
+        .rev()
+        .find_map(|line| serde_json::from_str::<DesktopPendingRestoreResumeResponse>(line).ok())
+        .ok_or_else(|| "pending restore sidecar did not return a result".to_string())?;
+    if message.kind != "desktop-pending-restore-resume"
+        || message.schema_version != DESKTOP_PENDING_RESTORE_PROTOCOL_VERSION
+        || message.operation_id.as_deref() != Some(expected_operation_id)
+        || message.pending_id.as_deref() != Some(expected_pending_id)
+        || !matches!(message.status.as_str(), "success" | "error")
+        || !matches!(
+            message.phase.as_str(),
+            "request" | "validation" | "operation" | "complete"
+        )
+    {
+        return Err("pending restore sidecar returned an invalid result".to_string());
+    }
+    if message.status == "success"
+        && (!message.ok
+            || message.error_code.is_some()
+            || message.result.is_none()
+            || message.phase != "complete")
+    {
+        return Err("pending restore sidecar returned an inconsistent success result".to_string());
+    }
+    if message.status == "error"
+        && (message.ok || message.error_code.is_none() || message.result.is_some())
+    {
+        return Err("pending restore sidecar returned an inconsistent error result".to_string());
+    }
+    if let Some(result) = message.result.as_ref() {
+        if !safe_identifier(&result.safety_backup_id, 128) || result.size == 0 {
+            return Err("pending restore sidecar returned invalid result metadata".to_string());
+        }
+    }
+    Ok(message)
+}
+
+pub(crate) fn run_pending_restore_operation_with_operation_id(
+    app: &AppHandle,
+    request_value: serde_json::Value,
+    operation_id: String,
+) -> DesktopPendingRestoreResumeResponse {
+    let pending_id = request_value
+        .get("pendingId")
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_string);
+    let operation_id_for_error = Some(operation_id.as_str());
+    let pending_id_for_error = pending_id.as_deref();
+    let sidecar_request =
+        match build_pending_restore_sidecar_request(&request_value, operation_id.clone()) {
+            Ok(request) => request,
+            Err(error_code) => {
+                return pending_restore_resume_command_error(
+                    operation_id_for_error,
+                    pending_id_for_error,
+                    "validation",
+                    error_code,
+                );
+            }
+        };
+    let Some(storage) = app.try_state::<StorageLayout>() else {
+        return pending_restore_resume_command_error(
+            operation_id_for_error,
+            pending_id_for_error,
+            "request",
+            "storage-unavailable",
+        );
+    };
+    let root = match runtime_project_root(app) {
+        Ok(root) => root,
+        Err(_) => {
+            return pending_restore_resume_command_error(
+                operation_id_for_error,
+                pending_id_for_error,
+                "request",
+                "runtime-unavailable",
+            );
+        }
+    };
+    let output = match launch_pending_restore_operation(&root, storage.inner(), &sidecar_request) {
+        Ok(output) => output,
+        Err(_) => {
+            return pending_restore_resume_command_error(
+                operation_id_for_error,
+                pending_id_for_error,
+                "operation",
+                "sidecar-unavailable",
+            );
+        }
+    };
+    match parse_pending_restore_resume_message(
+        &output.stdout,
+        &operation_id,
+        &sidecar_request.pending_id,
+    ) {
+        Ok(response) => response,
+        Err(_) => pending_restore_resume_command_error(
+            operation_id_for_error,
+            pending_id_for_error,
+            "operation",
+            "protocol-error",
+        ),
+    }
 }
 
 fn storage_layout_from_message(message: BootstrapMessage) -> AppResult<StorageLayout> {
@@ -690,6 +1956,7 @@ pub(crate) fn start_sidecar(root: &Path, storage: &StorageLayout) -> AppResult<S
                 root_pid,
                 process_group_id,
                 runtime_url: tauri::Url::parse("http://127.0.0.1/").expect("static URL is valid"),
+                stopped: false,
             };
             let _ = handle.stop();
             return Err(error);
@@ -703,6 +1970,7 @@ pub(crate) fn start_sidecar(root: &Path, storage: &StorageLayout) -> AppResult<S
                 root_pid,
                 process_group_id,
                 runtime_url: tauri::Url::parse("http://127.0.0.1/").expect("static URL is valid"),
+                stopped: false,
             };
             let _ = handle.stop();
             return Err(error);
@@ -713,6 +1981,7 @@ pub(crate) fn start_sidecar(root: &Path, storage: &StorageLayout) -> AppResult<S
         root_pid,
         process_group_id,
         runtime_url,
+        stopped: false,
     };
     if let Err(error) = wait_for_runtime(&handle.runtime_url, &ready.ready_nonce) {
         let _ = handle.stop();
@@ -754,6 +2023,10 @@ impl SidecarHandle {
     }
 
     pub(crate) fn stop(&mut self) -> AppResult<()> {
+        if self.stopped {
+            return Ok(());
+        }
+
         #[cfg(unix)]
         if let Some(group_id) = self.process_group_id {
             signal_process_group(group_id, "-TERM");
@@ -796,6 +2069,7 @@ impl SidecarHandle {
                 ));
             }
         }
+        self.stopped = true;
         Ok(())
     }
 }

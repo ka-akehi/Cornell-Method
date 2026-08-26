@@ -513,7 +513,11 @@ test("production candidate health cannot select a renderer or external runtime p
 
   assert.match(runtimeEntry, /NODE_ENV !== "production"/);
   assert.match(runtimeEntry, /CORNELL_DESKTOP_ALLOW_RUNTIME_OVERRIDE/);
-  assert.match(runtimeEntry, /path\.join\(root, "node_modules", "\.bin"/);
+  assert.match(
+    runtimeEntry,
+    /path\.join\(root, "node_modules", "next", "dist", "bin", "next"\)/,
+  );
+  assert.doesNotMatch(runtimeEntry, /path\.join\(root, "node_modules", "\.bin"/);
   assert.match(launcher, /randomBytes\(READY_NONCE_BYTES\)/);
   assert.match(launcher, /parsed\.nonce === expectedNonce/);
 });

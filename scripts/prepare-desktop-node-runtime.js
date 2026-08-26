@@ -8,6 +8,7 @@ const { spawnSync } = require("node:child_process");
 const DESKTOP_NODE_RUNTIME_DIRECTORY = ".desktop-runtime";
 const DESKTOP_NODE_RUNTIME_FILE = "node";
 const DESKTOP_RUNTIME_PACKAGE_FILE = "package.json";
+const PRISMA_SCHEMA_ENGINE_FILE = "schema-engine-darwin-arm64";
 const UNSUPPORTED_TARGET_MESSAGE =
   "Desktop Node runtime supports only Apple Silicon macOS (darwin arm64)";
 
@@ -27,6 +28,16 @@ function desktopNodeRuntimePath(projectRoot) {
 
 function desktopRuntimeDirectory(projectRoot) {
   return path.resolve(projectRoot, DESKTOP_NODE_RUNTIME_DIRECTORY);
+}
+
+function prismaSchemaEnginePath(projectRoot) {
+  return path.resolve(
+    projectRoot,
+    "node_modules",
+    "@prisma",
+    "engines",
+    PRISMA_SCHEMA_ENGINE_FILE,
+  );
 }
 
 function readJsonFile(filePath, label) {
@@ -127,28 +138,32 @@ function copyGeneratedSqliteClient(projectRoot, runtimeDirectory) {
   fs.cpSync(source, destination, { recursive: true, force: true });
 }
 
-function sourceExecutableStats(sourcePath) {
+function sourceExecutableStats(sourcePath, label = "Build Node executable") {
   let stats;
   try {
     stats = fs.statSync(sourcePath);
   } catch (error) {
     throw new Error(
-      `Build Node executable is unavailable: ${sourcePath} (${error instanceof Error ? error.message : String(error)})`,
+      `${label} is unavailable: ${sourcePath} (${error instanceof Error ? error.message : String(error)})`,
     );
   }
   if (!stats.isFile()) {
-    throw new Error(`Build Node executable is not a regular file: ${sourcePath}`);
+    throw new Error(`${label} is not a regular file: ${sourcePath}`);
   }
   if ((stats.mode & 0o111) === 0) {
-    throw new Error(`Build Node executable is not executable: ${sourcePath}`);
+    throw new Error(`${label} is not executable: ${sourcePath}`);
   }
   return stats;
 }
 
-function copyNodeExecutable(sourcePath, destinationPath) {
+function copyExecutableFile(
+  sourcePath,
+  destinationPath,
+  { label = "Build Node executable", destinationMode } = {},
+) {
   const source = path.resolve(sourcePath);
   const destination = path.resolve(destinationPath);
-  const sourceStats = sourceExecutableStats(source);
+  const sourceStats = sourceExecutableStats(source, label);
   const destinationDirectory = path.dirname(destination);
   fs.mkdirSync(destinationDirectory, { recursive: true });
 
@@ -159,13 +174,36 @@ function copyNodeExecutable(sourcePath, destinationPath) {
 
   try {
     fs.copyFileSync(source, temporaryPath, fs.constants.COPYFILE_EXCL);
-    fs.chmodSync(temporaryPath, sourceStats.mode & 0o7777);
+    fs.chmodSync(
+      temporaryPath,
+      destinationMode ?? (sourceStats.mode & 0o7777),
+    );
     fs.renameSync(temporaryPath, destination);
   } finally {
     fs.rmSync(temporaryDirectory, { recursive: true, force: true });
   }
 
   return destination;
+}
+
+function copyNodeExecutable(sourcePath, destinationPath) {
+  return copyExecutableFile(sourcePath, destinationPath);
+}
+
+function copyPrismaSchemaEngine(projectRoot, runtimeDirectory) {
+  const source = prismaSchemaEnginePath(projectRoot);
+  const destination = path.join(
+    runtimeDirectory,
+    "node_modules",
+    "@prisma",
+    "engines",
+    PRISMA_SCHEMA_ENGINE_FILE,
+  );
+
+  return copyExecutableFile(source, destination, {
+    label: "Prisma schema engine",
+    destinationMode: 0o755,
+  });
 }
 
 function prepareDesktopNodeRuntime({
@@ -195,6 +233,7 @@ function prepareDesktopRuntime({
 
   installProductionRuntime(projectRoot, runtimeDirectory);
   copyGeneratedSqliteClient(projectRoot, runtimeDirectory);
+  copyPrismaSchemaEngine(projectRoot, runtimeDirectory);
   copyNodeExecutable(sourcePath, desktopNodeRuntimePath(projectRoot));
 
   return runtimeDirectory;
@@ -214,12 +253,15 @@ module.exports = {
   DESKTOP_NODE_RUNTIME_DIRECTORY,
   DESKTOP_NODE_RUNTIME_FILE,
   DESKTOP_RUNTIME_PACKAGE_FILE,
+  PRISMA_SCHEMA_ENGINE_FILE,
   UNSUPPORTED_TARGET_MESSAGE,
   copyNodeExecutable,
   copyGeneratedSqliteClient,
+  copyPrismaSchemaEngine,
   desktopRuntimeDirectory,
   desktopNodeRuntimePath,
   installProductionRuntime,
+  prismaSchemaEnginePath,
   prepareDesktopRuntime,
   prepareDesktopNodeRuntime,
   productionRuntimePackage,
