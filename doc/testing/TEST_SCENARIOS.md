@@ -701,7 +701,7 @@ NTE-030 の `summary/20260715/0107-implement-nte030-review-shared-detail-shell-e
 
 ## Desktop Alpha / Phase 2 / 将来確認
 
-次の項目は現行 MVP 外です。Desktop Alpha は全体として未完了です。更新確認・取得・検証・state・pending verification、verified artifact の明示 apply preparation、persisted `ApplyPreparation` を起点とする staged migration、read-back、candidate health、bundle switch、rollback / recovery、checkpoint persistence、cleanup には backend 実装と static / disposable test 証跡があります。PR #159 の Code Review Issue #164〜#175 では、候補 safety backup の再利用・曖昧性、failed bundle marker cleanup、restart handoff、同一 startup recovery、全 application table read-back、restart 後の signed archive / staging tree 再検証、restore proof、schema compatibility、durable rename、cleanup / retry safety を対象にした回帰観点を追加しています。staged migration suite は 22/22 PASS、`node --test test/desktop/desktop-update-*.test.js` は 77/77 PASS、desktop recovery suite は 14/14 PASS ですが、これは実際の macOS packaged app による更新完了の PASS ではありません。自動 apply / 自動 restart は行わず、Settings の操作機能は未実装であり、packaged Apple Silicon GUI、実 provider / package runtime、実 health / switch / rollback / cleanup は未検証です。これらを含む Desktop Alpha の判定は現行 MVP の PASS 集計に含めません。static / disposable test の PASS を packaged GUI、provider / package runtime、browser runtime、DB read-back の PASS へ繰り上げません。Desktop PoC と Desktop Alpha の packaged QA 後に Canvas PNG、検索サジェスト、大規模一覧を確認します。未採用候補は、発注者が採用するまで実装シナリオとして確定しません。
+次の項目は現行 MVP 外です。Desktop Alpha は全体として未完了です。更新確認・取得・検証・state・pending verification、verified artifact の明示 apply preparation、persisted `ApplyPreparation` を起点とする staged migration、read-back、candidate health、bundle switch、rollback / recovery、checkpoint persistence、cleanup には backend 実装と static / disposable test 証跡があります。PR #159 の Code Review Issue #164〜#175 では、候補 safety backup の再利用・曖昧性、failed bundle marker cleanup、restart handoff、同一 startup recovery、全 application table read-back、restart 後の signed archive / staging tree 再検証、restore proof、schema compatibility、durable rename、cleanup / retry safety を対象にした回帰観点を追加しています。staged migration suite は 22/22 PASS、`node --test test/desktop/desktop-update-*.test.js` は 77/77 PASS、desktop recovery suite は 14/14 PASS ですが、これは実際の macOS packaged app による更新完了の PASS ではありません。自動 apply / 自動 restart は行わず、Settings の Updates 操作の UI 接続は未実装です。一方、Data and Backup の操作機能は static / disposable test 済みですが、packaged runtime / native GUI、実 provider / package runtime、実 health / switch / rollback / cleanup は未検証です。これらを含む Desktop Alpha の判定は現行 MVP の PASS 集計に含めません。static / disposable test の PASS を packaged GUI、provider / package runtime、browser runtime、DB read-back の PASS へ繰り上げません。Desktop PoC と Desktop Alpha の packaged QA 後に Canvas PNG、検索サジェスト、大規模一覧を確認します。未採用候補は、発注者が採用するまで実装シナリオとして確定しません。
 
 #### 0.1 2026-08-24 Desktop Alpha 検証証跡と境界
 
@@ -768,9 +768,9 @@ NTE-030 の `summary/20260715/0107-implement-nte030-review-shared-detail-shell-e
 
 2026-08-24 の確認では lifecycle static test が 8 PASS、dynamic loopback 関連が 7 SKIP だった。Rust unit test は production の `HOME` や Application Support を使わず temp directory と injected instance paths を使う設計だが、今回の環境では offline cache の `base64` 不足で未検証である。Node の `test/desktop/desktop-lifecycle.test.js` は製品 identifier、dynamic loopback、focus / recovery の静的契約を確認する補助であり、packaged app の代替ではない。
 
-#### 2.2 Settings shell / bridge / entrypoint（部分実装・操作未実施）
+#### 2.2 Settings shell / bridge / entrypoint（shell と Data and Backup は static / disposable test 済み、packaged GUI 未検証）
 
-`SettingsEntrypoint` は AppChrome の desktop rail と mobile trigger に接続され、shared event bridge を介して Mac menu からも既存 primary WebView の同じ modal を開く。Settings modal には General、Updates、Data and Backup の3カテゴリ、dialog / focus trap / keyboard navigation がある。General は読み取り専用、Updates は update backend の部分実装とは未接続の準備中表示、Data and Backup は操作未実装で現行 `/backup` への入口を維持する。新しい window、runtime、sidecar、filesystem、API path は追加していない。
+`SettingsEntrypoint` は AppChrome の desktop rail と mobile trigger に接続され、shared event bridge を介して Mac menu からも既存 primary WebView の同じ modal を開く。Settings modal には General、Updates、Data and Backup の3カテゴリ、dialog / focus trap / keyboard navigation がある。General は読み取り専用、Updates は update backend の部分実装とは未接続の準備中表示、Data and Backup は native file-dialog / typed bridge、手動 plaintext SQLite export、managed backup catalog、managed / external restore 共通 pipeline、pending restore と明示 resume、complete data deletion を static / disposable test 済みの操作として提供し、現行 `/backup` への入口を維持する。packaged runtime / native GUI は未検証である。新しい primary window は追加していない。
 
 `test/desktop/desktop-settings-shell.test.js` と `test/desktop/desktop-settings-ui.test.js` はこの shell / bridge / UI 境界を静的に確認する補助であり、Settings の実操作、browser runtime、packaged GUI の受け入れを PASS に繰り上げない。
 
@@ -855,6 +855,8 @@ NTE-030 の `summary/20260715/0107-implement-nte030-review-shared-detail-shell-e
 - [ ] 定期・日次・通常起動時・データ変更時の自動 backup を Desktop Alpha の必須挙動として実装していない
 
 ### 4. Backup / restore / 完全なデータ削除
+
+Desktop Alpha の Data and Backup（native file-dialog / typed bridge、手動 plaintext SQLite export、managed backup catalog、managed / external restore、pending restore と明示 resume、complete data deletion、Settings UI）は static / disposable test 済みとして扱う。これは packaged `.app` / DMG、native GUI、loopback、browser/DB read-back、process timing の PASS を意味しない。現行 MVP の `/backup` と `GET/POST /api/backups` は維持する。
 
 - [ ] Data and Backup で、手動 SQLite export、app 管理 backup からの復元、外部 backup file からの復元を別操作として表示する
 - [ ] 手動 export はユーザーが保存先を選ぶ平文 SQLite で、app 管理 backup の retention policy を適用しない
