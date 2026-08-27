@@ -420,7 +420,7 @@ Playwright は `127.0.0.1:4173` の専用 web server を起動し、実行開始
 - [ ] `POST /api/notes/:id/review` で不正な `nextReviewDate` が `invalid_body` と `field: "nextReviewDate"` を返す
 - [ ] `GET /api/tags` でタグ 0 件の場合も 200 と `[]` を返す
 - [ ] `GET /api/backups` でバックアップ 0 件の場合も 200 と `{ backups: [] }` を返す
-- [ ] `POST /api/backups` で DB ファイル不在や `DATABASE_URL` 不正の場合は 500 `server_error` を返す
+- [ ] `POST /api/backups` で DB ファイル不在・DB 不可用の場合は 500 `backup_database_unavailable`、設定不整合の場合は 500 `backup_configuration_invalid`、バックアップ保存先不良の場合は 500 `backup_storage_failure` を返し、raw path、`DATABASE_URL`、内部 exception を露出しない
 
 - [ ] Canvas 用紙サイズの変更は `NotebookCanvas.documentJson` の JSON 更新で完結し、用紙寸法のためだけに Prisma schema / migration が増えていないことを静的に確認する
 
@@ -858,6 +858,8 @@ NTE-030 の `summary/20260715/0107-implement-nte030-review-shared-detail-shell-e
 
 Desktop Alpha の Data and Backup（native file-dialog / typed bridge、手動 plaintext SQLite export、managed backup catalog、managed / external restore、pending restore と明示 resume、complete data deletion、Settings UI）は static / disposable test 済みとして扱う。これは packaged `.app` / DMG、native GUI、loopback、browser/DB read-back、process timing の PASS を意味しない。現行 MVP の `/backup` と `GET/POST /api/backups` は維持する。
 
+既知の backup API error では安全な preflight を有限回だけ行い、GET は一回だけ再試行する。POST は重複作成を避けるため自動再送しない。Web bridge は `unsupported-web` を返し、raw path / exception を画面へ渡さない。これらは focused static / disposable test の PASS であり、packaged macOS GUI、sidecar 実 runtime、browser / DB read-back の acceptance ではない。
+
 - [ ] Data and Backup で、手動 SQLite export、app 管理 backup からの復元、外部 backup file からの復元を別操作として表示する
 - [ ] 手動 export はユーザーが保存先を選ぶ平文 SQLite で、app 管理 backup の retention policy を適用しない
 - [ ] 2 つの restore 入口が staging validation、明示確認、atomic switch、restart の同じ pipeline を使う
@@ -870,6 +872,8 @@ Desktop Alpha の Data and Backup（native file-dialog / typed bridge、手動 p
 - [ ] 完全なデータ削除が外部 SQLite export を削除せず、更新、reinstall、通常の uninstall から暗黙に実行されない
 
 ### 5. Startup failure / diagnostics / privacy
+
+DB bootstrap、recovery-only restore、diagnostic export / local log の privacy boundary は static / disposable test 済みである。packaged macOS GUI、sidecar 実 runtime、browser / DB read-back は未検証で、static / disposable PASS を acceptance 完了とは扱わない。live SQLite の path・ファイル名・`DATABASE_URL`・schema / migration / integrity はユーザー設定にしない。
 
 - [ ] 通常起動は DB open と schema 状態だけを確認し、全件 integrity check を毎回実行しない
 - [ ] 詳細 integrity check は異常終了後、migration 後、restore 後等の必要時だけ実行する

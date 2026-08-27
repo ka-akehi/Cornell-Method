@@ -29,7 +29,10 @@ use diagnostics::{
     DiagnosticExportResponse, DiagnosticsState,
 };
 use instance::{acquire_instance, start_focus_listener, InstanceAcquire, InstanceGuard};
-use lifecycle::{handle_navigation, request_close, run_data_backup_operation_command, AppState};
+use lifecycle::{
+    handle_navigation, request_close, run_data_backup_operation_command,
+    run_desktop_backup_recovery_command, AppState,
+};
 use menu::{build_desktop_menu, handle_desktop_menu_event};
 use runtime::{
     choose_data_backup_external_source, choose_data_backup_save_destination,
@@ -37,10 +40,10 @@ use runtime::{
     managed_backup_catalog_command_error, pending_restore_resume_command_error,
     pending_restore_status_command_error, read_managed_backup_catalog, read_pending_restore_status,
     resolve_storage_layout, run_bootstrap_with_storage, runtime_project_root, start_sidecar,
-    BootstrapOutcome, DesktopDataBackupOperationResponse, DesktopDatabaseRecoverySnapshotResponse,
-    DesktopDatabaseRecoveryState, DesktopFileDialogResult, DesktopFileSelectionStore,
-    DesktopManagedBackupCatalogResponse, DesktopPendingRestoreResumeResponse,
-    DesktopPendingRestoreStatusResponse, StorageLayout,
+    BootstrapOutcome, DesktopBackupRecoveryResponse, DesktopDataBackupOperationResponse,
+    DesktopDatabaseRecoverySnapshotResponse, DesktopDatabaseRecoveryState, DesktopFileDialogResult,
+    DesktopFileSelectionStore, DesktopManagedBackupCatalogResponse,
+    DesktopPendingRestoreResumeResponse, DesktopPendingRestoreStatusResponse, StorageLayout,
 };
 use tauri::{Manager, WebviewUrl, WebviewWindowBuilder, WindowEvent};
 use update_apply::{apply_verified_update_worker, ApplyUpdateCommandError, ApplyUpdateResponse};
@@ -103,6 +106,16 @@ async fn run_desktop_data_backup_operation(
         .unwrap_or_else(|_| {
             desktop_data_backup_command_error(None, "request", "command-worker-failed")
         })
+}
+
+#[tauri::command]
+async fn attempt_desktop_backup_recovery(
+    app: tauri::AppHandle,
+    request: serde_json::Value,
+) -> DesktopBackupRecoveryResponse {
+    tauri::async_runtime::spawn_blocking(move || run_desktop_backup_recovery_command(&app, request))
+        .await
+        .unwrap_or_else(|_| runtime::backup_recovery_command_error("recovery-transition-failed"))
 }
 
 #[tauri::command]
@@ -319,6 +332,7 @@ fn run_application(instance: InstanceGuard) -> AppResult<()> {
             choose_data_backup_save_destination_command,
             choose_data_backup_external_source_command,
             run_desktop_data_backup_operation,
+            attempt_desktop_backup_recovery,
             read_desktop_managed_backup_catalog,
             read_desktop_pending_restore_status,
             read_desktop_database_recovery_snapshot,

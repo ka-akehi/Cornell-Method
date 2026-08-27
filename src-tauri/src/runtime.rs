@@ -37,6 +37,8 @@ const DESKTOP_MANAGED_BACKUP_CATALOG_COMMAND: &str = "managed-backup-catalog";
 const DESKTOP_PENDING_RESTORE_PROTOCOL_VERSION: u8 = 1;
 const DESKTOP_PENDING_RESTORE_STATUS_COMMAND: &str = "pending-restore-status";
 const DESKTOP_PENDING_RESTORE_RESUME_COMMAND: &str = "pending-restore-resume";
+const DESKTOP_BACKUP_RECOVERY_PROTOCOL_VERSION: u8 = 1;
+const DESKTOP_BACKUP_RECOVERY_COMMAND: &str = "attempt-backup-recovery";
 const DESKTOP_DATABASE_RECOVERY_SCHEMA_VERSION: u8 = 1;
 const DESKTOP_DATABASE_RECOVERY_STATE_FIRST_RUN: &str = "first-run";
 const DESKTOP_DATABASE_RECOVERY_STATE_RESTORE_AVAILABLE: &str = "restore-available";
@@ -164,7 +166,7 @@ pub(crate) struct DesktopDatabaseRecoverySnapshotResponse {
 
 #[derive(Clone, Debug)]
 pub(crate) struct DesktopDatabaseRecoveryState {
-    snapshot: Option<DesktopDatabaseRecoverySnapshot>,
+    snapshot: Arc<Mutex<Option<DesktopDatabaseRecoverySnapshot>>>,
     recovery_only: Arc<AtomicBool>,
 }
 
@@ -177,14 +179,14 @@ impl Default for DesktopDatabaseRecoveryState {
 impl DesktopDatabaseRecoveryState {
     pub(crate) fn new(snapshot: Option<DesktopDatabaseRecoverySnapshot>) -> Self {
         Self {
-            snapshot,
+            snapshot: Arc::new(Mutex::new(snapshot)),
             recovery_only: Arc::new(AtomicBool::new(false)),
         }
     }
 
     pub(crate) fn recovery_only(snapshot: DesktopDatabaseRecoverySnapshot) -> Self {
         Self {
-            snapshot: Some(snapshot),
+            snapshot: Arc::new(Mutex::new(Some(snapshot))),
             recovery_only: Arc::new(AtomicBool::new(true)),
         }
     }
@@ -197,17 +199,32 @@ impl DesktopDatabaseRecoveryState {
         self.recovery_only.store(false, Ordering::Release);
     }
 
+    pub(crate) fn mark_recovery_only(&self, snapshot: DesktopDatabaseRecoverySnapshot) -> bool {
+        if let Ok(mut current) = self.snapshot.lock() {
+            *current = Some(snapshot);
+            self.recovery_only.store(true, Ordering::Release);
+            true
+        } else {
+            false
+        }
+    }
+
     pub(crate) fn response(&self) -> DesktopDatabaseRecoverySnapshotResponse {
         let status = if self.is_recovery_only() {
             "recovery"
         } else {
             "ready"
         };
+        let snapshot = self
+            .snapshot
+            .lock()
+            .ok()
+            .and_then(|snapshot| snapshot.clone());
         DesktopDatabaseRecoverySnapshotResponse {
             kind: "desktop-database-recovery-snapshot",
             schema_version: DESKTOP_DATABASE_RECOVERY_SCHEMA_VERSION,
             status,
-            snapshot: self.snapshot.clone(),
+            snapshot,
         }
     }
 
@@ -428,6 +445,38 @@ pub(crate) struct DesktopPendingRestoreResumeResponse {
     pending_id: Option<String>,
     error_code: Option<String>,
     pub(crate) result: Option<DesktopPendingRestoreResumeResult>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct DesktopBackupRecoveryRequest {
+    pub(crate) kind: String,
+    pub(crate) schema_version: u8,
+    pub(crate) reason: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct DesktopBackupRecoveryResponse {
+    pub(crate) kind: String,
+    pub(crate) schema_version: u8,
+    pub(crate) status: String,
+    pub(crate) phase: String,
+    pub(crate) error_code: Option<String>,
+    pub(crate) recovery_snapshot: Option<DesktopDatabaseRecoverySnapshot>,
+}
+
+impl DesktopBackupRecoveryResponse {
+    pub(crate) fn not_recovered(error_code: &str) -> Self {
+        Self {
+            kind: "desktop-backup-recovery".to_string(),
+            schema_version: DESKTOP_BACKUP_RECOVERY_PROTOCOL_VERSION,
+            status: "not-recovered".to_string(),
+            phase: "preflight".to_string(),
+            error_code: Some(error_code.to_string()),
+            recovery_snapshot: None,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -1201,6 +1250,104 @@ fn launch_command(
     launcher_command(root, command_name, storage)?
         .output()
         .map_err(|error| format!("desktop launcher process could not start: {error}"))
+}
+
+fn launch_backup_recovery(
+    root: &Path,
+    storage: &StorageLayout,
+    request: &DesktopBackupRecoveryRequest,
+) -> AppResult<std::process::Output> {
+    let payload = serde_json::to_string(request)
+        .map_err(|_| "desktop backup recovery request could not be encoded".to_string())?;
+    launcher_command(root, DESKTOP_BACKUP_RECOVERY_COMMAND, Some(storage))?
+        .arg(payload)
+        .output()
+        .map_err(|error| format!("desktop backup recovery sidecar could not start: {error}"))
+}
+
+fn parse_backup_recovery_message(output: &[u8]) -> AppResult<DesktopBackupRecoveryResponse> {
+    let message = String::from_utf8_lossy(output)
+        .lines()
+        .rev()
+        .find_map(|line| serde_json::from_str::<DesktopBackupRecoveryResponse>(line).ok())
+        .ok_or_else(|| "desktop backup recovery sidecar did not return a result".to_string())?;
+    if message.kind != "desktop-backup-recovery"
+        || message.schema_version != DESKTOP_BACKUP_RECOVERY_PROTOCOL_VERSION
+        || message.phase != "preflight"
+        || !matches!(
+            message.status.as_str(),
+            "ready" | "recovery-required" | "not-recovered"
+        )
+        || !message.error_code.as_deref().map_or(true, |code| {
+            matches!(
+                code,
+                "invalid-request"
+                    | "unsupported-protocol-version"
+                    | "storage-unavailable"
+                    | "database-unavailable"
+                    | "runtime-unavailable"
+                    | "sidecar-unavailable"
+                    | "protocol-error"
+                    | "recovery-transition-failed"
+                    | "invalid-response"
+            )
+        })
+        || (message.status == "ready"
+            && (message.error_code.is_some() || message.recovery_snapshot.is_some()))
+        || (message.status == "recovery-required"
+            && (message.error_code.is_some() || message.recovery_snapshot.is_none()))
+        || (message.status == "not-recovered"
+            && (message.error_code.is_none() || message.recovery_snapshot.is_some()))
+    {
+        return Err("desktop backup recovery sidecar returned an invalid result".to_string());
+    }
+    if let Some(snapshot) = message.recovery_snapshot.as_ref() {
+        validate_database_recovery_snapshot(snapshot)?;
+    }
+    Ok(message)
+}
+
+pub(crate) fn backup_recovery_command_error(error_code: &str) -> DesktopBackupRecoveryResponse {
+    DesktopBackupRecoveryResponse::not_recovered(error_code)
+}
+
+pub(crate) fn run_desktop_backup_recovery_probe(
+    app: &AppHandle,
+    request_value: serde_json::Value,
+) -> DesktopBackupRecoveryResponse {
+    let request = match serde_json::from_value::<DesktopBackupRecoveryRequest>(request_value) {
+        Ok(request)
+            if request.kind == "desktop-backup-recovery"
+                && request.schema_version == DESKTOP_BACKUP_RECOVERY_PROTOCOL_VERSION
+                && matches!(
+                    request.reason.as_str(),
+                    "backup_configuration_invalid"
+                        | "backup_database_unavailable"
+                        | "backup_storage_failure"
+                ) =>
+        {
+            request
+        }
+        Ok(request) if request.schema_version != DESKTOP_BACKUP_RECOVERY_PROTOCOL_VERSION => {
+            return backup_recovery_command_error("unsupported-protocol-version");
+        }
+        _ => return backup_recovery_command_error("invalid-request"),
+    };
+    let Some(storage) = app.try_state::<StorageLayout>() else {
+        return backup_recovery_command_error("storage-unavailable");
+    };
+    let root = match runtime_project_root(app) {
+        Ok(root) => root,
+        Err(_) => return backup_recovery_command_error("runtime-unavailable"),
+    };
+    let output = match launch_backup_recovery(&root, storage.inner(), &request) {
+        Ok(output) if output.status.success() => output,
+        Ok(_) | Err(_) => return backup_recovery_command_error("sidecar-unavailable"),
+    };
+    match parse_backup_recovery_message(&output.stdout) {
+        Ok(response) => response,
+        Err(_) => backup_recovery_command_error("protocol-error"),
+    }
 }
 
 fn resolve_data_backup_location(

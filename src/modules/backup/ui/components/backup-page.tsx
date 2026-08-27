@@ -4,6 +4,149 @@ import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { BackupEntryDto } from "@/modules/backup/contracts";
 import { createBackup, fetchBackups } from "@/modules/backup/remote";
+import { BackupRemoteError } from "@/modules/backup/remote";
+import {
+  requestDesktopBackupRecovery,
+  type DesktopBackupRecoveryReason,
+  type DesktopBackupRecoveryResult,
+} from "@/shared/desktop/desktop-settings-bridge";
+
+const BACKUP_RECOVERY_REASON_BY_API_CODE = {
+  backup_configuration_invalid: "backup_configuration_invalid",
+  backup_database_unavailable: "backup_database_unavailable",
+  backup_storage_failure: "backup_storage_failure",
+} as const;
+
+const BACKUP_RECOVERY_NAVIGATION_PREFIX =
+  "#cornell-desktop-backup-recovery=";
+
+type BackupRecoveryNavigation =
+  | { status: "ready"; reason: null }
+  | { status: "not-recovered"; reason: DesktopBackupRecoveryReason };
+
+type BackupOperation = "list" | "create";
+
+export type BackupOperationRecoveryResult<T> =
+  | { kind: "success"; value: T }
+  | { kind: "recovery-required" }
+  | { kind: "ready-no-retry" }
+  | { kind: "error"; error: unknown }
+  | { kind: "stale" };
+
+function recoveryReasonForError(
+  caught: unknown,
+): DesktopBackupRecoveryReason | null {
+  if (!(caught instanceof BackupRemoteError)) return null;
+
+  const code = caught.body?.code;
+  if (
+    code !== "backup_configuration_invalid" &&
+    code !== "backup_database_unavailable" &&
+    code !== "backup_storage_failure"
+  ) {
+    return null;
+  }
+
+  return BACKUP_RECOVERY_REASON_BY_API_CODE[code];
+}
+
+export async function runBackupOperationWithRecovery<T>(
+  operation: BackupOperation,
+  execute: () => Promise<T>,
+  options: {
+    skipRecovery?: boolean;
+    isCurrent: () => boolean;
+    requestRecovery: (
+      reason: DesktopBackupRecoveryReason,
+    ) => Promise<DesktopBackupRecoveryResult>;
+  },
+): Promise<BackupOperationRecoveryResult<T>> {
+  try {
+    return { kind: "success", value: await execute() };
+  } catch (caught) {
+    if (!options.isCurrent()) return { kind: "stale" };
+
+    const reason = recoveryReasonForError(caught);
+    if (options.skipRecovery || reason === null) {
+      return { kind: "error", error: caught };
+    }
+
+    let recovery: DesktopBackupRecoveryResult;
+    try {
+      recovery = await options.requestRecovery(reason);
+    } catch {
+      return { kind: "error", error: caught };
+    }
+    if (!options.isCurrent()) return { kind: "stale" };
+
+    if (recovery.kind === "unsupported-web") {
+      return { kind: "error", error: caught };
+    }
+    if (recovery.status === "recovery-required") {
+      return { kind: "recovery-required" };
+    }
+    if (recovery.status !== "ready") {
+      return { kind: "error", error: caught };
+    }
+    if (operation === "create") {
+      return { kind: "ready-no-retry" };
+    }
+
+    try {
+      return { kind: "success", value: await execute() };
+    } catch {
+      // Keep the original stable API error and never preflight or retry again.
+      return { kind: "error", error: caught };
+    }
+  }
+}
+
+export function consumeBackupRecoveryNavigation(): BackupRecoveryNavigation | null {
+  if (
+    typeof window === "undefined" ||
+    window.location.pathname !== "/backup" ||
+    !window.location.hash.startsWith(BACKUP_RECOVERY_NAVIGATION_PREFIX)
+  ) {
+    return null;
+  }
+
+  const signal = window.location.hash.slice(
+    BACKUP_RECOVERY_NAVIGATION_PREFIX.length,
+  );
+  let navigation: BackupRecoveryNavigation | null = null;
+  if (signal === "ready") {
+    navigation = { status: "ready", reason: null };
+  } else if (signal.startsWith("not-recovered:")) {
+    const reason = signal.slice("not-recovered:".length);
+    if (
+      reason === "backup_configuration_invalid" ||
+      reason === "backup_database_unavailable" ||
+      reason === "backup_storage_failure"
+    ) {
+      navigation = { status: "not-recovered", reason };
+    }
+  }
+
+  if (navigation !== null) {
+    window.history.replaceState(
+      null,
+      "",
+      `${window.location.pathname}${window.location.search}`,
+    );
+  }
+  return navigation;
+}
+
+function stableBackupErrorMessage(reason: DesktopBackupRecoveryReason) {
+  if (reason === "backup_storage_failure") {
+    return "バックアップを作成できませんでした。バックアップの保存先を利用できない状態です。";
+  }
+  return "バックアップを作成できませんでした。アプリのデータを利用できない状態です。";
+}
+
+function errorMessage(caught: unknown, fallback: string) {
+  return caught instanceof Error ? caught.message : fallback;
+}
 
 function formatCreatedAt(value: string) {
   const date = new Date(value);
@@ -22,67 +165,115 @@ export function BackupPage() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const backupsRequestIdRef = useRef(0);
+  const createRequestIdRef = useRef(0);
+  const recoveryInFlightRef = useRef<Promise<DesktopBackupRecoveryResult> | null>(
+    null,
+  );
+  const skipRecoveryForNavigationRef = useRef(false);
+  const navigationErrorRef = useRef<string | null>(null);
   const isMountedRef = useRef(false);
 
-  const loadBackups = useCallback(async () => {
-    const requestId = ++backupsRequestIdRef.current;
+  const requestBackupRecovery = useCallback(async function requestBackupRecovery(
+    reason: DesktopBackupRecoveryReason,
+  ): Promise<DesktopBackupRecoveryResult> {
+    const existing = recoveryInFlightRef.current;
+    if (existing !== null) return existing;
 
-    setLoading(true);
-    setError(null);
-
+    const request = requestDesktopBackupRecovery(reason);
+    recoveryInFlightRef.current = request;
     try {
-      const nextBackups = await fetchBackups();
-
-      if (requestId !== backupsRequestIdRef.current) return;
-      setBackups(nextBackups);
-    } catch (caught) {
-      if (requestId !== backupsRequestIdRef.current) return;
-
-      setError(
-        caught instanceof Error
-          ? caught.message
-          : "バックアップ一覧の取得に失敗しました。",
-      );
+      return await request;
     } finally {
-      if (requestId === backupsRequestIdRef.current) {
-        setLoading(false);
+      if (recoveryInFlightRef.current === request) {
+        recoveryInFlightRef.current = null;
       }
     }
   }, []);
 
+  const loadBackups = useCallback(async (options: { skipRecovery?: boolean } = {}) => {
+    const requestId = ++backupsRequestIdRef.current;
+    const skipRecovery =
+      options.skipRecovery ?? skipRecoveryForNavigationRef.current;
+
+    setLoading(true);
+    setError(null);
+
+    const result = await runBackupOperationWithRecovery("list", fetchBackups, {
+      skipRecovery,
+      isCurrent: () => requestId === backupsRequestIdRef.current,
+      requestRecovery: requestBackupRecovery,
+    });
+
+    if (result.kind === "stale" || result.kind === "recovery-required") return;
+    if (result.kind === "error") {
+      if (requestId !== backupsRequestIdRef.current) return;
+      setError(
+        errorMessage(result.error, "バックアップ一覧の取得に失敗しました。"),
+      );
+    } else if (result.kind === "success") {
+      if (requestId !== backupsRequestIdRef.current) return;
+      setBackups(result.value);
+    }
+
+    if (requestId === backupsRequestIdRef.current) {
+      setLoading(false);
+      if (skipRecovery) {
+        skipRecoveryForNavigationRef.current = false;
+      }
+      if (navigationErrorRef.current !== null) {
+        setError(navigationErrorRef.current);
+        navigationErrorRef.current = null;
+      }
+    }
+  }, [requestBackupRecovery]);
+
   useEffect(() => {
+    const navigation = consumeBackupRecoveryNavigation();
+    if (navigation?.status === "ready") {
+      skipRecoveryForNavigationRef.current = true;
+      setSuccess("デスクトップの復旧を試しました。もう一度お試しください。");
+    } else if (navigation?.status === "not-recovered") {
+      skipRecoveryForNavigationRef.current = true;
+      navigationErrorRef.current = stableBackupErrorMessage(navigation.reason);
+    }
+
     isMountedRef.current = true;
     void loadBackups();
 
     return () => {
       isMountedRef.current = false;
       backupsRequestIdRef.current += 1;
+      createRequestIdRef.current += 1;
     };
   }, [loadBackups]);
 
   async function handleCreateBackup() {
+    const requestId = ++createRequestIdRef.current;
     setCreating(true);
     setError(null);
     setSuccess(null);
 
-    try {
-      const json = await createBackup();
-      if (!isMountedRef.current) return;
+    const result = await runBackupOperationWithRecovery("create", createBackup, {
+      isCurrent: () =>
+        isMountedRef.current && requestId === createRequestIdRef.current,
+      requestRecovery: requestBackupRecovery,
+    });
 
-      setSuccess(`${json.backup.file} を作成しました。`);
+    if (result.kind === "stale" || !isMountedRef.current) return;
+    if (result.kind === "recovery-required") {
+      setCreating(false);
+      return;
+    }
+    if (result.kind === "ready-no-retry") {
+      setSuccess("デスクトップの復旧を試しました。もう一度お試しください。");
+    } else if (result.kind === "error") {
+      setError(errorMessage(result.error, "バックアップの作成に失敗しました。"));
+    } else if (result.kind === "success") {
+      setSuccess(`${result.value.backup.file} を作成しました。`);
       await loadBackups();
-    } catch (caught) {
-      if (!isMountedRef.current) return;
-
-      setError(
-        caught instanceof Error
-          ? caught.message
-          : "バックアップの作成に失敗しました。",
-      );
-    } finally {
-      if (isMountedRef.current) {
-        setCreating(false);
-      }
+    }
+    if (isMountedRef.current && requestId === createRequestIdRef.current) {
+      setCreating(false);
     }
   }
 

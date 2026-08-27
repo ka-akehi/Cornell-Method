@@ -36,6 +36,8 @@ const DESKTOP_DATABASE_RECOVERY_SCHEMA_VERSION = 1;
 const PENDING_RESTORE_STATUS_COMMAND = "read_desktop_pending_restore_status";
 const PENDING_RESTORE_RESUME_COMMAND = "resume_desktop_pending_restore";
 const DESKTOP_PENDING_RESTORE_PROTOCOL_VERSION = 1;
+const DESKTOP_BACKUP_RECOVERY_PROTOCOL_VERSION = 1;
+const DESKTOP_BACKUP_RECOVERY_COMMAND = "attempt_desktop_backup_recovery";
 const DIAGNOSTIC_EXPORT_PROTOCOL_VERSION = 1;
 const DIAGNOSTIC_DESTINATION_COMMAND =
   "choose_diagnostic_export_destination_command";
@@ -292,6 +294,41 @@ export type DesktopDataBackupOperationResponse = {
 
 export type DesktopDataBackupOperationResult =
   | DesktopDataBackupOperationResponse
+  | { kind: "unsupported-web" };
+
+export type DesktopBackupRecoveryReason =
+  | "backup_configuration_invalid"
+  | "backup_database_unavailable"
+  | "backup_storage_failure";
+
+export type DesktopBackupRecoveryRequest = {
+  kind: "desktop-backup-recovery";
+  schemaVersion: 1;
+  reason: DesktopBackupRecoveryReason;
+};
+
+export type DesktopBackupRecoveryErrorCode =
+  | "invalid-request"
+  | "unsupported-protocol-version"
+  | "storage-unavailable"
+  | "database-unavailable"
+  | "runtime-unavailable"
+  | "sidecar-unavailable"
+  | "protocol-error"
+  | "recovery-transition-failed"
+  | "invalid-response";
+
+export type DesktopBackupRecoveryResponse = {
+  kind: "desktop-backup-recovery";
+  schemaVersion: 1;
+  status: "ready" | "recovery-required" | "not-recovered";
+  phase: "preflight";
+  errorCode: DesktopBackupRecoveryErrorCode | null;
+  recoverySnapshot: DesktopDatabaseRecoverySnapshot | null;
+};
+
+export type DesktopBackupRecoveryResult =
+  | DesktopBackupRecoveryResponse
   | { kind: "unsupported-web" };
 
 export type DesktopDiagnosticSelection = {
@@ -735,6 +772,42 @@ function isDatabaseRecoverySnapshot(
     (value.state !== "restore-unavailable" ||
       (!value.managedBackupAvailable && !value.pendingRestoreAvailable))
   );
+}
+
+function isDesktopBackupRecoveryReason(
+  value: unknown,
+): value is DesktopBackupRecoveryReason {
+  return typeof value === "string" && [
+    "backup_configuration_invalid",
+    "backup_database_unavailable",
+    "backup_storage_failure",
+  ].includes(value);
+}
+
+function isDesktopBackupRecoveryErrorCode(
+  value: unknown,
+): value is DesktopBackupRecoveryErrorCode {
+  return typeof value === "string" && [
+    "invalid-request",
+    "unsupported-protocol-version",
+    "storage-unavailable",
+    "database-unavailable",
+    "runtime-unavailable",
+    "sidecar-unavailable",
+    "protocol-error",
+    "recovery-transition-failed",
+    "invalid-response",
+  ].includes(value);
+}
+
+function isDesktopBackupRecoveryRequest(
+  value: unknown,
+): value is DesktopBackupRecoveryRequest {
+  return isRecord(value) &&
+    hasExactKeys(value, ["kind", "schemaVersion", "reason"]) &&
+    value.kind === "desktop-backup-recovery" &&
+    value.schemaVersion === DESKTOP_BACKUP_RECOVERY_PROTOCOL_VERSION &&
+    isDesktopBackupRecoveryReason(value.reason);
 }
 
 function isDataBackupLocation(value: unknown): value is DesktopDataBackupLocation {
@@ -1351,6 +1424,56 @@ function normalizeDatabaseRecoverySnapshotResponse(
   }
 
   return value as DesktopDatabaseRecoverySnapshotResponse;
+}
+
+function unavailableDesktopBackupRecovery(
+  errorCode: DesktopBackupRecoveryErrorCode = "invalid-response",
+): DesktopBackupRecoveryResponse {
+  return {
+    kind: "desktop-backup-recovery",
+    schemaVersion: DESKTOP_BACKUP_RECOVERY_PROTOCOL_VERSION,
+    status: "not-recovered",
+    phase: "preflight",
+    errorCode,
+    recoverySnapshot: null,
+  };
+}
+
+function normalizeDesktopBackupRecoveryResponse(
+  value: unknown,
+): DesktopBackupRecoveryResponse {
+  if (
+    !isRecord(value) ||
+    !hasExactKeys(value, [
+      "kind",
+      "schemaVersion",
+      "status",
+      "phase",
+      "errorCode",
+      "recoverySnapshot",
+    ]) ||
+    value.kind !== "desktop-backup-recovery" ||
+    value.schemaVersion !== DESKTOP_BACKUP_RECOVERY_PROTOCOL_VERSION ||
+    value.phase !== "preflight" ||
+    !["ready", "recovery-required", "not-recovered"].includes(value.status as string) ||
+    !(value.errorCode === null || isDesktopBackupRecoveryErrorCode(value.errorCode)) ||
+    !(value.recoverySnapshot === null || isDatabaseRecoverySnapshot(value.recoverySnapshot))
+  ) {
+    return unavailableDesktopBackupRecovery();
+  }
+
+  if (
+    (value.status === "ready" &&
+      (value.errorCode !== null || value.recoverySnapshot !== null)) ||
+    (value.status === "recovery-required" &&
+      (value.errorCode !== null || value.recoverySnapshot === null)) ||
+    (value.status === "not-recovered" &&
+      (value.errorCode === null || value.recoverySnapshot !== null))
+  ) {
+    return unavailableDesktopBackupRecovery();
+  }
+
+  return value as DesktopBackupRecoveryResponse;
 }
 
 function normalizeManagedBackupCatalogResponse(
@@ -2362,6 +2485,28 @@ export function requestDesktopDatabaseRecoverySnapshot(): Promise<DesktopDatabas
       unavailableDatabaseRecoverySnapshot,
     )
     .catch(unavailableDatabaseRecoverySnapshot);
+}
+
+export function requestDesktopBackupRecovery(
+  reason: DesktopBackupRecoveryReason,
+): Promise<DesktopBackupRecoveryResult> {
+  const request = {
+    kind: "desktop-backup-recovery" as const,
+    schemaVersion: DESKTOP_BACKUP_RECOVERY_PROTOCOL_VERSION,
+    reason,
+  };
+  if (!isDesktopBackupRecoveryRequest(request)) {
+    return Promise.resolve(unavailableDesktopBackupRecovery("invalid-request"));
+  }
+  if (typeof window === "undefined" || !hasTauriRuntime()) {
+    return Promise.resolve({ kind: "unsupported-web" });
+  }
+
+  return Promise.resolve()
+    .then(() => invoke<unknown>(DESKTOP_BACKUP_RECOVERY_COMMAND, { request }))
+    .then(normalizeDesktopBackupRecoveryResponse, () =>
+      unavailableDesktopBackupRecovery("sidecar-unavailable"))
+    .catch(() => unavailableDesktopBackupRecovery("sidecar-unavailable"));
 }
 
 export function requestManagedBackupCatalog(): Promise<DesktopManagedBackupCatalogResult> {

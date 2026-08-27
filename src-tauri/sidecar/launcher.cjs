@@ -20,6 +20,13 @@ const DESKTOP_MANAGED_BACKUP_CATALOG_KIND = "desktop-managed-backup-catalog";
 const DESKTOP_PENDING_RESTORE_PROTOCOL_VERSION = 1;
 const DESKTOP_PENDING_RESTORE_STATUS_KIND = "desktop-pending-restore-status";
 const DESKTOP_PENDING_RESTORE_RESUME_KIND = "desktop-pending-restore-resume";
+const DESKTOP_BACKUP_RECOVERY_PROTOCOL_VERSION = 1;
+const DESKTOP_BACKUP_RECOVERY_KIND = "desktop-backup-recovery";
+const DESKTOP_BACKUP_RECOVERY_REASONS = new Set([
+  "backup_configuration_invalid",
+  "backup_database_unavailable",
+  "backup_storage_failure",
+]);
 const DESKTOP_DATABASE_RECOVERY_SCHEMA_VERSION = 1;
 const DESKTOP_DATABASE_RECOVERY_STATES = new Set([
   "first-run",
@@ -276,6 +283,179 @@ function validateDatabase() {
     return null;
   }
   return result;
+}
+
+function backupRecoveryResponse(status, errorCode = null, recoverySnapshot = null) {
+  return {
+    kind: DESKTOP_BACKUP_RECOVERY_KIND,
+    schemaVersion: DESKTOP_BACKUP_RECOVERY_PROTOCOL_VERSION,
+    status,
+    phase: "preflight",
+    errorCode,
+    recoverySnapshot,
+  };
+}
+
+function backupRecoveryReasonCode(reason) {
+  const directReasons = new Set([
+    "database-missing",
+    "database-missing-after-initialization",
+    "database-not-a-file",
+    "database-read-failed",
+    "database-integrity-failed",
+    "database-foreign-key-failed",
+    "database-schema-invalid",
+    "database-migration-required",
+    "database-initialization-failed",
+    "database-initialization-marker-invalid",
+    "storage-unavailable",
+  ]);
+  if (directReasons.has(reason)) return reason;
+  return {
+    "database-stat-failed": "database-read-failed",
+    "database-open-failed": "database-read-failed",
+    "integrity-check-failed": "database-integrity-failed",
+    "foreign-key-check-failed": "database-foreign-key-failed",
+    "schema-read-failed": "database-schema-invalid",
+    "migration-table-missing": "database-schema-invalid",
+    "migration-table-read-failed": "database-schema-invalid",
+    "migration-table-invalid": "database-schema-invalid",
+    "migration-state-read-failed": "database-schema-invalid",
+    "migration-state-invalid": "database-schema-invalid",
+    "migration-history-duplicate": "database-schema-invalid",
+    "migration-history-unknown": "database-schema-invalid",
+    "migration-history-gap": "database-schema-invalid",
+    "migration-checksum-mismatch": "database-schema-invalid",
+    "required-table-missing": "database-schema-invalid",
+    "migration-source-unavailable": "database-schema-invalid",
+    "database-undeterminable": "database-read-failed",
+    "migration-incomplete": "database-migration-required",
+    "migration-missing": "database-migration-required",
+  }[reason] || "database-read-failed";
+}
+
+function inspectBackupStorageDirectory(options) {
+  for (const directoryPath of [
+    options.storagePaths.applicationSupportRoot,
+    options.storagePaths.liveDirectory,
+    options.storagePaths.backupsDirectory,
+  ]) {
+    const stats = fs.lstatSync(directoryPath);
+    if (stats.isSymbolicLink() || !stats.isDirectory()) return false;
+  }
+  fs.readdirSync(options.storagePaths.backupsDirectory);
+  fs.accessSync(
+    options.storagePaths.backupsDirectory,
+    fs.constants.R_OK | fs.constants.W_OK,
+  );
+  options.storage.listManagedBackupCatalog({
+    storagePaths: options.storagePaths,
+  });
+  return true;
+}
+
+function backupRecoverySnapshot(options, inspection) {
+  let managedBackupAvailable = false;
+  let pendingRestoreAvailable = false;
+  try {
+    const catalog = options.storage.listManagedBackupCatalog({
+      storagePaths: options.storagePaths,
+    });
+    managedBackupAvailable = catalog.status === "ready" && catalog.backups.length > 0;
+  } catch {
+    // An unreadable catalog is not a trusted recovery source.
+  }
+  try {
+    const pending = options.storage.inspectPendingRestore({
+      storagePaths: options.storagePaths,
+      sqliteBinary: process.env.SQLITE3_BIN,
+      migrationsDirectory: options.migrationsDirectory,
+    });
+    pendingRestoreAvailable = pending.status === "available";
+  } catch {
+    // Pending restore is available only after its existing validation passes.
+  }
+  const reasonCode = backupRecoveryReasonCode(inspection.reason);
+  const state = managedBackupAvailable || pendingRestoreAvailable
+    ? "restore-available"
+    : reasonCode === "database-missing-after-initialization"
+      ? "restore-unavailable"
+      : "diagnostic-required";
+  return {
+    schemaVersion: DESKTOP_DATABASE_RECOVERY_SCHEMA_VERSION,
+    state,
+    reasonCode,
+    managedBackupAvailable,
+    pendingRestoreAvailable,
+    canStartEmpty: false,
+  };
+}
+
+function attemptBackupRecovery(rawRequest) {
+  let request;
+  try {
+    request = JSON.parse(rawRequest);
+  } catch {
+    return backupRecoveryResponse("not-recovered", "invalid-request");
+  }
+  if (!isRecord(request)
+    || !hasExactKeys(request, ["kind", "schemaVersion", "reason"])
+    || request.kind !== DESKTOP_BACKUP_RECOVERY_KIND
+    || request.schemaVersion !== DESKTOP_BACKUP_RECOVERY_PROTOCOL_VERSION
+    || !DESKTOP_BACKUP_RECOVERY_REASONS.has(request.reason)) {
+    return backupRecoveryResponse("not-recovered", "invalid-request");
+  }
+
+  let options;
+  try {
+    options = storageOptions(projectRoot());
+  } catch {
+    return backupRecoveryResponse("not-recovered", "storage-unavailable");
+  }
+
+  let inspection;
+  try {
+    inspection = options.storage.inspectDesktopDatabase({
+      storagePaths: options.storagePaths,
+      migrationsDirectory: options.migrationsDirectory,
+      sqliteBinary: process.env.SQLITE3_BIN,
+      integrityCheck: true,
+    });
+  } catch {
+    return backupRecoveryResponse("not-recovered", "database-unavailable");
+  }
+
+  let storageIsUsable = false;
+  try {
+    storageIsUsable = inspectBackupStorageDirectory(options);
+  } catch {
+    storageIsUsable = false;
+  }
+  if (request.reason === "backup_storage_failure" && !storageIsUsable) {
+    return backupRecoveryResponse("not-recovered", "storage-unavailable");
+  }
+
+  if (inspection.status === options.storage.DESKTOP_DATABASE_STATUS.READY) {
+    if (!storageIsUsable) {
+      return backupRecoveryResponse("not-recovered", "storage-unavailable");
+    }
+    return backupRecoveryResponse("ready");
+  }
+
+  // This command is called from an already running installation. It must not
+  // turn an initialization-required state into a new empty database.
+  if (request.reason === "backup_storage_failure") {
+    return backupRecoveryResponse("not-recovered", "storage-unavailable");
+  }
+  if (inspection.status === options.storage.DESKTOP_DATABASE_STATUS.INITIALIZATION_REQUIRED) {
+    return backupRecoveryResponse("not-recovered", "database-unavailable");
+  }
+
+  return backupRecoveryResponse(
+    "recovery-required",
+    null,
+    backupRecoverySnapshot(options, inspection),
+  );
 }
 
 function operationResponse(
@@ -1312,6 +1492,10 @@ async function main() {
     validateDatabase();
     return;
   }
+  if (command === "attempt-backup-recovery") {
+    process.stdout.write(`${JSON.stringify(attemptBackupRecovery(process.argv[3]))}\n`);
+    return;
+  }
   if (command === "data-backup-operation") {
     await dataBackupOperation(process.argv[3]);
     return;
@@ -1349,6 +1533,8 @@ if (require.main === module) {
 module.exports = {
   absoluteDatabaseUrl,
   bootstrap,
+  attemptBackupRecovery,
+  backupRecoverySnapshot,
   createReadyNonce,
   pickEphemeralPort,
   readyHealthResponseMatches,

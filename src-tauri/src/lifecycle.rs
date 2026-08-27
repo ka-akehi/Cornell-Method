@@ -1,9 +1,10 @@
 use super::runtime::{
     create_data_backup_operation_id, run_data_backup_operation_with_operation_id,
-    run_data_backup_operation_with_restore_mode, run_pending_restore_operation_with_operation_id,
+    run_data_backup_operation_with_restore_mode, run_desktop_backup_recovery_probe,
+    run_pending_restore_operation_with_operation_id,
     run_pending_restore_operation_with_restore_mode, runtime_project_root, start_sidecar,
-    validate_pending_restore_resume_request, DesktopDatabaseRecoveryState, DesktopRestoreMode,
-    SidecarHandle, StorageLayout,
+    validate_pending_restore_resume_request, DesktopBackupRecoveryResponse,
+    DesktopDatabaseRecoveryState, DesktopRestoreMode, SidecarHandle, StorageLayout,
 };
 use super::window_state::capture_window_state;
 use super::{
@@ -354,6 +355,42 @@ fn navigate_to_restarted_runtime(app: &AppHandle, runtime_url: &tauri::Url) {
     }
 }
 
+fn navigate_to_backup_recovery_runtime(
+    app: &AppHandle,
+    runtime_url: &tauri::Url,
+    outcome: &str,
+    reason: &str,
+) {
+    let fragment = match outcome {
+        "ready" => "cornell-desktop-backup-recovery=ready".to_string(),
+        "not-recovered" => match reason {
+            "backup_configuration_invalid"
+            | "backup_database_unavailable"
+            | "backup_storage_failure" => {
+                format!("cornell-desktop-backup-recovery=not-recovered:{reason}")
+            }
+            _ => return,
+        },
+        _ => return,
+    };
+    let mut target_url = runtime_url.clone();
+    target_url.set_path(BACKUP_PATH);
+    target_url.set_fragment(Some(&fragment));
+    navigate_to_restarted_runtime(app, &target_url);
+}
+
+fn navigate_to_recovery_ui(app: &AppHandle) -> bool {
+    let Some(window) = app.get_webview_window(PRIMARY_WINDOW_LABEL) else {
+        return false;
+    };
+    let Ok(url_literal) = serde_json::to_string("tauri://localhost/index.html") else {
+        return false;
+    };
+    window
+        .eval(&format!("window.location.replace({url_literal});"))
+        .is_ok()
+}
+
 fn database_recovery_is_only(app: &AppHandle) -> bool {
     app.try_state::<DesktopDatabaseRecoveryState>()
         .is_some_and(|state| state.inner().is_recovery_only())
@@ -593,6 +630,105 @@ pub(crate) fn run_data_backup_operation_command(
         "operation",
         "quiesce-failed",
     )
+}
+
+pub(crate) fn run_desktop_backup_recovery_command(
+    app: &AppHandle,
+    request: Value,
+) -> DesktopBackupRecoveryResponse {
+    let valid_request = request.as_object().is_some_and(|object| {
+        object.len() == 3
+            && object.get("kind") == Some(&Value::from("desktop-backup-recovery"))
+            && object.contains_key("schemaVersion")
+            && object.contains_key("reason")
+    }) && request.get("schemaVersion") == Some(&Value::from(1))
+        && request
+            .get("reason")
+            .and_then(Value::as_str)
+            .is_some_and(|reason| {
+                matches!(
+                    reason,
+                    "backup_configuration_invalid"
+                        | "backup_database_unavailable"
+                        | "backup_storage_failure"
+                )
+            });
+    if !valid_request {
+        return super::runtime::backup_recovery_command_error("invalid-request");
+    }
+    let Some(state) = app.try_state::<Arc<AppState>>() else {
+        return super::runtime::backup_recovery_command_error("recovery-transition-failed");
+    };
+    let Ok(_operation_guard) = state.lock_data_operation() else {
+        return super::runtime::backup_recovery_command_error("recovery-transition-failed");
+    };
+    if database_recovery_is_only(app) {
+        return super::runtime::backup_recovery_command_error("recovery-transition-failed");
+    }
+
+    let Some(storage) = app.try_state::<StorageLayout>() else {
+        return super::runtime::backup_recovery_command_error("storage-unavailable");
+    };
+    let root = match runtime_project_root(app) {
+        Ok(root) => root,
+        Err(_) => {
+            return super::runtime::backup_recovery_command_error("runtime-unavailable");
+        }
+    };
+    if state.quiesce_sidecar_for_data_operation().is_err() {
+        return super::runtime::backup_recovery_command_error("recovery-transition-failed");
+    }
+
+    let recovery_reason = request
+        .get("reason")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_string();
+    let response = run_desktop_backup_recovery_probe(app, request);
+    match response.status.as_str() {
+        "recovery-required" => {
+            let Some(snapshot) = response.recovery_snapshot.clone() else {
+                return super::runtime::backup_recovery_command_error("protocol-error");
+            };
+            let Some(recovery_state) = app.try_state::<DesktopDatabaseRecoveryState>() else {
+                return super::runtime::backup_recovery_command_error("recovery-transition-failed");
+            };
+            if !recovery_state.inner().mark_recovery_only(snapshot) {
+                return super::runtime::backup_recovery_command_error("recovery-transition-failed");
+            }
+            state.allow_application_exit();
+            if navigate_to_recovery_ui(app) {
+                response
+            } else {
+                super::runtime::backup_recovery_command_error("recovery-transition-failed")
+            }
+        }
+        "ready" => {
+            if let Ok(runtime_url) =
+                state.restart_sidecar_for_data_operation(&root, storage.inner())
+            {
+                navigate_to_backup_recovery_runtime(app, &runtime_url, "ready", &recovery_reason);
+                return response;
+            }
+            super::runtime::backup_recovery_command_error("sidecar-unavailable")
+        }
+        _ => {
+            // Keep a validated database usable after a storage/configuration
+            // preflight failure. The restart itself is bounded to this one
+            // command and never recursively invokes recovery.
+            if let Ok(runtime_url) =
+                state.restart_sidecar_for_data_operation(&root, storage.inner())
+            {
+                navigate_to_backup_recovery_runtime(
+                    app,
+                    &runtime_url,
+                    "not-recovered",
+                    &recovery_reason,
+                );
+            }
+            response
+        }
+    }
 }
 
 pub(crate) fn run_pending_restore_resume_command(

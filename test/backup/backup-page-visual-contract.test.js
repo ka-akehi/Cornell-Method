@@ -52,9 +52,10 @@ test("backup page keeps its existing remote operations and request guards", () =
   );
 
   assert.match(page, /import \{ createBackup, fetchBackups \}/);
+  assert.match(page, /BackupRemoteError/);
   assert.match(page, /const backupsRequestIdRef = useRef\(0\)/);
-  assert.match(page, /const nextBackups = await fetchBackups\(\)/);
-  assert.match(page, /const json = await createBackup\(\)/);
+  assert.match(page, /runBackupOperationWithRecovery\("list", fetchBackups/);
+  assert.match(page, /runBackupOperationWithRecovery\("create", createBackup/);
   assert.match(page, /await loadBackups\(\)/);
   assert.match(page, /disabled=\{creating \|\| loading\}/);
   assert.match(page, /disabled=\{loading \|\| creating\}/);

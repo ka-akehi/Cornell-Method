@@ -43,11 +43,11 @@ const defaultApiErrorMessages: Record<ApiErrorCode, string> = {
   invalid_query: "検索条件に誤りがあります",
   not_found: "対象が見つかりません",
   backup_database_unavailable:
-    "データベースを確認できません。アプリを再起動し、データが表示されるか確認してください。",
+    "バックアップを作成できませんでした。アプリのデータを利用できない状態です。",
   backup_storage_failure:
-    "バックアップを保存できません。空き容量とアクセス権を確認してください。",
+    "バックアップを作成できませんでした。バックアップの保存先を利用できない状態です。",
   backup_configuration_invalid:
-    "バックアップの設定に問題があります。設定を確認してから、もう一度お試しください。",
+    "バックアップを作成できませんでした。アプリのデータを利用できない状態です。",
   backup_unknown_failure:
     "バックアップに失敗しました。しばらく待ってから再試行してください。",
   server_error: "予期しないエラーが発生しました",
