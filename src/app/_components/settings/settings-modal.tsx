@@ -44,7 +44,7 @@ type SettingsCategoryId = (typeof settingsCategories)[number]["id"];
 
 const focusableSelector =
   "a[href], button:not([disabled]), [tabindex]:not([tabindex='-1'])";
-const COMPLETE_DELETE_CONFIRMATION = "完全に削除";
+const DELETE_CONFIRMATION = "削除します";
 
 function getFocusableElements(container: HTMLElement) {
   return Array.from(
@@ -167,7 +167,7 @@ function managedBackupErrorMessage(
     case "storage-unavailable":
       return "バックアップを読み込めませんでした。Desktop アプリの状態を確認してください。";
     default:
-      return "バックアップ一覧を読み込めませんでした。もう一度お試しください。";
+      return "バックアップ一覧を読み込めませんでした。";
   }
 }
 
@@ -184,7 +184,7 @@ function pendingStatusErrorMessage(
     case "pending-cleanup-required":
       return "保留中の復元を整理する必要があります。Desktop アプリを確認してから再試行してください。";
     default:
-      return "保留中の復元状態を読み込めませんでした。もう一度お試しください。";
+      return "保留中の復元状態を読み込めませんでした。";
   }
 }
 
@@ -201,7 +201,7 @@ function dataBackupDialogErrorMessage(
     case "unsupported-platform":
       return "この操作は Desktop アプリでのみ利用できます。";
     default:
-      return "ファイル選択を完了できませんでした。もう一度お試しください。";
+      return "ファイル選択を完了できませんでした。";
   }
 }
 
@@ -221,7 +221,7 @@ function dataBackupOperationNotice(
     if (context === "export" && result.result !== null) {
       return {
         role: "status",
-        message: `SQLite を ${result.result.fileName} として書き出しました（${formatDataBackupSize(result.result.size)}）。`,
+        message: `バックアップを ${result.result.fileName} に保存しました（${formatDataBackupSize(result.result.size)}）。`,
         retry: null,
       };
     }
@@ -230,7 +230,7 @@ function dataBackupOperationNotice(
       if (context === "delete") {
         return {
           role: "status",
-          message: "データを完全に削除しました。アプリを再起動して初期状態を確認してください。",
+          message: "アプリデータを削除しました。アプリを再起動してください。",
           retry: null,
         };
       }
@@ -243,7 +243,7 @@ function dataBackupOperationNotice(
 
     return {
       role: "alert",
-      message: "書き出し結果を確認できませんでした。もう一度お試しください。",
+      message: "書き出し結果を確認できませんでした。",
       retry: null,
     };
   }
@@ -316,13 +316,13 @@ function dataBackupOperationNotice(
       return {
         role: "alert",
         message:
-          "データの完全削除を完了できませんでした。安全のため処理を停止しています。アプリを再起動して状態を確認してから再試行してください。",
+          "アプリデータの削除を完了できませんでした。安全のため処理を停止しています。アプリを再起動して状態を確認してから再試行してください。",
         retry: null,
       };
     default:
       return {
         role: "alert",
-        message: "操作を完了できませんでした。もう一度お試しください。",
+        message: "操作を完了できませんでした。",
         retry: restoreRetryForContext(context),
       };
   }
@@ -336,7 +336,7 @@ function pendingResumeNotice(
       return {
         role: "alert",
         message:
-          "この復元は現在のアプリより新しい形式です。互換性のある更新後にもう一度お試しください。",
+          "この復元は現在のアプリより新しい形式です。互換性のある更新後に復元を再開してください。",
         retry: "pending-status",
       };
     case "pending-invalid":
@@ -379,7 +379,7 @@ function pendingResumeNotice(
 }
 
 function pendingSourceLabel(sourceKind: DesktopPendingRestoreStatusSummary["sourceKind"]) {
-  return sourceKind === "managed-backup" ? "アプリ管理バックアップ" : "外部 SQLite";
+  return sourceKind === "managed-backup" ? "保存済みバックアップ" : "バックアップファイル";
 }
 
 function confirmationDescription(confirmation: DataBackupConfirmation) {
@@ -389,10 +389,6 @@ function confirmationDescription(confirmation: DataBackupConfirmation) {
 
   if (confirmation.kind === "external") {
     return `「${confirmation.fileName}」を使って、現在のデータを置き換えます。`;
-  }
-
-  if (confirmation.kind === "delete") {
-    return "現在のアプリデータを完全に削除します。削除後はアプリを再起動すると初期状態から開始します。";
   }
 
   return "保留中の復元を再開すると、現在のデータが置き換わります。未保存の変更は自動保存・破棄されません。";
@@ -422,6 +418,8 @@ function DataAndBackupPanel() {
   const catalogRequestInFlightRef = useRef(false);
   const pendingRequestInFlightRef = useRef(false);
   const exportSelectionIdRef = useRef<string | null>(null);
+  const deleteDialogRef = useRef<HTMLDivElement>(null);
+  const deleteTriggerRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     return () => {
@@ -564,7 +562,7 @@ function DataAndBackupPanel() {
     setOperationBusy(true);
     setOperationMessage(
       context === "export"
-        ? "SQLite を書き出し中…"
+        ? "バックアップを保存中…"
         : context === "delete"
           ? "アプリデータを削除中…"
           : "復元を実行中…",
@@ -756,7 +754,7 @@ function DataAndBackupPanel() {
     setConfirmation({ kind: "delete" });
   };
 
-  const handleCancelConfirmation = () => {
+  const handleCancelConfirmation = useCallback(() => {
     if (operationBusy || confirmation === null) {
       return;
     }
@@ -765,12 +763,16 @@ function DataAndBackupPanel() {
       confirmation.kind === "pending"
         ? "復元の再開を取り消しました。保留中のデータは変更していません。"
         : confirmation.kind === "delete"
-          ? "完全削除の確認を取り消しました。データは変更されていません。"
+          ? "削除をキャンセルしました。データは変更されていません。"
         : "復元の確認を取り消しました。データは変更されていません。";
+    const wasDeleteConfirmation = confirmation.kind === "delete";
     setConfirmation(null);
     setDeleteConfirmationText("");
+    if (wasDeleteConfirmation) {
+      deleteTriggerRef.current?.focus();
+    }
     setNotice({ role: "status", message, retry: null });
-  };
+  }, [confirmation, operationBusy]);
 
   const handleConfirm = async () => {
     if (
@@ -783,7 +785,7 @@ function DataAndBackupPanel() {
 
     const selectedConfirmation = confirmation;
     if (selectedConfirmation.kind === "delete") {
-      if (deleteConfirmationText !== COMPLETE_DELETE_CONFIRMATION) {
+      if (deleteConfirmationText !== DELETE_CONFIRMATION) {
         return;
       }
       const result = await runDataBackupOperation(
@@ -884,6 +886,55 @@ function DataAndBackupPanel() {
     }
   };
 
+  useEffect(() => {
+    if (confirmation?.kind !== "delete") {
+      return;
+    }
+
+    const dialog = deleteDialogRef.current;
+    if (!dialog) {
+      return;
+    }
+
+    const focusableElements = getFocusableElements(dialog);
+    (focusableElements[0] ?? dialog).focus();
+
+    const handleDeleteDialogKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        handleCancelConfirmation();
+        return;
+      }
+
+      if (event.key !== "Tab") {
+        return;
+      }
+
+      const currentFocusableElements = getFocusableElements(dialog);
+      if (currentFocusableElements.length === 0) {
+        event.preventDefault();
+        dialog.focus();
+        return;
+      }
+
+      const firstFocusableElement = currentFocusableElements[0];
+      const lastFocusableElement =
+        currentFocusableElements[currentFocusableElements.length - 1];
+      if (event.shiftKey && document.activeElement === firstFocusableElement) {
+        event.preventDefault();
+        lastFocusableElement.focus();
+      } else if (!event.shiftKey && document.activeElement === lastFocusableElement) {
+        event.preventDefault();
+        firstFocusableElement.focus();
+      }
+    };
+
+    document.addEventListener("keydown", handleDeleteDialogKeyDown, true);
+    return () =>
+      document.removeEventListener("keydown", handleDeleteDialogKeyDown, true);
+  }, [confirmation, handleCancelConfirmation]);
+
   const handleRetry = () => {
     if (notice?.retry === "catalog") {
       void refreshCatalog();
@@ -936,7 +987,7 @@ function DataAndBackupPanel() {
       ) : null}
       {noticeContent}
 
-      {confirmation !== null ? (
+      {confirmation !== null && confirmation.kind !== "delete" ? (
         <section
           className={styles.dataBackupConfirmation}
           aria-labelledby="data-backup-confirmation-title"
@@ -945,9 +996,7 @@ function DataAndBackupPanel() {
           <h4 id="data-backup-confirmation-title">
             {confirmation.kind === "pending"
               ? "復元の再開を確認"
-              : confirmation.kind === "delete"
-                ? "データの完全削除を確認"
-                : "復元を確認"}
+              : "復元を確認"}
           </h4>
           <p>{confirmationDescription(confirmation)}</p>
           {confirmation.kind === "managed" ? (
@@ -989,37 +1038,6 @@ function DataAndBackupPanel() {
                 </dd>
               </div>
             </dl>
-          ) : (
-            <ul className={styles.dataBackupTargetList}>
-              <li>削除対象: live/notebook.sqlite と SQLite sidecar</li>
-              <li>削除対象: アプリ管理バックアップとアプリ管理の設定</li>
-              <li>対象外: pending-restore、ログ、外部の書き出し、Web のバックアップ、アプリ本体</li>
-            </ul>
-          )}
-          {confirmation.kind === "delete" ? (
-            <label
-              className={styles.dataBackupConfirmationField}
-              htmlFor="data-backup-delete-confirmation"
-            >
-              <span>確認文字列「完全に削除」を入力してください</span>
-              <input
-                id="data-backup-delete-confirmation"
-                type="text"
-                value={deleteConfirmationText}
-                autoFocus
-                autoComplete="off"
-                spellCheck={false}
-                aria-describedby="data-backup-delete-confirmation-help"
-                aria-invalid={
-                  deleteConfirmationText.length > 0 &&
-                  deleteConfirmationText !== COMPLETE_DELETE_CONFIRMATION
-                }
-                onChange={(event) => setDeleteConfirmationText(event.target.value)}
-              />
-              <span id="data-backup-delete-confirmation-help">
-                入力が一致するまで削除ボタンは無効です。
-              </span>
-            </label>
           ) : null}
           <div className={styles.dataBackupConfirmationActions}>
             <button
@@ -1032,24 +1050,14 @@ function DataAndBackupPanel() {
             </button>
             <button
               type="button"
-              className={
-                confirmation.kind === "delete"
-                  ? styles.dataBackupDangerButton
-                  : styles.dataBackupButton
-              }
-              disabled={
-                operationBusy ||
-                (confirmation.kind === "delete" &&
-                  deleteConfirmationText !== COMPLETE_DELETE_CONFIRMATION)
-              }
+              className={styles.dataBackupButton}
+              disabled={operationBusy}
               aria-busy={operationBusy}
               onClick={() => void handleConfirm()}
             >
               {confirmation.kind === "pending"
                 ? "復元を再開"
-                : confirmation.kind === "delete"
-                  ? "完全に削除する"
-                  : "復元を実行"}
+                : "復元を実行"}
             </button>
           </div>
         </section>
@@ -1057,8 +1065,7 @@ function DataAndBackupPanel() {
 
       <section className={styles.dataBackupSection} aria-labelledby="data-backup-export-title">
         <div className={styles.dataBackupSectionHeading}>
-          <h4 id="data-backup-export-title">SQLiteを書き出す</h4>
-          <p>現在の SQLite を選択した保存先へコピーします。</p>
+          <h4 id="data-backup-export-title">バックアップを保存</h4>
         </div>
         <button
           type="button"
@@ -1068,15 +1075,14 @@ function DataAndBackupPanel() {
           onClick={() => void handleExport()}
         >
           {dialogLoading === "export" || operationBusy
-            ? "書き出し中…"
-            : "SQLiteを書き出す"}
+            ? "バックアップを保存中…"
+            : "バックアップを保存"}
         </button>
       </section>
 
       <section className={styles.dataBackupSection} aria-labelledby="data-backup-managed-title">
         <div className={styles.dataBackupSectionHeading}>
-          <h4 id="data-backup-managed-title">アプリ管理バックアップから復元</h4>
-          <p>この Desktop アプリが管理するバックアップの候補から選択します。</p>
+          <h4 id="data-backup-managed-title">保存済みバックアップから復元</h4>
         </div>
         {catalogState.phase === "loading" ? (
           <div className={styles.dataBackupStatus} role="status" aria-busy="true">
@@ -1100,7 +1106,7 @@ function DataAndBackupPanel() {
           </div>
         ) : catalogState.phase === "empty" ? (
           <p className={styles.dataBackupEmpty} role="status">
-            利用できるアプリ管理バックアップはありません。
+            保存済みバックアップはありません。
           </p>
         ) : (
           <ul className={styles.dataBackupList}>
@@ -1136,8 +1142,7 @@ function DataAndBackupPanel() {
 
       <section className={styles.dataBackupSection} aria-labelledby="data-backup-external-title">
         <div className={styles.dataBackupSectionHeading}>
-          <h4 id="data-backup-external-title">外部 SQLite を復元</h4>
-          <p>外部ファイルを選び、内容を確認してから復元します。</p>
+          <h4 id="data-backup-external-title">バックアップファイルから復元</h4>
         </div>
         <button
           type="button"
@@ -1146,14 +1151,13 @@ function DataAndBackupPanel() {
           aria-busy={dialogLoading === "external" || operationBusy}
           onClick={() => void handleExternalRestoreSource()}
         >
-          {dialogLoading === "external" ? "ファイルを選択中…" : "外部 SQLite を復元"}
+          {dialogLoading === "external" ? "ファイルを選択中…" : "バックアップファイルから復元"}
         </button>
       </section>
 
       <section className={styles.dataBackupSection} aria-labelledby="data-backup-pending-title">
         <div className={styles.dataBackupSectionHeading}>
           <h4 id="data-backup-pending-title">保留中の復元</h4>
-          <p>新しいスキーマのため保留された復元は、明示的に再開できます。</p>
         </div>
         {pendingState.phase === "loading" ? (
           <div className={styles.dataBackupStatus} role="status" aria-busy="true">
@@ -1215,23 +1219,77 @@ function DataAndBackupPanel() {
         aria-labelledby="data-backup-delete-title"
       >
         <div className={styles.dataBackupSectionHeading}>
-          <h4 id="data-backup-delete-title">アプリデータを完全に削除</h4>
-          <p>
-            live SQLite、SQLite sidecar、アプリ管理バックアップ、アプリ管理の設定を
-            削除します。pending-restore、ログ、外部の書き出し、通常の Web のバックアップ、
-            アプリ本体は削除しません。
-          </p>
+          <h4 id="data-backup-delete-title">アプリデータを削除</h4>
         </div>
         <button
           type="button"
+          ref={deleteTriggerRef}
           className={styles.dataBackupDangerButton}
           disabled={!canStartAction}
           aria-busy={operationBusy}
           onClick={handleDeleteIntent}
         >
-          {operationBusy ? "削除中…" : "完全削除の確認を開く"}
+          {operationBusy ? "削除中…" : "削除"}
         </button>
       </section>
+
+      {confirmation?.kind === "delete" && typeof document !== "undefined"
+        ? createPortal(
+            <div className={styles.confirmationBackdrop} role="presentation">
+              <div
+                ref={deleteDialogRef}
+                className={styles.dataBackupConfirmation}
+                role="alertdialog"
+                aria-modal="true"
+                aria-labelledby="data-backup-delete-confirmation-title"
+                tabIndex={-1}
+              >
+                <p className={styles.panelKicker}>確認</p>
+                <h4 id="data-backup-delete-confirmation-title">アプリデータを削除</h4>
+                <label
+                  className={styles.dataBackupConfirmationField}
+                  htmlFor="data-backup-delete-confirmation"
+                >
+                  <span>確認のため「{DELETE_CONFIRMATION}」と入力してください</span>
+                  <input
+                    id="data-backup-delete-confirmation"
+                    type="text"
+                    value={deleteConfirmationText}
+                    autoComplete="off"
+                    spellCheck={false}
+                    aria-invalid={
+                      deleteConfirmationText.length > 0 &&
+                      deleteConfirmationText !== DELETE_CONFIRMATION
+                    }
+                    onChange={(event) => setDeleteConfirmationText(event.target.value)}
+                  />
+                </label>
+                <div className={styles.dataBackupConfirmationActions}>
+                  <button
+                    type="button"
+                    className={styles.dataBackupSecondaryButton}
+                    disabled={operationBusy}
+                    onClick={handleCancelConfirmation}
+                  >
+                    キャンセル
+                  </button>
+                  <button
+                    type="button"
+                    className={styles.dataBackupDangerButton}
+                    disabled={
+                      operationBusy || deleteConfirmationText !== DELETE_CONFIRMATION
+                    }
+                    aria-busy={operationBusy}
+                    onClick={() => void handleConfirm()}
+                  >
+                    削除する
+                  </button>
+                </div>
+              </div>
+            </div>,
+            document.body,
+          )
+        : null}
 
     </div>
   );

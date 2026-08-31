@@ -44,7 +44,7 @@ test("desktop gear, mobile trigger, and macOS menu share the existing Settings b
   );
   assert.match(
     appChrome,
-    /<button\s+id="app-chrome-mobile-settings-button"[\s\S]*className=\{`app-chrome-menu-button \$\{settingsStyles\.mobileTrigger\}`\}[\s\S]*aria-label="設定を開く"[\s\S]*aria-haspopup="dialog"[\s\S]*onClick=\{\(\) => sendDesktopSettingsRequest\(\)\}[\s\S]*<AppChromeIcon\s+name="settings"\s+className=\{settingsStyles\.mobileTriggerIcon\}\s*\/>[\s\S]*<\/button>/,
+    /<button\s+id="app-chrome-mobile-settings-button"[\s\S]*className=\{settingsStyles\.trigger\}[\s\S]*aria-label="設定を開く"[\s\S]*aria-haspopup="dialog"[\s\S]*onClick=\{\(\) => sendDesktopSettingsRequest\(\)\}[\s\S]*<AppChromeIcon\s+name="settings"\s+className=\{settingsStyles\.triggerIcon\}\s*\/>[\s\S]*<\/button>/,
   );
   assert.equal(
     (appChrome.match(/id="app-chrome-mobile-settings-button"/g) ?? [])
@@ -221,6 +221,17 @@ test("Data and Backup panel consumes the stable bridge with explicit destructive
   const compactModal = compact(modal);
 
   assert.match(modal, /function DataAndBackupPanel/);
+  assert.doesNotMatch(modal, /既存のバックアップ画面を開く/);
+  assert.doesNotMatch(modal, /href="\/backup"/);
+  assert.match(modal, /<h4 id="data-backup-export-title">バックアップを保存<\/h4>/);
+  assert.match(modal, /<h4 id="data-backup-managed-title">保存済みバックアップから復元<\/h4>/);
+  assert.match(modal, /<h4 id="data-backup-external-title">バックアップファイルから復元<\/h4>/);
+  assert.doesNotMatch(modal, /Desktop のローカルデータを安全に書き出し/);
+  assert.doesNotMatch(modal, /保存先を選んで、バックアップファイルを保存します/);
+  assert.doesNotMatch(modal, /保存済みバックアップから復元します/);
+  assert.doesNotMatch(modal, /バックアップファイルを選び、内容を確認してから復元します/);
+  assert.doesNotMatch(modal, /新しいスキーマのため保留された復元は、明示的に再開できます/);
+  assert.doesNotMatch(modal, /もう一度お試しください/);
   assert.match(modal, /requestDataBackupSaveDestination\(\)/);
   assert.match(modal, /requestDataBackupExternalSource\(\)/);
   assert.match(modal, /requestDataBackupOperation\(/);
@@ -242,8 +253,20 @@ test("Data and Backup panel consumes the stable bridge with explicit destructive
     compactModal,
     /operation:\s*"delete"[\s\S]*source:\s*null,[\s\S]*destination:\s*null,[\s\S]*confirmed:\s*true/,
   );
-  assert.match(modal, /完全に削除/);
+  assert.match(modal, /const DELETE_CONFIRMATION = "削除します"/);
+  assert.doesNotMatch(modal, /SQLite|アプリ管理|完全に削除|完全削除の確認を開く/);
   assert.match(modal, /deleteConfirmationText/);
+  assert.match(modal, /role="alertdialog"/);
+  assert.match(modal, /createPortal\([\s\S]*confirmationBackdrop/);
+  assert.match(modal, /aria-modal="true"[\s\S]*data-backup-delete-confirmation-title/);
+  assert.match(modal, /const deleteTriggerRef = useRef<HTMLButtonElement>\(null\)/);
+  assert.match(modal, /deleteTriggerRef\.current\?\.focus\(\)/);
+  assert.match(modal, /\{operationBusy \? "削除中…" : "削除"\}/);
+  assert.match(modal, /確認のため「\{DELETE_CONFIRMATION\}」と入力してください/);
+  assert.match(modal, /削除する/);
+  assert.doesNotMatch(modal, /このアプリに保存されているデータを削除します/);
+  assert.doesNotMatch(modal, /このアプリに保存されているノート、バックアップ、設定を削除します/);
+  assert.doesNotMatch(modal, /入力が一致するまで削除ボタンは無効です/);
   assert.match(modal, /disabled=\{!canStartAction\}/);
   assert.match(modal, /aria-invalid=/);
   assert.match(
@@ -302,9 +325,10 @@ test("Data and Backup panel consumes the stable bridge with explicit destructive
     /<dd>\{(?:confirmation\.)?(?:selectionId|pendingId|manifestToken)\}<\/dd>/,
   );
   assert.doesNotMatch(modal, /fetch\(|window\.open|invoke\(|\bfs\.|pathname|filePath/);
-  assert.match(modal, /href="\/backup"/);
+  assert.doesNotMatch(css, /routeLink/);
   assert.match(css, /\.dataBackupSection\s*\{/);
   assert.match(css, /\.dataBackupConfirmation\s*\{/);
+  assert.match(css, /\.confirmationBackdrop\s*\{[\s\S]*position:\s*fixed;/);
   assert.match(css, /\.dataBackupStatusError\s*\{/);
 });
 
