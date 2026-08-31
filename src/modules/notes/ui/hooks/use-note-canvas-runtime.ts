@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useTheme } from "@/app/_components/theme/theme-provider";
 import {
   cloneCanvasDocument,
   createElementId,
@@ -85,6 +86,7 @@ function enableTextEditing(canvas: FabricCanvasLike) {
 export function useNoteCanvasRuntime(
   options: CanvasRuntimeOptions,
 ): CanvasRuntimeResult {
+  const { resolvedTheme } = useTheme();
   const surfaceRef = useRef<HTMLDivElement>(null);
   const canvasElementRef = useRef<HTMLCanvasElement>(null);
   const canvasRef = useRef<FabricCanvasLike | null>(null);
@@ -193,7 +195,10 @@ export function useNoteCanvasRuntime(
         canvas = nextCanvas;
         fabricRef.current = fabricModule;
         canvasRef.current = nextCanvas;
-        nextCanvas.backgroundColor = "#fffdf8";
+        nextCanvas.backgroundColor = window
+          .getComputedStyle(surfaceRef.current ?? element)
+          .getPropertyValue("--app-paper-surface")
+          .trim() || "#fffdf8";
         const currentDocument = callbacksRef.current.getCurrentDocument();
 
         const apply = (document: CanvasDocumentV1) => {
@@ -650,6 +655,20 @@ export function useNoteCanvasRuntime(
       fabricRef.current = null;
     };
   }, [options.initialDocument, removePreview, syncCanvasToolState]);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    const surface = surfaceRef.current;
+    if (!canvas || !surface) {
+      return;
+    }
+
+    canvas.backgroundColor = window
+      .getComputedStyle(surface)
+      .getPropertyValue("--app-paper-surface")
+      .trim() || (resolvedTheme === "dark" ? "#2a302b" : "#fffdf8");
+    canvas.requestRenderAll?.();
+  }, [resolvedTheme]);
 
   useEffect(() => {
     applyCanvasDimensionsRef.current({ width: pageWidth, height: pageHeight });
