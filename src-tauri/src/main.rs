@@ -40,10 +40,11 @@ use runtime::{
     managed_backup_catalog_command_error, pending_restore_resume_command_error,
     pending_restore_status_command_error, read_managed_backup_catalog, read_pending_restore_status,
     resolve_storage_layout, run_bootstrap_with_storage, runtime_project_root, start_sidecar,
-    BootstrapOutcome, DesktopBackupRecoveryResponse, DesktopDataBackupOperationResponse,
-    DesktopDatabaseRecoverySnapshotResponse, DesktopDatabaseRecoveryState, DesktopFileDialogResult,
-    DesktopFileSelectionStore, DesktopManagedBackupCatalogResponse,
-    DesktopPendingRestoreResumeResponse, DesktopPendingRestoreStatusResponse, StorageLayout,
+    BootstrapOutcome, DesktopApiRequest, DesktopApiResponse, DesktopBackupRecoveryResponse,
+    DesktopDataBackupOperationResponse, DesktopDatabaseRecoverySnapshotResponse,
+    DesktopDatabaseRecoveryState, DesktopFileDialogResult, DesktopFileSelectionStore,
+    DesktopManagedBackupCatalogResponse, DesktopPendingRestoreResumeResponse,
+    DesktopPendingRestoreStatusResponse, StorageLayout,
 };
 use tauri::{Manager, WebviewUrl, WebviewWindowBuilder, WindowEvent};
 use update_apply::{apply_verified_update_worker, ApplyUpdateCommandError, ApplyUpdateResponse};
@@ -192,6 +193,22 @@ async fn export_desktop_diagnostics(
     tauri::async_runtime::spawn_blocking(move || export_diagnostics_command(&app, request))
         .await
         .unwrap_or_else(|_| diagnostic_export_command_error("request", "command-worker-failed"))
+}
+
+#[tauri::command]
+async fn request_desktop_state_changing_api(
+    app: tauri::AppHandle,
+    request: DesktopApiRequest,
+) -> Result<DesktopApiResponse, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app
+            .try_state::<Arc<AppState>>()
+            .ok_or_else(|| "desktop application state is unavailable".to_string())?;
+        let runtime_url = state.inner().runtime_url()?;
+        runtime::request_desktop_state_changing_api(&runtime_url, request)
+    })
+    .await
+    .map_err(|_| "desktop API command worker failed".to_string())?
 }
 
 fn start_startup_update_check(app: tauri::AppHandle) {
@@ -345,6 +362,7 @@ fn run_application(instance: InstanceGuard) -> AppResult<()> {
             apply_verified_update,
             choose_diagnostic_export_destination_command,
             export_desktop_diagnostics,
+            request_desktop_state_changing_api,
             choose_data_backup_save_destination_command,
             choose_data_backup_external_source_command,
             run_desktop_data_backup_operation,

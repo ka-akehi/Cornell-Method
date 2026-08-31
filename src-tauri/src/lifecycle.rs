@@ -262,6 +262,15 @@ impl AppState {
         &self.window_state_path
     }
 
+    pub(crate) fn runtime_url(&self) -> AppResult<tauri::Url> {
+        self.sidecar
+            .lock()
+            .map_err(|_| "sidecar state lock is poisoned".to_string())?
+            .as_ref()
+            .map(SidecarHandle::runtime_url)
+            .ok_or_else(|| "sidecar is not running".to_string())
+    }
+
     pub(crate) fn cleanup_sidecar(&self) -> AppResult<()> {
         let mut sidecar = self
             .sidecar

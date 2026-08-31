@@ -64,6 +64,22 @@ const DESKTOP_DATABASE_RECOVERY_REASON_STORAGE_UNAVAILABLE: &str = "storage-unav
 const DESKTOP_DIALOG_BINARY: &str = "/usr/bin/osascript";
 const MAX_DESKTOP_DIALOG_OUTPUT_BYTES: usize = 16 * 1024;
 
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct DesktopApiRequest {
+    pub(crate) path: String,
+    pub(crate) method: String,
+    pub(crate) headers: HashMap<String, String>,
+    pub(crate) body: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct DesktopApiResponse {
+    pub(crate) status: u16,
+    pub(crate) body: String,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct DesktopDatabaseRecoverySnapshot {
@@ -2557,6 +2573,84 @@ pub(crate) fn start_sidecar(root: &Path, storage: &StorageLayout) -> AppResult<S
     Ok(handle)
 }
 
+fn desktop_api_url(runtime_url: &tauri::Url, path: &str) -> AppResult<tauri::Url> {
+    if runtime_url.scheme() != "http"
+        || runtime_url.host_str() != Some("127.0.0.1")
+        || runtime_url.port().is_none()
+        || runtime_url.path() != "/notes"
+        || !runtime_url.username().is_empty()
+        || runtime_url.password().is_some()
+        || runtime_url.query().is_some()
+        || runtime_url.fragment().is_some()
+    {
+        return Err("desktop API request runtime URL is not validated".to_string());
+    }
+    if path != "/api" && !path.starts_with("/api/") {
+        return Err("desktop API request path is not an API path".to_string());
+    }
+
+    let url = runtime_url
+        .join(path)
+        .map_err(|_| "desktop API request path is invalid".to_string())?;
+    if url.scheme() != runtime_url.scheme()
+        || url.host_str() != runtime_url.host_str()
+        || url.port() != runtime_url.port()
+        || (url.path() != "/api" && !url.path().starts_with("/api/"))
+    {
+        return Err("desktop API request escaped the validated runtime origin".to_string());
+    }
+    Ok(url)
+}
+
+fn desktop_api_method(method: &str) -> AppResult<reqwest::Method> {
+    match method.to_ascii_uppercase().as_str() {
+        "POST" => Ok(reqwest::Method::POST),
+        "PATCH" => Ok(reqwest::Method::PATCH),
+        "DELETE" => Ok(reqwest::Method::DELETE),
+        _ => Err("desktop API request method is not state-changing".to_string()),
+    }
+}
+
+pub(crate) fn request_desktop_state_changing_api(
+    runtime_url: &tauri::Url,
+    request: DesktopApiRequest,
+) -> AppResult<DesktopApiResponse> {
+    let url = desktop_api_url(runtime_url, &request.path)?;
+    let method = desktop_api_method(&request.method)?;
+    let origin = runtime_url.origin().ascii_serialization();
+    if origin == "null" {
+        return Err("desktop API request runtime origin is not HTTP".to_string());
+    }
+
+    let client = reqwest::blocking::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .map_err(|error| format!("desktop API client could not be created: {error}"))?;
+    let mut builder = client
+        .request(method, url)
+        // These values are derived only from the validated sidecar URL. They
+        // intentionally replace renderer-provided values at the native edge.
+        .header("Origin", &origin)
+        .header("Referer", runtime_url.as_str());
+    for (name, value) in request.headers {
+        if name.eq_ignore_ascii_case("accept") || name.eq_ignore_ascii_case("content-type") {
+            builder = builder.header(name, value);
+        }
+    }
+    if let Some(body) = request.body {
+        builder = builder.body(body);
+    }
+
+    let response = builder
+        .send()
+        .map_err(|error| format!("desktop API request failed: {error}"))?;
+    let status = response.status().as_u16();
+    let body = response
+        .text()
+        .map_err(|error| format!("desktop API response could not be read: {error}"))?;
+    Ok(DesktopApiResponse { status, body })
+}
+
 #[cfg(unix)]
 fn signal_process_group(group_id: u32, signal: &str) {
     let _ = Command::new("/bin/kill")
@@ -2807,6 +2901,60 @@ mod tests {
             response.replacen("200 OK", "302 Found", 1).as_bytes(),
             &nonce
         ));
+    }
+
+    #[test]
+    fn desktop_api_transport_uses_the_exact_validated_runtime_origin() {
+        let runtime_url = tauri::Url::parse("http://127.0.0.1:43127/notes").unwrap();
+        let url = desktop_api_url(&runtime_url, "/api/backups").unwrap();
+        assert_eq!(url.as_str(), "http://127.0.0.1:43127/api/backups");
+        assert_eq!(
+            runtime_url.origin().ascii_serialization(),
+            "http://127.0.0.1:43127"
+        );
+        assert_eq!(runtime_url.as_str(), "http://127.0.0.1:43127/notes");
+    }
+
+    #[test]
+    fn desktop_api_transport_rejects_non_loopback_or_escaped_targets() {
+        let valid_runtime = tauri::Url::parse("http://127.0.0.1:43127/notes").unwrap();
+        for path in [
+            "/notes",
+            "/api/../notes",
+            "https://127.0.0.1:43127/api/backups",
+        ] {
+            assert!(desktop_api_url(&valid_runtime, path).is_err(), "{path}");
+        }
+
+        for runtime in [
+            "http://localhost:43127/notes",
+            "https://127.0.0.1:43127/notes",
+            "http://127.0.0.1:43127/notes?origin=wrong",
+        ] {
+            let runtime_url = tauri::Url::parse(runtime).unwrap();
+            assert!(
+                desktop_api_url(&runtime_url, "/api/backups").is_err(),
+                "{runtime}"
+            );
+        }
+
+        let different_port = tauri::Url::parse("http://127.0.0.1:43128/notes").unwrap();
+        assert_eq!(
+            desktop_api_url(&different_port, "/api/backups")
+                .unwrap()
+                .as_str(),
+            "http://127.0.0.1:43128/api/backups"
+        );
+    }
+
+    #[test]
+    fn desktop_api_transport_only_allows_proxy_state_changing_methods() {
+        for method in ["POST", "PATCH", "DELETE"] {
+            assert!(desktop_api_method(method).is_ok(), "{method}");
+        }
+        for method in ["GET", "PUT", "OPTIONS", ""] {
+            assert!(desktop_api_method(method).is_err(), "{method}");
+        }
     }
 
     #[test]
