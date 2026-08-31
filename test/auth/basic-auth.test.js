@@ -8,6 +8,7 @@ const {
   UNAUTHORIZED_API_ERROR_BODY,
   getBasicAuthDecision,
   getBasicAuthState,
+  getRequestAuthorityOrigin,
   isBasicAuthAuthorized,
   isSameOriginRequest,
   isStateChangingApiRequest,
@@ -258,6 +259,76 @@ test("Same-origin protection accepts exact Origin and rejects unsafe Origin valu
   }
 });
 
+test("Request authority origin preserves the wire host and rejects invalid authority data", () => {
+  assert.equal(
+    getRequestAuthorityOrigin({
+      host: "127.0.0.1:57040",
+      protocol: "http:",
+    }),
+    "http://127.0.0.1:57040",
+  );
+  assert.equal(
+    getRequestAuthorityOrigin({ host: "localhost:57040", protocol: "http:" }),
+    "http://localhost:57040",
+  );
+
+  for (const authority of [
+    { host: null, protocol: "http:" },
+    { host: "", protocol: "http:" },
+    { host: "127.0.0.1:57040/path", protocol: "http:" },
+    { host: "127.0.0.1:", protocol: "http:" },
+    { host: "127.0.0.1:57040?probe=true", protocol: "http:" },
+    { host: "user:password@127.0.0.1:57040", protocol: "http:" },
+    { host: "127.0.0.1:57040", protocol: "" },
+    { host: "127.0.0.1:57040", protocol: "ftp:" },
+  ]) {
+    assert.equal(getRequestAuthorityOrigin(authority), null, authority);
+  }
+});
+
+test("Same-origin protection uses exact loopback authority host and port", () => {
+  const requestOrigin = getRequestAuthorityOrigin({
+    host: "127.0.0.1:57040",
+    protocol: "http:",
+  });
+
+  assert.equal(
+    isSameOriginRequest({
+      requestOrigin,
+      origin: "http://127.0.0.1:57040",
+      referer: null,
+    }),
+    true,
+  );
+  assert.equal(
+    isSameOriginRequest({
+      requestOrigin,
+      origin: null,
+      referer: "http://127.0.0.1:57040/backup",
+    }),
+    true,
+  );
+
+  for (const origin of [
+    "http://localhost:57040",
+    "http://127.0.0.1:57041",
+    "https://127.0.0.1:57040",
+    "http://127.0.0.1:57040/backup",
+    "malformed-origin",
+    "null",
+  ]) {
+    assert.equal(
+      isSameOriginRequest({
+        requestOrigin,
+        origin,
+        referer: "http://127.0.0.1:57040/backup",
+      }),
+      false,
+      origin,
+    );
+  }
+});
+
 test("Same-origin protection falls back to a same-origin Referer only when Origin is absent", () => {
   const requestOrigin = "https://notes.example.test";
 
@@ -336,7 +407,10 @@ test("Proxy contract returns a generic API error and does not import data layers
   assert.match(proxySource, /NextResponse\.json/);
   assert.match(proxySource, /status: 401/);
   assert.match(proxySource, /FORBIDDEN_API_ERROR_BODY/);
-  assert.match(proxySource, /request\.nextUrl\.origin/);
+  assert.match(proxySource, /getRequestAuthorityOrigin/);
+  assert.match(proxySource, /request\.headers\.get\("host"\)/);
+  assert.match(proxySource, /request\.nextUrl\.protocol/);
+  assert.doesNotMatch(proxySource, /request\.nextUrl\.origin/);
   assert.match(proxySource, /request\.headers\.get\("origin"\)/);
   assert.match(proxySource, /request\.headers\.get\("referer"\)/);
   assert.match(proxySource, /Content-Type.*text\/plain/);
