@@ -362,7 +362,7 @@ test("Markdown preview keeps block-code framing on pre instead of inline code", 
   assert.match(markdownField, /const isBlock = className\?\.includes\("language-"\)/);
   assert.match(
     markdownField,
-    /className=\"rounded bg-stone-100 px-1\.5 py-0\.5 font-mono/,
+    /className=\"rounded bg-\[color:var\(--paper-soft\)\] px-1\.5 py-0\.5 font-mono/,
   );
   assert.match(
     markdownField,
@@ -413,11 +413,31 @@ test("Summary hides only the shared preview heading and keeps the preview contra
   assert.doesNotMatch(bodyField, /showPreviewHeading=\{false\}/);
 });
 
-test("Markdown preview uses compact blockquote padding without changing its boundary", () => {
+test("Markdown preview uses semantic tokens for readable blockquote styling", () => {
   assert.ok(
     markdownField.includes(
-      'className="my-3 border-l-4 border-stone-300 bg-stone-50 px-2 py-2 text-stone-700"',
+      'className="my-3 border-l-4 border-[color:var(--paper-line)] bg-[color:var(--paper-soft)] px-2 py-2 text-[color:var(--paper-ink)]"',
     ),
+  );
+});
+
+test("Markdown preview keeps rendered content colors on semantic theme tokens", () => {
+  const componentsStart = markdownField.indexOf("const markdownComponents: Components = {");
+  const componentsEnd = markdownField.indexOf("};\n\nfunction createMarkdownReadViewComponents", componentsStart);
+  const components = markdownField.slice(componentsStart, componentsEnd);
+
+  for (const token of [
+    "var(--paper-ink)",
+    "var(--paper-line)",
+    "var(--paper-soft)",
+    "var(--app-accent-deep)",
+  ]) {
+    assert.ok(components.includes(token), `${token} should be used`);
+  }
+
+  assert.doesNotMatch(
+    components,
+    /text-(?:stone-950|stone-900|stone-800|stone-700|amber-700|amber-800)\b/,
   );
 });
 

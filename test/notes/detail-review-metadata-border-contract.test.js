@@ -30,16 +30,19 @@ test("detail review metadata keeps its labels and values without enclosing borde
   assert.match(metadata, /note-paper-metadata-field--source/);
   assert.match(metadata, /note-paper-metadata-field--tags/);
   assert.match(metadata, /<dl className="note-paper-metadata-review/);
+  assert.match(metadata, /var\(--paper-ink-soft\)/);
+  assert.match(metadata, /var\(--paper-ink\)/);
+  assert.doesNotMatch(metadata, /text-(?:stone-900|stone-700|stone-500)\b/);
 
   assert.match(metadata, /<dt className="shrink-0 font-semibold">次回復習日<\/dt>/);
   assert.match(
     metadata,
-    /<dd className="break-words text-stone-700">\{formatDate\(note\.nextReviewDate\)\}<\/dd>/,
+    /<dd className="break-words text-\[color:var\(--paper-ink\)\]">\{formatDate\(note\.nextReviewDate\)\}<\/dd>/,
   );
   assert.match(metadata, /<dt className="shrink-0 font-semibold">最終復習日時<\/dt>/);
   assert.match(
     metadata,
-    /<dd className="break-words text-stone-700">\{formatDateTime\(note\.reviewedAt\)\}<\/dd>/,
+    /<dd className="break-words text-\[color:var\(--paper-ink\)\]">\{formatDateTime\(note\.reviewedAt\)\}<\/dd>/,
   );
 
   assert.match(

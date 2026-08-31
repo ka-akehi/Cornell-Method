@@ -35,7 +35,7 @@ function tagStyle(color: string | null) {
 
 function NoteDetailTags({ tags }: { tags: NoteDetailResponse["tags"] }) {
   if (tags.length === 0) {
-    return <span className="text-sm text-stone-500">タグなし</span>;
+    return <span className="text-sm text-[color:var(--paper-ink-soft)]">タグなし</span>;
   }
 
   return (
@@ -44,7 +44,7 @@ function NoteDetailTags({ tags }: { tags: NoteDetailResponse["tags"] }) {
         <span
           key={tag.id}
           style={tagStyle(tag.color)}
-          className="max-w-full rounded-full border border-amber-900/20 bg-transparent px-2.5 py-0.5 text-xs font-medium text-amber-900"
+          className="max-w-full rounded-full border border-[color:var(--paper-line)] bg-transparent px-2.5 py-0.5 text-xs font-medium text-[color:var(--paper-ink)]"
         >
           <span className="block min-w-0 break-all">{tag.name}</span>
         </span>
@@ -56,7 +56,7 @@ function NoteDetailTags({ tags }: { tags: NoteDetailResponse["tags"] }) {
 export function NoteDetailCueList({ cues }: { cues: NoteDetailResponse["cues"] }) {
   if (cues.length === 0) {
     return (
-      <p className="border border-dashed border-stone-300/80 bg-transparent px-3 py-3 text-sm text-stone-500">
+      <p className="border border-dashed border-[color:var(--paper-line)] bg-transparent px-3 py-3 text-sm text-[color:var(--paper-ink-soft)]">
         Cue は未追加です。
       </p>
     );
@@ -72,15 +72,15 @@ export function NoteDetailCueList({ cues }: { cues: NoteDetailResponse["cues"] }
           <div className="flex min-w-0 items-start gap-3">
             <span
               aria-hidden="true"
-              className="shrink-0 pt-0.5 font-mono text-xs font-semibold tracking-[0.16em] text-amber-800"
+              className="shrink-0 pt-0.5 font-mono text-xs font-semibold tracking-[0.16em] text-[color:var(--app-accent-deep)]"
             >
               {String(index + 1).padStart(2, "0")}
             </span>
             <div className="min-w-0">
-              <div className="text-[0.68rem] font-semibold uppercase tracking-[0.12em] text-stone-500">
+              <div className="text-[0.68rem] font-semibold uppercase tracking-[0.12em] text-[color:var(--paper-ink-soft)]">
                 Cue
               </div>
-              <div className="mt-1 whitespace-pre-wrap break-words text-sm leading-6 text-stone-900">
+              <div className="mt-1 whitespace-pre-wrap break-words text-sm leading-6 text-[color:var(--paper-ink)]">
                 {cue.text}
               </div>
             </div>
@@ -121,29 +121,29 @@ export function NoteDetailMetadata({ note }: { note: NoteDetailResponse }) {
     <div className="note-paper-metadata-content min-w-0">
       <div className="note-paper-metadata-grid min-w-0 text-sm">
         <dl className="note-paper-metadata-field note-paper-metadata-field--date min-w-[6rem]">
-          <dt className="text-xs font-semibold tracking-wide text-stone-500">学習日</dt>
-          <dd className="mt-1 break-words text-stone-900">{formatDate(note.noteDate)}</dd>
+          <dt className="text-xs font-semibold tracking-wide text-[color:var(--paper-ink-soft)]">学習日</dt>
+          <dd className="mt-1 break-words text-[color:var(--paper-ink)]">{formatDate(note.noteDate)}</dd>
         </dl>
         <dl className="note-paper-metadata-field note-paper-metadata-field--source max-w-full">
-          <dt className="text-xs font-semibold tracking-wide text-stone-500">学習元</dt>
-          <dd className="mt-1 break-words text-stone-900">
+          <dt className="text-xs font-semibold tracking-wide text-[color:var(--paper-ink-soft)]">学習元</dt>
+          <dd className="mt-1 break-words text-[color:var(--paper-ink)]">
             {formatSource(note.sourceType, note.sourceTitle)}
           </dd>
         </dl>
         <dl className="note-paper-metadata-field note-paper-metadata-field--tags max-w-full">
-          <dt className="text-xs font-semibold tracking-wide text-stone-500">タグ</dt>
+          <dt className="text-xs font-semibold tracking-wide text-[color:var(--paper-ink-soft)]">タグ</dt>
           <dd className="mt-1 min-w-0">
             <NoteDetailTags tags={note.tags} />
           </dd>
         </dl>
-        <dl className="note-paper-metadata-review min-w-0 text-xs text-stone-500">
+        <dl className="note-paper-metadata-review min-w-0 text-xs text-[color:var(--paper-ink-soft)]">
           <div className="flex min-w-0 items-baseline gap-2">
             <dt className="shrink-0 font-semibold">次回復習日</dt>
-            <dd className="break-words text-stone-700">{formatDate(note.nextReviewDate)}</dd>
+            <dd className="break-words text-[color:var(--paper-ink)]">{formatDate(note.nextReviewDate)}</dd>
           </div>
           <div className="flex min-w-0 items-baseline gap-2">
             <dt className="shrink-0 font-semibold">最終復習日時</dt>
-            <dd className="break-words text-stone-700">{formatDateTime(note.reviewedAt)}</dd>
+            <dd className="break-words text-[color:var(--paper-ink)]">{formatDateTime(note.reviewedAt)}</dd>
           </div>
         </dl>
       </div>

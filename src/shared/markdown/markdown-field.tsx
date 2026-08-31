@@ -120,30 +120,30 @@ export type MarkdownFieldProps = {
 
 const markdownComponents: Components = {
   h1: ({ children }) => (
-    <h1 className="mb-3 mt-0 break-words text-xl font-semibold text-stone-950">
+    <h1 className="mb-3 mt-0 break-words text-xl font-semibold text-[color:var(--paper-ink)]">
       {children}
     </h1>
   ),
   h2: ({ children }) => (
-    <h2 className="mb-2 mt-5 break-words text-lg font-semibold text-stone-900">
+    <h2 className="mb-2 mt-5 break-words text-lg font-semibold text-[color:var(--paper-ink)]">
       {children}
     </h2>
   ),
   h3: ({ children }) => (
-    <h3 className="mb-2 mt-4 break-words text-base font-semibold text-stone-900">
+    <h3 className="mb-2 mt-4 break-words text-base font-semibold text-[color:var(--paper-ink)]">
       {children}
     </h3>
   ),
   p: ({ children }) => (
-    <p className="my-2 break-words leading-7 text-stone-800">{children}</p>
+    <p className="my-2 break-words leading-7 text-[color:var(--paper-ink)]">{children}</p>
   ),
   ul: ({ children }) => (
-    <ul className="my-2 list-disc space-y-1 pl-5 text-stone-800">
+    <ul className="my-2 list-disc space-y-1 pl-5 text-[color:var(--paper-ink)]">
       {children}
     </ul>
   ),
   ol: ({ children }) => (
-    <ol className="my-2 list-decimal space-y-1 pl-5 text-stone-800">
+    <ol className="my-2 list-decimal space-y-1 pl-5 text-[color:var(--paper-ink)]">
       {children}
     </ol>
   ),
@@ -151,20 +151,20 @@ const markdownComponents: Components = {
     <u className="underline underline-offset-2">{children}</u>
   ),
   mark: ({ children }) => (
-    <mark className="rounded bg-amber-200 px-0.5 text-stone-900">
+    <mark className="rounded bg-[color:var(--app-accent-soft)] px-0.5 text-[color:var(--paper-ink)]">
       {children}
     </mark>
   ),
   details: ({ children, open }) => (
     <details
       open={open}
-      className="my-3 overflow-hidden rounded-lg border border-stone-200 bg-stone-50/70 [&>div]:px-3 [&>div]:pb-3"
+      className="my-3 overflow-hidden rounded-lg border border-[color:var(--paper-line)] bg-[color:var(--paper-soft)]/70 [&>div]:px-3 [&>div]:pb-3"
     >
       {children}
     </details>
   ),
   summary: ({ children }) => (
-    <summary className="cursor-pointer select-none px-3 py-2 font-medium text-stone-800 outline-none focus-visible:ring-2 focus-visible:ring-amber-500 focus-visible:ring-inset">
+    <summary className="cursor-pointer select-none px-3 py-2 font-medium text-[color:var(--paper-ink)] outline-none focus-visible:ring-2 focus-visible:ring-amber-500 focus-visible:ring-inset">
       {children}
     </summary>
   ),
@@ -178,7 +178,7 @@ const markdownComponents: Components = {
     </li>
   ),
   blockquote: ({ children }) => (
-    <blockquote className="my-3 border-l-4 border-stone-300 bg-stone-50 px-2 py-2 text-stone-700">
+    <blockquote className="my-3 border-l-4 border-[color:var(--paper-line)] bg-[color:var(--paper-soft)] px-2 py-2 text-[color:var(--paper-ink)]">
       {children}
     </blockquote>
   ),
@@ -195,7 +195,7 @@ const markdownComponents: Components = {
 
     return (
       <code
-        className="rounded bg-stone-100 px-1.5 py-0.5 font-mono text-[0.9em] text-stone-900"
+        className="rounded bg-[color:var(--paper-soft)] px-1.5 py-0.5 font-mono text-[0.9em] text-[color:var(--paper-ink)]"
         {...props}
       >
         {children}
@@ -203,7 +203,7 @@ const markdownComponents: Components = {
     );
   },
   pre: ({ children }) => (
-    <pre className="my-3 max-w-full overflow-x-auto rounded-lg bg-stone-950 p-4 text-sm leading-6 text-stone-100 [&>code]:rounded-none [&>code]:bg-transparent [&>code]:px-0 [&>code]:py-0 [&>code]:text-inherit">
+    <pre className="my-3 max-w-full overflow-x-auto rounded-lg bg-[color:var(--paper-code-surface)] p-4 text-sm leading-6 text-[color:var(--paper-code-ink)] [&>code]:rounded-none [&>code]:bg-transparent [&>code]:px-0 [&>code]:py-0 [&>code]:text-inherit">
       {children}
     </pre>
   ),
@@ -215,19 +215,19 @@ const markdownComponents: Components = {
     </div>
   ),
   th: ({ children }) => (
-    <th className="border border-stone-200 bg-stone-100 px-3 py-2 font-semibold text-stone-900">
+    <th className="border border-[color:var(--paper-line)] bg-[color:var(--paper-soft)] px-3 py-2 font-semibold text-[color:var(--paper-ink)]">
       {children}
     </th>
   ),
   td: ({ children }) => (
-    <td className="border border-stone-200 px-3 py-2 align-top text-stone-800">
+    <td className="border border-[color:var(--paper-line)] px-3 py-2 align-top text-[color:var(--paper-ink)]">
       {children}
     </td>
   ),
   a: ({ href, children }) => (
     <a
       href={href}
-      className="break-words text-amber-700 underline underline-offset-2 hover:text-amber-800"
+      className="break-words text-[color:var(--app-accent-deep)] underline underline-offset-2 hover:text-[color:var(--app-accent)]"
       target="_blank"
       rel="noreferrer"
     >
