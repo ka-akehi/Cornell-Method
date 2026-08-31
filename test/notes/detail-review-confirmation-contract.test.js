@@ -96,7 +96,7 @@ test("body confirmation unlocks Summary and Summary display completes confirmati
   assert.match(readView, /disabled=\{!bodyConfirmed \|\| summarySaving\}/);
   assert.match(
     readView,
-    /\{bodyConfirmed \? "サマリーを表示" : "本文確認後に開く"\}/,
+    /id="review-summary-hint"[\s\S]*本文を確認すると、サマリーを開けます。[\s\S]*aria-describedby="review-summary-hint"[\s\S]*\{bodyConfirmed \? "サマリーを表示" : "本文確認後に開く"\}/,
   );
   assert.match(actions, /disabled=\{submitDisabled\}/);
 });
@@ -159,6 +159,19 @@ test("review submit disabled state has an accessible confirmation explanation", 
   assert.match(actions, /aria-describedby="review-confirmation-hint"/);
   assert.match(
     actions,
-    /本文を表示して確認し、その後Summaryを表示して確認してください。/,
+    /本文を確認後、Summaryを確認すると復習済みにできます。/,
   );
+});
+
+test("review disabled controls use visible light and dark semantic tokens", () => {
+  assert.match(
+    readView,
+    /disabled:cursor-not-allowed[\s\S]*disabled:border-\[var\(--app-line-strong\)\][\s\S]*disabled:bg-\[var\(--app-line\)\][\s\S]*disabled:text-\[var\(--app-ink\)\][\s\S]*disabled:opacity-100/,
+  );
+  assert.match(
+    actions,
+    /disabled:cursor-not-allowed[\s\S]*disabled:border-\[var\(--app-line-strong\)\][\s\S]*disabled:bg-\[var\(--app-line\)\][\s\S]*disabled:text-\[var\(--app-ink\)\][\s\S]*disabled:opacity-100/,
+  );
+  assert.match(readView, /text-\[var\(--app-muted-ink\)\]/);
+  assert.match(actions, /text-\[var\(--app-muted-ink\)\]/);
 });

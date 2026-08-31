@@ -155,14 +155,18 @@ export function NoteDetailReadView({
             </div>
           ) : (
             <div className="border border-dashed border-stone-300/80 bg-transparent px-4 py-4">
-              <p className="text-sm leading-6 text-stone-600">
-                サマリーは本文確認後に開きます。まず Cue と本文で答え合わせをしてください。
+              <p
+                id="review-summary-hint"
+                className="text-sm leading-6 text-[var(--app-muted-ink)]"
+              >
+                本文を確認すると、サマリーを開けます。
               </p>
               <button
                 type="button"
                 disabled={!bodyConfirmed || summarySaving}
+                aria-describedby="review-summary-hint"
                 onClick={onShowSummary}
-                className="mt-3 rounded-lg bg-stone-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-stone-700 disabled:cursor-not-allowed disabled:bg-stone-300"
+                className="mt-3 inline-flex min-h-10 items-center rounded-lg border border-[var(--app-accent-deep)] bg-[var(--app-accent-deep)] px-4 py-2 text-sm font-medium text-[var(--app-accent-contrast)] transition hover:bg-[var(--app-accent-deep)] focus-visible:outline-2 focus-visible:outline-[var(--app-focus)] focus-visible:outline-offset-2 disabled:cursor-not-allowed disabled:border-[var(--app-line-strong)] disabled:bg-[var(--app-line)] disabled:text-[var(--app-ink)] disabled:opacity-100 disabled:shadow-none"
               >
                 {bodyConfirmed ? "サマリーを表示" : "本文確認後に開く"}
               </button>

@@ -124,7 +124,7 @@ export function NoteDetailReviewActions({
   const submitDisabled =
     reviewing || disabled || !reviewConfirmationComplete;
   const confirmationHint = !reviewConfirmationComplete
-    ? "本文を表示して確認し、その後Summaryを表示して確認してください。"
+    ? "本文を確認後、Summaryを確認すると復習済みにできます。"
     : disabled
       ? "Summaryの保存が完了するまで、復習済みにできません。"
       : "本文とSummaryを確認済みです。復習済みにできます。";
@@ -154,7 +154,7 @@ export function NoteDetailReviewActions({
           <div className="flex flex-wrap justify-end gap-2">
             <p
               id="review-confirmation-hint"
-              className="basis-full text-sm leading-6 text-stone-600"
+              className="basis-full text-sm leading-6 text-[var(--app-muted-ink)]"
             >
               {confirmationHint}
             </p>
@@ -163,7 +163,7 @@ export function NoteDetailReviewActions({
               disabled={submitDisabled}
               aria-describedby="review-confirmation-hint"
               onClick={onSubmitReview}
-              className="rounded-lg bg-amber-600 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-amber-700 disabled:cursor-not-allowed disabled:bg-amber-300"
+              className="inline-flex min-h-10 items-center rounded-lg border border-[var(--app-accent-deep)] bg-[var(--app-accent-deep)] px-3 py-1.5 text-sm font-medium text-[var(--app-accent-contrast)] transition hover:bg-[var(--app-accent-deep)] focus-visible:outline-2 focus-visible:outline-[var(--app-focus)] focus-visible:outline-offset-2 disabled:cursor-not-allowed disabled:border-[var(--app-line-strong)] disabled:bg-[var(--app-line)] disabled:text-[var(--app-ink)] disabled:opacity-100 disabled:shadow-none"
             >
               {reviewing ? "更新中..." : "復習済みにする"}
             </button>
