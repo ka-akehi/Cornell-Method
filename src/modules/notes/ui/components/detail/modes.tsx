@@ -96,6 +96,7 @@ export function NoteDetailModes({
   const [reviewNextDate, setReviewNextDate] = useState(initialNote.nextReviewDate ?? "");
   const [reviewing, setReviewing] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [deleteConfirmationOpen, setDeleteConfirmationOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [reviewSuccess, setReviewSuccess] =
     useState<ReviewSuccessFeedback | null>(null);
@@ -103,6 +104,7 @@ export function NoteDetailModes({
   const reviewBaselineRef = useRef("");
   const reviewDateDirtyRef = useRef(false);
   const reviewCompletionInFlightRef = useRef<Promise<boolean> | null>(null);
+  const deletingRef = useRef(false);
   const reviewSaveRef = useRef<() => Promise<boolean>>(() =>
     Promise.resolve(false),
   );
@@ -265,24 +267,56 @@ export function NoteDetailModes({
     );
   }
 
-  async function deleteNote() {
-    const confirmed = window.confirm("このノートを削除します。よろしいですか？");
-    if (!confirmed) return;
+  function openDeleteConfirmation() {
+    if (deleting || deletingRef.current) {
+      return;
+    }
 
+    setDeleteConfirmationOpen(true);
+  }
+
+  function cancelDeleteConfirmation() {
+    if (deletingRef.current) {
+      return;
+    }
+
+    setDeleteConfirmationOpen(false);
+  }
+
+  async function deleteNote() {
+    if (!deleteConfirmationOpen) {
+      return;
+    }
+    if (deleting || deletingRef.current) {
+      return;
+    }
+
+    deletingRef.current = true;
     setDeleting(true);
     setError(null);
 
     try {
-      await deleteRemoteNote(note.id);
-      router.push("/notes");
-      router.refresh();
-    } catch (caught) {
-      if (caught instanceof NotesRemoteError) {
-        setError(caught.message);
+      try {
+        await deleteRemoteNote(note.id);
+      } catch (caught) {
+        setDeleteConfirmationOpen(false);
+        if (caught instanceof NotesRemoteError) {
+          setError(caught.message);
+          return;
+        }
+        setError("削除に失敗しました。通信状態またはAPIを確認してください。");
         return;
       }
-      setError("削除に失敗しました。通信状態またはAPIを確認してください。");
+
+      setDeleteConfirmationOpen(false);
+      try {
+        router.push("/notes");
+        router.refresh();
+      } catch {
+        // The DELETE already succeeded; do not show a deletion failure message.
+      }
     } finally {
+      deletingRef.current = false;
       setDeleting(false);
     }
   }
@@ -433,7 +467,10 @@ export function NoteDetailModes({
       ) : (
         <NoteDetailViewFooterActions
           deleting={deleting}
-          onDelete={() => void deleteNote()}
+          deleteConfirmationOpen={deleteConfirmationOpen}
+          onDeleteIntent={openDeleteConfirmation}
+          onDeleteConfirm={() => void deleteNote()}
+          onDeleteCancel={cancelDeleteConfirmation}
         />
       )}
     </NoteDetailReadView>

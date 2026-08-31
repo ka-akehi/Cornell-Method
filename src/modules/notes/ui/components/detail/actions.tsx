@@ -1,8 +1,26 @@
 "use client";
 
 import Link from "next/link";
-import type { ReactNode } from "react";
+import { createPortal } from "react-dom";
+import {
+  useEffect,
+  useRef,
+  type MouseEvent as ReactMouseEvent,
+  type ReactNode,
+} from "react";
 import { openDatePicker } from "../date-picker";
+
+const noteDeleteFocusableSelector =
+  "button:not([disabled]), [href], [tabindex]:not([tabindex='-1'])";
+
+function getNoteDeleteFocusableElements(container: HTMLElement) {
+  return Array.from(
+    container.querySelectorAll<HTMLElement>(noteDeleteFocusableSelector),
+  ).filter(
+    (element) =>
+      !element.hasAttribute("aria-hidden") && !element.closest("[hidden]"),
+  );
+}
 
 function NoteDetailHeadingActions({ children }: { children: ReactNode }) {
   return (
@@ -214,29 +232,202 @@ export function NoteDetailSummaryActions({
 
 type NoteDetailViewFooterActionsProps = {
   deleting: boolean;
-  onDelete: () => void;
+  deleteConfirmationOpen: boolean;
+  onDeleteIntent: () => void;
+  onDeleteConfirm: () => void;
+  onDeleteCancel: () => void;
 };
+
+type NoteDetailDeleteConfirmationProps = {
+  deleting: boolean;
+  onConfirm: () => void;
+  onCancel: () => void;
+};
+
+function NoteDetailDeleteConfirmation({
+  deleting,
+  onConfirm,
+  onCancel,
+}: NoteDetailDeleteConfirmationProps) {
+  const dialogRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    if (!dialog) {
+      return;
+    }
+
+    const focusableElements = getNoteDeleteFocusableElements(dialog);
+    (focusableElements[0] ?? dialog).focus();
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented) {
+        return;
+      }
+
+      if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        if (!deleting) {
+          onCancel();
+        }
+        return;
+      }
+
+      if (event.key !== "Tab") {
+        return;
+      }
+
+      const currentFocusableElements = getNoteDeleteFocusableElements(dialog);
+      if (currentFocusableElements.length === 0) {
+        event.preventDefault();
+        dialog.focus();
+        return;
+      }
+
+      const firstFocusableElement = currentFocusableElements[0];
+      const lastFocusableElement =
+        currentFocusableElements[currentFocusableElements.length - 1];
+      const activeElement = document.activeElement;
+
+      if (!currentFocusableElements.includes(activeElement as HTMLElement)) {
+        event.preventDefault();
+        firstFocusableElement.focus();
+      } else if (
+        event.shiftKey &&
+        activeElement === firstFocusableElement
+      ) {
+        event.preventDefault();
+        lastFocusableElement.focus();
+      } else if (
+        !event.shiftKey &&
+        activeElement === lastFocusableElement
+      ) {
+        event.preventDefault();
+        firstFocusableElement.focus();
+      }
+    };
+
+    document.addEventListener("keydown", handleKeyDown, true);
+    return () =>
+      document.removeEventListener("keydown", handleKeyDown, true);
+  }, [deleting, onCancel]);
+
+  const handleBackdropMouseDown = (event: ReactMouseEvent<HTMLDivElement>) => {
+    if (!deleting && event.target === event.currentTarget) {
+      onCancel();
+    }
+  };
+
+  if (typeof document === "undefined" || !document.body) {
+    return null;
+  }
+
+  return createPortal(
+    <div
+      className="fixed inset-0 z-[90] grid place-items-center bg-[var(--app-overlay)] p-4 overscroll-contain"
+      role="presentation"
+      onMouseDown={handleBackdropMouseDown}
+    >
+      <div
+        ref={dialogRef}
+        className="w-full max-w-md rounded-xl border border-[var(--app-line)] bg-[var(--app-paper-surface)] p-5 text-[var(--app-ink)] shadow-[var(--app-shadow)]"
+        role="alertdialog"
+        aria-modal="true"
+        aria-labelledby="note-delete-confirmation-title"
+        aria-describedby="note-delete-confirmation-description"
+        tabIndex={-1}
+      >
+        <h2
+          id="note-delete-confirmation-title"
+          className="text-lg font-semibold"
+        >
+          ノートを削除
+        </h2>
+        <p
+          id="note-delete-confirmation-description"
+          className="mt-2 text-sm leading-6 text-[var(--app-muted-ink)]"
+        >
+          このノートを削除します。よろしいですか？
+        </p>
+        <div className="mt-5 flex flex-wrap justify-end gap-2">
+          <button
+            type="button"
+            disabled={deleting}
+            onClick={onCancel}
+            className="inline-flex min-h-11 items-center rounded-lg border border-[var(--app-line-strong)] bg-[var(--app-paper-surface)] px-4 py-2 text-sm font-medium text-[var(--app-ink)] transition hover:bg-[var(--app-hover)] focus-visible:outline-2 focus-visible:outline-[var(--app-focus)] focus-visible:outline-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            キャンセル
+          </button>
+          <button
+            type="button"
+            disabled={deleting}
+            aria-busy={deleting}
+            onClick={onConfirm}
+            className="inline-flex min-h-11 items-center rounded-lg border border-[var(--app-danger)] bg-[var(--app-danger)] px-4 py-2 text-sm font-medium text-[var(--app-accent-contrast)] transition hover:brightness-95 focus-visible:outline-2 focus-visible:outline-[var(--app-focus)] focus-visible:outline-offset-2 disabled:cursor-not-allowed disabled:opacity-70"
+          >
+            {deleting ? "削除中..." : "削除する"}
+          </button>
+        </div>
+      </div>
+    </div>,
+    document.body,
+  );
+}
 
 export function NoteDetailViewFooterActions({
   deleting,
-  onDelete,
+  deleteConfirmationOpen,
+  onDeleteIntent,
+  onDeleteConfirm,
+  onDeleteCancel,
 }: NoteDetailViewFooterActionsProps) {
+  const deleteTriggerRef = useRef<HTMLButtonElement>(null);
+  const previousDeleteConfirmationOpenRef = useRef(deleteConfirmationOpen);
+
+  useEffect(() => {
+    if (
+      previousDeleteConfirmationOpenRef.current &&
+      !deleteConfirmationOpen &&
+      !deleting
+    ) {
+      deleteTriggerRef.current?.focus();
+      previousDeleteConfirmationOpenRef.current = false;
+      return;
+    }
+    if (deleteConfirmationOpen) {
+      previousDeleteConfirmationOpenRef.current = true;
+    }
+  }, [deleteConfirmationOpen, deleting]);
+
   return (
-    <div className="note-paper-footer flex flex-wrap items-center justify-end gap-2">
-      <Link
-        href="/notes"
-        className="rounded-lg border border-stone-300 px-3 py-1.5 text-sm font-medium text-stone-700 transition hover:bg-stone-50/60"
-      >
-        一覧へ戻る
-      </Link>
-      <button
-        type="button"
-        disabled={deleting}
-        onClick={onDelete}
-        className="rounded-lg border border-red-200 px-3 py-1.5 text-sm font-medium text-red-700 transition hover:bg-red-50/60 disabled:cursor-not-allowed disabled:text-red-300"
-      >
-        {deleting ? "削除中..." : "削除"}
-      </button>
-    </div>
+    <>
+      <div className="note-paper-footer flex flex-wrap items-center justify-end gap-2">
+        <Link
+          href="/notes"
+          className="rounded-lg border border-stone-300 px-3 py-1.5 text-sm font-medium text-stone-700 transition hover:bg-stone-50/60"
+        >
+          一覧へ戻る
+        </Link>
+        <button
+          ref={deleteTriggerRef}
+          type="button"
+          disabled={deleting || deleteConfirmationOpen}
+          aria-haspopup="dialog"
+          aria-expanded={deleteConfirmationOpen}
+          onClick={onDeleteIntent}
+          className="rounded-lg border border-red-200 px-3 py-1.5 text-sm font-medium text-red-700 transition hover:bg-red-50/60 disabled:cursor-not-allowed disabled:text-red-300"
+        >
+          {deleting ? "削除中..." : "削除"}
+        </button>
+      </div>
+      {deleteConfirmationOpen ? (
+        <NoteDetailDeleteConfirmation
+          deleting={deleting}
+          onConfirm={onDeleteConfirm}
+          onCancel={onDeleteCancel}
+        />
+      ) : null}
+    </>
   );
 }
