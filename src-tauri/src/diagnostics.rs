@@ -1019,6 +1019,11 @@ fn sanitize_error_code(value: &str) -> &'static str {
         "storage-unavailable" => "storage-unavailable",
         "command-worker-failed" => "command-worker-failed",
         "sidecar-start-failed" => "sidecar-start-failed",
+        "sidecar-spawn-failed" => "sidecar-spawn-failed",
+        "sidecar-ready-handshake-failed" => "sidecar-ready-handshake-failed",
+        "sidecar-ready-url-invalid" => "sidecar-ready-url-invalid",
+        "sidecar-health-check-failed" => "sidecar-health-check-failed",
+        "sidecar-startup-cleanup-failed" => "sidecar-startup-cleanup-failed",
         "sidecar-restart-failed" => "sidecar-restart-failed",
         "sidecar-exit-cleanup-failed" => "sidecar-exit-cleanup-failed",
         "bootstrap-failed" => "bootstrap-failed",
@@ -1361,24 +1366,26 @@ mod tests {
             .build_document(SystemTime::now())
             .expect("build document");
         let encoded = serde_json::to_value(document).expect("encode document");
+        let mut keys = encoded
+            .as_object()
+            .expect("object")
+            .keys()
+            .map(String::as_str)
+            .collect::<Vec<_>>();
+        keys.sort_unstable();
         assert_eq!(
-            encoded
-                .as_object()
-                .expect("object")
-                .keys()
-                .map(String::as_str)
-                .collect::<Vec<_>>(),
+            keys,
             vec![
-                "schemaVersion",
                 "appVersion",
-                "macosVersion",
                 "cpuArchitecture",
                 "dbSchemaVersion",
-                "errorLog"
+                "errorLog",
+                "macosVersion",
+                "schemaVersion"
             ]
         );
         let text = encoded.to_string();
-        assert!(!text.contains("command-worker-failed"));
+        assert!(text.contains("command-worker-failed"));
         assert!(!text.contains("path"));
         let _ = fs::remove_dir_all(directory);
     }

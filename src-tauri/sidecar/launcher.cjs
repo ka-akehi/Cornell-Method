@@ -47,6 +47,12 @@ const DESKTOP_DATABASE_RECOVERY_REASON_CODES = new Set([
   "database-initialization-marker-invalid",
   "storage-unavailable",
 ]);
+const DESKTOP_BOOTSTRAP_FAILURE_CODE = "bootstrap-failed";
+const DESKTOP_BOOTSTRAP_FAILURE_CONTEXTS = new Set([
+  "storage-options",
+  "storage-bootstrap",
+  "storage-bootstrap-result",
+]);
 
 let runtimeChild = null;
 let shutdownPromise = null;
@@ -156,15 +162,31 @@ function bootstrapRecoveryMessage(snapshot) {
   };
 }
 
+function bootstrapFailureMessage(context) {
+  return {
+    kind: "bootstrap",
+    status: "failed",
+    code: DESKTOP_BOOTSTRAP_FAILURE_CODE,
+    context: DESKTOP_BOOTSTRAP_FAILURE_CONTEXTS.has(context)
+      ? context
+      : "storage-bootstrap",
+  };
+}
+
+function reportBootstrapFailure(context) {
+  process.stdout.write(`${JSON.stringify(bootstrapFailureMessage(context))}\n`);
+  process.exitCode = 1;
+  return null;
+}
+
 function bootstrap() {
-  const root = projectRoot();
+  let root;
   let options;
   try {
+    root = projectRoot();
     options = storageOptions(root);
   } catch {
-    const message = bootstrapRecoveryMessage(unavailableDatabaseRecoverySnapshot());
-    process.stdout.write(`${JSON.stringify(message)}\n`);
-    return null;
+    return reportBootstrapFailure("storage-options");
   }
 
   let result;
@@ -179,9 +201,13 @@ function bootstrap() {
       environment: process.env,
     });
   } catch {
-    const message = bootstrapRecoveryMessage(unavailableDatabaseRecoverySnapshot());
-    process.stdout.write(`${JSON.stringify(message)}\n`);
-    return null;
+    return reportBootstrapFailure("storage-bootstrap");
+  }
+
+  if (result === null || typeof result !== "object" || Array.isArray(result)
+    || typeof result.status !== "string"
+    || !Object.values(options.storage.DESKTOP_DATABASE_STATUS).includes(result.status)) {
+    return reportBootstrapFailure("storage-bootstrap-result");
   }
 
   const recoverySnapshot = result.recoverySnapshot === null
@@ -1553,5 +1579,6 @@ module.exports = {
   printStoragePaths,
   sanitizeDatabaseRecoverySnapshot,
   unavailableDatabaseRecoverySnapshot,
+  bootstrapFailureMessage,
   waitForHttpReady,
 };

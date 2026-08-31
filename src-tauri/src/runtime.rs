@@ -8,14 +8,17 @@ use std::fs;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpStream;
 use std::path::{Component, Path, PathBuf};
-use std::process::{Child, Command, ExitStatus, Stdio};
+use std::process::{Child, Command, ExitStatus, Output, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
 #[cfg(unix)]
-use std::os::unix::{fs::PermissionsExt, process::CommandExt};
+use std::os::unix::{
+    fs::PermissionsExt,
+    process::{CommandExt, ExitStatusExt},
+};
 
 use tauri::{AppHandle, Manager};
 
@@ -61,6 +64,7 @@ const DESKTOP_DATABASE_RECOVERY_REASON_DATABASE_INITIALIZATION_FAILED: &str =
 const DESKTOP_DATABASE_RECOVERY_REASON_DATABASE_INITIALIZATION_MARKER_INVALID: &str =
     "database-initialization-marker-invalid";
 const DESKTOP_DATABASE_RECOVERY_REASON_STORAGE_UNAVAILABLE: &str = "storage-unavailable";
+const DESKTOP_STORAGE_BOOTSTRAP_ERROR_CODE: &str = "bootstrap-failed";
 const DESKTOP_DIALOG_BINARY: &str = "/usr/bin/osascript";
 const MAX_DESKTOP_DIALOG_OUTPUT_BYTES: usize = 16 * 1024;
 
@@ -107,7 +111,53 @@ struct BootstrapMessage {
     reason: Option<String>,
     created: Option<bool>,
     recovery_snapshot: Option<DesktopDatabaseRecoverySnapshot>,
+    code: Option<String>,
+    context: Option<String>,
 }
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct DesktopStorageBootstrapError {
+    operation: &'static str,
+    status: String,
+    result_context: &'static str,
+    stderr_context: &'static str,
+}
+
+impl DesktopStorageBootstrapError {
+    fn from_output(operation: &'static str, result_context: &'static str, output: &Output) -> Self {
+        Self {
+            operation,
+            status: process_status(&output.status),
+            result_context,
+            stderr_context: sanitize_bootstrap_stderr(&output.stderr),
+        }
+    }
+
+    fn spawn_failed(operation: &'static str) -> Self {
+        Self {
+            operation,
+            status: "spawn-failed".to_string(),
+            result_context: "launcher-unavailable",
+            stderr_context: "not-available",
+        }
+    }
+}
+
+impl std::fmt::Display for DesktopStorageBootstrapError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            formatter,
+            "desktop storage {} failed (code={}; status={}; result={}; stderr={})",
+            self.operation,
+            DESKTOP_STORAGE_BOOTSTRAP_ERROR_CODE,
+            self.status,
+            self.result_context,
+            self.stderr_context,
+        )
+    }
+}
+
+impl std::error::Error for DesktopStorageBootstrapError {}
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -1228,6 +1278,27 @@ pub(crate) struct SidecarHandle {
     stopped: bool,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct SidecarStartupError {
+    code: &'static str,
+}
+
+impl SidecarStartupError {
+    fn new(code: &'static str) -> Self {
+        Self { code }
+    }
+
+    pub(crate) fn code(self) -> &'static str {
+        self.code
+    }
+}
+
+impl std::fmt::Display for SidecarStartupError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("The desktop runtime could not start.")
+    }
+}
+
 pub(crate) fn runtime_project_root(app: &AppHandle) -> AppResult<PathBuf> {
     if let Some(configured) = env::var_os("CORNELL_DESKTOP_PROJECT_ROOT") {
         let path = PathBuf::from(configured);
@@ -1332,12 +1403,65 @@ fn launcher_path(root: &Path) -> AppResult<PathBuf> {
     Ok(path)
 }
 
-fn parse_bootstrap_message(output: &[u8]) -> AppResult<BootstrapMessage> {
-    String::from_utf8_lossy(output)
-        .lines()
-        .rev()
-        .find_map(|line| serde_json::from_str::<BootstrapMessage>(line).ok())
-        .ok_or_else(|| "desktop storage bootstrap did not return a result".to_string())
+fn process_status(status: &ExitStatus) -> String {
+    if let Some(code) = status.code() {
+        return format!("exit-code-{code}");
+    }
+
+    #[cfg(unix)]
+    if let Some(signal) = status.signal() {
+        return format!("signal-{signal}");
+    }
+
+    "exit-status-unknown".to_string()
+}
+
+fn sanitize_bootstrap_stderr(stderr: &[u8]) -> &'static str {
+    let message = String::from_utf8_lossy(stderr).to_ascii_lowercase();
+    let message = message.trim();
+    if message.is_empty() {
+        return "empty";
+    }
+    if message.contains("permission denied") || message.contains("eperm") {
+        return "permission-denied";
+    }
+    if message.contains("cannot find module") || message.contains("module not found") {
+        return "dependency-unavailable";
+    }
+    if message.contains("no such file") || message.contains("enoent") {
+        return "required-file-unavailable";
+    }
+    if message.contains("database") || message.contains("sqlite") {
+        return "storage-operation-failed";
+    }
+    "reported-error"
+}
+
+fn parse_bootstrap_message(
+    output: &Output,
+    operation: &'static str,
+) -> Result<BootstrapMessage, DesktopStorageBootstrapError> {
+    let mut has_nonempty_output = false;
+    for line in String::from_utf8_lossy(&output.stdout).lines().rev() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        has_nonempty_output = true;
+        if let Ok(message) = serde_json::from_str::<BootstrapMessage>(line) {
+            return Ok(message);
+        }
+    }
+
+    Err(DesktopStorageBootstrapError::from_output(
+        operation,
+        if has_nonempty_output {
+            "malformed-result"
+        } else {
+            "no-result"
+        },
+        output,
+    ))
 }
 
 fn required_absolute_path(value: Option<String>, label: &str) -> AppResult<PathBuf> {
@@ -1374,7 +1498,7 @@ pub(crate) enum BootstrapOutcome {
     Recovery(DesktopDatabaseRecoverySnapshot),
 }
 
-pub(crate) fn run_bootstrap(root: &Path) -> AppResult<BootstrapOutcome> {
+pub(crate) fn run_bootstrap(root: &Path) -> Result<BootstrapOutcome, DesktopStorageBootstrapError> {
     let storage = resolve_storage_layout(root)?;
     run_bootstrap_with_storage(root, &storage)
 }
@@ -1414,6 +1538,18 @@ fn launch_command(
     launcher_command(root, command_name, storage)?
         .output()
         .map_err(|error| format!("desktop launcher process could not start: {error}"))
+}
+
+fn launch_storage_command(
+    root: &Path,
+    command_name: &'static str,
+    storage: Option<&StorageLayout>,
+) -> Result<Output, DesktopStorageBootstrapError> {
+    let mut command = launcher_command(root, command_name, storage)
+        .map_err(|_| DesktopStorageBootstrapError::spawn_failed(command_name))?;
+    command
+        .output()
+        .map_err(|_| DesktopStorageBootstrapError::spawn_failed(command_name))
 }
 
 fn launch_backup_recovery(
@@ -2189,29 +2325,69 @@ fn storage_layout_from_message(message: BootstrapMessage) -> AppResult<StorageLa
     Ok(layout)
 }
 
-pub(crate) fn resolve_storage_layout(root: &Path) -> AppResult<StorageLayout> {
-    let output = launch_command(root, "paths", None)?;
-    let message = parse_bootstrap_message(&output.stdout)?;
+pub(crate) fn resolve_storage_layout(
+    root: &Path,
+) -> Result<StorageLayout, DesktopStorageBootstrapError> {
+    let output = launch_storage_command(root, "paths", None)?;
+    let message = parse_bootstrap_message(&output, "paths")?;
     if message.kind != "storage-paths" || message.status != "paths" {
-        return Err("desktop storage path resolver returned an invalid result".to_string());
+        return Err(DesktopStorageBootstrapError::from_output(
+            "paths",
+            "invalid-result",
+            &output,
+        ));
     }
     if !output.status.success() {
-        return Err("desktop storage path resolver failed".to_string());
+        return Err(DesktopStorageBootstrapError::from_output(
+            "paths",
+            "non-zero-exit",
+            &output,
+        ));
     }
-    storage_layout_from_message(message)
+    storage_layout_from_message(message).map_err(|_| {
+        DesktopStorageBootstrapError::from_output("paths", "storage-layout-invalid", &output)
+    })
 }
 
 pub(crate) fn run_bootstrap_with_storage(
     root: &Path,
     storage: &StorageLayout,
-) -> AppResult<BootstrapOutcome> {
-    let output = launch_command(root, "bootstrap", Some(storage))?;
-    let message = parse_bootstrap_message(&output.stdout)?;
+) -> Result<BootstrapOutcome, DesktopStorageBootstrapError> {
+    let output = launch_storage_command(root, "bootstrap", Some(storage))?;
+    let message = parse_bootstrap_message(&output, "bootstrap")?;
     if message.kind != "bootstrap" {
-        return Err("desktop storage bootstrap returned an unknown message".to_string());
+        return Err(DesktopStorageBootstrapError::from_output(
+            "bootstrap",
+            "invalid-message-kind",
+            &output,
+        ));
+    }
+    if message.status == "failed" {
+        let result_context = match (message.code.as_deref(), message.context.as_deref()) {
+            (Some("bootstrap-failed"), Some("storage-options")) => "storage-options",
+            (Some("bootstrap-failed"), Some("storage-bootstrap")) => "storage-bootstrap",
+            (Some("bootstrap-failed"), Some("storage-bootstrap-result")) => {
+                "storage-bootstrap-result"
+            }
+            _ => "invalid-failure-message",
+        };
+        let result_context = if output.status.success() {
+            "failure-message-success-exit"
+        } else {
+            result_context
+        };
+        return Err(DesktopStorageBootstrapError::from_output(
+            "bootstrap",
+            result_context,
+            &output,
+        ));
     }
     if !output.status.success() {
-        return Err("desktop storage bootstrap process failed".to_string());
+        return Err(DesktopStorageBootstrapError::from_output(
+            "bootstrap",
+            "non-zero-exit",
+            &output,
+        ));
     }
 
     if message.status == "recovery" {
@@ -2226,30 +2402,58 @@ pub(crate) fn run_bootstrap_with_storage(
             || message.reason.is_some()
             || message.created.is_some()
         {
-            return Err(
-                "desktop storage bootstrap recovery result contained private fields".to_string(),
-            );
+            return Err(DesktopStorageBootstrapError::from_output(
+                "bootstrap",
+                "recovery-result-invalid",
+                &output,
+            ));
         }
         let snapshot = message.recovery_snapshot.ok_or_else(|| {
-            "desktop storage bootstrap recovery result omitted its snapshot".to_string()
+            DesktopStorageBootstrapError::from_output(
+                "bootstrap",
+                "recovery-snapshot-missing",
+                &output,
+            )
         })?;
-        validate_database_recovery_snapshot(&snapshot)?;
+        if validate_database_recovery_snapshot(&snapshot).is_err() {
+            return Err(DesktopStorageBootstrapError::from_output(
+                "bootstrap",
+                "recovery-snapshot-invalid",
+                &output,
+            ));
+        }
         return Ok(BootstrapOutcome::Recovery(snapshot));
     }
     if message.status != "ready" {
-        return Err("desktop storage bootstrap returned an invalid status".to_string());
+        return Err(DesktopStorageBootstrapError::from_output(
+            "bootstrap",
+            "invalid-status",
+            &output,
+        ));
     }
 
     if let Some(snapshot) = message.recovery_snapshot.as_ref() {
-        validate_database_recovery_snapshot(snapshot)?;
+        if validate_database_recovery_snapshot(snapshot).is_err() {
+            return Err(DesktopStorageBootstrapError::from_output(
+                "bootstrap",
+                "ready-snapshot-invalid",
+                &output,
+            ));
+        }
     }
     let recovery_snapshot = message.recovery_snapshot.clone();
-    let returned = storage_layout_from_message(message)?;
+    let returned = storage_layout_from_message(message).map_err(|_| {
+        DesktopStorageBootstrapError::from_output("bootstrap", "storage-layout-invalid", &output)
+    })?;
     if returned.application_support_root != storage.application_support_root
         || returned.database_path != storage.database_path
         || returned.settings_directory != storage.settings_directory
     {
-        return Err("desktop storage bootstrap changed the resolved layout".to_string());
+        return Err(DesktopStorageBootstrapError::from_output(
+            "bootstrap",
+            "storage-layout-changed",
+            &output,
+        ));
     }
     Ok(BootstrapOutcome::Ready {
         storage: storage.clone(),
@@ -2318,12 +2522,12 @@ fn parse_database_validation_message(output: &[u8]) -> AppResult<DatabaseValidat
         .ok_or_else(|| "database validation did not return a result".to_string())
 }
 
-fn validate_ready_message(message: &ReadyMessage) -> AppResult<tauri::Url> {
+fn validate_ready_message(message: &ReadyMessage) -> Result<tauri::Url, SidecarStartupError> {
     if message.kind != "ready" || message.status != "ready" {
-        return Err("sidecar ready handshake has an invalid status".to_string());
+        return Err(SidecarStartupError::new("sidecar-ready-handshake-failed"));
     }
     if message.host != "127.0.0.1" || message.port == 0 || message.runtime_pid == 0 {
-        return Err("sidecar ready handshake is not loopback-scoped".to_string());
+        return Err(SidecarStartupError::new("sidecar-ready-handshake-failed"));
     }
     if message.ready_nonce.len() != 64
         || !message
@@ -2331,40 +2535,45 @@ fn validate_ready_message(message: &ReadyMessage) -> AppResult<tauri::Url> {
             .bytes()
             .all(|byte| byte.is_ascii_hexdigit())
     {
-        return Err("sidecar ready handshake has an invalid readiness nonce".to_string());
+        return Err(SidecarStartupError::new("sidecar-ready-handshake-failed"));
     }
     let url = tauri::Url::parse(&message.url)
-        .map_err(|error| format!("sidecar ready URL is invalid: {error}"))?;
+        .map_err(|_| SidecarStartupError::new("sidecar-ready-url-invalid"))?;
     if url.scheme() != "http"
         || url.host_str() != Some("127.0.0.1")
         || url.port() != Some(message.port)
         || url.path() != "/notes"
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || url.query().is_some()
+        || url.fragment().is_some()
     {
-        return Err("sidecar ready URL must be the dynamic loopback /notes URL".to_string());
+        return Err(SidecarStartupError::new("sidecar-ready-url-invalid"));
     }
     Ok(url)
 }
 
-fn read_ready_line(child: &mut Child) -> AppResult<ReadyMessage> {
+fn read_ready_line(child: &mut Child) -> Result<ReadyMessage, SidecarStartupError> {
     let stdout = child
         .stdout
         .take()
-        .ok_or_else(|| "sidecar stdout is not available for ready handshake".to_string())?;
+        .ok_or_else(|| SidecarStartupError::new("sidecar-ready-handshake-failed"))?;
     let (sender, receiver) = mpsc::channel();
     thread::spawn(move || {
         let mut reader = BufReader::new(stdout);
         let mut line = String::new();
         let result = reader
             .read_line(&mut line)
-            .map_err(|error| error.to_string())
+            .map_err(|_| SidecarStartupError::new("sidecar-ready-handshake-failed"))
             .and_then(|_| {
-                serde_json::from_str::<ReadyMessage>(line.trim()).map_err(|error| error.to_string())
+                serde_json::from_str::<ReadyMessage>(line.trim())
+                    .map_err(|_| SidecarStartupError::new("sidecar-ready-handshake-failed"))
             });
         let _ = sender.send(result);
     });
     match receiver.recv_timeout(READY_TIMEOUT) {
         Ok(result) => result,
-        Err(_) => Err("sidecar ready handshake timed out".to_string()),
+        Err(_) => Err(SidecarStartupError::new("sidecar-ready-handshake-failed")),
     }
 }
 
@@ -2432,13 +2641,13 @@ fn health_response_matches(response: &[u8], expected_nonce: &str) -> bool {
         && message.nonce == expected_nonce
 }
 
-fn wait_for_runtime(url: &tauri::Url, expected_nonce: &str) -> AppResult<()> {
+fn wait_for_runtime(url: &tauri::Url, expected_nonce: &str) -> Result<(), SidecarStartupError> {
     let host = url
         .host_str()
-        .ok_or_else(|| "sidecar URL has no host".to_string())?;
+        .ok_or_else(|| SidecarStartupError::new("sidecar-health-check-failed"))?;
     let port = url
         .port()
-        .ok_or_else(|| "sidecar URL has no dynamic port".to_string())?;
+        .ok_or_else(|| SidecarStartupError::new("sidecar-health-check-failed"))?;
     let deadline = Instant::now() + READY_TIMEOUT;
     while Instant::now() < deadline {
         if let Ok(mut stream) = TcpStream::connect((host, port)) {
@@ -2475,12 +2684,16 @@ fn wait_for_runtime(url: &tauri::Url, expected_nonce: &str) -> AppResult<()> {
         }
         thread::sleep(Duration::from_millis(100));
     }
-    Err("sidecar /notes HTTP readiness check timed out".to_string())
+    Err(SidecarStartupError::new("sidecar-health-check-failed"))
 }
 
-pub(crate) fn start_sidecar(root: &Path, storage: &StorageLayout) -> AppResult<SidecarHandle> {
-    let launcher = launcher_path(root)?;
-    let node = node_binary(root)?;
+pub(crate) fn start_sidecar(
+    root: &Path,
+    storage: &StorageLayout,
+) -> Result<SidecarHandle, SidecarStartupError> {
+    let launcher =
+        launcher_path(root).map_err(|_| SidecarStartupError::new("sidecar-spawn-failed"))?;
+    let node = node_binary(root).map_err(|_| SidecarStartupError::new("sidecar-spawn-failed"))?;
     let mut command = Command::new(&node);
     command
         .arg(&launcher)
@@ -2527,7 +2740,7 @@ pub(crate) fn start_sidecar(root: &Path, storage: &StorageLayout) -> AppResult<S
 
     let mut child = command
         .spawn()
-        .map_err(|error| format!("Node sidecar could not start: {error}"))?;
+        .map_err(|_| SidecarStartupError::new("sidecar-spawn-failed"))?;
     let root_pid = child.id();
     let process_group_id = if cfg!(unix) { Some(root_pid) } else { None };
 
@@ -2541,8 +2754,7 @@ pub(crate) fn start_sidecar(root: &Path, storage: &StorageLayout) -> AppResult<S
                 runtime_url: tauri::Url::parse("http://127.0.0.1/").expect("static URL is valid"),
                 stopped: false,
             };
-            let _ = handle.stop();
-            return Err(error);
+            return Err(cleanup_startup_failure(&mut handle, error));
         }
     };
     let runtime_url = match validate_ready_message(&ready) {
@@ -2555,8 +2767,7 @@ pub(crate) fn start_sidecar(root: &Path, storage: &StorageLayout) -> AppResult<S
                 runtime_url: tauri::Url::parse("http://127.0.0.1/").expect("static URL is valid"),
                 stopped: false,
             };
-            let _ = handle.stop();
-            return Err(error);
+            return Err(cleanup_startup_failure(&mut handle, error));
         }
     };
     let mut handle = SidecarHandle {
@@ -2567,10 +2778,20 @@ pub(crate) fn start_sidecar(root: &Path, storage: &StorageLayout) -> AppResult<S
         stopped: false,
     };
     if let Err(error) = wait_for_runtime(&handle.runtime_url, &ready.ready_nonce) {
-        let _ = handle.stop();
-        return Err(error);
+        return Err(cleanup_startup_failure(&mut handle, error));
     }
     Ok(handle)
+}
+
+fn cleanup_startup_failure(
+    handle: &mut SidecarHandle,
+    failure: SidecarStartupError,
+) -> SidecarStartupError {
+    if handle.stop().is_err() {
+        SidecarStartupError::new("sidecar-startup-cleanup-failed")
+    } else {
+        failure
+    }
 }
 
 fn desktop_api_url(runtime_url: &tauri::Url, path: &str) -> AppResult<tauri::Url> {
@@ -2802,6 +3023,78 @@ mod tests {
         assert!(database_url_path("file:/tmp/notebook.sqlite?mode=ro").is_err());
     }
 
+    fn synthetic_output(exit_command: &str, stdout: &[u8], stderr: &[u8]) -> Output {
+        let mut output = Command::new("/bin/sh")
+            .args(["-c", exit_command])
+            .output()
+            .expect("run disposable bootstrap output fixture");
+        output.stdout = stdout.to_vec();
+        output.stderr = stderr.to_vec();
+        output
+    }
+
+    #[test]
+    fn bootstrap_error_keeps_exit_status_and_redacts_stderr_context() {
+        let output = synthetic_output(
+            "exit 17",
+            &[],
+            b"permission denied: DATABASE_URL=file:/Users/private/notebook.sqlite note body",
+        );
+        let error = parse_bootstrap_message(&output, "bootstrap")
+            .expect_err("empty bootstrap stdout must fail closed");
+        let rendered = error.to_string();
+        assert!(rendered.contains("code=bootstrap-failed"));
+        assert!(rendered.contains("status=exit-code-17"));
+        assert!(rendered.contains("result=no-result"));
+        assert!(rendered.contains("stderr=permission-denied"));
+        assert!(!rendered.contains("/Users/private"));
+        assert!(!rendered.contains("DATABASE_URL"));
+        assert!(!rendered.contains("note body"));
+    }
+
+    #[test]
+    fn bootstrap_error_classifies_malformed_output_without_exposing_it() {
+        let output = synthetic_output(
+            "exit 1",
+            b"not json /private/user-data/notebook.sqlite\n",
+            b"Cannot find module '/private/user-data/node_modules/prisma'",
+        );
+        let error = parse_bootstrap_message(&output, "bootstrap")
+            .expect_err("malformed bootstrap stdout must fail closed");
+        let rendered = error.to_string();
+        assert!(rendered.contains("status=exit-code-1"));
+        assert!(rendered.contains("result=malformed-result"));
+        assert!(rendered.contains("stderr=dependency-unavailable"));
+        assert!(!rendered.contains("/private/user-data"));
+    }
+
+    #[test]
+    fn bootstrap_failure_message_is_not_treated_as_success() {
+        let output = synthetic_output(
+            "exit 1",
+            br#"{"kind":"bootstrap","status":"failed","code":"bootstrap-failed","context":"storage-bootstrap"}
+"#,
+            b"storage initialization failed",
+        );
+        let message = parse_bootstrap_message(&output, "bootstrap").expect("failure JSON parses");
+        assert_eq!(message.status, "failed");
+        assert!(!output.status.success());
+    }
+
+    #[test]
+    fn bootstrap_ready_message_is_parseable_success_contract() {
+        let output = synthetic_output(
+            "exit 0",
+            br#"{"kind":"bootstrap","status":"ready"}
+"#,
+            &[],
+        );
+        let message = parse_bootstrap_message(&output, "bootstrap").expect("ready JSON parses");
+        assert_eq!(message.kind, "bootstrap");
+        assert_eq!(message.status, "ready");
+        assert!(output.status.success());
+    }
+
     #[test]
     fn bootstrap_message_rejects_non_ready_database_status() {
         let message = BootstrapMessage {
@@ -2818,6 +3111,8 @@ mod tests {
             reason: Some("migration-missing".to_string()),
             created: None,
             recovery_snapshot: None,
+            code: None,
+            context: None,
         };
         assert_ne!(message.status, "ready");
         assert_eq!(message.reason.as_deref(), Some("migration-missing"));
@@ -2901,6 +3196,60 @@ mod tests {
             response.replacen("200 OK", "302 Found", 1).as_bytes(),
             &nonce
         ));
+    }
+
+    #[test]
+    fn ready_failure_mapping_is_stage_specific_and_does_not_expose_input() {
+        let invalid_status = ReadyMessage {
+            kind: "not-ready".to_string(),
+            status: "failed".to_string(),
+            url: "http://127.0.0.1:43127/notes?nonce=secret".to_string(),
+            host: "127.0.0.1".to_string(),
+            port: 43127,
+            ready_nonce: "a".repeat(64),
+            runtime_pid: 1,
+        };
+        let error = validate_ready_message(&invalid_status).expect_err("invalid handshake");
+        assert_eq!(error.code(), "sidecar-ready-handshake-failed");
+        assert!(!error.to_string().contains("secret"));
+
+        let invalid_url = ReadyMessage {
+            kind: "ready".to_string(),
+            status: "ready".to_string(),
+            url: "http://127.0.0.1:43127/notes?nonce=secret".to_string(),
+            ..invalid_status
+        };
+        let error = validate_ready_message(&invalid_url).expect_err("invalid ready URL");
+        assert_eq!(error.code(), "sidecar-ready-url-invalid");
+        assert!(!error.to_string().contains("secret"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn startup_failure_cleanup_stops_the_child_process_group() {
+        let child = Command::new("/bin/sh")
+            .args(["-c", "sleep 30"])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .process_group(0)
+            .spawn()
+            .expect("spawn disposable child");
+        let root_pid = child.id();
+        let mut handle = SidecarHandle {
+            child,
+            root_pid,
+            process_group_id: Some(root_pid),
+            runtime_url: tauri::Url::parse("http://127.0.0.1/").unwrap(),
+            stopped: false,
+        };
+
+        let error = cleanup_startup_failure(
+            &mut handle,
+            SidecarStartupError::new("sidecar-health-check-failed"),
+        );
+        assert_eq!(error.code(), "sidecar-health-check-failed");
+        assert!(handle.stopped);
+        assert!(!process_group_exists(root_pid));
     }
 
     #[test]

@@ -6,8 +6,14 @@ authors = ["Cornell Method Notebook"]
 edition = "2021"
 build = "build.rs"
 
+[features]
+# Release Web Inspector support is intentionally available only to an
+# explicitly selected diagnostic build. The default packaged app does not
+# compile Tauri's release devtools support.
+diagnostic-web-inspector = ["tauri/devtools"]
+
 [build-dependencies]
-tauri-build = "=2.2.0"
+tauri-build = { version = "=2.2.0", features = [] }
 
 [dependencies]
 base64 = "=0.22.1"
@@ -19,7 +25,7 @@ ring = "=0.17.14"
 serde = { version = "=1.0.219", features = ["derive"] }
 serde_json = "=1.0.140"
 tar = { version = "=0.4.40", default-features = false }
-tauri = "=2.5.1"
+tauri = { version = "=2.5.1", features = [] }
 # Keep tauri-build 2.2.0 and the Tauri runtime on the same utils API. The
 # product lockfile is generated independently of the comparison PoC.
 tauri-utils = "=2.4.0"

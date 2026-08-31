@@ -308,7 +308,8 @@ impl AppState {
         root: &Path,
         storage: &StorageLayout,
     ) -> AppResult<tauri::Url> {
-        let handle = start_sidecar(root, storage)?;
+        let handle =
+            start_sidecar(root, storage).map_err(|error| format!("{}: {}", error.code(), error))?;
         let runtime_url = handle.runtime_url();
         let mut sidecar = self
             .sidecar

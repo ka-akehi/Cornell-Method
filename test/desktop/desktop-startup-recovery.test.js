@@ -182,6 +182,91 @@ test("bootstrap recovery response contains only the typed sanitized snapshot", (
   });
 });
 
+test("bootstrap exceptions return a typed failure result and a non-zero status", () => {
+  const unavailableProjectRoot = fs.mkdtempSync(
+    path.join(os.tmpdir(), "cornell-desktop-bootstrap-missing-project-")
+  );
+  const homeDirectory = temporaryHome();
+  try {
+    const result = spawnSync(
+      process.execPath,
+      [launcherPath, "bootstrap"],
+      {
+        cwd: projectRoot,
+        env: {
+          ...sidecarEnvironment(homeDirectory),
+          CORNELL_DESKTOP_PROJECT_ROOT: unavailableProjectRoot,
+          TMPDIR: homeDirectory,
+        },
+        encoding: "utf8",
+      },
+    );
+
+    assert.equal(result.status, 1);
+    assert.equal(result.stderr, "");
+    assert.deepEqual(JSON.parse(result.stdout), {
+      kind: "bootstrap",
+      status: "failed",
+      code: "bootstrap-failed",
+      context: "storage-options",
+    });
+    assert.doesNotMatch(result.stdout, /DATABASE_URL|\/Users\/|\/private\/tmp/);
+  } finally {
+    fs.rmSync(unavailableProjectRoot, { recursive: true, force: true });
+    fs.rmSync(homeDirectory, { recursive: true, force: true });
+  }
+});
+
+test("bootstrap failure messages use only the allowlisted diagnostic context", () => {
+  const bootstrapFailureMessage = require(launcherPath).bootstrapFailureMessage;
+
+  assert.deepEqual(bootstrapFailureMessage("storage-bootstrap"), {
+    kind: "bootstrap",
+    status: "failed",
+    code: "bootstrap-failed",
+    context: "storage-bootstrap",
+  });
+  assert.deepEqual(bootstrapFailureMessage("raw exception with path /Users/private"), {
+    kind: "bootstrap",
+    status: "failed",
+    code: "bootstrap-failed",
+    context: "storage-bootstrap",
+  });
+});
+
+test("storage bootstrap exceptions keep the failure contract and fail closed", () => {
+  const unusableHome = path.join(
+    os.tmpdir(),
+    `cornell-desktop-bootstrap-file-home-${process.pid}-${Date.now()}`,
+  );
+  fs.writeFileSync(unusableHome, "not a directory", { flag: "wx" });
+  try {
+    const result = spawnSync(
+      process.execPath,
+      [launcherPath, "bootstrap"],
+      {
+        cwd: projectRoot,
+        env: {
+          ...sidecarEnvironment(unusableHome),
+          TMPDIR: unusableHome,
+        },
+        encoding: "utf8",
+      },
+    );
+
+    assert.equal(result.status, 1);
+    assert.equal(result.stderr, "");
+    assert.deepEqual(JSON.parse(result.stdout), {
+      kind: "bootstrap",
+      status: "failed",
+      code: "bootstrap-failed",
+      context: "storage-bootstrap",
+    });
+  } finally {
+    fs.rmSync(unusableHome, { force: true });
+  }
+});
+
 test("recovery snapshot sanitizer rejects path and raw-error fields", () => {
   const sanitized = require(launcherPath).sanitizeDatabaseRecoverySnapshot({
     schemaVersion: 1,

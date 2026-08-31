@@ -68,11 +68,24 @@ const PRIMARY_WINDOW_LABEL: &str = "primary";
 const PRIMARY_WINDOW_TITLE: &str = "Cornell Method Notebook";
 const DEFAULT_WINDOW_WIDTH: f64 = 1280.0;
 const DEFAULT_WINDOW_HEIGHT: f64 = 900.0;
+const DIAGNOSTIC_WEB_INSPECTOR_ENV: &str = "CORNELL_DESKTOP_DIAGNOSTIC_WEB_INSPECTOR";
+const DIAGNOSTIC_WEB_INSPECTOR_OPT_IN: &str = "1";
 
 type AppResult<T> = Result<T, String>;
 
 fn boxed_error(message: String) -> Box<dyn std::error::Error> {
     Box::new(std::io::Error::other(message))
+}
+
+fn has_explicit_diagnostic_web_inspector_opt_in(value: Option<&str>) -> bool {
+    value == Some(DIAGNOSTIC_WEB_INSPECTOR_OPT_IN)
+}
+
+#[cfg(feature = "diagnostic-web-inspector")]
+fn diagnostic_web_inspector_runtime_opted_in() -> bool {
+    has_explicit_diagnostic_web_inspector_opt_in(
+        std::env::var(DIAGNOSTIC_WEB_INSPECTOR_ENV).ok().as_deref(),
+    )
 }
 
 #[tauri::command]
@@ -379,7 +392,8 @@ fn run_application(instance: InstanceGuard) -> AppResult<()> {
             instance.mark_socket_owned();
             app.manage(instance);
             let root = runtime_project_root(app.handle()).map_err(boxed_error)?;
-            let storage = resolve_storage_layout(&root).map_err(boxed_error)?;
+            let storage = resolve_storage_layout(&root)
+                .map_err(|error| boxed_error(error.to_string()))?;
             app.manage(storage.clone());
             app.manage(DesktopFileSelectionStore::default());
             app.manage(DiagnosticsState::new(storage.logs_directory().to_path_buf()));
@@ -422,7 +436,7 @@ fn run_application(instance: InstanceGuard) -> AppResult<()> {
                 Ok(outcome) => outcome,
                 Err(error) => {
                     diagnostics::record_failure_for_app(app.handle(), "startup", "bootstrap-failed");
-                    return Err(boxed_error(error));
+                    return Err(boxed_error(error.to_string()));
                 }
             };
             let (storage, recovery_state, recovery_only) = match bootstrap_outcome {
@@ -463,8 +477,12 @@ fn run_application(instance: InstanceGuard) -> AppResult<()> {
                 match start_sidecar(&root, &storage) {
                     Ok(sidecar) => Some(sidecar),
                     Err(error) => {
-                        diagnostics::record_failure_for_app(app.handle(), "sidecar", "sidecar-start-failed");
-                        return Err(boxed_error(error));
+                        diagnostics::record_failure_for_app(
+                            app.handle(),
+                            "sidecar",
+                            error.code(),
+                        );
+                        return Err(boxed_error(error.to_string()));
                     }
                 }
             };
@@ -488,6 +506,10 @@ fn run_application(instance: InstanceGuard) -> AppResult<()> {
             .inner_size(DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT)
             .resizable(true)
             .visible(false);
+            #[cfg(feature = "diagnostic-web-inspector")]
+            if diagnostic_web_inspector_runtime_opted_in() {
+                window_builder = window_builder.devtools(true);
+            }
             if let Some(primary_url_for_navigation) = primary_url_for_navigation {
                 let close_for_navigation = state.close_coordinator();
                 let app_for_navigation = app.handle().clone();
@@ -561,6 +583,28 @@ fn run_application(instance: InstanceGuard) -> AppResult<()> {
             _ => {}
         });
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{has_explicit_diagnostic_web_inspector_opt_in, DIAGNOSTIC_WEB_INSPECTOR_ENV};
+
+    #[test]
+    fn diagnostic_web_inspector_requires_the_exact_runtime_opt_in_value() {
+        assert!(!has_explicit_diagnostic_web_inspector_opt_in(None));
+        assert!(!has_explicit_diagnostic_web_inspector_opt_in(Some("")));
+        assert!(!has_explicit_diagnostic_web_inspector_opt_in(Some("0")));
+        assert!(!has_explicit_diagnostic_web_inspector_opt_in(Some("true")));
+        assert!(has_explicit_diagnostic_web_inspector_opt_in(Some("1")));
+    }
+
+    #[test]
+    fn diagnostic_web_inspector_uses_a_dedicated_environment_variable() {
+        assert_eq!(
+            DIAGNOSTIC_WEB_INSPECTOR_ENV,
+            "CORNELL_DESKTOP_DIAGNOSTIC_WEB_INSPECTOR"
+        );
+    }
 }
 
 fn main() {
