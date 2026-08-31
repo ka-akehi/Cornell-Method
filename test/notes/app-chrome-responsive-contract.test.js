@@ -188,6 +188,19 @@ test("mobile header / overlay の focus trap、close、scroll lock 契約は維�
     compact(appChrome),
     /\{!isMobileNavOpen && \( <button id="app-chrome-mobile-menu-button" ref=\{mobileMenuButtonRef\}[^>]*className="app-chrome-menu-button app-chrome-mobile-menu-button"[\s\S]*aria-label=\{mobileMenuLabel\}[\s\S]*aria-expanded=\{isMobileNavOpen\}[\s\S]*aria-controls="app-chrome-mobile-overlay"[\s\S]*<AppChromeIcon name="menu" \/> <\/button> \)\}/,
   );
+  const mobileHeaderStart = appChrome.indexOf(
+    '<header className="app-chrome-mobile-header">',
+  );
+  const mobileHeaderEnd = appChrome.indexOf(
+    '</header>',
+    mobileHeaderStart,
+  );
+  assert.ok(mobileHeaderStart >= 0 && mobileHeaderEnd > mobileHeaderStart);
+  assert.doesNotMatch(
+    appChrome.slice(mobileHeaderStart, mobileHeaderEnd),
+    /app-chrome-mobile-header[\s\S]*app-chrome-mobile-settings-button/,
+    "mobile header does not contain the settings button",
+  );
   assert.match(
     appChromeParts,
     /export function AppChromeBrand\(\)[\s\S]*<Link[\s\S]*href="\/notes"[\s\S]*className="app-chrome-brand"/,
@@ -203,7 +216,7 @@ test("mobile header / overlay の focus trap、close、scroll lock 契約は維�
   );
   assert.match(
     compact(appChrome),
-    /\{isMobileNavOpen && \( <button id="app-chrome-mobile-menu-button" ref=\{mobileMenuButtonRef\}[\s\S]*className="app-chrome-menu-button app-chrome-mobile-overlay-toggle"[\s\S]*aria-label=\{mobileMenuLabel\}[\s\S]*aria-expanded=\{isMobileNavOpen\}[\s\S]*aria-controls="app-chrome-mobile-overlay"[\s\S]*onClick=\{closeMobileNav\}\s*> <AppChromeIcon name="close" \/> <\/button> \)} <button type="button" className="app-chrome-mobile-backdrop" aria-label="サイドメニューを閉じる" tabIndex=\{-1\} onClick=\{closeMobileNav\} \/> <aside ref=\{mobilePanelRef\} id="app-chrome-mobile-panel" className="app-chrome-mobile-panel" aria-labelledby="app-chrome-mobile-overlay-title"\s*> <span id="app-chrome-mobile-overlay-title" className="app-chrome-mobile-panel-title"\s*> サイドメニュー <\/span> <AppChromeCreateLink pathname=\{pathname\} onNavigate=\{closeMobileNav\} variant="mobile" \/> <div className="app-chrome-sidebar-body"> <AppChromeNavigation pathname=\{pathname\} onNavigate=\{closeMobileNav\} variant="mobile" \/> <\/div> <\/aside>/,
+    /\{isMobileNavOpen && \( <button id="app-chrome-mobile-menu-button" ref=\{mobileMenuButtonRef\}[\s\S]*className="app-chrome-menu-button app-chrome-mobile-overlay-toggle"[\s\S]*aria-label=\{mobileMenuLabel\}[\s\S]*aria-expanded=\{isMobileNavOpen\}[\s\S]*aria-controls="app-chrome-mobile-overlay"[\s\S]*onClick=\{closeMobileNav\}\s*> <AppChromeIcon name="close" \/> <\/button> \)} <button type="button" className="app-chrome-mobile-backdrop" aria-label="サイドメニューを閉じる" tabIndex=\{-1\} onClick=\{closeMobileNav\} \/> <aside ref=\{mobilePanelRef\} id="app-chrome-mobile-panel" className="app-chrome-mobile-panel" aria-labelledby="app-chrome-mobile-overlay-title"\s*> <span id="app-chrome-mobile-overlay-title" className="app-chrome-mobile-panel-title"\s*> サイドメニュー <\/span> <AppChromeCreateLink pathname=\{pathname\} onNavigate=\{closeMobileNav\} variant="mobile" \/> <div className="app-chrome-sidebar-body"> <AppChromeNavigation pathname=\{pathname\} onNavigate=\{closeMobileNav\} variant="mobile" \/> <\/div> <div className=\{settingsStyles\.entrypoint\}> <button id="app-chrome-mobile-settings-button" type="button" className=\{settingsStyles\.trigger\}[\s\S]*aria-label="設定を開く"[\s\S]*onClick=\{\(\) => sendDesktopSettingsRequest\(\)\}[\s\S]*<AppChromeIcon name="settings" className=\{settingsStyles\.triggerIcon\} \/>[\s\S]*<span>設定<\/span> <\/button> <\/div> <\/aside>/,
   );
   const mobilePanelStart = appChrome.indexOf(
     '<aside\n          ref={mobilePanelRef}',
@@ -232,6 +245,16 @@ test("mobile header / overlay の focus trap、close、scroll lock 契約は維�
   assert.match(
     compact(mobilePanelMarkup),
     /<AppChromeCreateLink pathname=\{pathname\} onNavigate=\{closeMobileNav\} variant="mobile" \/>/,
+  );
+  assert.match(
+    compact(mobilePanelMarkup),
+    /<button id="app-chrome-mobile-settings-button" type="button" className=\{settingsStyles\.trigger\}[\s\S]*aria-label="設定を開く"[\s\S]*onClick=\{\(\) => sendDesktopSettingsRequest\(\)\}[\s\S]*<AppChromeIcon name="settings" className=\{settingsStyles\.triggerIcon\} \/>[\s\S]*<span>設定<\/span>/,
+    "mobile settings trigger is inside the open panel",
+  );
+  assert.equal(
+    (appChrome.match(/<SettingsEntrypoint isCollapsed=\{!isRailOpen\} \/>/g) ?? []).length,
+    1,
+    "SettingsEntrypoint remains mounted exactly once for desktop and mobile requests",
   );
   assert.doesNotMatch(
     appChrome + appShell,

@@ -365,21 +365,6 @@ export function AppChrome({ children }: AppChromeProps) {
                 <AppChromeIcon name="menu" />
               </button>
             )}
-            {!isMobileNavOpen && (
-              <button
-                id="app-chrome-mobile-settings-button"
-                type="button"
-                className={`app-chrome-menu-button ${settingsStyles.mobileTrigger}`}
-                aria-label="設定を開く"
-                aria-haspopup="dialog"
-                onClick={() => sendDesktopSettingsRequest()}
-              >
-                <AppChromeIcon
-                  name="settings"
-                  className={settingsStyles.mobileTriggerIcon}
-                />
-              </button>
-            )}
           </div>
         </header>
 
@@ -444,6 +429,22 @@ export function AppChrome({ children }: AppChromeProps) {
               onNavigate={closeMobileNav}
               variant="mobile"
             />
+          </div>
+          <div className={settingsStyles.entrypoint}>
+            <button
+              id="app-chrome-mobile-settings-button"
+              type="button"
+              className={settingsStyles.trigger}
+              aria-label="設定を開く"
+              aria-haspopup="dialog"
+              onClick={() => sendDesktopSettingsRequest()}
+            >
+              <AppChromeIcon
+                name="settings"
+                className={settingsStyles.triggerIcon}
+              />
+              <span>設定</span>
+            </button>
           </div>
         </aside>
       </div>
