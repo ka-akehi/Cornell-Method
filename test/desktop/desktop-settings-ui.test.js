@@ -189,17 +189,18 @@ test("Updates panel uses the manual bridge and keeps result copy safe", () => {
   assert.match(modal, /role="status"/);
   assert.match(modal, /role="alert"/);
   assert.match(modal, /確認中…/);
-  assert.match(modal, /利用可能な更新はありません/);
-  assert.match(modal, /互換 manifest を発見しました/);
+  assert.match(modal, /利用可能な更新はありません。/);
+  assert.match(modal, /利用可能な更新があります。/);
   assert.match(modal, /署名検証前 \/ 未検証です/);
-  assert.match(
-    modal,
-    /更新情報を確認できませんでした。もう一度お試しください。/,
-  );
+  assert.match(modal, /更新情報を確認できませんでした。/);
+  assert.doesNotMatch(modal, /更新情報を確認できませんでした。もう一度お試しください。/);
+  assert.match(modal, /case "failed":\s*return null;/);
+  assert.match(modal, /phase: "resolved",\s*resultKind: result\.kind/s);
   assert.match(modal, /今回は確認を実行しませんでした/);
   assert.match(modal, /別の更新確認が進行中です/);
   assert.match(modal, /Desktop アプリでのみ利用できます/);
-  assert.match(modal, /更新状態を読み取れませんでした/);
+  assert.doesNotMatch(modal, /更新状態を読み取れませんでした/);
+  assert.doesNotMatch(modal, /もう一度お試しください/);
   assert.match(modal, /pendingUpdate\?\.version/);
   assert.doesNotMatch(
     modal,

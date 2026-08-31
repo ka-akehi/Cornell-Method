@@ -1301,17 +1301,13 @@ const initialUpdatePanelState: UpdatePanelState = {
 function resultKindForSnapshot(
   snapshot: DesktopUpdateStateSnapshot,
 ): UpdatePanelResultKind {
-  if (snapshot.status === "available" && snapshot.failure !== null) {
-    return "failed";
-  }
-
   switch (snapshot.status) {
     case "no-update":
       return "no-update";
     case "available":
       return "available";
     case "failed":
-      return "failed";
+      return null;
     case "checking":
       return "already-checking";
     case "not-checked":
@@ -1428,12 +1424,12 @@ function UpdatesPanel() {
   } else {
     switch (updateState.resultKind) {
       case "no-update":
-        statusMessage = "利用可能な更新はありません";
+        statusMessage = "利用可能な更新はありません。";
         break;
       case "available":
         statusMessage = (
           <>
-            <p>互換 manifest を発見しました。</p>
+            <p>利用可能な更新があります。</p>
             {pendingVersion ? (
               <p className={styles.updateVersion}>
                 利用可能なバージョン: {pendingVersion}
@@ -1450,7 +1446,7 @@ function UpdatesPanel() {
       case "failed":
         statusMessage = (
           <>
-            <p>更新情報を確認できませんでした。もう一度お試しください。</p>
+            <p>更新情報を確認できませんでした。</p>
             {pendingVersion ? (
               <p className={styles.updateVersion}>
                 保留中のバージョン: {pendingVersion}
@@ -1474,12 +1470,12 @@ function UpdatesPanel() {
         statusMessage = "Desktop アプリでのみ利用できます。";
         break;
       case "command-error":
-        statusMessage = "更新確認を実行できませんでした。もう一度お試しください。";
+        statusMessage = "更新情報を確認できませんでした。";
         statusRole = "alert";
         statusClassName = `${styles.updateStatus} ${styles.updateStatusError}`;
         break;
       case "state-error":
-        statusMessage = "更新状態を読み取れませんでした。もう一度お試しください。";
+        statusMessage = "更新情報を確認できませんでした。";
         statusRole = "alert";
         statusClassName = `${styles.updateStatus} ${styles.updateStatusError}`;
         break;
@@ -1491,7 +1487,6 @@ function UpdatesPanel() {
   return (
     <div className={styles.panelStack}>
       <h3>更新</h3>
-      <p>利用可能な更新があるか、手動で確認できます。</p>
       <div className={styles.updateControls}>
         <button
           type="button"
