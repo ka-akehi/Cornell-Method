@@ -50,6 +50,15 @@ test("diagnostic archive and local log boundaries are explicit", () => {
   assert.doesNotMatch(publishFunction, /fs::rename/);
 });
 
+test("file-dialog AppleScript uses one valid error handler per dialog", () => {
+  assert.equal(
+    (runtimeSource.match(/on error errorMessage number errorNumber/g) ?? []).length,
+    3,
+  );
+  assert.doesNotMatch(runtimeSource, /on error number -128/);
+  assert.match(runtimeSource, /if errorNumber is -128 then/);
+});
+
 test("native diagnostic destination uses the dedicated dialog kind and keeps sidecar stderr discarded", () => {
   assert.match(runtimeSource, /DiagnosticExport/);
   assert.match(runtimeSource, /"diagnostic-export"/);

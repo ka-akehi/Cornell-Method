@@ -916,9 +916,10 @@ fn desktop_file_dialog_script(dialog: DesktopFileDialogKind) -> &'static str {
             r#"try
   set chosenItem to choose file name with prompt "Choose an export destination"
   return "selected" & linefeed & POSIX path of chosenItem
-on error number -128
-  return "cancel"
-on error
+on error errorMessage number errorNumber
+  if errorNumber is -128 then
+    return "cancel"
+  end if
   return "error"
 end try"#
         }
@@ -926,9 +927,10 @@ end try"#
             r#"try
   set chosenItem to choose file with prompt "Choose a Cornell Method SQLite file"
   return "selected" & linefeed & POSIX path of chosenItem
-on error number -128
-  return "cancel"
-on error
+on error errorMessage number errorNumber
+  if errorNumber is -128 then
+    return "cancel"
+  end if
   return "error"
 end try"#
         }
@@ -936,9 +938,10 @@ end try"#
             r#"try
   set chosenItem to choose file name with prompt "Choose a diagnostic export destination"
   return "selected" & linefeed & POSIX path of chosenItem
-on error number -128
-  return "cancel"
-on error
+on error errorMessage number errorNumber
+  if errorNumber is -128 then
+    return "cancel"
+  end if
   return "error"
 end try"#
         }
