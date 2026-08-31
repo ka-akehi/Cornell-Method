@@ -14,7 +14,6 @@ import { TextInput, TitleInput } from "./inputs";
 
 export function NoteEditorMetadataSection({
   mode,
-  shell,
   title,
   noteDate,
   nextReviewDate,
@@ -28,7 +27,6 @@ export function NoteEditorMetadataSection({
   actions,
 }: {
   mode: "create" | "edit";
-  shell: boolean;
   title: string;
   noteDate: string;
   nextReviewDate: string;
@@ -47,30 +45,19 @@ export function NoteEditorMetadataSection({
 
   return (
     <section className="note-paper-section note-paper-metadata-section min-w-0 !space-y-0 !p-0">
-      {shell ? (
-        <div className="note-paper-heading">
-          <div className="note-paper-heading-copy min-w-0 flex-1">
-            <TitleInput
-              id="note-title"
-              label="タイトル"
-              value={title}
-              onChange={(nextTitle) => onChange({ title: nextTitle })}
-              error={fieldError(fieldErrors, "title")}
-              required
-            />
-          </div>
-          {actions}
+      <div className="note-paper-heading">
+        <div className="note-paper-heading-copy min-w-0 flex-1">
+          <TitleInput
+            id="note-title"
+            label="タイトル"
+            value={title}
+            onChange={(nextTitle) => onChange({ title: nextTitle })}
+            error={fieldError(fieldErrors, "title")}
+            required
+          />
         </div>
-      ) : (
-        <TextInput
-          id="note-title"
-          label="タイトル"
-          value={title}
-          onChange={(nextTitle) => onChange({ title: nextTitle })}
-          error={fieldError(fieldErrors, "title")}
-          required
-        />
-      )}
+        {actions}
+      </div>
 
       <div className="note-paper-meta-grid !grid-cols-[minmax(0,0.8fr)_minmax(0,1.8fr)_minmax(0,1.8fr)] max-[900px]:!grid-cols-2 max-[640px]:!grid-cols-1">
         <div className="note-paper-meta-item space-y-3">
@@ -120,7 +107,7 @@ export function NoteEditorMetadataSection({
                   }}
                   aria-invalid={Boolean(sourceTypeFieldError)}
                   aria-describedby={sourceTypeFieldError ? "source-type-error" : undefined}
-                  className="w-full min-w-0 rounded-lg border border-stone-200 bg-white px-3 py-2 text-sm text-stone-900 shadow-sm outline-none transition focus:border-amber-500 focus:ring-2 focus:ring-amber-100"
+                  className="h-10 w-full min-w-0 rounded-lg border border-stone-200 bg-white px-3 py-2 text-sm text-stone-900 shadow-sm outline-none transition focus:border-amber-500 focus:ring-2 focus:ring-amber-100"
                 >
                   <option value="">未選択</option>
                   {sourceTypeOptions.map((option) => (
@@ -147,7 +134,7 @@ export function NoteEditorMetadataSection({
                   onChange={(event) => onChange({ sourceTitle: event.target.value })}
                   aria-invalid={Boolean(sourceTitleFieldError)}
                   aria-describedby={sourceTitleFieldError ? "source-title-error" : undefined}
-                  className={`w-full min-w-0 rounded-lg border bg-white px-3 py-2 text-sm text-stone-900 shadow-sm outline-none transition placeholder:text-stone-400 ${
+                  className={`h-10 w-full min-w-0 rounded-lg border bg-white px-3 py-2 text-sm text-stone-900 shadow-sm outline-none transition placeholder:text-stone-400 ${
                     sourceTitleFieldError
                       ? "border-red-300 focus:border-red-500 focus:ring-2 focus:ring-red-100"
                       : "border-stone-200 focus:border-amber-500 focus:ring-2 focus:ring-amber-100"

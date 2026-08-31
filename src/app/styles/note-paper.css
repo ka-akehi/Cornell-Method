@@ -518,24 +518,3 @@
     display: none;
   }
 }
-
-.note-paper-editor--create .note-paper-title:not(:focus):not([aria-invalid="true"]) {
-  border-bottom-color: transparent;
-}
-
-.note-paper-editor--create .note-paper-meta-item {
-  border-top: 0;
-}
-
-.note-paper-editor--create
-  input:not([type="checkbox"]):not(.note-paper-title):not(:focus):not([aria-invalid="true"]),
-.note-paper-editor--create select:not(:focus):not([aria-invalid="true"]) {
-  border-color: transparent;
-  background-color: transparent;
-  box-shadow: none;
-}
-
-.note-paper-editor--create .note-paper-cue-empty,
-.note-paper-editor--create .note-paper-cue-item {
-  border-color: transparent;
-}

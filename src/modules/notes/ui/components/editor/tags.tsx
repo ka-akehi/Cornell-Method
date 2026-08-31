@@ -163,7 +163,7 @@ export function NoteEditorTagInput({
             value=""
             disabled={loadingCandidates || availableCandidates.length === 0}
             onChange={(event) => addCandidate(event.target.value)}
-            className="w-full min-w-0 rounded-lg border border-stone-200 bg-white px-2.5 py-1.5 text-sm text-stone-900 shadow-sm outline-none transition focus:border-amber-500 focus:ring-2 focus:ring-amber-100 disabled:cursor-not-allowed disabled:bg-stone-50 disabled:text-stone-400"
+            className="h-10 w-full min-w-0 rounded-lg border border-[var(--app-line)] bg-[var(--app-paper-surface)] px-2.5 py-1.5 text-sm text-[var(--app-ink)] shadow-sm outline-none transition focus:border-[var(--app-focus)] focus:ring-2 focus:ring-[var(--app-accent-soft)] disabled:cursor-not-allowed disabled:border-[var(--app-line-strong)] disabled:bg-[var(--muted)] disabled:text-[var(--app-muted-ink)] disabled:opacity-100 disabled:shadow-none disabled:focus:border-[var(--app-line-strong)] disabled:focus:ring-0"
           >
             <option value="">
               {loadingCandidates
@@ -207,7 +207,7 @@ export function NoteEditorTagInput({
               }}
               aria-invalid={hasTagError}
               aria-describedby={describedBy || undefined}
-              className="min-w-0 flex-1 rounded-lg border border-stone-200 bg-white px-2.5 py-1.5 text-sm text-stone-900 shadow-sm outline-none transition placeholder:text-stone-400 focus:border-amber-500 focus:ring-2 focus:ring-amber-100"
+              className="h-10 min-w-0 flex-1 rounded-lg border border-stone-200 bg-white px-2.5 py-1.5 text-sm text-stone-900 shadow-sm outline-none transition placeholder:text-stone-400 focus:border-amber-500 focus:ring-2 focus:ring-amber-100"
               placeholder="タグ名を入力"
             />
             <button

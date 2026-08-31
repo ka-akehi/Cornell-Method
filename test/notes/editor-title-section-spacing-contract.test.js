@@ -47,6 +47,8 @@ test("editor and create mode share a zero-padded metadata section", () => {
   assert.match(createPage, /<NoteEditor mode="create"\s*\/>/);
   assert.match(detailModes, /<NoteEditor\s*[\s\S]*?mode="edit"/);
   assert.match(editor, /mode: "create" \| "edit"/);
+  assert.doesNotMatch(editor, /note-paper-editor--create|shell=\{|shell\?/);
+  assert.doesNotMatch(detailModes, /shell=\{true\}/);
   assert.match(
     editor,
     /<NoteEditorMetadataSection[\s\S]*?onNextReviewDateChange=\{\(nextReviewDate\) => updateForm\(\{ nextReviewDate \}\)\}[\s\S]*?actions=\{topActions\}[\s\S]*?\/>/,

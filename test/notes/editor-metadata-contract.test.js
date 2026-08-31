@@ -101,6 +101,10 @@ test("main note title stays editable and source title follows source type", () =
     metadata,
     /<input[\s\S]*?id="source-title"[\s\S]*?disabled=\{!sourceType\}/,
   );
+  assert.match(
+    metadata,
+    /id="source-type"[\s\S]*?className="h-10 w-full[\s\S]*?id="source-title"[\s\S]*?className=\{`h-10 w-full/,
+  );
   assert.match(metadata, /value=\{title\}/);
   assert.match(metadata, /onChange=\{\(nextTitle\) => onChange\(\{ title: nextTitle \}\)\}/);
   assert.match(metadata, /value=\{sourceTitle\}/);

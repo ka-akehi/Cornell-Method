@@ -337,7 +337,6 @@ export function NoteDetailModes({
     return (
       <NoteEditor
         mode="edit"
-        shell={true}
         initial={editorInitial}
         topActions={
           <NoteDetailEditActions onCancel={() => leaveEditMode()} />

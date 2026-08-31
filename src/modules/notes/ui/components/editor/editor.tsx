@@ -43,7 +43,6 @@ export type NoteEditorProps = {
   mode: "create" | "edit";
   initial?: NoteEditorInitial;
   draft?: unknown;
-  shell?: boolean;
   topActions?: ReactNode;
   showCancel?: boolean;
   onCancel?: () => void;
@@ -91,7 +90,6 @@ function preventMetadataInputImplicitSubmit(
 export function NoteEditor({
   initial,
   mode,
-  shell = true,
   topActions,
   showCancel = true,
   onCancel,
@@ -318,9 +316,7 @@ export function NoteEditor({
   return (
     <form
       ref={formRef}
-      className={`note-paper-editor ${mode === "create" ? "note-paper-editor--create" : ""} min-w-0 space-y-0 ${
-        shell ? "note-paper-shell note-paper-content" : "note-paper-editor--embedded"
-      }`}
+      className="note-paper-editor note-paper-shell note-paper-content min-w-0 space-y-0"
       onKeyDown={preventMetadataInputImplicitSubmit}
       onSubmit={(event) => {
         event.preventDefault();
@@ -341,7 +337,6 @@ export function NoteEditor({
 
       <NoteEditorMetadataSection
         mode={mode}
-        shell={shell}
         title={form.title}
         noteDate={form.noteDate}
         nextReviewDate={form.nextReviewDate}

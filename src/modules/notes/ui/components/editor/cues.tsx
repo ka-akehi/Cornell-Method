@@ -44,26 +44,26 @@ export function NoteEditorCueSection({
                   key={`${cue.id ?? "new"}-${index}`}
                   className="note-paper-cue-item min-w-0 !rounded-none !border-x-0 !border-t-0 border-b border-dashed !bg-transparent px-0 py-3 first:pt-1 last:border-b-0"
                 >
-                  <div className="flex min-w-0 items-start gap-3">
-                    <span
-                      aria-hidden="true"
-                      className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[color:var(--app-accent-deep)] text-xs font-bold text-[color:var(--app-paper-surface)]"
-                    >
-                      {index + 1}
-                    </span>
-                    <div className="min-w-0 flex-1 space-y-1.5">
-                      <div className="flex min-w-0 justify-end">
-                        <label htmlFor={`cue-${index}`} className="sr-only">
-                          Cue {index + 1}
-                        </label>
-                        <button
-                          type="button"
-                          onClick={() => onRemove(index)}
-                          className="shrink-0 rounded-md px-2 py-1 text-xs text-red-600 transition hover:bg-red-50"
-                        >
-                          削除
-                        </button>
-                      </div>
+                  <div className="min-w-0 space-y-1.5">
+                    <div className="flex min-w-0 items-center justify-between gap-3">
+                      <span
+                        aria-hidden="true"
+                        className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[color:var(--app-accent-deep)] text-xs font-bold text-[color:var(--app-paper-surface)]"
+                      >
+                        {index + 1}
+                      </span>
+                      <label htmlFor={`cue-${index}`} className="sr-only">
+                        Cue {index + 1}
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => onRemove(index)}
+                        className="shrink-0 rounded-md px-2 py-1 text-xs text-red-600 transition hover:bg-red-50"
+                      >
+                        削除
+                      </button>
+                    </div>
+                    <div className="note-paper-cue-content min-w-0">
                       <textarea
                         id={`cue-${index}`}
                         value={cue.text}
@@ -71,7 +71,7 @@ export function NoteEditorCueSection({
                         onChange={(event) => onChange(index, event.target.value)}
                         aria-invalid={Boolean(cueFieldError)}
                         aria-describedby={cueFieldError ? `cue-${index}-error` : undefined}
-                        className={`w-full min-w-0 resize-y rounded-lg border bg-[color:var(--paper-soft)] px-3 py-2 text-sm leading-6 text-stone-900 !shadow-none outline-none transition placeholder:text-stone-400 focus:ring-2 focus:ring-amber-100 ${
+                        className={`note-paper-cue-textarea w-full min-w-0 resize-y rounded-lg border bg-[color:var(--paper-soft)] px-3 py-2 text-sm leading-6 text-stone-900 !shadow-none outline-none transition placeholder:text-stone-400 focus:ring-2 focus:ring-amber-100 ${
                           cueFieldError
                             ? "border-red-400 focus:border-red-500 focus:ring-red-100"
                             : "border-stone-300/70 focus:border-amber-500"

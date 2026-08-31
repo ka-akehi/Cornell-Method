@@ -30,8 +30,9 @@ test("editor and create route use the shared note paper hierarchy", () => {
   );
   assert.match(
     editor,
-    /<form[\s\S]*className=\{`note-paper-editor[\s\S]*shell \? "note-paper-shell note-paper-content"/,
+    /<form[\s\S]*className="note-paper-editor note-paper-shell note-paper-content/,
   );
+  assert.doesNotMatch(editor, /note-paper-editor--create|shell\?/);
   assert.match(
     metadata,
     /<section className="note-paper-section note-paper-metadata-section min-w-0 !space-y-0 !p-0">[\s\S]*<div className="note-paper-heading">[\s\S]*<TitleInput[\s\S]*\{actions\}/,
@@ -40,6 +41,7 @@ test("editor and create route use the shared note paper hierarchy", () => {
   assert.match(metadata, /note-paper-meta-item space-y-3/);
   assert.match(metadata, /id="note-date"[\s\S]*id="next-review-date"/);
   assert.match(metadata, /<NoteEditorTagInput/);
+  assert.doesNotMatch(metadata, /shell\?|shell:/);
 
   assert.match(
     editor,
