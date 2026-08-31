@@ -1,5 +1,7 @@
 :root {
   --app-background: #f0ede6;
+  --app-background-start: #f5f2ec;
+  --app-background-end: #e9e4db;
   --app-surface: #fbfaf6;
   --app-paper-surface: #fffdf8;
   --app-ink: #2d2b27;
@@ -10,6 +12,14 @@
   --app-accent-deep: #8f4d13;
   --app-accent-soft: #f3e4cf;
   --app-focus: #a45e17;
+  --app-accent-contrast: #fffaf1;
+  --app-hover: rgb(243 228 207 / 62%);
+  --app-active: var(--app-accent-soft);
+  --app-overlay: rgb(45 43 39 / 44%);
+  --app-danger: #8f3f2f;
+  --app-danger-soft: rgb(164 72 72 / 8%);
+  --app-success: #2f5544;
+  --app-success-soft: #e8f0e7;
   --app-shadow: 0 18px 40px rgb(79 65 45 / 9%), 0 2px 8px rgb(79 65 45 / 6%);
 
   --background: var(--app-background);
@@ -22,6 +32,8 @@
   --paper-soft: #faf7ef;
   --paper-ink: var(--app-ink);
   --paper-ink-soft: var(--app-muted-ink);
+  --paper-code-surface: #2d2b27;
+  --paper-code-ink: #f5f1e9;
   --paper-line: var(--app-line);
   --paper-line-strong: var(--app-line-strong);
   --paper-rule: rgb(185 176 163 / 34%);
@@ -41,6 +53,73 @@
   --chrome-shadow: 0 8px 28px rgb(3 18 12 / 22%);
 }
 
+:root[data-theme="dark"] {
+  --app-background: #171a18;
+  --app-background-start: #202521;
+  --app-background-end: #111311;
+  --app-surface: #222722;
+  --app-paper-surface: #2a302b;
+  --app-ink: #f1eee5;
+  --app-muted-ink: #b8c0b6;
+  --app-line: #465148;
+  --app-line-strong: #68756a;
+  --app-accent: #e4a665;
+  --app-accent-deep: #f0b975;
+  --app-accent-soft: #4b3928;
+  --app-focus: #ffd18a;
+  --app-accent-contrast: #25180d;
+  --app-hover: rgb(228 166 101 / 18%);
+  --app-active: #5b432b;
+  --app-overlay: rgb(0 0 0 / 66%);
+  --app-danger: #f08c84;
+  --app-danger-soft: rgb(240 140 132 / 14%);
+  --app-success: #a7d4b4;
+  --app-success-soft: #263d2f;
+  --app-shadow: 0 18px 40px rgb(0 0 0 / 28%), 0 2px 8px rgb(0 0 0 / 18%);
+  --muted: #303730;
+  --paper-soft: #303730;
+  --paper-code-surface: #111511;
+  --paper-code-ink: #f1eee5;
+  --paper-rule: rgb(104 117 106 / 44%);
+  --paper-danger: #f08c84;
+  --chrome-border: rgb(247 240 223 / 30%);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root[data-theme="system"],
+  :root:not([data-theme]) {
+    --app-background: #171a18;
+    --app-background-start: #202521;
+    --app-background-end: #111311;
+    --app-surface: #222722;
+    --app-paper-surface: #2a302b;
+    --app-ink: #f1eee5;
+    --app-muted-ink: #b8c0b6;
+    --app-line: #465148;
+    --app-line-strong: #68756a;
+    --app-accent: #e4a665;
+    --app-accent-deep: #f0b975;
+    --app-accent-soft: #4b3928;
+    --app-focus: #ffd18a;
+    --app-accent-contrast: #25180d;
+    --app-hover: rgb(228 166 101 / 18%);
+    --app-active: #5b432b;
+    --app-overlay: rgb(0 0 0 / 66%);
+    --app-danger: #f08c84;
+    --app-danger-soft: rgb(240 140 132 / 14%);
+    --app-success: #a7d4b4;
+    --app-success-soft: #263d2f;
+    --app-shadow: 0 18px 40px rgb(0 0 0 / 28%), 0 2px 8px rgb(0 0 0 / 18%);
+    --muted: #303730;
+    --paper-soft: #303730;
+    --paper-code-surface: #111511;
+    --paper-code-ink: #f1eee5;
+    --paper-rule: rgb(104 117 106 / 44%);
+    --paper-danger: #f08c84;
+    --chrome-border: rgb(247 240 223 / 30%);
+  }
+}
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -56,8 +135,117 @@ body {
   min-width: 0;
   background:
     radial-gradient(circle at 12% -8%, rgb(255 255 255 / 72%), transparent 32rem),
-    linear-gradient(135deg, #f5f2ec 0%, var(--app-background) 58%, #e9e4db 100%);
+    linear-gradient(135deg, var(--app-background-start) 0%, var(--app-background) 58%, var(--app-background-end) 100%);
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
   overflow-x: clip;
+}
+
+:root[data-theme="dark"] body {
+  background:
+    radial-gradient(circle at 12% -8%, rgb(255 255 255 / 5%), transparent 32rem),
+    linear-gradient(135deg, var(--app-background-start) 0%, var(--app-background) 58%, var(--app-background-end) 100%);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root[data-theme="system"] body,
+  :root:not([data-theme]) body {
+    background:
+      radial-gradient(circle at 12% -8%, rgb(255 255 255 / 5%), transparent 32rem),
+      linear-gradient(135deg, var(--app-background-start) 0%, var(--app-background) 58%, var(--app-background-end) 100%);
+  }
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+}
+
+:root[data-theme="system"] {
+  color-scheme: light dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) {
+    color-scheme: dark;
+  }
+}
+
+/* Existing editor screens still use a few Tailwind color utilities. Keep those
+   controls on the same semantic palette when the app switches to dark mode. */
+:root[data-theme="dark"] [class~="bg-white"],
+:root[data-theme="dark"] [class~="bg-stone-50"] {
+  background-color: var(--app-surface) !important;
+}
+
+:root[data-theme="dark"] [class~="bg-stone-900"],
+:root[data-theme="dark"] [class~="bg-amber-600"] {
+  background-color: var(--app-accent-deep) !important;
+}
+
+:root[data-theme="dark"] [class~="text-stone-900"],
+:root[data-theme="dark"] [class~="text-stone-700"],
+:root[data-theme="dark"] [class~="text-stone-600"],
+:root[data-theme="dark"] [class~="text-stone-500"],
+:root[data-theme="dark"] [class~="text-stone-400"] {
+  color: var(--app-ink) !important;
+}
+
+:root[data-theme="dark"] [class~="text-white"] {
+  color: var(--app-accent-contrast) !important;
+}
+
+:root[data-theme="dark"] [class*="border-stone-"] {
+  border-color: var(--app-line) !important;
+}
+
+:root[data-theme="dark"] [class*="hover:bg-stone-50"]:hover {
+  background-color: var(--app-hover) !important;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root[data-theme="system"] [class~="bg-white"],
+  :root[data-theme="system"] [class~="bg-stone-50"],
+  :root:not([data-theme]) [class~="bg-white"],
+  :root:not([data-theme]) [class~="bg-stone-50"] {
+    background-color: var(--app-surface) !important;
+  }
+
+  :root[data-theme="system"] [class~="bg-stone-900"],
+  :root[data-theme="system"] [class~="bg-amber-600"],
+  :root:not([data-theme]) [class~="bg-stone-900"],
+  :root:not([data-theme]) [class~="bg-amber-600"] {
+    background-color: var(--app-accent-deep) !important;
+  }
+
+  :root[data-theme="system"] [class~="text-stone-900"],
+  :root[data-theme="system"] [class~="text-stone-700"],
+  :root[data-theme="system"] [class~="text-stone-600"],
+  :root[data-theme="system"] [class~="text-stone-500"],
+  :root[data-theme="system"] [class~="text-stone-400"],
+  :root:not([data-theme]) [class~="text-stone-900"],
+  :root:not([data-theme]) [class~="text-stone-700"],
+  :root:not([data-theme]) [class~="text-stone-600"],
+  :root:not([data-theme]) [class~="text-stone-500"],
+  :root:not([data-theme]) [class~="text-stone-400"] {
+    color: var(--app-ink) !important;
+  }
+
+  :root[data-theme="system"] [class~="text-white"],
+  :root:not([data-theme]) [class~="text-white"] {
+    color: var(--app-accent-contrast) !important;
+  }
+
+  :root[data-theme="system"] [class*="border-stone-"],
+  :root:not([data-theme]) [class*="border-stone-"] {
+    border-color: var(--app-line) !important;
+  }
+
+  :root[data-theme="system"] [class*="hover:bg-stone-50"]:hover,
+  :root:not([data-theme]) [class*="hover:bg-stone-50"]:hover {
+    background-color: var(--app-hover) !important;
+  }
 }

@@ -28,7 +28,7 @@
   gap: 0.35rem;
   border: 1px solid var(--paper-line);
   border-radius: 0.65rem;
-  background: rgb(255 253 248 / 72%);
+  background: color-mix(in srgb, var(--paper) 72%, transparent);
   padding: 0.3rem;
 }
 
@@ -44,7 +44,7 @@
   scrollbar-width: thin;
   border: 1px solid var(--paper-line-strong);
   border-radius: 0.7rem;
-  background: rgb(250 247 239 / 78%);
+  background: color-mix(in srgb, var(--paper-soft) 78%, transparent);
   padding: 0.25rem;
 }
 
@@ -316,7 +316,7 @@
 
 .note-canvas-size-field input[aria-invalid="true"] {
   border-color: var(--paper-danger);
-  background: rgb(164 72 72 / 8%);
+  background: var(--app-danger-soft);
 }
 
 .note-canvas-size-error {

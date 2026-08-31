@@ -30,9 +30,12 @@ import {
   type DesktopUpdateStateSnapshot,
 } from "@/shared/desktop/desktop-settings-bridge";
 import { AppChromeIcon } from "../app-chrome-parts";
+import { useTheme } from "../theme/theme-provider";
+import { THEME_MODES, type ThemeMode } from "../theme/theme";
 import styles from "./settings-modal.module.css";
 
 const settingsCategories = [
+  { id: "general", label: "一般" },
   { id: "updates", label: "更新" },
   { id: "data-and-backup", label: "データとバックアップ" },
 ] as const;
@@ -1234,12 +1237,50 @@ function DataAndBackupPanel() {
   );
 }
 
-function SettingsCategoryPanel({ category }: { category: SettingsCategoryId }) {
+function SettingsCategoryPanel({
+  category,
+}: {
+  category: SettingsCategoryId;
+}) {
+  if (category === "general") {
+    return <GeneralPanel />;
+  }
+
   if (category === "updates") {
     return <UpdatesPanel />;
   }
 
   return <DataAndBackupPanel />;
+}
+
+const themeModeLabels: Record<ThemeMode, string> = {
+  light: "ライト",
+  dark: "ダーク",
+  system: "システム",
+};
+
+function GeneralPanel() {
+  const { mode, setThemeMode } = useTheme();
+
+  return (
+    <div className={styles.panelStack}>
+      <h3>一般</h3>
+      <div className={styles.themeControl}>
+        <label htmlFor="settings-theme">テーマ</label>
+        <select
+          id="settings-theme"
+          value={mode}
+          onChange={(event) => setThemeMode(event.target.value as ThemeMode)}
+        >
+          {THEME_MODES.map((themeMode) => (
+            <option key={themeMode} value={themeMode}>
+              {themeModeLabels[themeMode]}
+            </option>
+          ))}
+        </select>
+      </div>
+    </div>
+  );
 }
 
 type UpdatePanelPhase = "loading" | "idle" | "checking" | "resolved";

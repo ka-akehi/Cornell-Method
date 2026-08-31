@@ -60,13 +60,13 @@ test("desktop gear, mobile trigger, and macOS menu share the existing Settings b
   assert.match(css, /\.mobileTrigger:focus-visible\s*\{/);
 });
 
-test("Settings UI exposes two keyboard-navigable categories", () => {
+test("Settings UI exposes three keyboard-navigable categories", () => {
   const modal = readSource(
     "src/app/_components/settings/settings-modal.tsx",
   );
   const compactModal = compact(modal);
 
-  assert.doesNotMatch(modal, /label: "一般"/);
+  assert.match(modal, /label: "一般"/);
   assert.match(modal, /label: "更新"/);
   assert.match(modal, /label: "データとバックアップ"/);
   assert.doesNotMatch(modal, /利用形態|ローカル利用|読み取り専用/);
@@ -82,7 +82,7 @@ test("Settings UI exposes two keyboard-navigable categories", () => {
     (modal.match(/<h2 id="settings-modal-title">設定<\/h2>/g) ?? []).length,
     1,
   );
-  assert.equal((modal.match(/<h3>一般<\/h3>/g) ?? []).length, 0);
+  assert.equal((modal.match(/<h3>一般<\/h3>/g) ?? []).length, 1);
   assert.equal((modal.match(/<h3>更新<\/h3>/g) ?? []).length, 1);
   assert.equal(
     (modal.match(/<h3>データとバックアップ<\/h3>/g) ?? []).length,
@@ -98,8 +98,39 @@ test("Settings UI exposes two keyboard-navigable categories", () => {
   assert.match(modal, /aria-labelledby=\{`settings-tab-\$\{category\.id\}`\}/);
   assert.match(compactModal, /ArrowRight[\s\S]*ArrowLeft[\s\S]*Home[\s\S]*End/);
   assert.match(modal, /useState<SettingsCategoryId>\("updates"\)/);
-  assert.doesNotMatch(modal, /general|readOnlyList/);
+  assert.match(modal, /htmlFor="settings-theme"/);
+  assert.match(modal, /value=\{mode\}/);
+  assert.match(modal, /ライト/);
+  assert.match(modal, /ダーク/);
+  assert.match(modal, /システム/);
+  assert.doesNotMatch(modal, /readOnlyList/);
   assert.doesNotMatch(modal, /fetch\(|window\.open|WebviewWindowBuilder|invoke\(/);
+});
+
+test("Theme preference is browser-only, namespaced, safe, and follows system media", () => {
+  const theme = readSource("src/app/_components/theme/theme.ts");
+  const provider = readSource(
+    "src/app/_components/theme/theme-provider.tsx",
+  );
+  const layout = readSource("src/app/layout.tsx");
+
+  assert.match(theme, /THEME_STORAGE_KEY = "cornell-method-notebook:theme-mode"/);
+  assert.match(theme, /value === "light" \|\| value === "dark" \|\| value === "system"/);
+  assert.match(theme, /return "system"/);
+  assert.match(theme, /typeof window === "undefined"/);
+  assert.match(theme, /window\.localStorage/);
+  assert.match(theme, /storage\?\.getItem\(THEME_STORAGE_KEY\)/);
+  assert.match(theme, /storage\?\.setItem\(THEME_STORAGE_KEY/);
+  assert.match(theme, /document\.documentElement\.dataset\.theme = mode/);
+  assert.match(theme, /catch \{[\s\S]*document\.documentElement\.dataset\.theme = "system";/);
+  assert.match(provider, /useState<ThemeMode>\(\(\) => readStoredThemeMode\(\)\)/);
+  assert.match(provider, /window\.matchMedia\("\(prefers-color-scheme: dark\)"\)/);
+  assert.match(provider, /addEventListener\("change", updateSystemTheme\)/);
+  assert.match(provider, /removeEventListener\("change", updateSystemTheme\)/);
+  assert.match(provider, /persistThemeMode\(safeMode\)/);
+  assert.match(provider, /applyThemeMode\(safeMode\)/);
+  assert.match(layout, /suppressHydrationWarning/);
+  assert.match(layout, /theme-initializer/);
 });
 
 test("Settings modal keeps a fixed frame and scrolls only the panel region", () => {
