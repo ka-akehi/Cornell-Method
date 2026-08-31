@@ -78,9 +78,17 @@ fn boxed_error(message: String) -> Box<dyn std::error::Error> {
 async fn choose_data_backup_save_destination_command(
     app: tauri::AppHandle,
 ) -> DesktopFileDialogResult {
+    let diagnostics_app = app.clone();
     tauri::async_runtime::spawn_blocking(move || choose_data_backup_save_destination(&app))
         .await
         .unwrap_or_else(|_| {
+            diagnostics::record_file_dialog_failure_for_app(
+                &diagnostics_app,
+                "save-destination",
+                "command",
+                "command-worker-failed",
+                "unavailable",
+            );
             desktop_file_dialog_command_error("save-destination", "command-worker-failed")
         })
 }
@@ -89,9 +97,17 @@ async fn choose_data_backup_save_destination_command(
 async fn choose_data_backup_external_source_command(
     app: tauri::AppHandle,
 ) -> DesktopFileDialogResult {
+    let diagnostics_app = app.clone();
     tauri::async_runtime::spawn_blocking(move || choose_data_backup_external_source(&app))
         .await
         .unwrap_or_else(|_| {
+            diagnostics::record_file_dialog_failure_for_app(
+                &diagnostics_app,
+                "open-external-source",
+                "command",
+                "command-worker-failed",
+                "unavailable",
+            );
             desktop_file_dialog_command_error("open-external-source", "command-worker-failed")
         })
 }

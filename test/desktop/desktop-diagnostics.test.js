@@ -50,13 +50,29 @@ test("diagnostic archive and local log boundaries are explicit", () => {
   assert.doesNotMatch(publishFunction, /fs::rename/);
 });
 
-test("file-dialog AppleScript uses one valid error handler per dialog", () => {
+test("file-dialog diagnostics keep only bounded metadata and use the existing local retention path", () => {
   assert.equal(
     (runtimeSource.match(/on error errorMessage number errorNumber/g) ?? []).length,
     3,
   );
   assert.doesNotMatch(runtimeSource, /on error number -128/);
   assert.match(runtimeSource, /if errorNumber is -128 then/);
+  assert.match(diagnosticsSource, /"file-dialog" => "file-dialog"/);
+  assert.match(diagnosticsSource, /dialog_kind: Option<String>/);
+  assert.match(diagnosticsSource, /failure_phase: Option<String>/);
+  assert.match(diagnosticsSource, /exit_status_category: Option<String>/);
+  assert.match(diagnosticsSource, /dialogKind/);
+  assert.match(diagnosticsSource, /failurePhase/);
+  assert.match(diagnosticsSource, /exitStatusCategory/);
+  assert.match(diagnosticsSource, /record_file_dialog_failure_for_app/);
+  assert.match(runtimeSource, /DesktopFileDialogFailurePhase::DialogProcess/);
+  assert.match(runtimeSource, /DesktopFileDialogFailurePhase::ResponseParse/);
+  assert.match(runtimeSource, /DesktopFileDialogFailurePhase::PathValidation/);
+  assert.match(runtimeSource, /DesktopFileDialogFailurePhase::SelectionStore/);
+  assert.match(runtimeSource, /DesktopFileDialogExitStatus::NonZero/);
+  assert.match(runtimeSource, /MAX_DESKTOP_DIALOG_OUTPUT_BYTES/);
+  assert.doesNotMatch(diagnosticsSource, /process::stderr|read_to_string\([^)]*stderr/);
+  assert.doesNotMatch(diagnosticsSource, /path: PathBuf/);
 });
 
 test("native diagnostic destination uses the dedicated dialog kind and keeps sidecar stderr discarded", () => {

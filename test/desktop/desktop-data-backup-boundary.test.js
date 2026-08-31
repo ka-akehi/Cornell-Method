@@ -379,6 +379,50 @@ test("bridge returns a typed dialog cancel and never accepts a returned absolute
   }
 });
 
+test("bridge preserves native typed dialog errors but bounds invoke rejection to command-unavailable", async () => {
+  const originalWindow = global.window;
+  global.window = { __TAURI_INTERNALS__: {} };
+  let rejectInvoke = false;
+  const nativeError = {
+    kind: "desktop-file-dialog",
+    schemaVersion: 1,
+    dialog: "save-destination",
+    ok: false,
+    status: "error",
+    phase: "dialog",
+    selection: null,
+    errorCode: "dialog-response-too-large",
+  };
+  const bridge = loadBridge((command) => {
+    if (rejectInvoke) {
+      return Promise.reject(new Error("raw path or stderr must not cross the bridge"));
+    }
+    assert.equal(command, "choose_data_backup_save_destination_command");
+    return Promise.resolve(nativeError);
+  });
+
+  try {
+    assert.deepEqual(await bridge.requestDataBackupSaveDestination(), nativeError);
+    rejectInvoke = true;
+    assert.deepEqual(await bridge.requestDataBackupSaveDestination(), {
+      kind: "desktop-file-dialog",
+      schemaVersion: 1,
+      dialog: "save-destination",
+      ok: false,
+      status: "error",
+      phase: "dialog",
+      selection: null,
+      errorCode: "command-unavailable",
+    });
+  } finally {
+    if (originalWindow === undefined) {
+      delete global.window;
+    } else {
+      global.window = originalWindow;
+    }
+  }
+});
+
 test("bridge sends only opaque selections and normalizes the typed sidecar error", async () => {
   const originalWindow = global.window;
   global.window = { __TAURI_INTERNALS__: {} };

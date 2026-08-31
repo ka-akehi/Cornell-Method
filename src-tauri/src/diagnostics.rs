@@ -36,6 +36,12 @@ struct LocalLogRecord {
     error_code: String,
     message: String,
     stack: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    dialog_kind: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    failure_phase: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    exit_status_category: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -123,10 +129,35 @@ impl DiagnosticsState {
     }
 
     pub(crate) fn record_failure(&self, component: &str, error_code: &str) {
-        if let Err(code) = self
-            .writer
-            .append_failure(component, error_code, SystemTime::now())
-        {
+        if let Err(code) = self.writer.append_failure_with_metadata(
+            component,
+            error_code,
+            SystemTime::now(),
+            None,
+            None,
+            None,
+        ) {
+            if let Ok(mut status) = self.status.lock() {
+                status.last_error_code = Some(code);
+            }
+        }
+    }
+
+    pub(crate) fn record_file_dialog_failure(
+        &self,
+        dialog_kind: &str,
+        failure_phase: &str,
+        error_code: &str,
+        exit_status: &str,
+    ) {
+        if let Err(code) = self.writer.append_failure_with_metadata(
+            "file-dialog",
+            error_code,
+            SystemTime::now(),
+            Some(dialog_kind),
+            Some(failure_phase),
+            Some(exit_status),
+        ) {
             if let Ok(mut status) = self.status.lock() {
                 status.last_error_code = Some(code);
             }
@@ -141,6 +172,23 @@ impl DiagnosticsState {
 pub(crate) fn record_failure_for_app(app: &AppHandle, component: &str, error_code: &str) {
     if let Some(state) = app.try_state::<DiagnosticsState>() {
         state.inner().record_failure(component, error_code);
+    }
+}
+
+pub(crate) fn record_file_dialog_failure_for_app(
+    app: &AppHandle,
+    dialog_kind: &str,
+    failure_phase: &str,
+    error_code: &str,
+    exit_status: &str,
+) {
+    if let Some(state) = app.try_state::<DiagnosticsState>() {
+        state.inner().record_file_dialog_failure(
+            dialog_kind,
+            failure_phase,
+            error_code,
+            exit_status,
+        );
     }
 }
 
@@ -200,27 +248,45 @@ pub(crate) fn diagnostic_export_command_error(
 
 pub(crate) fn choose_diagnostic_export_destination(app: &AppHandle) -> DiagnosticDialogResponse {
     let Some(storage) = app.try_state::<StorageLayout>() else {
+        crate::runtime::DesktopFileDialogFailure::new(
+            crate::runtime::DesktopFileDialogFailurePhase::Command,
+            "storage-unavailable",
+            crate::runtime::DesktopFileDialogExitStatus::Unavailable,
+        )
+        .record(app, DesktopFileDialogKind::DiagnosticExport);
         return diagnostic_dialog_command_error("storage-unavailable");
     };
     let Some(selection_store) = app.try_state::<DesktopFileSelectionStore>() else {
+        crate::runtime::DesktopFileDialogFailure::new(
+            crate::runtime::DesktopFileDialogFailurePhase::Command,
+            "selection-store-failed",
+            crate::runtime::DesktopFileDialogExitStatus::Unavailable,
+        )
+        .record(app, DesktopFileDialogKind::DiagnosticExport);
         return diagnostic_dialog_command_error("selection-store-failed");
     };
-    let path = match run_native_file_dialog(DesktopFileDialogKind::DiagnosticExport) {
-        Ok(Some(path)) => path,
+    let selection = match run_native_file_dialog(DesktopFileDialogKind::DiagnosticExport) {
+        Ok(Some(selection)) => selection,
         Ok(None) => return dialog_response(false, "cancelled", None, None),
-        Err(error_code) => {
+        Err(failure) => {
+            failure.record(app, DesktopFileDialogKind::DiagnosticExport);
             return dialog_response(
                 false,
                 "error",
                 None,
-                Some(diagnostic_wire_error(error_code)),
-            )
+                Some(diagnostic_wire_error(failure.error_code)),
+            );
         }
     };
     if let Err(error_code) =
-        validate_external_file_path(&path, storage.application_support_root(), false)
+        validate_external_file_path(&selection.path, storage.application_support_root(), false)
     {
-        record_failure_for_app(app, "diagnostic-export", error_code);
+        crate::runtime::DesktopFileDialogFailure::new(
+            crate::runtime::DesktopFileDialogFailurePhase::PathValidation,
+            error_code,
+            selection.exit_status,
+        )
+        .record(app, DesktopFileDialogKind::DiagnosticExport);
         return dialog_response(
             false,
             "error",
@@ -228,9 +294,10 @@ pub(crate) fn choose_diagnostic_export_destination(app: &AppHandle) -> Diagnosti
             Some(diagnostic_wire_error(error_code)),
         );
     }
+    let exit_status = selection.exit_status;
     match selection_store
         .inner()
-        .insert(DesktopFileDialogKind::DiagnosticExport, path)
+        .insert(DesktopFileDialogKind::DiagnosticExport, selection.path)
     {
         Ok(selection) => dialog_response(
             true,
@@ -242,12 +309,20 @@ pub(crate) fn choose_diagnostic_export_destination(app: &AppHandle) -> Diagnosti
             }),
             None,
         ),
-        Err(error_code) => dialog_response(
-            false,
-            "error",
-            None,
-            Some(diagnostic_wire_error(error_code)),
-        ),
+        Err(error_code) => {
+            crate::runtime::DesktopFileDialogFailure::new(
+                crate::runtime::DesktopFileDialogFailurePhase::SelectionStore,
+                error_code,
+                exit_status,
+            )
+            .record(app, DesktopFileDialogKind::DiagnosticExport);
+            dialog_response(
+                false,
+                "error",
+                None,
+                Some(diagnostic_wire_error(error_code)),
+            )
+        }
     }
 }
 
@@ -455,14 +530,43 @@ impl LocalLogWriter {
         error_code: &str,
         now: SystemTime,
     ) -> Result<(), &'static str> {
+        self.append_failure_with_metadata(component, error_code, now, None, None, None)
+    }
+
+    fn append_failure_with_metadata(
+        &self,
+        component: &str,
+        error_code: &str,
+        now: SystemTime,
+        dialog_kind: Option<&str>,
+        failure_phase: Option<&str>,
+        exit_status_category: Option<&str>,
+    ) -> Result<(), &'static str> {
         let component = sanitize_component(component);
         let error_code = sanitize_error_code(error_code);
+        let dialog_kind = dialog_kind.map(sanitize_dialog_kind);
+        let failure_phase = failure_phase.map(sanitize_failure_phase);
+        let exit_status_category = exit_status_category.map(sanitize_exit_status);
+        if (dialog_kind.is_some() || failure_phase.is_some() || exit_status_category.is_some())
+            && !(dialog_kind.is_some() && failure_phase.is_some() && exit_status_category.is_some())
+        {
+            return Err("invalid-file-dialog-metadata");
+        }
+        if dialog_kind == Some("unknown")
+            || failure_phase == Some("unknown")
+            || exit_status_category == Some("unknown")
+        {
+            return Err("invalid-file-dialog-metadata");
+        }
         let record = LocalLogRecord {
             timestamp: format_timestamp(now),
             component: component.to_string(),
             error_code: error_code.to_string(),
             message: message_for_error(error_code).to_string(),
             stack: "redacted".to_string(),
+            dialog_kind: dialog_kind.map(str::to_string),
+            failure_phase: failure_phase.map(str::to_string),
+            exit_status_category: exit_status_category.map(str::to_string),
         };
         let mut bytes = serde_json::to_vec(&record).map_err(|_| "serialization-failed")?;
         bytes.push(b'\n');
@@ -657,6 +761,32 @@ fn valid_record(record: &LocalLogRecord) -> bool {
         && sanitize_error_code(&record.error_code) == record.error_code
         && record.message == message_for_error(&record.error_code)
         && record.stack == "redacted"
+        && valid_file_dialog_metadata(record)
+}
+
+fn valid_file_dialog_metadata(record: &LocalLogRecord) -> bool {
+    match (
+        record.dialog_kind.as_deref(),
+        record.failure_phase.as_deref(),
+        record.exit_status_category.as_deref(),
+    ) {
+        (None, None, None) => true,
+        (Some(dialog), Some(phase), Some(exit_status)) => {
+            matches!(
+                dialog,
+                "save-destination" | "open-external-source" | "diagnostic-export"
+            ) && matches!(
+                phase,
+                "command"
+                    | "dialog-process"
+                    | "response-parse"
+                    | "path-validation"
+                    | "selection-store"
+            ) && matches!(exit_status, "success" | "non-zero" | "unavailable")
+                && record.component == "file-dialog"
+        }
+        _ => false,
+    }
 }
 
 fn build_diagnostic_document(
@@ -840,7 +970,37 @@ fn sanitize_component(value: &str) -> &'static str {
         "lifecycle" => "lifecycle",
         "storage" => "storage",
         "backup" => "backup",
+        "file-dialog" => "file-dialog",
         _ => "internal",
+    }
+}
+
+fn sanitize_dialog_kind(value: &str) -> &'static str {
+    match value {
+        "save-destination" => "save-destination",
+        "open-external-source" => "open-external-source",
+        "diagnostic-export" => "diagnostic-export",
+        _ => "unknown",
+    }
+}
+
+fn sanitize_failure_phase(value: &str) -> &'static str {
+    match value {
+        "command" => "command",
+        "dialog-process" => "dialog-process",
+        "response-parse" => "response-parse",
+        "path-validation" => "path-validation",
+        "selection-store" => "selection-store",
+        _ => "unknown",
+    }
+}
+
+fn sanitize_exit_status(value: &str) -> &'static str {
+    match value {
+        "success" => "success",
+        "non-zero" => "non-zero",
+        "unavailable" => "unavailable",
+        _ => "unknown",
     }
 }
 
@@ -865,14 +1025,24 @@ fn sanitize_error_code(value: &str) -> &'static str {
         "startup-recovery-failed" => "startup-recovery-failed",
         "restore-operation-failed" => "restore-operation-failed",
         "pending-restore-failed" => "pending-restore-failed",
+        "command-unavailable" => "command-unavailable",
         "dialog-unavailable" => "dialog-unavailable",
         "dialog-error" => "dialog-error",
         "dialog-invalid-response" => "dialog-invalid-response",
+        "dialog-response-too-large" => "dialog-response-too-large",
         "unsupported-platform" => "unsupported-platform",
         "selection-store-failed" => "selection-store-failed",
         "selection-not-found" => "selection-not-found",
         "selection-kind-mismatch" => "selection-kind-mismatch",
         "invalid-selection" => "invalid-selection",
+        "invalid-path" => "invalid-path",
+        "relative-path" => "relative-path",
+        "unsafe-path" => "unsafe-path",
+        "managed-path" => "managed-path",
+        "symlink-path" => "symlink-path",
+        "path-unavailable" => "path-unavailable",
+        "path-not-file" => "path-not-file",
+        "path-not-found" => "path-not-found",
         "invalid-request" => "invalid-request",
         "unsupported-protocol-version" => "unsupported-protocol-version",
         "destination-exists" => "destination-exists",
@@ -1103,6 +1273,9 @@ mod tests {
             error_code: "internal-error".to_string(),
             message: message_for_error("internal-error").to_string(),
             stack: "redacted".to_string(),
+            dialog_kind: None,
+            failure_phase: None,
+            exit_status_category: None,
         };
         let mut line = serde_json::to_vec(&record).expect("encode record");
         line.resize(LOG_FILE_MAX_BYTES - 1, b' ');
@@ -1207,6 +1380,61 @@ mod tests {
         let text = encoded.to_string();
         assert!(!text.contains("command-worker-failed"));
         assert!(!text.contains("path"));
+        let _ = fs::remove_dir_all(directory);
+    }
+
+    #[test]
+    fn file_dialog_metadata_is_allowlisted_and_contains_no_user_data() {
+        let directory = temp_directory("file-dialog-metadata");
+        let writer = LocalLogWriter::new(directory.clone());
+        writer
+            .append_failure_with_metadata(
+                "file-dialog",
+                "dialog-invalid-response",
+                SystemTime::now(),
+                Some("open-external-source"),
+                Some("response-parse"),
+                Some("non-zero"),
+            )
+            .expect("write file-dialog metadata");
+        let entries: Vec<_> = fs::read_dir(&directory).expect("read logs").collect();
+        assert_eq!(entries.len(), 1);
+        let contents =
+            fs::read_to_string(entries[0].as_ref().expect("entry").path()).expect("read record");
+        assert!(contents.contains("\"dialogKind\":\"open-external-source\""));
+        assert!(contents.contains("\"failurePhase\":\"response-parse\""));
+        assert!(contents.contains("\"exitStatusCategory\":\"non-zero\""));
+        assert!(!contents.contains("/Users/"));
+        assert!(!contents.contains(".sqlite"));
+        assert!(!contents.contains("selection-id"));
+
+        let document = writer
+            .build_document(SystemTime::now())
+            .expect("build document");
+        let record = &document.error_log[0];
+        assert_eq!(record.component, "file-dialog");
+        assert_eq!(record.error_code, "dialog-invalid-response");
+        assert_eq!(record.dialog_kind.as_deref(), Some("open-external-source"));
+        assert_eq!(record.failure_phase.as_deref(), Some("response-parse"));
+        assert_eq!(record.exit_status_category.as_deref(), Some("non-zero"));
+        let _ = fs::remove_dir_all(directory);
+    }
+
+    #[test]
+    fn file_dialog_metadata_rejects_partial_metadata() {
+        let directory = temp_directory("file-dialog-partial");
+        let writer = LocalLogWriter::new(directory.clone());
+        assert_eq!(
+            writer.append_failure_with_metadata(
+                "file-dialog",
+                "dialog-error",
+                SystemTime::now(),
+                Some("save-destination"),
+                None,
+                Some("success"),
+            ),
+            Err("invalid-file-dialog-metadata")
+        );
         let _ = fs::remove_dir_all(directory);
     }
 }

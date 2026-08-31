@@ -8,7 +8,7 @@ use std::fs;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpStream;
 use std::path::{Component, Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, Command, ExitStatus, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
@@ -329,6 +329,81 @@ impl DesktopFileDialogKind {
     fn requires_existing_file(self) -> bool {
         matches!(self, Self::OpenExternalSource)
     }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum DesktopFileDialogFailurePhase {
+    Command,
+    DialogProcess,
+    ResponseParse,
+    PathValidation,
+    SelectionStore,
+}
+
+impl DesktopFileDialogFailurePhase {
+    fn wire_name(self) -> &'static str {
+        match self {
+            Self::Command => "command",
+            Self::DialogProcess => "dialog-process",
+            Self::ResponseParse => "response-parse",
+            Self::PathValidation => "path-validation",
+            Self::SelectionStore => "selection-store",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum DesktopFileDialogExitStatus {
+    Success,
+    NonZero,
+    Unavailable,
+}
+
+impl DesktopFileDialogExitStatus {
+    fn wire_name(self) -> &'static str {
+        match self {
+            Self::Success => "success",
+            Self::NonZero => "non-zero",
+            Self::Unavailable => "unavailable",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct DesktopFileDialogFailure {
+    pub(crate) phase: DesktopFileDialogFailurePhase,
+    pub(crate) error_code: &'static str,
+    pub(crate) exit_status: DesktopFileDialogExitStatus,
+}
+
+impl DesktopFileDialogFailure {
+    pub(crate) fn new(
+        phase: DesktopFileDialogFailurePhase,
+        error_code: &'static str,
+        exit_status: DesktopFileDialogExitStatus,
+    ) -> Self {
+        Self {
+            phase,
+            error_code,
+            exit_status,
+        }
+    }
+
+    pub(crate) fn record(self, app: &AppHandle, dialog: DesktopFileDialogKind) {
+        crate::diagnostics::record_file_dialog_failure_for_app(
+            app,
+            dialog.wire_name(),
+            self.phase.wire_name(),
+            self.error_code,
+            self.exit_status.wire_name(),
+        );
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct DesktopNativeFileDialogSelection {
+    pub(crate) path: PathBuf,
+    pub(crate) exit_status: DesktopFileDialogExitStatus,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -951,15 +1026,50 @@ end try"#
 #[cfg(target_os = "macos")]
 pub(crate) fn run_native_file_dialog(
     dialog: DesktopFileDialogKind,
-) -> Result<Option<PathBuf>, &'static str> {
+) -> Result<Option<DesktopNativeFileDialogSelection>, DesktopFileDialogFailure> {
     let output = Command::new(DESKTOP_DIALOG_BINARY)
         .args(["-e", desktop_file_dialog_script(dialog)])
         .output()
-        .map_err(|_| "dialog-unavailable")?;
-    if output.stdout.len() > MAX_DESKTOP_DIALOG_OUTPUT_BYTES {
-        return Err("dialog-response-too-large");
+        .map_err(|_| {
+            DesktopFileDialogFailure::new(
+                DesktopFileDialogFailurePhase::DialogProcess,
+                "dialog-unavailable",
+                DesktopFileDialogExitStatus::Unavailable,
+            )
+        })?;
+    parse_native_file_dialog_output(&output.status, &output.stdout)
+}
+
+fn parse_native_file_dialog_output(
+    status: &ExitStatus,
+    stdout: &[u8],
+) -> Result<Option<DesktopNativeFileDialogSelection>, DesktopFileDialogFailure> {
+    let exit_status = if status.success() {
+        DesktopFileDialogExitStatus::Success
+    } else {
+        DesktopFileDialogExitStatus::NonZero
+    };
+    parse_native_file_dialog_output_with_status(exit_status, stdout)
+}
+
+fn parse_native_file_dialog_output_with_status(
+    exit_status: DesktopFileDialogExitStatus,
+    stdout: &[u8],
+) -> Result<Option<DesktopNativeFileDialogSelection>, DesktopFileDialogFailure> {
+    if stdout.len() > MAX_DESKTOP_DIALOG_OUTPUT_BYTES {
+        return Err(DesktopFileDialogFailure::new(
+            DesktopFileDialogFailurePhase::ResponseParse,
+            "dialog-response-too-large",
+            exit_status,
+        ));
     }
-    let output = String::from_utf8(output.stdout).map_err(|_| "dialog-invalid-response")?;
+    let output = String::from_utf8(stdout.to_vec()).map_err(|_| {
+        DesktopFileDialogFailure::new(
+            DesktopFileDialogFailurePhase::ResponseParse,
+            "dialog-invalid-response",
+            exit_status,
+        )
+    })?;
     let output = output
         .trim_end_matches(|character| character == '\r' || character == '\n')
         .replace("\r\n", "\n");
@@ -970,18 +1080,33 @@ pub(crate) fn run_native_file_dialog(
         .strip_prefix("selected\n")
         .filter(|path| !path.is_empty())
         .ok_or(if output == "error" {
-            "dialog-error"
+            DesktopFileDialogFailure::new(
+                DesktopFileDialogFailurePhase::ResponseParse,
+                "dialog-error",
+                exit_status,
+            )
         } else {
-            "dialog-invalid-response"
+            DesktopFileDialogFailure::new(
+                DesktopFileDialogFailurePhase::ResponseParse,
+                "dialog-invalid-response",
+                exit_status,
+            )
         })?;
-    Ok(Some(PathBuf::from(path)))
+    Ok(Some(DesktopNativeFileDialogSelection {
+        path: PathBuf::from(path),
+        exit_status,
+    }))
 }
 
 #[cfg(not(target_os = "macos"))]
 pub(crate) fn run_native_file_dialog(
     _dialog: DesktopFileDialogKind,
-) -> Result<Option<PathBuf>, &'static str> {
-    Err("unsupported-platform")
+) -> Result<Option<DesktopNativeFileDialogSelection>, DesktopFileDialogFailure> {
+    Err(DesktopFileDialogFailure::new(
+        DesktopFileDialogFailurePhase::DialogProcess,
+        "unsupported-platform",
+        DesktopFileDialogExitStatus::Unavailable,
+    ))
 }
 
 fn choose_data_backup_file(
@@ -989,42 +1114,62 @@ fn choose_data_backup_file(
     dialog: DesktopFileDialogKind,
 ) -> DesktopFileDialogResult {
     let Some(storage) = app.try_state::<StorageLayout>() else {
-        return desktop_file_dialog_result(
-            dialog,
-            false,
-            "error",
-            None,
-            Some("storage-unavailable"),
+        let failure = DesktopFileDialogFailure::new(
+            DesktopFileDialogFailurePhase::Command,
+            "storage-unavailable",
+            DesktopFileDialogExitStatus::Unavailable,
         );
+        failure.record(app, dialog);
+        return desktop_file_dialog_result(dialog, false, "error", None, Some(failure.error_code));
     };
     let Some(selection_store) = app.try_state::<DesktopFileSelectionStore>() else {
-        return desktop_file_dialog_result(
-            dialog,
-            false,
-            "error",
-            None,
-            Some("selection-store-failed"),
+        let failure = DesktopFileDialogFailure::new(
+            DesktopFileDialogFailurePhase::Command,
+            "selection-store-failed",
+            DesktopFileDialogExitStatus::Unavailable,
         );
+        failure.record(app, dialog);
+        return desktop_file_dialog_result(dialog, false, "error", None, Some(failure.error_code));
     };
-    let path = match run_native_file_dialog(dialog) {
-        Ok(Some(path)) => path,
+    let selection = match run_native_file_dialog(dialog) {
+        Ok(Some(selection)) => selection,
         Ok(None) => return desktop_file_dialog_result(dialog, false, "cancelled", None, None),
-        Err(error_code) => {
-            return desktop_file_dialog_result(dialog, false, "error", None, Some(error_code));
+        Err(failure) => {
+            failure.record(app, dialog);
+            return desktop_file_dialog_result(
+                dialog,
+                false,
+                "error",
+                None,
+                Some(failure.error_code),
+            );
         }
     };
     if let Err(error_code) = validate_external_file_path(
-        &path,
+        &selection.path,
         storage.application_support_root(),
         dialog.requires_existing_file(),
     ) {
+        DesktopFileDialogFailure::new(
+            DesktopFileDialogFailurePhase::PathValidation,
+            error_code,
+            selection.exit_status,
+        )
+        .record(app, dialog);
         return desktop_file_dialog_result(dialog, false, "error", None, Some(error_code));
     }
-    match selection_store.inner().insert(dialog, path) {
+    let exit_status = selection.exit_status;
+    match selection_store.inner().insert(dialog, selection.path) {
         Ok(selection) => {
             desktop_file_dialog_result(dialog, true, "selected", Some(selection), None)
         }
         Err(error_code) => {
+            DesktopFileDialogFailure::new(
+                DesktopFileDialogFailurePhase::SelectionStore,
+                error_code,
+                exit_status,
+            )
+            .record(app, dialog);
             desktop_file_dialog_result(dialog, false, "error", None, Some(error_code))
         }
     }
@@ -2686,6 +2831,94 @@ mod tests {
         }
 
         assert_eq!(packaged_node_binary(directory.path()).unwrap(), node_path);
+    }
+
+    fn fixture_exit_status(code: i32) -> ExitStatus {
+        Command::new("/bin/sh")
+            .args(["-c", &format!("exit {code}")])
+            .status()
+            .expect("run exit-status fixture")
+    }
+
+    #[test]
+    fn native_dialog_spawn_failure_is_process_phase_and_unavailable() {
+        let failure = DesktopFileDialogFailure::new(
+            DesktopFileDialogFailurePhase::DialogProcess,
+            "dialog-unavailable",
+            DesktopFileDialogExitStatus::Unavailable,
+        );
+        assert_eq!(failure.phase.wire_name(), "dialog-process");
+        assert_eq!(failure.error_code, "dialog-unavailable");
+        assert_eq!(failure.exit_status.wire_name(), "unavailable");
+    }
+
+    #[test]
+    fn native_dialog_non_zero_process_is_bounded_without_changing_typed_error() {
+        let status = fixture_exit_status(17);
+        let failure = parse_native_file_dialog_output(&status, b"error\n")
+            .expect_err("AppleScript error marker must fail");
+        assert_eq!(failure.phase, DesktopFileDialogFailurePhase::ResponseParse);
+        assert_eq!(failure.error_code, "dialog-error");
+        assert_eq!(failure.exit_status, DesktopFileDialogExitStatus::NonZero);
+    }
+
+    #[test]
+    fn native_dialog_response_failures_are_phase_and_status_typed() {
+        let cases = [
+            (
+                vec![b'x'; MAX_DESKTOP_DIALOG_OUTPUT_BYTES + 1],
+                "dialog-response-too-large",
+            ),
+            (vec![0xff, 0xfe], "dialog-invalid-response"),
+            (b"unexpected".to_vec(), "dialog-invalid-response"),
+            (b"error\n".to_vec(), "dialog-error"),
+        ];
+        for (stdout, error_code) in cases {
+            let failure = parse_native_file_dialog_output_with_status(
+                DesktopFileDialogExitStatus::Success,
+                &stdout,
+            )
+            .expect_err("invalid native response must fail");
+            assert_eq!(failure.phase, DesktopFileDialogFailurePhase::ResponseParse);
+            assert_eq!(failure.error_code, error_code);
+            assert_eq!(failure.exit_status, DesktopFileDialogExitStatus::Success);
+        }
+    }
+
+    #[test]
+    fn native_dialog_cancel_and_selection_preserve_existing_semantics() {
+        assert_eq!(
+            parse_native_file_dialog_output_with_status(
+                DesktopFileDialogExitStatus::Success,
+                b"cancel\n",
+            )
+            .expect("cancel parses"),
+            None
+        );
+        let selection = parse_native_file_dialog_output_with_status(
+            DesktopFileDialogExitStatus::Success,
+            b"selected\n/temporary/external.sqlite\n",
+        )
+        .expect("selection parses")
+        .expect("selection exists");
+        assert_eq!(selection.path, PathBuf::from("/temporary/external.sqlite"));
+        assert_eq!(selection.exit_status, DesktopFileDialogExitStatus::Success);
+    }
+
+    #[test]
+    fn native_dialog_later_failures_keep_the_required_phase_categories() {
+        let path_failure = DesktopFileDialogFailure::new(
+            DesktopFileDialogFailurePhase::PathValidation,
+            "path-not-found",
+            DesktopFileDialogExitStatus::Success,
+        );
+        let store_failure = DesktopFileDialogFailure::new(
+            DesktopFileDialogFailurePhase::SelectionStore,
+            "selection-store-failed",
+            DesktopFileDialogExitStatus::Success,
+        );
+        assert_eq!(path_failure.phase.wire_name(), "path-validation");
+        assert_eq!(store_failure.phase.wire_name(), "selection-store");
     }
 
     #[cfg(debug_assertions)]
