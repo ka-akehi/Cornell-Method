@@ -345,11 +345,11 @@ test("mobile header / overlay の focus trap、close、scroll lock 契約は維�
   );
   assert.match(
     appShell,
-    /\.app-chrome-create-link--mobile\s*\{[\s\S]*width:\s*100%;[\s\S]*height:\s*2\.75rem;[\s\S]*min-height:\s*2\.75rem;[\s\S]*background:\s*var\(--app-accent-deep\);[\s\S]*color:\s*#fffaf1;/,
+    /\.app-chrome-create-link--mobile\s*\{[\s\S]*width:\s*100%;[\s\S]*height:\s*2\.75rem;[\s\S]*min-height:\s*2\.75rem;[\s\S]*background:\s*var\(--app-accent-deep\);[\s\S]*color:\s*(?:#fffaf1|var\(--app-accent-contrast\));/,
   );
   assert.match(
     appShell,
-    /\.app-chrome-create-link--mobile:(?:hover|active)[\s\S]*background:\s*var\(--app-accent-deep\);[\s\S]*color:\s*#fffaf1;/,
+    /\.app-chrome-create-link--mobile:(?:hover|active)[\s\S]*background:\s*var\(--app-accent-deep\);[\s\S]*color:\s*(?:#fffaf1|var\(--app-accent-contrast\));/,
   );
   assert.match(
     appShell,

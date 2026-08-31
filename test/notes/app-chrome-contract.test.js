@@ -555,7 +555,7 @@ test("desktop sidebar geometry と visual state は 256px / 56px rail 契約を�
   assert.match(createRule, /border:\s*0;/);
   assert.match(createRule, /border-radius:\s*0\.5rem;/);
   assert.match(createRule, /background:\s*var\(--app-accent-deep\);/);
-  assert.match(createRule, /color:\s*#fffaf1;/);
+  assert.match(createRule, /color:\s*(?:#fffaf1|var\(--app-accent-contrast\));/);
   const collapsedControlWidthRule = readRule(
     appShell,
     ".app-chrome-shell.is-rail-collapsed .app-chrome-create-link--desktop,\n.app-chrome-shell.is-rail-collapsed .app-chrome-nav--desktop {",
@@ -622,7 +622,7 @@ test("desktop sidebar geometry と visual state は 256px / 56px rail 契約を�
   );
   assert.match(
     appShell,
-    /\.app-chrome-nav-link--desktop\[aria-current="page"\]\s*\{[\s\S]*background:\s*var\(--app-accent-soft\);[\s\S]*color:\s*var\(--app-accent-deep\);/,
+    /\.app-chrome-nav-link--desktop\[aria-current="page"\]\s*\{[\s\S]*background:\s*var\(--app-(?:accent-soft|active)\);[\s\S]*color:\s*var\(--app-accent-deep\);/,
   );
   assert.match(
     appShell,
