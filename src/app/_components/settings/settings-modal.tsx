@@ -1523,11 +1523,21 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
   const tabRefs = useRef<
     Record<SettingsCategoryId, HTMLButtonElement | null>
   >({
+    general: null,
     updates: null,
     "data-and-backup": null,
   });
   const [activeCategory, setActiveCategory] =
     useState<SettingsCategoryId>("updates");
+
+  useEffect(() => {
+    const previousBodyOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
+    return () => {
+      document.body.style.overflow = previousBodyOverflow;
+    };
+  }, []);
 
   useEffect(() => {
     const dialog = dialogRef.current;
@@ -1539,6 +1549,10 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
     (closeButtonRef.current ?? focusableElements[0] ?? dialog).focus();
 
     const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented) {
+        return;
+      }
+
       if (event.key === "Escape") {
         event.preventDefault();
         onClose();
@@ -1630,15 +1644,11 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
         role="dialog"
         aria-modal="true"
         aria-labelledby="settings-modal-title"
-        aria-describedby="settings-modal-description"
         tabIndex={-1}
       >
         <header className={styles.header}>
           <div>
             <h2 id="settings-modal-title">設定</h2>
-            <p id="settings-modal-description" className={styles.description}>
-              アプリの設定を確認できます。
-            </p>
           </div>
           <button
             ref={closeButtonRef}
@@ -1696,7 +1706,9 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
                   tabIndex={isActive ? 0 : -1}
                   hidden={!isActive}
                 >
-                  <SettingsCategoryPanel category={category.id} />
+                  <SettingsCategoryPanel
+                    category={category.id}
+                  />
                 </div>
               );
             })}

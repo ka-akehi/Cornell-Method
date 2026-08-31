@@ -71,6 +71,7 @@ test("Settings UI exposes three keyboard-navigable categories", () => {
   assert.match(modal, /label: "データとバックアップ"/);
   assert.doesNotMatch(modal, /利用形態|ローカル利用|読み取り専用/);
   assert.doesNotMatch(modal, /<p className=\{styles\.eyebrow\}>設定<\/p>/);
+  assert.doesNotMatch(modal, /アプリの設定を確認できます/);
   assert.doesNotMatch(modal, /<p className=\{styles\.panelKicker\}>一般<\/p>/);
   assert.doesNotMatch(modal, /<p className=\{styles\.panelKicker\}>更新<\/p>/);
   assert.doesNotMatch(
@@ -322,7 +323,7 @@ test("Settings modal keeps dialog and focus behavior in the separated component"
   assert.match(modal, /role="dialog"/);
   assert.match(modal, /aria-modal="true"/);
   assert.match(modal, /aria-labelledby="settings-modal-title"/);
-  assert.match(modal, /aria-describedby="settings-modal-description"/);
+  assert.doesNotMatch(modal, /aria-describedby="settings-modal-description"/);
   assert.match(modal, /aria-label="設定を閉じる"/);
   assert.match(modal, /event\.key === "Escape"/);
   assert.match(modal, /event\.key !== "Tab"/);
@@ -331,6 +332,10 @@ test("Settings modal keeps dialog and focus behavior in the separated component"
   assert.match(entrypoint, /elementToFocus\.focus\(\)/);
   assert.match(entrypoint, /triggerRef\.current\?\.focus\(\)/);
   assert.match(modal, /createPortal\(modal, document\.body\)/);
+  assert.match(modal, /const previousBodyOverflow = document\.body\.style\.overflow/);
+  assert.match(modal, /document\.body\.style\.overflow = "hidden"/);
+  assert.match(modal, /document\.body\.style\.overflow = previousBodyOverflow/);
+  assert.match(css, /\.panelRegion\s*\{[\s\S]*overscroll-behavior:\s*contain;/);
   assert.match(
     entrypoint,
     /<SettingsModal onClose=\{closeSettings\} \/>/,
@@ -358,7 +363,7 @@ test("Settings UI does not add another window, runtime, filesystem, or API path"
     /window\.open|WebviewWindow|new window|new WebView|Tauri|runtime|filesystem|Prisma|fetch\(|axios|invoke\(|child_process|\bfs\./i,
   );
   assert.doesNotMatch(
-    source,
+    readSource("src/app/_components/settings/settings-modal.tsx"),
     /href="\/backup"|既存のバックアップ画面を開く/,
   );
 });
