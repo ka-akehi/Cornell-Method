@@ -34,6 +34,7 @@ const INSTANCE_OWNER_FILE: &str = ".instance.owner";
 const INSTANCE_SOCKET_FILE: &str = ".instance.sock";
 const INSTANCE_SOCKET_DIRECTORY_PREFIX: &str = "cmn-";
 const INSTANCE_SOCKET_HASH_HEX_LENGTH: usize = 24;
+const MACOS_UNIX_SOCKET_PATH_LIMIT: usize = 104;
 const INSTANCE_SCHEMA_VERSION: u32 = 1;
 const FOCUS_RETRY_COUNT: usize = 20;
 const FOCUS_RETRY_DELAY: Duration = Duration::from_millis(100);
@@ -111,14 +112,51 @@ enum FocusAttempt {
     Unknown,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum FocusSocketCheckStage {
+    SocketConnect,
+    MetadataLookup,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct SanitizedIoError {
+    stage: FocusSocketCheckStage,
+    kind: std::io::ErrorKind,
+    raw_os_error: Option<i32>,
+}
+
+impl SanitizedIoError {
+    fn from_error(stage: FocusSocketCheckStage, error: &std::io::Error) -> Self {
+        Self {
+            stage,
+            kind: error.kind(),
+            raw_os_error: error.raw_os_error(),
+        }
+    }
+
+    fn diagnostic(&self) -> String {
+        let stage = match self.stage {
+            FocusSocketCheckStage::SocketConnect => "socket-connect",
+            FocusSocketCheckStage::MetadataLookup => "metadata-lookup",
+        };
+        let raw_os_error = self
+            .raw_os_error
+            .map_or_else(|| "unset".to_string(), |code| code.to_string());
+        format!(
+            "stage={stage} kind={:?} raw_os_error={raw_os_error}",
+            self.kind
+        )
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 enum FocusSocketStatus {
     Missing,
     Stale,
     Active,
     Unknown,
     PermissionDenied,
-    Unavailable,
+    Unavailable(SanitizedIoError),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -184,16 +222,32 @@ fn focus_socket_identity_for(application_id: &str, settings_directory: &Path) ->
     encoded
 }
 
+fn fallback_focus_socket_root() -> PathBuf {
+    PathBuf::from("/tmp").join(format!("{INSTANCE_SOCKET_DIRECTORY_PREFIX}{}", unsafe {
+        libc::geteuid()
+    }))
+}
+
+fn focus_socket_path_is_bounded(path: &Path) -> bool {
+    path.as_os_str().as_bytes().len() < MACOS_UNIX_SOCKET_PATH_LIMIT
+}
+
 fn focus_socket_path_at_for(
     temp_directory: &Path,
     settings_directory: &Path,
     application_id: &str,
 ) -> PathBuf {
-    temp_directory
-        .join(format!(
-            "{INSTANCE_SOCKET_DIRECTORY_PREFIX}{}",
-            focus_socket_identity_for(application_id, settings_directory)
-        ))
+    let identity = focus_socket_identity_for(application_id, settings_directory);
+    let socket_directory = format!("{INSTANCE_SOCKET_DIRECTORY_PREFIX}{identity}");
+    let candidate = temp_directory
+        .join(&socket_directory)
+        .join(INSTANCE_SOCKET_FILE);
+    if focus_socket_path_is_bounded(&candidate) {
+        return candidate;
+    }
+
+    fallback_focus_socket_root()
+        .join(socket_directory)
         .join(INSTANCE_SOCKET_FILE)
 }
 
@@ -226,6 +280,14 @@ fn prepare_focus_socket_directory(socket_path: &Path) -> AppResult<()> {
     let directory = socket_path
         .parent()
         .ok_or_else(|| "single-instance focus socket has no parent directory".to_string())?;
+
+    let fallback_root = fallback_focus_socket_root();
+    if directory.starts_with(&fallback_root) {
+        fs::create_dir_all(&fallback_root)
+            .map_err(|error| format!("cannot create focus socket root: {error}"))?;
+        fs::set_permissions(&fallback_root, fs::Permissions::from_mode(0o700))
+            .map_err(|error| format!("cannot secure focus socket root: {error}"))?;
+    }
     fs::create_dir_all(directory)
         .map_err(|error| format!("cannot create focus socket directory: {error}"))?;
     fs::set_permissions(directory, fs::Permissions::from_mode(0o700))
@@ -446,14 +508,26 @@ fn focus_socket_status(socket_path: &Path, timeout: Duration) -> FocusSocketStat
                 {
                     FocusSocketStatus::PermissionDenied
                 }
-                Err(_) => FocusSocketStatus::Unavailable,
+                Err(metadata_error) => {
+                    FocusSocketStatus::Unavailable(SanitizedIoError::from_error(
+                        FocusSocketCheckStage::MetadataLookup,
+                        &metadata_error,
+                    ))
+                }
             }
         }
         Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied => {
             FocusSocketStatus::PermissionDenied
         }
-        Err(_) => FocusSocketStatus::Unavailable,
+        Err(error) => focus_socket_status_unavailable(FocusSocketCheckStage::SocketConnect, &error),
     }
+}
+
+fn focus_socket_status_unavailable(
+    stage: FocusSocketCheckStage,
+    error: &std::io::Error,
+) -> FocusSocketStatus {
+    FocusSocketStatus::Unavailable(SanitizedIoError::from_error(stage, error))
 }
 
 fn bind_focus_listener(socket_path: &Path) -> AppResult<UnixListener> {
@@ -488,8 +562,11 @@ fn bind_focus_listener_with_status(
         FocusSocketStatus::PermissionDenied => {
             return Err("single-instance focus endpoint permission was denied".to_string());
         }
-        FocusSocketStatus::Unavailable => {
-            return Err("single-instance focus endpoint could not be checked".to_string());
+        FocusSocketStatus::Unavailable(diagnostic) => {
+            return Err(format!(
+                "single-instance focus endpoint could not be checked ({})",
+                diagnostic.diagnostic()
+            ));
         }
     }
 
@@ -683,8 +760,15 @@ mod tests {
         let first_path = focus_socket_path_at(temp_directory, &first_settings);
         let first_path_again = focus_socket_path_at(temp_directory, &first_settings);
         let second_path = focus_socket_path_at(temp_directory, &second_settings);
+        let expected_first_path = temp_directory
+            .join(format!(
+                "{INSTANCE_SOCKET_DIRECTORY_PREFIX}{}",
+                focus_socket_identity_for(desktop_application_id(), &first_settings)
+            ))
+            .join(INSTANCE_SOCKET_FILE);
 
         assert_eq!(first_path, first_path_again);
+        assert_eq!(first_path, expected_first_path);
         assert_ne!(first_path, second_path);
         assert_eq!(
             first_path
@@ -693,7 +777,7 @@ mod tests {
                 .map(|name| name.len()),
             Some(INSTANCE_SOCKET_DIRECTORY_PREFIX.len() + INSTANCE_SOCKET_HASH_HEX_LENGTH)
         );
-        assert!(first_path.as_os_str().as_bytes().len() < 104);
+        assert!(focus_socket_path_is_bounded(&first_path));
         assert!(!first_path
             .as_os_str()
             .as_bytes()
@@ -702,18 +786,40 @@ mod tests {
     }
 
     #[test]
-    fn long_storage_path_focus_socket_binds_within_macos_path_limit() {
+    fn long_temp_and_storage_paths_use_a_deterministic_bounded_fallback() {
         let directory = test_directory("bounded-socket");
         let long_component = "x".repeat(120);
+        let long_temp_directory = PathBuf::from("/tmp").join(&long_component);
         let settings_directory = PathBuf::from("/")
             .join(&long_component)
             .join(&long_component)
             .join(directory.file_name().expect("test directory has a name"))
             .join("settings");
-        let socket_path = focus_socket_path(&settings_directory);
+        let socket_path =
+            focus_socket_path_at_for(&long_temp_directory, &settings_directory, APPLICATION_ID);
+        let socket_path_again =
+            focus_socket_path_at_for(&long_temp_directory, &settings_directory, APPLICATION_ID);
+        let expected_socket_path = fallback_focus_socket_root()
+            .join(format!(
+                "{INSTANCE_SOCKET_DIRECTORY_PREFIX}{}",
+                focus_socket_identity_for(APPLICATION_ID, &settings_directory)
+            ))
+            .join(INSTANCE_SOCKET_FILE);
 
-        assert!(socket_path.as_os_str().as_bytes().len() < 104);
+        assert_eq!(socket_path, socket_path_again);
+        assert_eq!(socket_path, expected_socket_path);
+        assert!(focus_socket_path_is_bounded(&socket_path));
+        assert!(!socket_path.starts_with(&long_temp_directory));
+        assert!(!socket_path.starts_with(&settings_directory));
         prepare_focus_socket_directory(&socket_path).unwrap();
+        assert_eq!(
+            fs::metadata(fallback_focus_socket_root())
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o777,
+            0o700
+        );
         assert_eq!(
             fs::metadata(socket_path.parent().expect("socket has a parent"))
                 .unwrap()
@@ -1057,6 +1163,47 @@ mod tests {
         assert!(paths.socket_path.exists());
 
         fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn unavailable_endpoint_diagnostic_is_structured_and_path_free() {
+        let sensitive_path = "/Users/example/Library/Application Support/Cornell/secret.sock";
+        let connect_error = std::io::Error::from_raw_os_error(libc::ENOTSOCK);
+        let connect_status =
+            focus_socket_status_unavailable(FocusSocketCheckStage::SocketConnect, &connect_error);
+        let FocusSocketStatus::Unavailable(connect_diagnostic) = connect_status else {
+            panic!("expected unavailable connect status");
+        };
+        let connect_message = bind_focus_listener_with_status(
+            Path::new(sensitive_path),
+            FocusSocketStatus::Unavailable(connect_diagnostic),
+        )
+        .expect_err("unavailable endpoint must fail closed");
+        assert!(connect_message.contains("stage=socket-connect"));
+        assert!(connect_message.contains(&format!("kind={:?}", connect_error.kind())));
+        assert!(connect_message.contains(&format!("raw_os_error={}", libc::ENOTSOCK)));
+        assert!(!connect_message.contains("/Users/"));
+        assert!(!connect_message.contains("secret.sock"));
+
+        let metadata_error = std::io::Error::new(
+            std::io::ErrorKind::Other,
+            format!("metadata failed for {sensitive_path}"),
+        );
+        let FocusSocketStatus::Unavailable(metadata_diagnostic) =
+            focus_socket_status_unavailable(FocusSocketCheckStage::MetadataLookup, &metadata_error)
+        else {
+            panic!("expected unavailable metadata status");
+        };
+        let metadata_message = bind_focus_listener_with_status(
+            Path::new(sensitive_path),
+            FocusSocketStatus::Unavailable(metadata_diagnostic),
+        )
+        .expect_err("unavailable metadata must fail closed");
+        assert!(metadata_message.contains("stage=metadata-lookup"));
+        assert!(metadata_message.contains("kind=Other"));
+        assert!(metadata_message.contains("raw_os_error=unset"));
+        assert!(!metadata_message.contains("/Users/"));
+        assert!(!metadata_message.contains("secret.sock"));
     }
 
     #[test]

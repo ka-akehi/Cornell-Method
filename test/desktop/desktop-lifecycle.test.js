@@ -184,6 +184,12 @@ test("single-instance recovery keeps ownership in a stable advisory lock", () =>
   assert.match(instance, /atomic_write_instance_owner/);
   assert.match(instance, /temporary_file\s*\.sync_all\(\)/);
   assert.match(instance, /fs::rename\(&temporary_path, path\)/);
+  assert.match(instance, /MACOS_UNIX_SOCKET_PATH_LIMIT: usize = 104/);
+  assert.match(instance, /fn fallback_focus_socket_root\(\) -> PathBuf/);
+  assert.match(instance, /libc::geteuid\(\)/);
+  assert.match(instance, /if focus_socket_path_is_bounded\(&candidate\)\s*\{\s*return candidate;/);
+  assert.match(instance, /fallback_focus_socket_root\(\)\s*\.join\(socket_directory\)/);
+  assert.match(instance, /fs::set_permissions\(&fallback_root, fs::Permissions::from_mode\(0o700\)\)/);
   assert.match(instance, /enum InstanceAcquire/);
   assert.match(instance, /AlreadyRunningNotReady/);
   assert.match(main, /start_focus_listener\(socket_path, app\.handle\(\)\.clone\(\)/);

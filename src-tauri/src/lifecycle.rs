@@ -577,7 +577,7 @@ pub(crate) fn run_data_backup_operation_command(
         }
 
         if let Ok(runtime_url) = state.restart_sidecar_for_data_operation(&root, storage.inner()) {
-            mark_database_recovery_ready(app, state);
+            mark_database_recovery_ready(app, state.inner().as_ref());
             navigate_to_restarted_runtime(app, &runtime_url);
             return response;
         }
@@ -836,7 +836,7 @@ pub(crate) fn run_pending_restore_resume_command(
         }
 
         if let Ok(runtime_url) = state.restart_sidecar_for_data_operation(&root, storage.inner()) {
-            mark_database_recovery_ready(app, state);
+            mark_database_recovery_ready(app, state.inner().as_ref());
             navigate_to_restarted_runtime(app, &runtime_url);
             return response;
         }
