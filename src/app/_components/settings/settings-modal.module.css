@@ -46,7 +46,6 @@
 .trigger:focus-visible,
 .closeButton:focus-visible,
 .tab:focus-visible,
-.routeLink:focus-visible,
 .dataBackupButton:focus-visible,
 .dataBackupSecondaryButton:focus-visible,
 .dataBackupInlineButton:focus-visible,
@@ -594,19 +593,6 @@
   overflow-wrap: anywhere;
 }
 
-.routeLink {
-  width: fit-content;
-  margin-top: 0.25rem;
-  color: var(--app-accent-deep);
-  font-size: 0.9rem;
-  font-weight: 700;
-  text-decoration: underline;
-  text-underline-offset: 0.18em;
-}
-
-.routeLink:hover {
-  color: var(--app-ink);
-}
 
 @media (max-width: 640px) {
   .backdrop {

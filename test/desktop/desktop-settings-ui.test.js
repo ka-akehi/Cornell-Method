@@ -326,5 +326,8 @@ test("Settings UI does not add another window, runtime, filesystem, or API path"
     source,
     /window\.open|WebviewWindow|new window|new WebView|Tauri|runtime|filesystem|Prisma|fetch\(|axios|invoke\(|child_process|\bfs\./i,
   );
-  assert.match(source, /href="\/backup"/);
+  assert.doesNotMatch(
+    source,
+    /href="\/backup"|既存のバックアップ画面を開く/,
+  );
 });

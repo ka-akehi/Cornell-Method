@@ -395,7 +395,7 @@ function confirmationDescription(confirmation: DataBackupConfirmation) {
   return "保留中の復元を再開すると、現在のデータが置き換わります。未保存の変更は自動保存・破棄されません。";
 }
 
-function DataAndBackupPanel({ onClose }: { onClose: () => void }) {
+function DataAndBackupPanel() {
   const [catalogState, setCatalogState] = useState<DataBackupCatalogState>(
     initialDataBackupCatalogState,
   );
@@ -921,10 +921,6 @@ function DataAndBackupPanel({ onClose }: { onClose: () => void }) {
   return (
     <div className={styles.panelStack}>
       <h3>データとバックアップ</h3>
-      <p>
-        Desktop のローカルデータを安全に書き出し、確認後に復元できます。Web
-        起動時は操作を実行せず、既存のバックアップ画面を利用してください。
-      </p>
 
       {operationMessage !== null ? (
         <div
@@ -1234,25 +1230,16 @@ function DataAndBackupPanel({ onClose }: { onClose: () => void }) {
         </button>
       </section>
 
-      <a className={styles.routeLink} href="/backup" onClick={onClose}>
-        既存のバックアップ画面を開く
-      </a>
     </div>
   );
 }
 
-function SettingsCategoryPanel({
-  category,
-  onClose,
-}: {
-  category: SettingsCategoryId;
-  onClose: () => void;
-}) {
+function SettingsCategoryPanel({ category }: { category: SettingsCategoryId }) {
   if (category === "updates") {
     return <UpdatesPanel />;
   }
 
-  return <DataAndBackupPanel onClose={onClose} />;
+  return <DataAndBackupPanel />;
 }
 
 type UpdatePanelPhase = "loading" | "idle" | "checking" | "resolved";
@@ -1668,10 +1655,7 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
                   tabIndex={isActive ? 0 : -1}
                   hidden={!isActive}
                 >
-                  <SettingsCategoryPanel
-                    category={category.id}
-                    onClose={onClose}
-                  />
+                  <SettingsCategoryPanel category={category.id} />
                 </div>
               );
             })}
