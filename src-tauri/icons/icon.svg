@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <title>Cornell Method Notebook</title>
+  <path fill="#173F35" d="M176 72h672c57.4 0 104 46.6 104 104v672c0 57.4-46.6 104-104 104H176c-57.4 0-104-46.6-104-104V176C72 118.6 118.6 72 176 72Z"/>
+  <path fill="#F5E7CF" d="M176 136h672c22.1 0 40 17.9 40 40v672c0 22.1-17.9 40-40 40H176c-22.1 0-40-17.9-40-40V176c0-22.1 17.9-40 40-40Z"/>
+  <path fill="#C96A4A" d="M136 176c0-22.1 17.9-40 40-40h208v712H176c-22.1 0-40-17.9-40-40V176Z"/>
+  <path fill="#D7A84A" d="M136 848h752v0c0 22.1-17.9 40-40 40H176c-22.1 0-40-17.9-40-40Z"/>
+  <path fill="#F5E7CF" d="M384 136h24v712h-24z"/>
+  <g fill="#173F35">
+    <rect x="470" y="258" width="328" height="34" rx="17"/>
+    <rect x="470" y="390" width="328" height="34" rx="17"/>
+    <rect x="470" y="522" width="328" height="34" rx="17"/>
+    <rect x="470" y="654" width="256" height="34" rx="17"/>
+  </g>
+</svg>
