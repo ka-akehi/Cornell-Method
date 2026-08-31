@@ -96,7 +96,7 @@ test("Cue scrolling is only mounted when Cue items exist", () => {
 
   assert.match(
     cues,
-    /cues\.length === 0 \?[\s\S]*?note-paper-cue-empty[\s\S]*?: \([\s\S]*?<div className="note-paper-cue-list">[\s\S]*?<ul/,
+    /cues\.length === 0 \?[\s\S]*?note-paper-cue-empty[\s\S]*?: \([\s\S]*?<div[\s\S]*?note-paper-cue-list[\s\S]*?<ul/,
   );
   assert.doesNotMatch(
     cues,
@@ -132,6 +132,9 @@ test("Canvas editor row shares one bounded height while Cue and Canvas keep inde
   assert.match(cues, /note-paper-cue-column/);
   assert.match(cues, /note-paper-cue-list/);
   assert.match(cues, /resize-y/);
+  assert.match(cues, /rows=\{3\}/);
+  assert.match(cues, /<div className="flex min-w-0 items-center justify-between gap-3">[\s\S]*<textarea/);
+  assert.doesNotMatch(cues, /note-paper-cue-list--single|note-paper-cue-item--single/);
   assert.match(
     body,
     /className=\{`note-paper-body-column\$\{bodyMode === "canvas" \? " note-paper-body-column--canvas" : ""\}/,
@@ -156,6 +159,8 @@ test("Canvas editor row shares one bounded height while Cue and Canvas keep inde
     paperStyles,
     /@media \(min-width: 641px\)[\s\S]*?\.note-paper-cornell-grid--editor\s*\{[\s\S]*?align-items: stretch;[\s\S]*?\.note-paper-cue-column\s*\{[\s\S]*?display: flex;[\s\S]*?min-height: 0;[\s\S]*?flex-direction: column;[\s\S]*?\.note-paper-cue-list\s*\{[\s\S]*?min-height: 0;[\s\S]*?flex: 1 1 auto;[\s\S]*?overflow-y: auto;/,
   );
+  assert.doesNotMatch(paperStyles, /note-paper-cue-list--single|note-paper-cue-item--single/);
+  assert.doesNotMatch(paperStyles, /note-paper-cue-textarea\s*\{[\s\S]*?flex:\s*1/);
   assert.doesNotMatch(
     paperStyles,
     /\.note-paper-cue-column\s*\{[^}]*max-height: var\(--note-paper-cornell-scroll-height\);/,
