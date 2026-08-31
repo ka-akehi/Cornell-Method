@@ -1,0 +1,1 @@
+/private/tmp/cornell-method-close-fix-normal-20260831-jYmoS8/tauri-target/aarch64-apple-darwin/release/bundle/macos/Cornell Method Notebook.app

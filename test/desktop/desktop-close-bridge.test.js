@@ -90,6 +90,42 @@ test("desktop close bridge does not send readiness to a non-loopback page", () =
   }
 });
 
+test("desktop close decisions use a fresh transient fragment for repeated choices", async () => {
+  const previousWindow = global.window;
+  const hashes = [];
+  global.window = {
+    location: {
+      protocol: "http:",
+      hostname: "127.0.0.1",
+      port: "43127",
+      set hash(value) {
+        hashes.push(value);
+      },
+    },
+  };
+
+  try {
+    const bridge = loadBridge();
+    assert.equal(await bridge.sendDesktopCloseDecision("cancel"), true);
+    assert.equal(await bridge.sendDesktopCloseDecision("cancel"), true);
+    assert.match(
+      hashes[0],
+      /^cornell-desktop-close=cancel&request=[a-z0-9-]+$/,
+    );
+    assert.match(
+      hashes[1],
+      /^cornell-desktop-close=cancel&request=[a-z0-9-]+$/,
+    );
+    assert.notEqual(hashes[0], hashes[1]);
+  } finally {
+    if (previousWindow === undefined) {
+      delete global.window;
+    } else {
+      global.window = previousWindow;
+    }
+  }
+});
+
 test("close coordinator registers its listener before ready and invalidates it on cleanup", () => {
   const coordinatorPath = path.join(
     projectRoot,

@@ -169,7 +169,9 @@ export async function sendDesktopCloseDecision(
     // The local runtime is an external loopback URL, so it intentionally does
     // not receive the Tauri global API. Rust consumes this transient fragment
     // in WebviewWindowBuilder::on_navigation and cancels the navigation.
-    window.location.hash = `cornell-desktop-close=${decision}`;
+    // A unique request id ensures that repeating the same decision still
+    // produces a navigation after the previous transient fragment was blocked.
+    window.location.hash = `cornell-desktop-close=${decision}&request=${createDesktopCloseBridgeGeneration()}`;
     return true;
   } catch {
     return false;

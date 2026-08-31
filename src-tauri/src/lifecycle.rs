@@ -31,6 +31,7 @@ const UPDATE_STATE_RESULT_EVENT: &str = "cornell:desktop-read-update-state-resul
 const VERIFY_PENDING_UPDATE_REQUEST_FRAGMENT: &str = "cornell-desktop-verify-pending-update";
 const VERIFY_PENDING_UPDATE_RESULT_EVENT: &str = "cornell:desktop-verify-pending-update-result";
 const CLOSE_DECISION_FRAGMENT_PREFIX: &str = "cornell-desktop-close=";
+const CLOSE_DECISION_REQUEST_SUFFIX: &str = "&request=";
 const CLOSE_BRIDGE_READY_FRAGMENT_PREFIX: &str = "cornell-desktop-close-bridge-ready=";
 const CLOSE_BRIDGE_NOT_READY_FRAGMENT_PREFIX: &str = "cornell-desktop-close-bridge-not-ready=";
 const CLOSE_REQUEST_EVENT_SCRIPT: &str =
@@ -78,6 +79,7 @@ struct PendingCloseRequest {
     generation: CloseRequestGeneration,
     sender: mpsc::Sender<CloseDecision>,
     event_dispatched: bool,
+    event_dispatch_fallback_attempted: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -118,6 +120,7 @@ impl CloseCoordinator {
             generation,
             sender,
             event_dispatched: false,
+            event_dispatch_fallback_attempted: false,
         });
         Ok((generation, receiver))
     }
@@ -142,6 +145,23 @@ impl CloseCoordinator {
         true
     }
 
+    fn claim_close_event_dispatch_fallback(&self, generation: CloseRequestGeneration) -> bool {
+        let Ok(mut pending) = self.pending.lock() else {
+            return false;
+        };
+        let Some(request) = pending.as_mut() else {
+            return false;
+        };
+        if request.generation != generation
+            || request.event_dispatched
+            || request.event_dispatch_fallback_attempted
+        {
+            return false;
+        }
+        request.event_dispatch_fallback_attempted = true;
+        true
+    }
+
     fn bridge_ready(&self, generation: &str) -> Option<CloseRequestGeneration> {
         let Ok(mut pending) = self.pending.lock() else {
             return None;
@@ -158,6 +178,7 @@ impl CloseCoordinator {
             return None;
         }
         request.event_dispatched = true;
+        request.event_dispatch_fallback_attempted = false;
         Some(request.generation)
     }
 
@@ -172,6 +193,7 @@ impl CloseCoordinator {
             *bridge_generation = None;
             if let Some(request) = pending.as_mut() {
                 request.event_dispatched = false;
+                request.event_dispatch_fallback_attempted = false;
             }
         }
     }
@@ -184,6 +206,7 @@ impl CloseCoordinator {
             *bridge_generation = None;
             if let Some(request) = pending.as_mut() {
                 request.event_dispatched = false;
+                request.event_dispatch_fallback_attempted = false;
             }
         }
     }
@@ -966,9 +989,16 @@ pub(crate) fn request_close(window: WebviewWindow, app: AppHandle, state: Arc<Ap
     }
     let (generation, receiver) = match state.close.begin() {
         Ok(request) => request,
+        // Keep the first request authoritative. Its bounded waiter remains
+        // responsible for resolving an unresponsive bridge as Cancel.
         Err(_) => return,
     };
-    if state.close.claim_close_event_dispatch(generation) {
+    // Readiness is a bridge health hint, not a prerequisite for dispatch. The
+    // renderer installs its listener before sending the hint, so one direct
+    // fallback also covers a readiness fragment that was rejected or missed.
+    if state.close.claim_close_event_dispatch(generation)
+        || state.close.claim_close_event_dispatch_fallback(generation)
+    {
         if let Err(error) = dispatch_close_request_event(&window) {
             eprintln!("desktop close bridge could not be reached: {error}");
             state.close.clear(generation);
@@ -1027,6 +1057,7 @@ fn handle_close_navigation(
         return None;
     }
     if !is_close_bridge_navigation(url, primary_url) {
+        let _ = close.resolve(CloseDecision::Cancel);
         return Some(CloseNavigation::Block);
     }
 
@@ -1040,6 +1071,7 @@ fn handle_close_navigation(
         );
     }
     if fragment.starts_with(CLOSE_BRIDGE_READY_FRAGMENT_PREFIX) {
+        let _ = close.resolve(CloseDecision::Cancel);
         return Some(CloseNavigation::Block);
     }
 
@@ -1054,13 +1086,28 @@ fn handle_close_navigation(
     }
 
     let Some(decision_value) = fragment.strip_prefix(CLOSE_DECISION_FRAGMENT_PREFIX) else {
+        let _ = close.resolve(CloseDecision::Cancel);
         return Some(CloseNavigation::Block);
     };
-    let Ok(decision) = CloseDecision::parse(decision_value) else {
+    let Ok(decision) = parse_close_decision(decision_value) else {
+        let _ = close.resolve(CloseDecision::Cancel);
         return Some(CloseNavigation::Block);
     };
     let _ = close.resolve(decision);
     Some(CloseNavigation::Block)
+}
+
+fn parse_close_decision(value: &str) -> AppResult<CloseDecision> {
+    let decision_value =
+        if let Some((decision, request_id)) = value.split_once(CLOSE_DECISION_REQUEST_SUFFIX) {
+            if parse_close_bridge_generation(request_id, "").is_none() {
+                return Err("invalid desktop close request id".to_string());
+            }
+            decision
+        } else {
+            value
+        };
+    CloseDecision::parse(decision_value)
 }
 
 fn is_manual_update_check_navigation(url: &tauri::Url, primary_url: &tauri::Url) -> bool {
@@ -1342,6 +1389,23 @@ mod tests {
     }
 
     #[test]
+    fn close_decision_request_ids_do_not_change_the_decision_contract() {
+        for (value, expected) in [
+            ("save", CloseDecision::Save),
+            ("discard", CloseDecision::Discard),
+            ("cancel", CloseDecision::Cancel),
+            ("clean", CloseDecision::Clean),
+        ] {
+            assert_eq!(
+                parse_close_decision(&format!("{value}&request=abc-123")).unwrap(),
+                expected
+            );
+        }
+        assert!(parse_close_decision("discard&request=not valid").is_err());
+        assert!(parse_close_decision("unknown&request=abc-123").is_err());
+    }
+
+    #[test]
     fn pending_close_resolution_delivers_the_decision_once() {
         let close = CloseCoordinator::new();
         let (_, receiver) = close.begin().unwrap();
@@ -1397,6 +1461,28 @@ mod tests {
         );
         assert!(!close.claim_close_event_dispatch(generation));
         assert!(receiver.try_recv().is_err());
+
+        close.resolve(CloseDecision::Cancel).unwrap();
+        assert_eq!(receiver.recv().unwrap(), CloseDecision::Cancel);
+    }
+
+    #[test]
+    fn close_request_fallback_can_be_retried_when_bridge_becomes_ready() {
+        let close = CloseCoordinator::new();
+        let (generation, receiver) = close.begin().unwrap();
+        let primary_url = tauri::Url::parse("http://127.0.0.1:43127/notes").unwrap();
+        let ready_url = tauri::Url::parse(
+            "http://127.0.0.1:43127/notes#cornell-desktop-close-bridge-ready=first",
+        )
+        .unwrap();
+
+        assert!(!close.claim_close_event_dispatch(generation));
+        assert!(close.claim_close_event_dispatch_fallback(generation));
+        assert!(!close.claim_close_event_dispatch_fallback(generation));
+        assert_eq!(
+            handle_close_navigation(&ready_url, &close, &primary_url),
+            Some(CloseNavigation::Dispatch(generation))
+        );
 
         close.resolve(CloseDecision::Cancel).unwrap();
         assert_eq!(receiver.recv().unwrap(), CloseDecision::Cancel);
@@ -1487,7 +1573,6 @@ mod tests {
             Some(CloseNavigation::Block)
         );
         assert!(!close.claim_close_event_dispatch(generation));
-
         close.resolve(CloseDecision::Cancel).unwrap();
         assert_eq!(receiver.recv().unwrap(), CloseDecision::Cancel);
     }
@@ -1508,8 +1593,8 @@ mod tests {
         );
         assert!(!close.claim_close_event_dispatch(generation));
 
-        close.resolve(CloseDecision::Cancel).unwrap();
         assert_eq!(receiver.recv().unwrap(), CloseDecision::Cancel);
+        assert!(close.begin().is_ok());
     }
 
     #[test]
@@ -1565,6 +1650,24 @@ mod tests {
             handle_close_navigation(&unknown_url, &close, &primary_url),
             Some(CloseNavigation::Block)
         );
+    }
+
+    #[test]
+    fn rejected_close_navigation_cancels_the_pending_request() {
+        let close = CloseCoordinator::new();
+        let (_, receiver) = close.begin().unwrap();
+        let primary_url = tauri::Url::parse("http://127.0.0.1:43127/notes").unwrap();
+        let invalid_url = tauri::Url::parse(
+            "http://127.0.0.1:43127/notes#cornell-desktop-close=discard&request=bad_request",
+        )
+        .unwrap();
+
+        assert_eq!(
+            handle_close_navigation(&invalid_url, &close, &primary_url),
+            Some(CloseNavigation::Block)
+        );
+        assert_eq!(receiver.recv().unwrap(), CloseDecision::Cancel);
+        assert!(close.begin().is_ok());
     }
 
     #[test]

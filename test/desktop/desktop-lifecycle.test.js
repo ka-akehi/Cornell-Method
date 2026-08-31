@@ -650,7 +650,35 @@ test("close request cleanup is scoped to the request generation", () => {
   assert.ok(requestCloseStart >= 0 && navigationStart > requestCloseStart);
   const requestClose = lifecycle.slice(requestCloseStart, navigationStart);
   assert.match(requestClose, /let \(generation, receiver\) = match state\.close\.begin\(\)/);
+  assert.match(
+    requestClose,
+    /claim_close_event_dispatch\(generation\)[\s\S]*claim_close_event_dispatch_fallback\(generation\)/,
+  );
   assert.match(requestClose, /state\.close\.clear\(generation\)/);
+});
+
+test("close bridge has a safe direct dispatch fallback and cancels rejected fragments", () => {
+  const lifecycle = fs.readFileSync(
+    path.join(projectRoot, "src-tauri", "src", "lifecycle.rs"),
+    "utf8",
+  );
+
+  assert.match(lifecycle, /event_dispatch_fallback_attempted: bool/);
+  assert.match(lifecycle, /fn claim_close_event_dispatch_fallback\(/);
+  assert.match(
+    lifecycle,
+    /if !is_close_bridge_navigation\(url, primary_url\) \{[\s\S]*close\.resolve\(CloseDecision::Cancel\)/,
+  );
+  assert.match(
+    lifecycle,
+    /if fragment\.starts_with\(CLOSE_BRIDGE_READY_FRAGMENT_PREFIX\) \{[\s\S]*close\.resolve\(CloseDecision::Cancel\)/,
+  );
+  assert.match(
+    lifecycle,
+    /let Ok\(decision\) = parse_close_decision\(decision_value\) else \{[\s\S]*close\.resolve\(CloseDecision::Cancel\)/,
+  );
+  assert.match(lifecycle, /CLOSE_DECISION_REQUEST_SUFFIX/);
+  assert.match(lifecycle, /fn parse_close_decision\(/);
 });
 
 test("close bridge readiness is generation-scoped and waits before dispatch", () => {
