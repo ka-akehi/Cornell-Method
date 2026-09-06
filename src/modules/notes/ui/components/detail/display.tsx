@@ -122,11 +122,11 @@ export function NoteDetailMetadata({ note }: { note: NoteDetailResponse }) {
       <div className="note-paper-metadata-grid min-w-0 text-sm">
         <dl className="note-paper-metadata-field note-paper-metadata-field--date min-w-[6rem]">
           <dt className="text-xs font-semibold tracking-wide text-[color:var(--paper-ink-soft)]">学習日</dt>
-          <dd className="mt-1 break-words text-[color:var(--paper-ink)]">{formatDate(note.noteDate)}</dd>
+          <dd className="note-paper-metadata-value mt-1 break-words text-[color:var(--paper-ink)]">{formatDate(note.noteDate)}</dd>
         </dl>
         <dl className="note-paper-metadata-field note-paper-metadata-field--source max-w-full">
           <dt className="text-xs font-semibold tracking-wide text-[color:var(--paper-ink-soft)]">学習元</dt>
-          <dd className="mt-1 break-words text-[color:var(--paper-ink)]">
+          <dd className="note-paper-metadata-value mt-1 break-words text-[color:var(--paper-ink)]">
             {formatSource(note.sourceType, note.sourceTitle)}
           </dd>
         </dl>
@@ -137,12 +137,12 @@ export function NoteDetailMetadata({ note }: { note: NoteDetailResponse }) {
           </dd>
         </dl>
         <dl className="note-paper-metadata-review min-w-0 text-xs text-[color:var(--paper-ink-soft)]">
-          <div className="flex min-w-0 items-baseline gap-2">
-            <dt className="shrink-0 font-semibold">次回復習日</dt>
+          <div className="note-paper-metadata-review-row min-w-0">
+            <dt className="font-semibold">次回復習</dt>
             <dd className="break-words text-[color:var(--paper-ink)]">{formatDate(note.nextReviewDate)}</dd>
           </div>
-          <div className="flex min-w-0 items-baseline gap-2">
-            <dt className="shrink-0 font-semibold">最終復習日時</dt>
+          <div className="note-paper-metadata-review-row min-w-0">
+            <dt className="font-semibold">最終復習日時</dt>
             <dd className="break-words text-[color:var(--paper-ink)]">{formatDateTime(note.reviewedAt)}</dd>
           </div>
         </dl>

@@ -169,6 +169,12 @@
   color: var(--app-ink);
 }
 
+.note-paper-metadata-field--date .note-paper-metadata-value,
+.note-paper-metadata-field--source .note-paper-metadata-value {
+  font-size: 0.95rem;
+  line-height: 1.5;
+}
+
 /* Review metadata is informational text, not another ruled section. */
 .note-paper-metadata-review {
   box-sizing: border-box;
@@ -176,12 +182,24 @@
   grid-column: 1;
   grid-row: 2;
   display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 0.5rem 1.5rem;
+  flex-direction: column;
+  gap: 0.375rem;
   margin: 0;
   padding: 0.5rem 0 0;
   color: var(--app-muted-ink);
+}
+
+.note-paper-metadata-review-row {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: max-content minmax(0, 1fr);
+  align-items: baseline;
+  column-gap: 0.5rem;
+}
+
+.note-paper-metadata-review-row dd {
+  min-width: 0;
+  margin: 0;
 }
 
 .note-paper-mode-actions {
