@@ -2413,7 +2413,10 @@ function exportPathWithin(root, candidate) {
       && !path.isAbsolute(relative));
 }
 
-function validateExternalExportDestination(destinationPath, applicationSupportRoot) {
+function validateExternalExportDestination(
+  destinationPath,
+  applicationSupportRoot,
+) {
   if (
     typeof destinationPath !== "string"
     || destinationPath.length === 0
@@ -2994,12 +2997,26 @@ async function exportDesktopDatabase({
       );
     }
 
-    validateExternalExportDestination(
-      destination.destinationPath,
-      paths.applicationSupportRoot,
-    );
+    try {
+      validateExternalExportDestination(
+        destination.destinationPath,
+        paths.applicationSupportRoot,
+      );
+    } catch (error) {
+      if (error instanceof DesktopStorageError && error.code === "EXPORT_DESTINATION_EXISTS") {
+        throw exportStorageError(
+          "export destination が publish 前に作成されました",
+          "PUBLISH_RACE",
+          error,
+        );
+      }
+      throw error;
+    }
     syncExportDirectory(destination.destinationDirectory);
     try {
+      // Publish only with the same-directory no-replace hard-link primitive.
+      // A destination created after validation becomes PUBLISH_RACE instead
+      // of being overwritten.
       fs.linkSync(temporaryPath, destination.destinationPath);
     } catch (error) {
       if (hasErrorCode(error, "EEXIST")) {
@@ -3020,25 +3037,19 @@ async function exportDesktopDatabase({
       "published export SQLite database",
       "EXPORT_PUBLISH_FAILED",
     );
-    try {
-      if (publishedStats.size !== temporaryStats.size) {
-        throw exportStorageError(
-          "published export SQLite database の size が不一致です",
-          "PUBLISH_FAILED",
-        );
-      }
-      syncExportDirectory(destination.destinationDirectory);
-    } catch (error) {
-      try {
-        const currentDestination = fs.lstatSync(destination.destinationPath);
-        if (sameFileIdentity(publishedStats, currentDestination)) {
-          fs.unlinkSync(destination.destinationPath);
-        }
-      } catch {
-        // Never remove a replacement file that won the publish race.
-      }
-      throw error;
+    if (!sameFileIdentity(publishedStats, temporaryStats)) {
+      throw exportStorageError(
+        "published export SQLite database が publish 元と異なります",
+        "PUBLISH_RACE",
+      );
     }
+    if (publishedStats.size !== temporaryStats.size) {
+      throw exportStorageError(
+        "published export SQLite database の size が不一致です",
+        "PUBLISH_FAILED",
+      );
+    }
+    syncExportDirectory(destination.destinationDirectory);
     result = {
       fileName: path.basename(destination.destinationPath),
       size: publishedStats.size,

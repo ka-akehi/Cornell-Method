@@ -645,7 +645,11 @@ function pathWithin(root, candidate) {
       && !path.isAbsolute(relative));
 }
 
-function validateExternalFilePath(value, applicationSupportRoot, requiresExistingFile) {
+function validateExternalFilePath(
+  value,
+  applicationSupportRoot,
+  requiresExistingFile,
+) {
   if (typeof value !== "string" || value.length === 0) {
     return "invalid-path";
   }
@@ -698,11 +702,21 @@ function validateExternalFilePath(value, applicationSupportRoot, requiresExistin
   return null;
 }
 
-function validateExternalLocation(value, applicationSupportRoot, requiresExistingFile) {
-  if (!hasExactKeys(value, ["kind", "origin", "path"]) || value.kind !== "external-file" || value.origin !== "native-dialog") {
+function validateExternalLocation(
+  value,
+  applicationSupportRoot,
+  requiresExistingFile,
+) {
+  if (!hasExactKeys(value, ["kind", "origin", "path"])
+    || value.kind !== "external-file"
+    || value.origin !== "native-dialog") {
     return "invalid-request";
   }
-  return validateExternalFilePath(value.path, applicationSupportRoot, requiresExistingFile);
+  return validateExternalFilePath(
+    value.path,
+    applicationSupportRoot,
+    requiresExistingFile,
+  );
 }
 
 function validateDesktopDataBackupOperationRequest(value, applicationSupportRoot) {

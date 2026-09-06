@@ -1003,6 +1003,14 @@ impl DesktopFileSelectionStore {
             })
             .ok_or("invalid-path")?
             .to_string();
+        if dialog_kind == DesktopFileDialogKind::SaveDestination {
+            match fs::symlink_metadata(&path) {
+                Ok(metadata) if metadata.is_file() => return Err("destination-exists"),
+                Ok(_) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(_) => return Err("path-unavailable"),
+            }
+        }
         let selection_id = create_selection_id()?;
         let mut selections = self
             .selections
@@ -3401,6 +3409,85 @@ mod tests {
         .expect("selection exists");
         assert_eq!(selection.path, PathBuf::from("/temporary/external.sqlite"));
         assert_eq!(selection.exit_status, DesktopFileDialogExitStatus::Success);
+    }
+
+    #[test]
+    fn save_destination_existing_file_is_rejected_without_storing_selection() {
+        let directory = TestDirectory::new();
+        let managed_root = directory.path().join("managed");
+        let external_root = directory.path().join("external");
+        fs::create_dir_all(&managed_root).expect("create managed root");
+        fs::create_dir_all(&external_root).expect("create external root");
+
+        let existing_path = external_root.join("existing.sqlite");
+        fs::write(&existing_path, b"existing destination").expect("write existing destination");
+        let new_path = external_root.join("new.sqlite");
+        let store = DesktopFileSelectionStore::default();
+        let live_directory = managed_root.join("live");
+        let database_path = live_directory.join("notebook.sqlite");
+        let storage = StorageLayout {
+            application_support_root: managed_root.clone(),
+            live_directory,
+            database_path: database_path.clone(),
+            database_url: format!("file:{}", database_path.display()),
+            backups_directory: managed_root.join("backups"),
+            settings_directory: managed_root.join("settings"),
+            logs_directory: managed_root.join("logs"),
+            pending_restore_directory: managed_root.join("pending-restore"),
+        };
+
+        assert!(matches!(
+            store.insert(
+                DesktopFileDialogKind::SaveDestination,
+                existing_path.clone(),
+            ),
+            Err("destination-exists")
+        ));
+        assert!(store
+            .selections
+            .lock()
+            .expect("lock selection store")
+            .is_empty());
+
+        let new_selection = store
+            .insert(DesktopFileDialogKind::SaveDestination, new_path.clone())
+            .expect("store new save destination");
+        let new_resolution = store
+            .resolve(
+                &new_selection.selection_id,
+                DesktopFileDialogKind::SaveDestination,
+                &managed_root,
+            )
+            .expect("resolve new save destination");
+        assert_eq!(new_resolution, new_path);
+        let public_selection = serde_json::to_value(&new_selection).expect("encode selection");
+        assert!(!public_selection
+            .as_object()
+            .expect("selection object")
+            .contains_key("replaceExisting"));
+        let new_sidecar_request = build_data_backup_sidecar_request(
+            DesktopDataBackupOperationRequest {
+                schema_version: DESKTOP_DATA_BACKUP_PROTOCOL_VERSION,
+                operation: DesktopDataBackupOperation::Export,
+                source: serde_json::Value::Null,
+                destination: serde_json::json!({
+                    "kind": "external-selection",
+                    "selectionId": new_selection.selection_id,
+                }),
+                confirmed: None,
+            },
+            &storage,
+            &store,
+            None,
+            DesktopRestoreMode::Normal,
+        )
+        .expect("build new destination sidecar request");
+        let new_sidecar_value =
+            serde_json::to_value(new_sidecar_request).expect("encode new sidecar request");
+        assert!(!new_sidecar_value["destination"]
+            .as_object()
+            .expect("new destination object")
+            .contains_key("replaceExisting"));
     }
 
     #[test]
