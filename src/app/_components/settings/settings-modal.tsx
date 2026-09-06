@@ -419,6 +419,9 @@ function DataAndBackupPanel() {
   const exportSelectionIdRef = useRef<string | null>(null);
   const deleteDialogRef = useRef<HTMLDivElement>(null);
   const deleteTriggerRef = useRef<HTMLButtonElement>(null);
+  const userFacingManagedBackups = catalogState.backups
+    .filter((backup) => !backup.recoveryOnly)
+    .slice(0, 1);
 
   useEffect(() => {
     return () => {
@@ -716,7 +719,7 @@ function DataAndBackupPanel() {
   const handleManagedRestoreIntent = (
     backup: DesktopManagedBackupCatalogEntry,
   ) => {
-    if (!canStartAction || actionInFlightRef.current) {
+    if (backup.recoveryOnly || !canStartAction || actionInFlightRef.current) {
       return;
     }
 
@@ -1103,13 +1106,14 @@ function DataAndBackupPanel() {
               一覧を再読み込み
             </button>
           </div>
-        ) : catalogState.phase === "empty" ? (
+        ) : catalogState.phase === "empty" ||
+          (catalogState.phase === "ready" && userFacingManagedBackups.length === 0) ? (
           <p className={styles.dataBackupEmpty} role="status">
             保存済みバックアップはありません。
           </p>
         ) : (
           <ul className={styles.dataBackupList}>
-            {catalogState.backups.map((backup) => (
+            {userFacingManagedBackups.map((backup) => (
               <li className={styles.dataBackupListItem} key={backup.backupId}>
                 <dl className={styles.dataBackupMeta}>
                   <div>

@@ -73,7 +73,7 @@
   }
   function normalizeCatalog(value) {
     if (!hasExactKeys(value, ["kind", "schemaVersion", "status", "phase", "errorCode", "backups"]) || value.kind !== "desktop-managed-backup-catalog" || value.schemaVersion !== 1 || !isOneOf(value.status, ["ready", "empty", "error"]) || value.phase !== "catalog" || !(value.errorCode === null || isOneOf(value.errorCode, ["command-worker-failed", "command-unavailable", "storage-unavailable", "runtime-unavailable", "sidecar-unavailable", "protocol-error", "invalid-catalog"])) || !Array.isArray(value.backups)) return null;
-    var entries = value.backups.map(function (entry) { return hasExactKeys(entry, ["backupId", "fileName", "size", "createdAt"]) && isBackupId(entry.backupId) && entry.fileName === entry.backupId && isSafeBasename(entry.fileName) && Number.isSafeInteger(entry.size) && entry.size >= 0 && isCatalogTimestamp(entry.createdAt) ? entry : null; });
+    var entries = value.backups.map(function (entry) { return hasExactKeys(entry, ["backupId", "fileName", "size", "createdAt", "recoveryOnly"]) && isBackupId(entry.backupId) && entry.fileName === entry.backupId && isSafeBasename(entry.fileName) && Number.isSafeInteger(entry.size) && entry.size >= 0 && isCatalogTimestamp(entry.createdAt) && typeof entry.recoveryOnly === "boolean" ? entry : null; });
     if (entries.some(function (entry) { return entry === null; }) || (value.status === "ready" && (value.errorCode !== null || entries.length === 0)) || (value.status === "empty" && (value.errorCode !== null || entries.length !== 0)) || (value.status === "error" && (value.errorCode === null || entries.length !== 0))) return null;
     return { status: value.status, errorCode: value.errorCode, backups: entries };
   }

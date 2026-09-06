@@ -530,6 +530,7 @@ pub(crate) struct DesktopManagedBackupCatalogEntry {
     file_name: String,
     size: u64,
     created_at: String,
+    recovery_only: bool,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

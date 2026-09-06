@@ -18,6 +18,8 @@ const DESKTOP_STAGED_MIGRATION_DIRECTORY_NAME = "database-migrations";
 const DESKTOP_RESTORE_STAGING_DIRECTORY_NAME = "restore-staging";
 const DESKTOP_RESTORE_PRESERVED_LIVE_FILE_PREFIX = ".notebook.sqlite.recovery-";
 const DESKTOP_RESTORE_PRESERVED_LIVE_FILE_SUFFIX = ".artifact";
+const DESKTOP_RESTORE_SAFETY_BACKUP_FILE_PREFIX = "restore-";
+const DESKTOP_RESTORE_SAFETY_BACKUP_FILE_SUFFIX = ".sqlite.bak";
 const DESKTOP_SQLITE_SIDECAR_SUFFIXES = Object.freeze(["-wal", "-shm", "-journal"]);
 const DESKTOP_RESTORE_OPERATION_ID_MAX_LENGTH = 128;
 const DESKTOP_DELETE_OPERATION_ID_MAX_LENGTH = 128;
@@ -4493,6 +4495,21 @@ function isSafeManagedBackupIdentifier(value) {
     && /^[A-Za-z0-9._-]+$/u.test(value);
 }
 
+function isRestoreSafetyBackupIdentifier(value) {
+  if (
+    typeof value !== "string"
+    || !value.startsWith(DESKTOP_RESTORE_SAFETY_BACKUP_FILE_PREFIX)
+    || !value.endsWith(DESKTOP_RESTORE_SAFETY_BACKUP_FILE_SUFFIX)
+  ) {
+    return false;
+  }
+  const operationId = value.slice(
+    DESKTOP_RESTORE_SAFETY_BACKUP_FILE_PREFIX.length,
+    -DESKTOP_RESTORE_SAFETY_BACKUP_FILE_SUFFIX.length,
+  );
+  return isSafeManagedBackupIdentifier(operationId);
+}
+
 function managedBackupCatalogError(message, reason, cause) {
   return new DesktopStorageError(message, {
     code: `MANAGED_BACKUP_CATALOG_${reason}`,
@@ -4630,6 +4647,7 @@ function listManagedBackupCatalog({ storagePaths } = {}) {
       fileName: name,
       size: stats.size,
       createdAt,
+      recoveryOnly: isRestoreSafetyBackupIdentifier(name),
       createdAtMs,
     });
   }
@@ -4650,6 +4668,7 @@ function listManagedBackupCatalog({ storagePaths } = {}) {
       fileName: entry.fileName,
       size: entry.size,
       createdAt: entry.createdAt,
+      recoveryOnly: entry.recoveryOnly,
     }))),
   });
 }
@@ -6769,7 +6788,7 @@ function createRestoreSafetyBackup(storagePaths, liveFingerprint, operationId, s
   })) {
     throw restoreStorageError("live SQLite が safety backup 前に変更されました", "SOURCE_CHANGED");
   }
-  const backupId = `restore-${operationId}.sqlite.bak`;
+  const backupId = `${DESKTOP_RESTORE_SAFETY_BACKUP_FILE_PREFIX}${operationId}${DESKTOP_RESTORE_SAFETY_BACKUP_FILE_SUFFIX}`;
   const backupPath = path.join(storagePaths.backupsDirectory, backupId);
   if (!restorePathWithin(storagePaths.backupsDirectory, backupPath)) {
     throw restoreStorageError("restore safety backup path が不正です", "BACKUP_FAILED");

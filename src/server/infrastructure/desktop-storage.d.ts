@@ -192,6 +192,7 @@ export type DesktopManagedBackupCatalogEntry = {
   fileName: string;
   size: number;
   createdAt: string;
+  recoveryOnly: boolean;
 };
 
 export type DesktopManagedBackupCatalog = {

@@ -475,6 +475,7 @@ export type DesktopManagedBackupCatalogEntry = {
   fileName: string;
   size: number;
   createdAt: string;
+  recoveryOnly: boolean;
 };
 
 export type DesktopManagedBackupCatalogErrorCode =
@@ -697,7 +698,13 @@ function isManagedBackupCatalogEntry(
 ): value is DesktopManagedBackupCatalogEntry {
   return (
     isRecord(value) &&
-    hasExactKeys(value, ["backupId", "fileName", "size", "createdAt"]) &&
+    hasExactKeys(value, [
+      "backupId",
+      "fileName",
+      "size",
+      "createdAt",
+      "recoveryOnly",
+    ]) &&
     isDataBackupId(value.backupId) &&
     typeof value.fileName === "string" &&
     value.fileName === value.backupId &&
@@ -706,7 +713,8 @@ function isManagedBackupCatalogEntry(
     typeof value.size === "number" &&
     Number.isSafeInteger(value.size) &&
     value.size >= 0 &&
-    isManagedBackupCatalogTimestamp(value.createdAt)
+    isManagedBackupCatalogTimestamp(value.createdAt) &&
+    typeof value.recoveryOnly === "boolean"
   );
 }
 

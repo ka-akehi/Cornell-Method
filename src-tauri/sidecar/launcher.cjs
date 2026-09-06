@@ -533,6 +533,62 @@ function isSafeIdentifier(value, maxLength = 128) {
     && /^[A-Za-z0-9._-]+$/.test(value);
 }
 
+function isManagedBackupCatalogTimestamp(value) {
+  if (
+    typeof value !== "string"
+    || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(value)
+  ) {
+    return false;
+  }
+  const parsed = new Date(value);
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString() === value;
+}
+
+function isManagedBackupCatalogEntry(value) {
+  return isRecord(value)
+    && hasExactKeys(value, ["backupId", "fileName", "size", "createdAt", "recoveryOnly"])
+    && isSafeIdentifier(value.backupId)
+    && value.fileName === value.backupId
+    && Number.isSafeInteger(value.size)
+    && value.size >= 0
+    && isManagedBackupCatalogTimestamp(value.createdAt)
+    && typeof value.recoveryOnly === "boolean";
+}
+
+function validateManagedBackupCatalogResult(value) {
+  if (
+    !isRecord(value)
+    || !hasExactKeys(value, ["status", "backups"])
+    || !["ready", "empty"].includes(value.status)
+    || !Array.isArray(value.backups)
+  ) {
+    throw new Error("invalid managed backup catalog");
+  }
+
+  const identifiers = new Set();
+  for (const entry of value.backups) {
+    if (!isManagedBackupCatalogEntry(entry) || identifiers.has(entry.backupId)) {
+      throw new Error("invalid managed backup catalog");
+    }
+    identifiers.add(entry.backupId);
+  }
+  if (value.backups.some((entry, index) => {
+    if (index === 0) return false;
+    const previous = value.backups[index - 1];
+    return previous.createdAt < entry.createdAt
+      || (previous.createdAt === entry.createdAt && previous.backupId > entry.backupId);
+  })) {
+    throw new Error("invalid managed backup catalog order");
+  }
+  if (
+    (value.status === "ready" && value.backups.length === 0)
+    || (value.status === "empty" && value.backups.length !== 0)
+  ) {
+    throw new Error("inconsistent managed backup catalog");
+  }
+  return value;
+}
+
 function managedBackupCatalogResponse(status, backups = [], errorCode = null) {
   return {
     kind: DESKTOP_MANAGED_BACKUP_CATALOG_KIND,
@@ -566,9 +622,11 @@ function managedBackupCatalog() {
   }
 
   try {
-    const result = options.storage.listManagedBackupCatalog({
-      storagePaths: options.storagePaths,
-    });
+    const result = validateManagedBackupCatalogResult(
+      options.storage.listManagedBackupCatalog({
+        storagePaths: options.storagePaths,
+      }),
+    );
     return managedBackupCatalogResponse(result.status, result.backups);
   } catch (error) {
     return managedBackupCatalogResponse(
