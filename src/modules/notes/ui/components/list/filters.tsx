@@ -62,13 +62,25 @@ export function NotesListFilters({
           >
             フリーワード
           </label>
-          <input
-            id="notes-query"
-            className="mt-1 min-h-10 w-full rounded-[0.45rem] border border-[var(--app-line-strong)] bg-[var(--app-paper-surface)] px-3 py-2 text-sm text-[var(--app-ink)] placeholder:text-[var(--app-muted-ink)] focus-visible:border-[var(--app-focus)] focus-visible:outline-2 focus-visible:outline-[var(--app-focus)] focus-visible:outline-offset-2"
-            value={query}
-            onChange={(event) => onQueryChange(event.target.value)}
-            placeholder="タイトル、本文、Cue"
-          />
+          <div className="relative mt-1">
+            <input
+              id="notes-query"
+              className="min-h-10 w-full rounded-[0.45rem] border border-[var(--app-line-strong)] bg-[var(--app-paper-surface)] px-3 py-2 pr-10 text-sm text-[var(--app-ink)] placeholder:text-[var(--app-muted-ink)] focus-visible:border-[var(--app-focus)] focus-visible:outline-2 focus-visible:outline-[var(--app-focus)] focus-visible:outline-offset-2"
+              value={query}
+              onChange={(event) => onQueryChange(event.target.value)}
+              placeholder="タイトル、本文、Cue"
+            />
+            {query && (
+              <button
+                type="button"
+                aria-label="フリーワード検索をクリア"
+                className="absolute right-1 top-1/2 inline-flex min-h-8 min-w-8 -translate-y-1/2 items-center justify-center rounded-[0.35rem] text-lg leading-none text-[var(--app-muted-ink)] transition-colors hover:bg-[var(--app-accent-soft)] hover:text-[var(--app-accent-deep)] focus-visible:outline-2 focus-visible:outline-[var(--app-focus)] focus-visible:outline-offset-1"
+                onClick={() => onQueryChange("")}
+              >
+                <span aria-hidden="true">×</span>
+              </button>
+            )}
+          </div>
         </div>
 
         <div>
