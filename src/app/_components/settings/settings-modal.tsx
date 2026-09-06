@@ -36,7 +36,6 @@ import styles from "./settings-modal.module.css";
 
 const settingsCategories = [
   { id: "general", label: "一般" },
-  { id: "updates", label: "更新" },
   { id: "data-and-backup", label: "データとバックアップ" },
 ] as const;
 
@@ -1142,7 +1141,7 @@ function DataAndBackupPanel() {
 
       <section className={styles.dataBackupSection} aria-labelledby="data-backup-external-title">
         <div className={styles.dataBackupSectionHeading}>
-          <h4 id="data-backup-external-title">バックアップファイルから復元</h4>
+          <h4 id="data-backup-external-title">バックアップから復元</h4>
         </div>
         <button
           type="button"
@@ -1151,7 +1150,7 @@ function DataAndBackupPanel() {
           aria-busy={dialogLoading === "external" || operationBusy}
           onClick={() => void handleExternalRestoreSource()}
         >
-          {dialogLoading === "external" ? "ファイルを選択中…" : "バックアップファイルから復元"}
+          {dialogLoading === "external" ? "ファイルを選択中…" : "バックアップから復元"}
         </button>
       </section>
 
@@ -1159,6 +1158,10 @@ function DataAndBackupPanel() {
         <div className={styles.dataBackupSectionHeading}>
           <h4 id="data-backup-pending-title">保留中の復元</h4>
         </div>
+        <p>
+          現在のアプリより新しい形式のバックアップはすぐに適用せず保留されます。
+          互換性のあるアプリに更新した後、ここから「復元を再開」できます。
+        </p>
         {pendingState.phase === "loading" ? (
           <div className={styles.dataBackupStatus} role="status" aria-busy="true">
             保留中の復元状態を読み込み中…
@@ -1304,10 +1307,6 @@ function SettingsCategoryPanel({
     return <GeneralPanel />;
   }
 
-  if (category === "updates") {
-    return <UpdatesPanel />;
-  }
-
   return <DataAndBackupPanel />;
 }
 
@@ -1337,6 +1336,7 @@ function GeneralPanel() {
           ))}
         </select>
       </div>
+      <UpdatesPanel />
     </div>
   );
 }
@@ -1577,11 +1577,10 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
     Record<SettingsCategoryId, HTMLButtonElement | null>
   >({
     general: null,
-    updates: null,
     "data-and-backup": null,
   });
   const [activeCategory, setActiveCategory] =
-    useState<SettingsCategoryId>("updates");
+    useState<SettingsCategoryId>("general");
 
   useEffect(() => {
     const previousBodyOverflow = document.body.style.overflow;
