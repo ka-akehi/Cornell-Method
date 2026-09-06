@@ -205,7 +205,7 @@ Desktop Alpha の Tauri / Node.js sidecar の基盤境界は [DESKTOP_ALPHA_TAUR
 - 次回起動はノート一覧から始め、前回 route は復元しない。window size / position は保持し、現在の画面領域外にある場合は見える位置へ補正する。
 - dirty な状態で終了する場合は、保存して終了、保存せず終了、終了取消しの 3 結果を提供する。現行正本の取消し操作は「戻る」で、Escape と dialog 外操作も終了取消しとして扱う。保存失敗時は終了せず、編集内容と dirty 状態を保持する。
 - 更新適用時の dirty state は通常終了と別に扱い、保存して更新、保存せず更新、更新取消しの 3 結果を提供する。Escape と dialog 外操作は更新取消しとして扱う。
-- Settings modal は General、Updates、Data and Backup の 3 区分とする。Mac は Settings menu、開発用 Web は gear から開く。正確な文言と項目配置は UI 実装 task で決める。
+- Settings modal は General と Data and Backup の2つのトップレベル区分とし、更新確認は General 内のセクションとして扱う。Mac は Settings menu、開発用 Web は gear から開く。正確な文言と項目配置は UI 実装 task で決める。
 - 現行 MVP の `/backup` は、Settings modal の Data and Backup が既存機能を代替し、受け入れ確認を通るまで維持する。その後の Desktop UI では段階的に廃止するが、このアーキテクチャ同期で route や API を削除しない。
 
 ### 更新と migration

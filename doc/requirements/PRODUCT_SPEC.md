@@ -93,7 +93,7 @@ Desktop Alpha は、現行 MVP を Apple Silicon Mac の single application inst
 
 #### Settings
 
-- Settings の基本区分は General、Updates、Data and Backup とします。
+- Settings のトップレベル区分は General と Data and Backup とします。更新確認は General 内のセクションとして扱います。
 - Mac アプリでは Settings menu、開発用 Web では gear から開ける方針を維持します。
 - 正確な文言、項目配置、画面遷移は実装 task で決めます。
 - `/backup` は Settings の Data and Backup が現行機能を代替するまで維持します。代替の受け入れ確認後、Desktop UI では段階的に廃止します。この移行前に現行 MVP の route を削除しません。
@@ -128,6 +128,7 @@ Desktop Alpha は、現行 MVP を Apple Silicon Mac の single application inst
 - migration に失敗した場合は live DB と現行アプリを変更せず、更新失敗として現行版を利用可能にします。
 - app 管理 safety backup は migration 前と restore 前だけに作成し、migration 前の safety backup を含めて最新 3 世代を保持します。定期、日次、通常起動時、データ変更時の自動 backup は Desktop Alpha に含めません。
 - 手動 backup は、ユーザーが保存先を選択する平文 SQLite export とします。app 管理 backup の 3 世代 retention は外部 export file に適用しません。
+- 外部 SQLite export は新規 destination への create-only / no-replace とします。既存 regular file は `destination-exists` で拒否し、別名保存を案内します。`replaceExisting` / `allowReplaceExisting` permission と既存 destination への通常 rename publish は提供しません。
 - restore は app 管理 backup の一覧と外部ファイル選択を別入口にし、どちらも staging validation、明示確認、atomic switch、restart の同じ pipeline へ流します。
 - restore の開始前に現在の live DB を app 管理 safety backup として保存します。
 - restore file は、SQLite integrity、foreign key、schema / migration compatibility、必須データ、存在する全 `CanvasDocumentV1`、切り替え後の reopen を検証します。legacy Markdown note は互換対象として保持します。

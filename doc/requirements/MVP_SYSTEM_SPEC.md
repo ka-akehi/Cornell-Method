@@ -191,7 +191,7 @@ MVP スコープは、既存 MVP 設計書で発注者承認済みの判断に�
 | 段階 | 現在の判断 | 現行 MVP との境界 |
 | --- | --- | --- |
 | Desktop PoC | Electron と Tauri + Node.js sidecar の同条件比較・shell 選定は完了（2026-08-17）。現行の選定は Tauri + Node.js sidecar | 製品機能を追加せず、PDF / Playwright / Chromium を blocker や必須受け入れ条件にしない |
-| Desktop Alpha | Tauri + Node.js sidecar を shell に採用済み。lifecycle、Settings、更新、migration、backup / restore、完全なデータ削除、診断、障害時挙動、privacy の契約を採用済み。更新 backend は provider / manifest / compatible selection / 公開 URL 境界 / download / signature・SHA-256 / archive・bundle validation / update state / pending verification、`apply_verified_update`（引数なしの明示 command）と `ApplyPreparation` / explicit restart handoff、staged migration / read-back / atomic DB switch、candidate health、bundle switch、rollback / SQLite restore / recovery、checkpoint、cleanup まで実装済み。Data and Backup は native file-dialog / typed bridge、手動 plaintext SQLite export、managed backup catalog、managed / external restore 共通 pipeline、pending restore と明示 resume、complete data deletion、Settings UI まで実装済みで static / disposable test 済み。final `RunEvent::Exit` の sidecar cleanup は static lifecycle contract 上は実装済み。実 provider / package runtime、macOS packaged app、packaged Apple Silicon GUI、native GUI、loopback、browser / DB read-back、process timing による runtime acceptance は未検証。startup failure、local log、diagnostic bundle、privacy boundary は未実装 | 現行 MVP を Mac アプリとして包み、route、API、明示保存等を維持する |
+| Desktop Alpha | Tauri + Node.js sidecar を shell に採用済み。lifecycle、Settings、更新、migration、backup / restore、完全なデータ削除、診断、障害時挙動、privacy の契約を採用済み。更新 backend は provider / manifest / compatible selection / 公開 URL 境界 / download / signature・SHA-256 / archive・bundle validation / update state / pending verification、`apply_verified_update`（引数なしの明示 command）と `ApplyPreparation` / explicit restart handoff、staged migration / read-back / atomic DB switch、candidate health、bundle switch、rollback / SQLite restore / recovery、checkpoint、cleanup まで実装済み。Data and Backup は native file-dialog / typed bridge、手動 plaintext SQLite export、managed backup catalog、managed / external restore 共通 pipeline、pending restore と明示 resume、complete data deletion、Settings UI まで実装済みで static / disposable test 済み。final `RunEvent::Exit` の sidecar cleanup は static lifecycle contract 上は実装済み。startup recovery、privacy-safe local log、diagnostic export、privacy boundary も実装済みで static / disposable test 済み。実 provider / package runtime、macOS packaged app、packaged Apple Silicon GUI、native GUI、loopback、browser / DB read-back、process timing による runtime acceptance、実機 startup failure は未検証 | 現行 MVP を Mac アプリとして包み、route、API、明示保存等を維持する |
 | Desktop Alpha 後 | Canvas PNG と検索サジェスト・大規模一覧対応を採用済み | 実装・検証は未着手。現行 MVP の検索 API と 1 ページ 50 件の契約はこの文書同期で変更しない |
 | 採否未決 | autosave、Undo / soft delete、専用復習タスク、NoteCard / D&D、定期 backup、PDF export 等 | 発注者が採用するまで仕様・実装 task を開始しない |
 
@@ -201,12 +201,13 @@ MVP スコープは、既存 MVP 設計書で発注者承認済みの判断に�
 - Desktop Alpha は single application instance / 1 primary window とします。Settings modal、確認 dialog、OS file dialog は primary window に数えず、新しい独立 primary window を作りません。
 - 二重起動時は新しい application instance / primary window を増やさず、既存 primary window を前面へ出します。最後の primary window を閉じると application instance を終了し、local runtime と app-owned child process をすべて停止して orphan process を残しません。
 - dirty な状態で終了する場合は、保存して終了、保存せず終了、終了取消しの 3 結果を提供します。現行正本の取消し操作は「戻る」で、Escape と dialog 外操作も取消しとして扱います。更新適用時は、保存して更新、保存せず更新、更新取消しを別の操作契約として扱います。
-- Desktop Alpha の Settings modal は General、Updates、Data and Backup で構成します。現行 MVP の `/backup` は、Settings modal の代替機能が完成して受け入れ確認を通るまで維持します。
+- Desktop Alpha の Settings modal は General と Data and Backup の2つのトップレベル区分で構成し、更新確認は General 内のセクションとして扱います。現行 MVP の `/backup` は、Settings modal の代替機能が完成して受け入れ確認を通るまで維持します。
 - 初期配布は DMG とし、更新は起動後に最大 1 日 1 回だけ非同期確認します。手動確認も提供し、確認の ON / OFF 設定は設けません。package は background download し、ユーザーが明示した「再起動して更新」で適用します。
 - 更新確認または download に失敗しても現行版を利用可能にし、次の定期確認または手動確認で更新処理全体を再試行します。更新 manifest の送受信は更新判定に必要な最小情報に限り、ノート本文、Cue、Summary、タイトル、タグ、学習元、SQLite、backup、診断 log を送りません。
 - pending migration がある更新だけ、適用直前に app 管理 safety backup を作ります。migration は staging copy へ古い順に適用し、検証と reopen に成功した場合だけ live DB と新しい app へ切り替えます。失敗時は現行 app と live DB を維持します。
 - migration 前と restore 前に作成する app 管理 safety backup は最新 3 世代を保持します。定期・日次・通常起動時の自動 backup は Desktop Alpha の必須要件にしません。
-- Data and Backup では、手動 SQLite export、app 管理 backup からの復元、外部 backup file からの復元を別の操作として提供します。restore 前に live DB の safety backup を作り、SQLite integrity、foreign key、schema / migration compatibility、必須データ、Canvas、reopen の検証に失敗した file は適用しません。
+- Data and Backup では、手動 SQLite export、app 管理 backup からの復元、外部 backup file からの復元を別の操作として提供します。外部 SQLite export は新規 destination への create-only / no-replace とし、既存 regular file は `destination-exists` として拒否して別名保存を案内します。`replaceExisting` / `allowReplaceExisting` permission と既存 destination への通常 rename publish は提供しません。restore 前に live DB の safety backup を作り、SQLite integrity、foreign key、schema / migration compatibility、必須データ、Canvas、reopen の検証に失敗した file は適用しません。
+- managed backup catalog metadata の `recoveryOnly` が true の safety backup（restore 前に作成する `restore-<operationId>.sqlite.bak` 等）は物理ファイルと内部 catalog に保持し、startup recovery / rollback / recovery availability のために利用します。Settings の通常復元一覧では safety backup を表示・選択せず、残った user backup の最新 1 件だけを表示・選択します。
 - 現行 app より新しい schema の backup はその場で復元せず、compatible な更新後にユーザーが再開する pending restore とします。
 - 完全なデータ削除は live DB、app 管理 backup、設定を対象とし、外部 SQLite export は削除しません。
 - 起動時に DB を開けない場合は通常のノート UI を開かず、復旧導線を優先します。診断 bundle はユーザーの明示操作で local にだけ作成し、自動送信しません。ノート本文、Cue、Summary、タイトル、タグ、学習元、SQLite、backup、Canvas JSON、検索文字列を含めません。
@@ -547,7 +548,7 @@ Desktop PoC では、Electron と Tauri + Node.js sidecar を、同じ現行 MVP
 
 ### 障害時運用
 
-Desktop Alpha の Data and Backup（手動 SQLite export、managed / external restore、pending restore、完全なデータ削除、Settings UI）は実装済みで、static / disposable test 済みである。packaged runtime acceptance は未検証とする。startup failure、local log、diagnostic bundle、privacy boundary は未実装である。現行 MVP の `/backup`、`GET/POST /api/backups`、explicit save、physical delete、CanvasDocumentV1、legacy Markdown の契約は変更しない。
+Desktop Alpha の Data and Backup（手動 SQLite export、managed / external restore、pending restore、完全なデータ削除、Settings UI）は実装済みで、static / disposable test 済みである。外部 SQLite export は create-only / no-replace とし、既存 destination は `destination-exists` で拒否して別名保存を案内する。focused test 17/17 と再レビュー `APPROVE` を得ている。startup recovery、privacy-safe local log、diagnostic export、privacy boundary も実装済みで static / disposable test 済みである。packaged runtime acceptance と実機 startup failure は未検証とする。現行 MVP の `/backup`、`GET/POST /api/backups`、explicit save、physical delete、CanvasDocumentV1、legacy Markdown の契約は変更しない。
 
 - API エラーは画面でユーザーに分かる形で表示する。
 - バックアップ作成に失敗した場合、失敗メッセージを表示する。

@@ -45,9 +45,9 @@
 
 MVP Gate 0 は完了済みである。発注者が実施した人力結合テストは、テスト中に見つかった問題の修正と再確認を含めて完了している。この判断を現行 MVP の受け入れ境界とし、Browser runtime、mobile、wheel / trackpad、実 DB read-back、E2E、外部 Postgres、追加の build 証跡や明示承認を Desktop 着手前の blocker に戻さない。
 
-現行コードには、ノート CRUD、Cue、タグ候補と検索、`CanvasDocumentV1` 本文、Summary、詳細画面内の復習、確認後の物理削除、SQLite の手動 backup が存在する。製品側 `src-tauri/` には user data / SQLite bootstrap、stable advisory lock を使う single-instance recovery、primary lifecycle、window state、dirty close bridge、sidecar cleanup が実装されている。更新系には provider、manifest、selection、download、signature / SHA-256、archive / bundle validation、update state、pending verification、`ApplyPreparation` を起点とする staged migration、rollback / recovery、candidate health、checkpoint persistence、cleanup の backend 実装と static / disposable test 証跡がある。`apply_verified_update`（引数なしの明示 command）は verified artifact を再検証して `ApplyPreparation` の atomic state transition と explicit restart handoff へ渡す。Data and Backup は native file-dialog / typed bridge、手動 plaintext SQLite export、managed backup catalog、managed / external restore 共通 pipeline、pending restore と明示 resume、complete data deletion、Settings UI まで実装済みで static / disposable test 済みである。これは実 provider / package runtime、macOS packaged app の health / switch / rollback、packaged GUI の完了を意味しない。Settings の更新 UI 操作接続は未実装で、packaged runtime、native GUI、loopback、browser / DB read-back、process timing は未検証、startup failure、local log、diagnostic bundle、privacy boundary は未実装である。
+現行コードには、ノート CRUD、Cue、タグ候補と検索、`CanvasDocumentV1` 本文、Summary、詳細画面内の復習、確認後の物理削除、SQLite の手動 backup が存在する。製品側 `src-tauri/` には user data / SQLite bootstrap、stable advisory lock を使う single-instance recovery、primary lifecycle、window state、dirty close bridge、sidecar cleanup が実装されている。更新系には provider、manifest、selection、download、signature / SHA-256、archive / bundle validation、update state、pending verification、`ApplyPreparation` を起点とする staged migration、rollback / recovery、candidate health、checkpoint persistence、cleanup の backend 実装と static / disposable test 証跡がある。`apply_verified_update`（引数なしの明示 command）は verified artifact を再検証して `ApplyPreparation` の atomic state transition と explicit restart handoff へ渡す。Data and Backup は native file-dialog / typed bridge、手動 plaintext SQLite export、managed backup catalog、managed / external restore 共通 pipeline、pending restore と明示 resume、complete data deletion、Settings UI まで実装済みで static / disposable test 済みである。General のテーマ設定と manual update check の UI / typed bridge 接続、startup recovery、privacy-safe local log、diagnostic export、privacy boundary も実装済みで static / disposable test 済みである。これは実 provider / package runtime、macOS packaged app の health / switch / rollback、packaged GUI の完了を意味しない。packaged runtime、native GUI、loopback、browser / DB read-back、process timing、実機 startup failure、health / switch / rollback / cleanup、DMG は未検証または未完了である。
 
-2026-08-21 の責務抽出と最終 audit では、Rust / UI ともに現時点で追加分割不要と判定した。Desktop Alpha 全体の完了とは扱わず、実 provider / package runtime、macOS packaged app の health / switch / rollback / cleanup、packaged Apple Silicon GUI、dynamic loopback の実 runtime、browser / DB read-back、診断は未確認または未実装のまま残す。Data and Backup と完全なデータ削除は static / disposable test 済みで、packaged runtime は未検証である。
+2026-08-21 の責務抽出と最終 audit では、Rust / UI ともに現時点で追加分割不要と判定した。Desktop Alpha 全体の完了とは扱わず、managed restore の限定的 packaged GUI PASS を除き、実 provider / package runtime、macOS packaged app の health / switch / rollback / cleanup、packaged Apple Silicon GUI、dynamic loopback の実 runtime、browser / DB read-back、診断の packaged runtime 受け入れは未確認のまま残す。static / disposable test の PASS を packaged runtime / native GUI の PASS へ繰り上げない。外部 SQLite export は create-only / no-replace とし、既存 destination は `destination-exists` で拒否して別名保存を案内する。現行状態の根拠は `HANDOFF_2026-09-07.md` と 2026-09-07 の Manager summary とする。
 
 ### 3.2 Release boundary
 
@@ -166,9 +166,11 @@ PoC は、両候補に同じ必須項目の結果があり、未測定と blocke
 
 ### 6.2 Settings
 
-現行 HEAD では Data and Backup の native file-dialog / typed bridge、手動 plaintext SQLite export、managed backup catalog、managed / external restore 共通 pipeline、pending restore と明示 resume、complete data deletion、Settings UI を実装済みとする。static / disposable test 済みだが、packaged runtime acceptance は未検証である。startup failure、local log、diagnostic bundle、privacy boundary は未実装である。
+外部 SQLite export は create-only / no-replace とする。既存 regular file は `destination-exists` として拒否し、別名保存を案内する。`replaceExisting` / `allowReplaceExisting` permission と既存 destination への通常 rename publish は提供しない。race winner を失う P1 は解消済みで、focused tests 17/17 と再レビュー `APPROVE` を得ている。
 
-- 基本区分は General、Updates、Data and Backup とする。
+現行 HEAD では Data and Backup の native file-dialog / typed bridge、手動 plaintext SQLite export、managed backup catalog、managed / external restore 共通 pipeline、pending restore と明示 resume、complete data deletion、Settings UI を実装済みとする。外部 SQLite export は create-only / no-replace とし、既存 destination は `destination-exists` で拒否して別名保存を案内する。static / disposable test 済みで、managed restore は exact normal artifact と disposable data に限定した packaged GUI PASS（Notebook / Cue / Tag / CanvasDocumentV1 / searchText の再起動後 read-back、SQLite integrity、`recoveryOnly=true` safety backup の保持と通常一覧からの除外）まで確認済みである。ただし任意の実ユーザー環境や Desktop Alpha 全体の受け入れ完了ではない。packaged managed restore では same-origin error は再現しなかったが、WebView 内部 bridge / Network panel の直接確認や一般的な解消の証拠ではない。実 provider / package runtime、update apply、health / bundle switch / rollback / cleanup、DMG は未完了のまま扱う。startup recovery、privacy-safe local log、diagnostic export、privacy boundary は実装済みで static / disposable test 済みだが、packaged runtime / 実機 startup failure は未検証である。証跡: `HANDOFF_2026-09-07.md` と 2026-09-07 の Manager summary。
+
+- トップレベル区分は General と Data and Backup の2つとし、更新確認は General 内のセクションとして扱う。
 - Mac では Settings menu、開発用 Web では gear から開く。
 - 正確な表示文言と項目配置は実装時の別 task で決める。
 - `/backup` は Settings の代替機能が完成して受け入れ確認を通るまで維持する。その後、Desktop UI では段階廃止する。現行 route の削除をこの計画更新では行わない。
@@ -297,8 +299,8 @@ manifest の root `schemaVersion: 1` は manifest の version namespace であ�
 | 4 | 更新 apply preparation（backend 実装済み・static PASS） | 既存の provider / manifest / selection / download / signature / validation / state / pending verification の実装を再利用し、verified artifact を明示 invoke から再検証して `ApplyPreparation` と explicit restart handoff へ渡す。自動 apply / restart は行わない。 |
 | 5 | staged migration（backend 実装済み・runtime 未検証） | persisted `ApplyPreparation` を起点に、pending migration がある場合だけ safety backup、DB staging copy の migration / read-back / reopen、既存列・Notebook / Canvas / legacy Markdown の保持確認、atomic switch を行う。 |
 | 6 | rollback / recovery（backend 実装済み・runtime 未検証） | candidate health、bundle switch、interrupted state、migration / switch / health failure に対し、checkpoint、現行 app / live DB / backup 保持、rollback / SQLite restore / 旧 bundle 復帰 / cleanup を行う。 |
-| 7 | 手動 backup / restore | 実装済み。static / disposable test 済み、packaged runtime 未検証 |
-| 8 | 完全なデータ削除、診断、privacy、startup / failure UI | complete data deletion は実装済み。startup failure、local log、diagnostic bundle、privacy boundary は未実装 |
+| 7 | 手動 backup / restore | 実装済み。外部 SQLite export は create-only / no-replace、既存 destination は `destination-exists` で拒否。static / disposable test 済み。managed restore は exact normal artifact / disposable data に限定した packaged GUI PASS |
+| 8 | 完全なデータ削除、診断、privacy、startup / failure UI | complete data deletion、startup recovery、local log、diagnostic export、privacy boundary は実装済み。static / disposable test 済み。実機 startup failure と packaged runtime は未検証 |
 | 9 | Packaged Desktop Alpha 結合 QA | 現行 MVP と Desktop 固有契約を同じ Apple Silicon artifact で確認する |
 | 10 | Desktop Alpha 後の Phase 2 | 決定済みの Canvas PNG と検索 UX・規模要件を保持し、未決の実装詳細と他機能の採否を個別 task で扱う |
 | 11 | Public Mac Release | architecture、macOS、署名、notarization、一般公開配布を確定する |
@@ -313,19 +315,19 @@ Desktop Alpha の coding task は次の粒度を基本とする。
 | API / DB | `implement-desktop-user-data-sqlite-bootstrap.task.md` | user data で初回 DB 作成と schema 判定を行う（実装済み） | API |
 | Common / 配布 | `implement-desktop-single-window-lifecycle.task.md` | single application instance / 1 primary window、window state、app-owned process tree の終了処理を実装する（single-instance recovery / primary lifecycle 実装済み、packaged QA 未確認） | Common |
 | UI | `implement-desktop-unsaved-exit-dialog.task.md` | 未保存終了の 3 選択肢と save failure 時の dirty 保持を実装する（close coordinator / bridge 実装済み、GUI QA 未確認） | UI |
-| UI | `implement-desktop-settings-entrypoints.task.md` | Settings menu / Web gear、3 区分の modal shell を実装する（shell / bridge / entrypoint 実装済み、操作機能は後続） | UI |
+| UI | `implement-desktop-settings-entrypoints.task.md` | Settings menu / Web gear、General と Data and Backup の2つのトップレベル区分による modal shell（更新確認は General 内）を実装する（shell / bridge / entrypoint、General のテーマ設定と manual update check UI / typed bridge 接続まで実装済み、static / disposable test 済み） | UI |
 | UI | `implement-desktop-unsaved-update-dialog.task.md` | 更新時の未保存内容に対する 3 選択肢と save failure 時の dirty 保持を実装する | UI |
 | Common / 配布 | `implement-desktop-update-apply.task.md` | 既存の provider / manifest / selection / download / signature / archive・bundle validation / update-state / pending verification を再実装せず、verified artifact を引数なしの明示 invoke から再検証し、`ApplyPreparation` と explicit restart handoff へ渡す（backend 部分実装済み、static QA 済み） | Common |
 | API / DB | `implement-staged-update-migration.task.md` | migration 前 backup、DB staging copy の migration / read-back / reopen、既存列・Notebook / Canvas / legacy Markdown の保持確認、atomic switch を実装する。provider、manifest、download、signature の重複実装は行わない（実装済み、runtime 未検証） | API |
 | Common / 配布 | `implement-desktop-update-rollback-recovery.task.md` | package / DB staging、candidate health、切替、interrupted state の失敗時に、現行 app、live DB、app 管理 backup を維持して rollback / recovery、checkpoint persistence、cleanup を実装する（実装済み、runtime 未検証） | Common |
-| API / DB | `implement-desktop-manual-sqlite-export.task.md` | ユーザー選択先への平文 SQLite export を実装する（実装済み、static / disposable test 済み、packaged runtime 未検証） | API |
-| API / DB | `implement-desktop-restore-pipeline.task.md` | 両 restore 入口の validation と atomic switch を実装する（実装済み、static / disposable test 済み、packaged runtime 未検証） | API |
-| Common / 配布 | `implement-desktop-pending-restore-resume.task.md` | newer backup の保留 copy と更新後の明示的な復元再開を実装する（実装済み、static / disposable test 済み、packaged runtime 未検証） | Common |
-| UI | `implement-desktop-data-backup-settings.task.md` | Data and Backup の export / restore 操作を実装する（実装済み、static / disposable test 済み、packaged runtime 未検証） | UI |
+| API / DB | `implement-desktop-manual-sqlite-export.task.md` | ユーザー選択先への平文 SQLite export を create-only / no-replace で実装する（実装済み、static / disposable test 済み。既存 destination は拒否して別名保存を案内） | API |
+| API / DB | `implement-desktop-restore-pipeline.task.md` | 両 restore 入口の validation と atomic switch を実装する（実装済み、static / disposable test 済み。managed restore は限定的 packaged GUI PASS） | API |
+| Common / 配布 | `implement-desktop-pending-restore-resume.task.md` | newer backup の保留 copy と更新後の明示的な復元再開を実装する（実装済み、static / disposable test 済み。managed restore は限定的 packaged GUI PASS） | Common |
+| UI | `implement-desktop-data-backup-settings.task.md` | Data and Backup の export / restore 操作を実装する（実装済み、static / disposable test 済み。外部 export は create-only / no-replace、managed restore は限定的 packaged GUI PASS） | UI |
 | UI / API | `implement-desktop-complete-data-deletion.task.md` | 入力確認、対象 data の削除、初回状態への復帰を実装する（実装済み、static / disposable test 済み、packaged runtime 未検証） | Common |
-| Common / 配布 | `implement-desktop-private-local-logging.task.md` | retention 付き local log と診断 ZIP を実装する | Common |
-| Common / 配布 | `implement-desktop-crash-notification-state.task.md` | 異常終了の記録と次回手動起動時の一度だけの通知を実装する | Common |
-| UI | `implement-desktop-db-recovery-ui.task.md` | missing / corrupt DB と save failure の導線を実装する | UI |
+| Common / 配布 | `implement-desktop-private-local-logging.task.md` | retention 付き privacy-safe local log と診断 ZIP を実装する（実装済み、static / disposable test 済み。packaged runtime 未検証） | Common |
+| Common / 配布 | `implement-desktop-crash-notification-state.task.md` | 異常終了の記録と次回手動起動時の一度だけの通知を実装する（実装済み、static / disposable test 済み。実機 startup failure 未検証） | Common |
+| UI | `implement-desktop-db-recovery-ui.task.md` | missing / corrupt DB と save failure の導線を実装する（startup recovery / failure UI 実装済み、static / disposable test 済み。実機 startup failure 未検証） | UI |
 | QA | `qa-packaged-desktop-alpha-contract.task.md` | Apple Silicon の packaged app で Alpha 契約を結合確認する | Common |
 
 - 仕様・調査 task と coding task を同じ task file に入れない。
@@ -343,7 +345,7 @@ Desktop Alpha は、Apple Silicon の packaged app で次を確認し、発注�
 - 現行 MVP の route、API、`CanvasDocumentV1`、legacy Markdown、明示保存、物理削除、復習契約が変わっていない。
 - clean first launch、existing DB、通常起動、終了、二重起動、window state、次回の一覧開始が lifecycle 契約どおりである。
 - 未保存終了の 3 選択肢、Escape / dialog 外操作による取消し、save failure 時の dirty 保持が成立する。
-- Settings の 3 区分、Mac / Web の入口、app 管理 backup と外部 file の別 restore 入口があり、`/backup` を代替確認前に削除していない。
+- Settings の2つのトップレベル区分（General と Data and Backup、更新確認は General 内）、Mac / Web の入口、app 管理 backup と外部 file の別 restore 入口があり、`/backup` を代替確認前に削除していない。
 - 初期配布 DMG と Apple Silicon 向け `.app archive` の役割が分かれ、`aarch64-apple-darwin` の packaged artifact / QA 境界が成立する。Developer ID / notarization は Alpha の必須条件にしない。
 - GitHub Releases を初期 provider とする provider-neutral manifest interface、`releases[]`、channel / version / architecture / macOS compatibility の端末内判定、同一 channel の新しい compatible version のみの選択、downgrade 防止が成立する。
 - `productId`、root `schemaVersion: 1`、strict field allowlist、空の `releases[]`、SemVer precedence、stable channel、prerelease 除外、build metadata の比較除外、数値 component による macOS range、artifact metadata、direct HTTPS URL、HTTPS → HTTPS redirect、signature proof、duplicate の manifest 全体拒否、非対象 release の release 単位除外が成立する。
@@ -471,7 +473,7 @@ Desktop Alpha では上記を未決のまま残せる。Alpha で使用した低
 - 診断 ZIP は allowlist で構築し、禁止データが含まれないことを test する。
 - packaged Desktop smoke と既存 Web regression を分けて記録する。
 - 文書確認では Markdown link、見出し構造、`git diff --check` を確認する。
-- 2026-08-24 の Desktop update Node suite は `node --test test/desktop/desktop-update-*.test.js` 54/54 PASS。rollback/recovery focused tests は 6/6 PASS で同 suite に含まれる。これは provider / manifest / selection / 公開 URL 境界 / download / signature・SHA-256 / archive・bundle validation / update state / pending verification と、apply、staged migration、read-back、checkpoint、health、switch、rollback、cleanup の disposable / static 境界の証跡であり、実 provider / package runtime や packaged GUI の証跡ではない。
+- 2026-08-24 の Desktop update Node suite は `node --import tsx/esm --test test/desktop/desktop-update-*.test.ts` 54/54 PASS。rollback/recovery focused tests は 6/6 PASS で同 suite に含まれる。これは provider / manifest / selection / 公開 URL 境界 / download / signature・SHA-256 / archive・bundle validation / update state / pending verification と、apply、staged migration、read-back、checkpoint、health、switch、rollback、cleanup の disposable / static 境界の証跡であり、実 provider / package runtime や packaged GUI の証跡ではない。
 - 同日の lifecycle/runtime tests は 15 PASS、7 SKIP（loopback / packaged runtime 依存）。対象 ESLint、対象 Desktop test / launcher / runtime helper の `node --check`、`cargo fmt --manifest-path src-tauri/Cargo.toml -- --check`、`git diff --check` は PASS。Rust `cargo test --offline` は環境に `base64 0.22.1` crate がなく compile 前に実行不能だった。
 - browser / DB read-back、実 provider / package runtime、実際の macOS packaged app による sidecar health / bundle switch / rollback / cleanup、GUI の dirty close、packaged Apple Silicon GUI は未検証として記録し、static / disposable PASS から runtime PASS へ繰り上げない。
 
@@ -497,7 +499,7 @@ U-001 の shell 選定は 2026-08-17 に解決済みである。次の事項は�
 
 1. `summary/20260824/1026-fix-desktop-update-recovery-candidate-runtime-root-20260824-6fd3c80a-summary.md` と `HANDOFF_2026-08-22.md` を起点に、dynamic loopback / sidecar、candidate health、bundle switch、rollback / recovery、cleanup、dirty close / save failure の実挙動を追検証する。packaged GUI が必要な項目は未検証のまま記録する。
 2. packaged Desktop Alpha contract QA を実施する。
-3. startup failure、local log、diagnostic bundle、privacy 境界を実装する。
+3. startup recovery、local log、diagnostic bundle、privacy 境界の packaged runtime / 実機挙動を検証する。
 4. Apple Silicon の packaged app で現行 MVP と Desktop Alpha を結合 QA し、Alpha の受け入れ判定を行う。
 5. Electron の追加対称比較、署名・notarization、Phase 2 は Desktop Alpha の残課題と混ぜない。
 
