@@ -8,9 +8,11 @@
     "desktop:prepare-node-runtime": "node scripts/prepare-desktop-node-runtime.js",
     "start": "next start",
     "lint": "eslint",
-    "test:desktop:lifecycle": "node --test test/desktop/desktop-lifecycle.test.js",
-    "test:desktop:node-runtime": "node --test test/desktop/desktop-node-runtime.test.js",
-    "test:codex-queue": "node --test test/codex-queue/*.test.js",
+    "typecheck": "tsc --noEmit",
+    "test:ts": "node --import tsx/esm --test \"test/**/*.test.ts\"",
+    "test:desktop:lifecycle": "node --import tsx/esm --test test/desktop/desktop-lifecycle.test.ts",
+    "test:desktop:node-runtime": "node --import tsx/esm --test test/desktop/desktop-node-runtime.test.ts",
+    "test:codex-queue": "node --import tsx/esm --test \"test/codex-queue/*.test.ts\"",
     "test:e2e": "playwright test",
     "prisma:generate": "node scripts/prisma-generate.js",
     "prisma:generate:postgres": "node scripts/prisma-run-postgres.js generate",
@@ -69,6 +71,7 @@
     "playwright": "1.61.0",
     "puppeteer": "24.33.0",
     "tailwindcss": "^4",
+    "tsx": "^4.23.13",
     "typescript": "^5"
   },
   "overrides": {
