@@ -1,1 +1,1 @@
-/private/tmp/cornell-method-close-fix-normal-20260831-jYmoS8/tauri-target/aarch64-apple-darwin/release/bundle/macos/Cornell Method Notebook.app
+/private/tmp/cornell-method-normal-export-create-only-q5N2QP/tauri-target/aarch64-apple-darwin/release/bundle/macos/Cornell Method Notebook.app
