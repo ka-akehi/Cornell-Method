@@ -183,8 +183,10 @@ export type DesktopDataBackupDialogErrorCode =
   | "symlink-path"
   | "path-unavailable"
   | "path-not-file"
+  | "path-not-directory"
   | "path-not-found"
-  | "destination-exists";
+  | "destination-exists"
+  | "destination-name-unavailable";
 
 export type DesktopDataBackupDialogResponse = {
   kind: "desktop-file-dialog";
@@ -1003,8 +1005,10 @@ function isDesktopDataBackupDialogErrorCode(
       "symlink-path",
       "path-unavailable",
       "path-not-file",
+      "path-not-directory",
       "path-not-found",
       "destination-exists",
+      "destination-name-unavailable",
     ].includes(value)
   );
 }

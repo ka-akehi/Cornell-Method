@@ -191,8 +191,10 @@ function dataBackupDialogErrorMessage(
   errorCode: DesktopDataBackupDialogErrorCode | null,
 ) {
   switch (errorCode) {
-    case "destination-exists":
-      return "選択した保存先には既にファイルがあります。別の保存先を選択してください。";
+    case "destination-name-unavailable":
+      return "新しいバックアップファイル名を確定できませんでした。既存ファイルは変更されていません。もう一度保存を試してください。";
+    case "path-not-directory":
+      return "選択した保存先フォルダを確認できません。もう一度選択してください。";
     case "path-not-found":
     case "path-not-file":
     case "path-unavailable":
@@ -282,9 +284,11 @@ function dataBackupOperationNotice(
         retry: restoreRetryForContext(context),
       };
     case "destination-exists":
+    case "publish-race":
       return {
         role: "alert",
-        message: "同名ファイルがあるため書き出せませんでした。別の保存先を選択してください。",
+        message:
+          "別の処理が先にファイルを作成したため、バックアップを書き出せませんでした。既存ファイルは変更されていません。もう一度保存を試してください。",
         retry: null,
       };
     case "selection-not-found":
@@ -1069,6 +1073,7 @@ function DataAndBackupPanel() {
         <div className={styles.dataBackupSectionHeading}>
           <h4 id="data-backup-export-title">バックアップを保存</h4>
         </div>
+        <p>保存先フォルダを選ぶと、選択したフォルダに新しいSQLiteバックアップを作成します。</p>
         <button
           type="button"
           className={styles.dataBackupButton}

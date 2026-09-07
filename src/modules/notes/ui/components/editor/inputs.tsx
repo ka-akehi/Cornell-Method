@@ -35,12 +35,12 @@ export function TitleInput({
         aria-invalid={Boolean(error)}
         aria-disabled={disabled}
         aria-describedby={error ? `${id}-error` : undefined}
-        className={`note-paper-title w-full min-w-0 rounded-none border-0 border-b !bg-transparent px-0 py-1 !shadow-none outline-none transition placeholder:text-stone-400 focus:ring-0 ${
+        className={`note-paper-title w-full min-w-0 rounded-none border-0 !bg-transparent px-0 py-1 !shadow-none outline-none transition placeholder:text-stone-400 focus:ring-0 ${
           disabled
-            ? "cursor-not-allowed border-stone-200 text-stone-400 placeholder:text-stone-300"
+            ? "cursor-not-allowed text-stone-400 placeholder:text-stone-300"
             : error
-              ? "border-red-400 focus:border-red-500"
-              : "border-stone-300 focus:border-amber-500"
+              ? "text-red-700 placeholder:text-red-400"
+              : ""
         }`}
         placeholder="タイトルを入力"
       />

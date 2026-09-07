@@ -22,7 +22,14 @@ test("editor and create mode share a zero-padded metadata section", () => {
   const detailModes = readSource(
     "src/modules/notes/ui/components/detail/modes.tsx",
   );
+  const inputs = readSource(
+    "src/modules/notes/ui/components/editor/inputs.tsx",
+  );
   const paper = readSource("src/app/styles/note-paper.css");
+  const titleInput = inputs.slice(
+    inputs.indexOf("export function TitleInput"),
+    inputs.indexOf("export function TextInput"),
+  );
 
   assert.match(
     metadata,
@@ -40,9 +47,11 @@ test("editor and create mode share a zero-padded metadata section", () => {
     paper,
     /\.note-paper-heading\s*\{[\s\S]*border-bottom:\s*1px solid var\(--paper-line\);/,
   );
+  assert.doesNotMatch(titleInput, /border-b|border-bottom|border-(?:stone|red)-/);
+  assert.doesNotMatch(paper, /\.note-paper-title[^}]*border-bottom/);
   assert.match(
     paper,
-    /\.note-paper-editor \.note-paper-heading \.note-paper-title:not\(:focus\):not\(\[aria-invalid="true"\]\)\s*\{[\s\S]*border-bottom-color:\s*transparent;/,
+    /\.note-paper-editor \.note-paper-heading \.note-paper-title:focus-visible:not\(\[aria-invalid="true"\]\)\s*\{[\s\S]*outline:\s*2px solid var\(--app-focus\);/,
   );
 
   assert.match(createPage, /<NoteEditor mode="create"\s*\/>/);

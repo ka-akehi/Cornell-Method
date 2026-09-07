@@ -597,6 +597,26 @@ test("Tauri and bridge source keep the boundary command and selection path priva
   assert.match(main, /run_desktop_data_backup_operation/);
   assert.match(main, /DesktopFileSelectionStore::default\(\)/);
   assert.match(runtime, /DESKTOP_DIALOG_BINARY: &str = "[/]usr[/]bin[/]osascript"/);
+  const dialogScriptStart = runtime.indexOf("fn desktop_file_dialog_script");
+  const saveDestinationStart = runtime.indexOf(
+    "DesktopFileDialogKind::SaveDestination => {",
+    dialogScriptStart,
+  );
+  const openExternalSourceStart = runtime.indexOf(
+    "DesktopFileDialogKind::OpenExternalSource => {",
+    saveDestinationStart,
+  );
+  assert.notEqual(dialogScriptStart, -1);
+  assert.notEqual(saveDestinationStart, -1);
+  assert.notEqual(openExternalSourceStart, -1);
+  assert.match(
+    runtime.slice(saveDestinationStart, openExternalSourceStart),
+    /choose folder/,
+  );
+  assert.doesNotMatch(
+    runtime.slice(saveDestinationStart, openExternalSourceStart),
+    /choose file name/,
+  );
   assert.match(runtime, /symlink_metadata/);
   assert.match(runtime, /origin: "native-dialog"/);
   assert.match(launcherSource, /command === "paths"/);

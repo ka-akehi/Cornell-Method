@@ -239,7 +239,6 @@ function AppChromeBrandContent() {
       </span>
       <span className="app-chrome-brand-copy">
         <span className="app-chrome-brand-title">Cornell Method Notebook</span>
-        <span className="app-chrome-brand-subtitle">ローカル学習ノート</span>
       </span>
     </>
   );

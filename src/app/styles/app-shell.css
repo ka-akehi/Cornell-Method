@@ -88,14 +88,6 @@
   line-height: 1.35;
 }
 
-.app-chrome-brand-subtitle {
-  display: block;
-  margin-top: 0.15rem;
-  color: var(--app-muted-ink);
-  font-size: 0.72rem;
-  line-height: 1.35;
-}
-
 .app-chrome-sidebar-identity {
   position: relative;
   box-sizing: border-box;
@@ -130,14 +122,15 @@
 
 .app-chrome-desktop-identity .app-chrome-brand-copy {
   position: absolute;
-  top: 0.625rem;
+  top: 50%;
   left: 3.5rem;
   right: calc(
     var(--app-chrome-sidebar-control-size) +
       var(--app-chrome-sidebar-outer-inset) + 0.5rem
   );
   width: auto;
-  height: 2.25rem;
+  height: auto;
+  transform: translateY(-50%);
   overflow: hidden;
   opacity: 1;
   transition:
@@ -153,17 +146,6 @@
   font-weight: 700;
   letter-spacing: 0;
   line-height: 1.125rem;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.app-chrome-desktop-identity .app-chrome-brand-subtitle {
-  overflow: hidden;
-  margin-top: 0.125rem;
-  color: var(--app-muted-ink);
-  font-size: 0.6875rem;
-  font-weight: 400;
-  line-height: 1rem;
   text-overflow: ellipsis;
   white-space: nowrap;
 }

@@ -110,9 +110,10 @@ test("view and review actions are placed in the title row without duplicating th
     paper,
     /\.note-paper-heading\s*\{[\s\S]*border-bottom:\s*1px solid var\(--paper-line\);/,
   );
+  assert.doesNotMatch(paper, /\.note-paper-title[^}]*border-bottom/);
   assert.match(
     paper,
-    /\.note-paper-editor \.note-paper-heading \.note-paper-title:not\(:focus\):not\(\[aria-invalid="true"\]\)\s*\{[\s\S]*border-bottom-color:\s*transparent;/,
+    /\.note-paper-editor \.note-paper-heading \.note-paper-title:focus-visible:not\(\[aria-invalid="true"\]\)\s*\{[\s\S]*outline:\s*2px solid var\(--app-focus\);/,
   );
   const headingActionsCssStart = paper.indexOf(".note-paper-heading-actions");
   const headingActionsCssEnd = paper.indexOf("\n}", headingActionsCssStart);

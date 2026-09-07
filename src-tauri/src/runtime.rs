@@ -12,7 +12,7 @@ use std::process::{Child, Command, ExitStatus, Output, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 #[cfg(unix)]
 use std::os::unix::{
@@ -67,6 +67,7 @@ const DESKTOP_DATABASE_RECOVERY_REASON_STORAGE_UNAVAILABLE: &str = "storage-unav
 const DESKTOP_STORAGE_BOOTSTRAP_ERROR_CODE: &str = "bootstrap-failed";
 const DESKTOP_DIALOG_BINARY: &str = "/usr/bin/osascript";
 const MAX_DESKTOP_DIALOG_OUTPUT_BYTES: usize = 16 * 1024;
+const MAX_SAVE_DESTINATION_NAME_ATTEMPTS: usize = 8;
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -904,6 +905,38 @@ pub(crate) fn validate_external_file_path(
     application_support_root: &Path,
     requires_existing_file: bool,
 ) -> Result<(), &'static str> {
+    validate_external_path(
+        path,
+        application_support_root,
+        ExternalPathKind::File,
+        !requires_existing_file,
+    )
+}
+
+fn validate_external_directory_path(
+    path: &Path,
+    application_support_root: &Path,
+) -> Result<(), &'static str> {
+    validate_external_path(
+        path,
+        application_support_root,
+        ExternalPathKind::Directory,
+        false,
+    )
+}
+
+#[derive(Clone, Copy)]
+enum ExternalPathKind {
+    File,
+    Directory,
+}
+
+fn validate_external_path(
+    path: &Path,
+    application_support_root: &Path,
+    leaf_kind: ExternalPathKind,
+    allow_missing_leaf: bool,
+) -> Result<(), &'static str> {
     if !path.is_absolute() {
         return Err("relative-path");
     }
@@ -947,14 +980,23 @@ pub(crate) fn validate_external_file_path(
                 if !is_leaf && !metadata.is_dir() {
                     return Err("path-unavailable");
                 }
-                if is_leaf && !metadata.is_file() {
-                    return Err("path-not-file");
+                if is_leaf {
+                    match leaf_kind {
+                        ExternalPathKind::File if !metadata.is_file() => {
+                            return Err("path-not-file")
+                        }
+                        ExternalPathKind::Directory if !metadata.is_dir() => {
+                            return Err("path-not-directory")
+                        }
+                        _ => {}
+                    }
                 }
             }
             Err(error) if error.kind() == std::io::ErrorKind::NotFound && is_leaf => {
-                if requires_existing_file {
-                    return Err("path-not-found");
+                if allow_missing_leaf {
+                    return Ok(());
                 }
+                return Err("path-not-found");
             }
             Err(_) => return Err("path-unavailable"),
         }
@@ -963,7 +1005,11 @@ pub(crate) fn validate_external_file_path(
 }
 
 fn create_selection_id() -> Result<String, &'static str> {
-    let mut bytes = [0_u8; 32];
+    create_random_hex(32)
+}
+
+fn create_random_hex(byte_len: usize) -> Result<String, &'static str> {
+    let mut bytes = vec![0_u8; byte_len];
     SystemRandom::new()
         .fill(&mut bytes)
         .map_err(|_| "selection-store-failed")?;
@@ -975,15 +1021,50 @@ fn create_selection_id() -> Result<String, &'static str> {
 }
 
 pub(crate) fn create_data_backup_operation_id() -> Result<String, &'static str> {
-    let mut bytes = [0_u8; 32];
-    SystemRandom::new()
-        .fill(&mut bytes)
-        .map_err(|_| "selection-store-failed")?;
-    let mut value = String::with_capacity(bytes.len() * 2);
-    for byte in bytes {
-        write!(&mut value, "{byte:02x}").map_err(|_| "selection-store-failed")?;
+    create_random_hex(32)
+}
+
+fn format_external_backup_file_name(timestamp_seconds: u64, random: &str) -> String {
+    let seconds = i64::try_from(timestamp_seconds).unwrap_or(i64::MAX);
+    let days = seconds.div_euclid(86_400);
+    let seconds_of_day = seconds.rem_euclid(86_400);
+
+    // Gregorian civil date conversion from days since 1970-01-01 (UTC).
+    let z = days + 719_468;
+    let era = (if z >= 0 { z } else { z - 146_096 }).div_euclid(146_097);
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096).div_euclid(365);
+    let year = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let month_part = (5 * doy + 2).div_euclid(153);
+    let day = doy - (153 * month_part + 2).div_euclid(5) + 1;
+    let month = month_part + if month_part < 10 { 3 } else { -9 };
+    let year = year + if month <= 2 { 1 } else { 0 };
+    let hour = seconds_of_day / 3_600;
+    let minute = seconds_of_day % 3_600 / 60;
+    let second = seconds_of_day % 60;
+
+    format!(
+        "cornell-method-backup-{year:04}{month:02}{day:02}-{hour:02}{minute:02}{second:02}-{random}.sqlite"
+    )
+}
+
+fn create_external_backup_destination(directory: &Path) -> Result<PathBuf, &'static str> {
+    let timestamp_seconds = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    for _ in 0..MAX_SAVE_DESTINATION_NAME_ATTEMPTS {
+        let random = create_random_hex(8)?;
+        let destination =
+            directory.join(format_external_backup_file_name(timestamp_seconds, &random));
+        match fs::symlink_metadata(&destination) {
+            Ok(_) => continue,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(destination),
+            Err(_) => return Err("path-unavailable"),
+        }
     }
-    Ok(value)
+    Err("destination-name-unavailable")
 }
 
 impl DesktopFileSelectionStore {
@@ -1003,14 +1084,6 @@ impl DesktopFileSelectionStore {
             })
             .ok_or("invalid-path")?
             .to_string();
-        if dialog_kind == DesktopFileDialogKind::SaveDestination {
-            match fs::symlink_metadata(&path) {
-                Ok(metadata) if metadata.is_file() => return Err("destination-exists"),
-                Ok(_) => {}
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-                Err(_) => return Err("path-unavailable"),
-            }
-        }
         let selection_id = create_selection_id()?;
         let mut selections = self
             .selections
@@ -1064,7 +1137,7 @@ fn desktop_file_dialog_script(dialog: DesktopFileDialogKind) -> &'static str {
     match dialog {
         DesktopFileDialogKind::SaveDestination => {
             r#"try
-  set chosenItem to choose file name with prompt "Choose an export destination"
+  set chosenItem to choose folder with prompt "Choose a folder for the export"
   return "selected" & linefeed & POSIX path of chosenItem
 on error errorMessage number errorNumber
   if errorNumber is -128 then
@@ -1220,21 +1293,48 @@ fn choose_data_backup_file(
             );
         }
     };
-    if let Err(error_code) = validate_external_file_path(
-        &selection.path,
-        storage.application_support_root(),
-        dialog.requires_existing_file(),
-    ) {
-        DesktopFileDialogFailure::new(
-            DesktopFileDialogFailurePhase::PathValidation,
-            error_code,
-            selection.exit_status,
-        )
-        .record(app, dialog);
-        return desktop_file_dialog_result(dialog, false, "error", None, Some(error_code));
-    }
+    let selected_path = if dialog == DesktopFileDialogKind::SaveDestination {
+        if let Err(error_code) =
+            validate_external_directory_path(&selection.path, storage.application_support_root())
+        {
+            DesktopFileDialogFailure::new(
+                DesktopFileDialogFailurePhase::PathValidation,
+                error_code,
+                selection.exit_status,
+            )
+            .record(app, dialog);
+            return desktop_file_dialog_result(dialog, false, "error", None, Some(error_code));
+        }
+        match create_external_backup_destination(&selection.path) {
+            Ok(path) => path,
+            Err(error_code) => {
+                DesktopFileDialogFailure::new(
+                    DesktopFileDialogFailurePhase::PathValidation,
+                    error_code,
+                    selection.exit_status,
+                )
+                .record(app, dialog);
+                return desktop_file_dialog_result(dialog, false, "error", None, Some(error_code));
+            }
+        }
+    } else {
+        if let Err(error_code) = validate_external_file_path(
+            &selection.path,
+            storage.application_support_root(),
+            dialog.requires_existing_file(),
+        ) {
+            DesktopFileDialogFailure::new(
+                DesktopFileDialogFailurePhase::PathValidation,
+                error_code,
+                selection.exit_status,
+            )
+            .record(app, dialog);
+            return desktop_file_dialog_result(dialog, false, "error", None, Some(error_code));
+        }
+        selection.path
+    };
     let exit_status = selection.exit_status;
-    match selection_store.inner().insert(dialog, selection.path) {
+    match selection_store.inner().insert(dialog, selected_path) {
         Ok(selection) => {
             desktop_file_dialog_result(dialog, true, "selected", Some(selection), None)
         }
@@ -3412,16 +3512,39 @@ mod tests {
     }
 
     #[test]
-    fn save_destination_existing_file_is_rejected_without_storing_selection() {
+    fn save_destination_uses_a_validated_folder_and_generated_file_name() {
         let directory = TestDirectory::new();
         let managed_root = directory.path().join("managed");
         let external_root = directory.path().join("external");
         fs::create_dir_all(&managed_root).expect("create managed root");
         fs::create_dir_all(&external_root).expect("create external root");
 
-        let existing_path = external_root.join("existing.sqlite");
-        fs::write(&existing_path, b"existing destination").expect("write existing destination");
-        let new_path = external_root.join("new.sqlite");
+        assert!(validate_external_directory_path(&external_root, &managed_root).is_ok());
+        assert_eq!(
+            validate_external_directory_path(&external_root.join("missing"), &managed_root),
+            Err("path-not-found")
+        );
+        let file_path = external_root.join("not-a-folder");
+        fs::write(&file_path, b"not a folder").expect("write non-directory fixture");
+        assert_eq!(
+            validate_external_directory_path(&file_path, &managed_root),
+            Err("path-not-directory")
+        );
+        assert_eq!(
+            format_external_backup_file_name(0, "0123456789abcdef"),
+            "cornell-method-backup-19700101-000000-0123456789abcdef.sqlite"
+        );
+        let new_path = create_external_backup_destination(&external_root)
+            .expect("generate external backup destination");
+        let file_name = new_path
+            .file_name()
+            .and_then(|value| value.to_str())
+            .expect("generated file name");
+        assert!(file_name.starts_with("cornell-method-backup-"));
+        assert!(file_name.ends_with(".sqlite"));
+        assert!(file_name
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'-')));
         let store = DesktopFileSelectionStore::default();
         let live_directory = managed_root.join("live");
         let database_path = live_directory.join("notebook.sqlite");
@@ -3436,19 +3559,6 @@ mod tests {
             pending_restore_directory: managed_root.join("pending-restore"),
         };
 
-        assert!(matches!(
-            store.insert(
-                DesktopFileDialogKind::SaveDestination,
-                existing_path.clone(),
-            ),
-            Err("destination-exists")
-        ));
-        assert!(store
-            .selections
-            .lock()
-            .expect("lock selection store")
-            .is_empty());
-
         let new_selection = store
             .insert(DesktopFileDialogKind::SaveDestination, new_path.clone())
             .expect("store new save destination");
@@ -3460,6 +3570,7 @@ mod tests {
             )
             .expect("resolve new save destination");
         assert_eq!(new_resolution, new_path);
+        assert_eq!(new_selection.file_name, file_name);
         let public_selection = serde_json::to_value(&new_selection).expect("encode selection");
         assert!(!public_selection
             .as_object()

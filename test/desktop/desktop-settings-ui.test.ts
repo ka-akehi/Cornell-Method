@@ -226,6 +226,7 @@ test("Data and Backup panel consumes the stable bridge with explicit destructive
   assert.doesNotMatch(modal, /既存のバックアップ画面を開く/);
   assert.doesNotMatch(modal, /href="\/backup"/);
   assert.match(modal, /<h4 id="data-backup-export-title">バックアップを保存<\/h4>/);
+  assert.match(modal, /保存先フォルダを選ぶと、選択したフォルダに新しいSQLiteバックアップを作成します。/);
   assert.match(modal, /<h4 id="data-backup-managed-title">保存済みバックアップから復元<\/h4>/);
   assert.match(modal, /<h4 id="data-backup-external-title">バックアップから復元<\/h4>/);
   assert.doesNotMatch(modal, /バックアップファイルから復元/);
@@ -243,6 +244,8 @@ test("Data and Backup panel consumes the stable bridge with explicit destructive
   assert.match(modal, /互換性のあるアプリに更新した後、ここから「復元を再開」できます/);
   assert.doesNotMatch(modal, /Desktop のローカルデータを安全に書き出し/);
   assert.doesNotMatch(modal, /保存先を選んで、バックアップファイルを保存します/);
+  assert.doesNotMatch(modal, /別の保存先を選択してください/);
+  assert.match(modal, /既存ファイルは変更されていません。もう一度保存を試してください。/);
   assert.doesNotMatch(modal, /保存済みバックアップから復元します/);
   assert.doesNotMatch(modal, /バックアップファイルを選び、内容を確認してから復元します/);
   assert.doesNotMatch(modal, /新しいスキーマのため保留された復元は、明示的に再開できます/);
@@ -269,7 +272,7 @@ test("Data and Backup panel consumes the stable bridge with explicit destructive
     /operation:\s*"delete"[\s\S]*source:\s*null,[\s\S]*destination:\s*null,[\s\S]*confirmed:\s*true/,
   );
   assert.match(modal, /const DELETE_CONFIRMATION = "削除します"/);
-  assert.doesNotMatch(modal, /SQLite|アプリ管理|完全に削除|完全削除の確認を開く/);
+  assert.doesNotMatch(modal, /アプリ管理|完全に削除|完全削除の確認を開く/);
   assert.match(modal, /deleteConfirmationText/);
   assert.match(modal, /role="alertdialog"/);
   assert.match(modal, /createPortal\([\s\S]*confirmationBackdrop/);

@@ -206,7 +206,7 @@ MVP スコープは、既存 MVP 設計書で発注者承認済みの判断に�
 - 更新確認または download に失敗しても現行版を利用可能にし、次の定期確認または手動確認で更新処理全体を再試行します。更新 manifest の送受信は更新判定に必要な最小情報に限り、ノート本文、Cue、Summary、タイトル、タグ、学習元、SQLite、backup、診断 log を送りません。
 - pending migration がある更新だけ、適用直前に app 管理 safety backup を作ります。migration は staging copy へ古い順に適用し、検証と reopen に成功した場合だけ live DB と新しい app へ切り替えます。失敗時は現行 app と live DB を維持します。
 - migration 前と restore 前に作成する app 管理 safety backup は最新 3 世代を保持します。定期・日次・通常起動時の自動 backup は Desktop Alpha の必須要件にしません。
-- Data and Backup では、手動 SQLite export、app 管理 backup からの復元、外部 backup file からの復元を別の操作として提供します。外部 SQLite export は新規 destination への create-only / no-replace とし、既存 regular file は `destination-exists` として拒否して別名保存を案内します。`replaceExisting` / `allowReplaceExisting` permission と既存 destination への通常 rename publish は提供しません。restore 前に live DB の safety backup を作り、SQLite integrity、foreign key、schema / migration compatibility、必須データ、Canvas、reopen の検証に失敗した file は適用しません。
+- Data and Backup では、手動 SQLite export、app 管理 backup からの復元、外部 backup file からの復元を別の操作として提供します。外部 SQLite export は保存先フォルダを選び、アプリが `cornell-method-backup-YYYYMMDD-HHmmss-<random>.sqlite` 形式で自動命名する create-only / no-replace とします。選択時の名前衝突は有限回再生成し、選択後の publish race でも既存ファイルを変更しません。`replaceExisting` / `allowReplaceExisting` permission と既存 destination への通常 rename publish は提供しません。restore 前に live DB の safety backup を作り、SQLite integrity、foreign key、schema / migration compatibility、必須データ、Canvas、reopen の検証に失敗した file は適用しません。
 - managed backup catalog metadata の `recoveryOnly` が true の safety backup（restore 前に作成する `restore-<operationId>.sqlite.bak` 等）は物理ファイルと内部 catalog に保持し、startup recovery / rollback / recovery availability のために利用します。Settings の通常復元一覧では safety backup を表示・選択せず、残った user backup の最新 1 件だけを表示・選択します。
 - 現行 app より新しい schema の backup はその場で復元せず、compatible な更新後にユーザーが再開する pending restore とします。
 - 完全なデータ削除は live DB、app 管理 backup、設定を対象とし、外部 SQLite export は削除しません。
@@ -548,7 +548,7 @@ Desktop PoC では、Electron と Tauri + Node.js sidecar を、同じ現行 MVP
 
 ### 障害時運用
 
-Desktop Alpha の Data and Backup（手動 SQLite export、managed / external restore、pending restore、完全なデータ削除、Settings UI）は実装済みで、static / disposable test 済みである。外部 SQLite export は create-only / no-replace とし、既存 destination は `destination-exists` で拒否して別名保存を案内する。focused test 17/17 と再レビュー `APPROVE` を得ている。startup recovery、privacy-safe local log、diagnostic export、privacy boundary も実装済みで static / disposable test 済みである。packaged runtime acceptance と実機 startup failure は未検証とする。現行 MVP の `/backup`、`GET/POST /api/backups`、explicit save、physical delete、CanvasDocumentV1、legacy Markdown の契約は変更しない。
+Desktop Alpha の Data and Backup（手動 SQLite export、managed / external restore、pending restore、完全なデータ削除、Settings UI）は実装済みで、static / disposable test 済みである。外部 SQLite export はフォルダ選択＋自動命名の create-only / no-replace とし、選択時の名前衝突と publish race で既存ファイルを変更しない。focused test と再レビューを証跡とする。startup recovery、privacy-safe local log、diagnostic export、privacy boundary も実装済みで static / disposable test 済みである。packaged runtime acceptance と実機 startup failure は未検証とする。現行 MVP の `/backup`、`GET/POST /api/backups`、explicit save、physical delete、CanvasDocumentV1、legacy Markdown の契約は変更しない。
 
 - API エラーは画面でユーザーに分かる形で表示する。
 - バックアップ作成に失敗した場合、失敗メッセージを表示する。

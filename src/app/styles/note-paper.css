@@ -50,14 +50,8 @@
   gap: 0.375rem;
 }
 
-/* The heading owns the divider; keep the idle title control from drawing a second line. */
-.note-paper-editor .note-paper-heading .note-paper-title:not(:focus):not([aria-invalid="true"]) {
-  border-bottom-color: transparent;
-}
-
-/* Keep the heading divider continuous while still giving focused titles a tokenized focus ring. */
-.note-paper-editor .note-paper-heading .note-paper-title:focus:not([aria-invalid="true"]) {
-  border-bottom-color: transparent;
+/* The heading owns the divider; focused titles use the shared keyboard focus token. */
+.note-paper-editor .note-paper-heading .note-paper-title:focus-visible:not([aria-invalid="true"]) {
   outline: 2px solid var(--app-focus);
   outline-offset: 2px;
 }

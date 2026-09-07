@@ -70,13 +70,15 @@ test("editor title control keeps the heading divider as the paper boundary", () 
   );
   const paper = readSource("src/app/styles/note-paper.css");
 
-  assert.match(inputs, /className=\{`note-paper-title[\s\S]*px-0 py-1/);
+  assert.match(inputs, /className=\{`note-paper-title[\s\S]*border-0[\s\S]*px-0 py-1/);
+  assert.doesNotMatch(inputs, /border-b|border-bottom/);
   assert.match(
     paper,
     /\.note-paper-heading\s*\{[\s\S]*border-bottom:\s*1px solid var\(--paper-line\);/,
   );
+  assert.doesNotMatch(paper, /\.note-paper-title[^}]*border-bottom/);
   assert.match(
     paper,
-    /\.note-paper-editor \.note-paper-heading \.note-paper-title:not\(:focus\):not\(\[aria-invalid="true"\]\)\s*\{[\s\S]*border-bottom-color:\s*transparent;/,
+    /\.note-paper-editor \.note-paper-heading \.note-paper-title:focus-visible:not\(\[aria-invalid="true"\]\)\s*\{[\s\S]*outline:\s*2px solid var\(--app-focus\);/,
   );
 });

@@ -770,7 +770,7 @@ NTE-030 の `summary/20260715/0107-implement-nte030-review-shared-detail-shell-e
 
 #### 2.2 Settings shell / bridge / entrypoint（shell と Data and Backup は static / disposable test 済み、managed restore の packaged GUI は限定確認）
 
-現行 Settings modal のトップレベル区分は General と Data and Backup の2つで、更新確認は General 内のセクションである。General のテーマ設定と UpdatesPanel から manual update check の typed bridge を呼ぶ UI 接続、Data and Backup の操作は static / disposable test で確認できる。外部 SQLite export は create-only / no-replace とし、既存 destination は `destination-exists` で拒否して別名保存を案内する。managed restore は exact normal artifact / disposable data に限定した packaged GUI PASS である。実 provider、update apply、その他の packaged runtime / native GUI は未検証である。
+現行 Settings modal のトップレベル区分は General と Data and Backup の2つで、更新確認は General 内のセクションである。General のテーマ設定と UpdatesPanel から manual update check の typed bridge を呼ぶ UI 接続、Data and Backup の操作は static / disposable test で確認できる。外部 SQLite export はフォルダ選択＋`cornell-method-backup-YYYYMMDD-HHmmss-<random>.sqlite` 自動命名の create-only / no-replace とし、選択時の衝突は有限回再生成し、publish race でも既存ファイルを変更しない。managed restore は exact normal artifact / disposable data に限定した packaged GUI PASS である。実 provider、update apply、その他の packaged runtime / native GUI は未検証である。
 
 `SettingsEntrypoint` は AppChrome の desktop rail と mobile trigger に接続され、shared event bridge を介して Mac menu からも既存 primary WebView の同じ modal を開く。Settings modal には General と Data and Backup の2つのトップレベル区分（更新確認は General 内のセクション）、dialog / focus trap / keyboard navigation がある。General はテーマ設定と manual update check bridge 接続を持ち、Data and Backup は native file-dialog / typed bridge、create-only / no-replace の手動 plaintext SQLite export、managed backup catalog、managed / external restore 共通 pipeline、pending restore と明示 resume、complete data deletion を static / disposable test 済みの操作として提供し、現行 `/backup` への入口を維持する。managed restore の packaged GUI は限定的に確認済みで、その他の packaged runtime / native GUI は未検証である。新しい primary window は追加していない。
 
@@ -858,14 +858,16 @@ NTE-030 の `summary/20260715/0107-implement-nte030-review-shared-detail-shell-e
 
 ### 4. Backup / restore / 完全なデータ削除
 
-外部 SQLite export は新規 destination への create-only / no-replace とする。既存 regular file は native selection 境界で `destination-exists` として拒否し、別名保存を案内する。`replaceExisting` / `allowReplaceExisting` permission と通常の既存 destination への rename publish は提供しない。focused tests 17/17 と再レビュー `APPROVE` を証跡とする。
+外部 SQLite export は保存先フォルダを選び、アプリが `cornell-method-backup-YYYYMMDD-HHmmss-<random>.sqlite` 形式で自動命名する create-only / no-replace とする。選択時の名前衝突は有限回再生成し、選択後の publish race では race winner を保持して失敗する。`replaceExisting` / `allowReplaceExisting` permission と通常の既存 destination への rename publish は提供しない。focused tests と再レビューを証跡とする。
 
-Desktop Alpha の Data and Backup（native file-dialog / typed bridge、手動 plaintext SQLite export、managed backup catalog、managed / external restore、pending restore と明示 resume、complete data deletion、Settings UI）は static / disposable test 済みとして扱う。外部 SQLite export は create-only / no-replace とし、既存 destination は `destination-exists` で拒否して別名保存を案内する。managed restore については、exact normal artifact と disposable data に限定した packaged GUI PASS として、Notebook / Cue / Tag / CanvasDocumentV1 / searchText の再起動後 read-back、SQLite integrity、`recoveryOnly=true` safety backup の保持と通常一覧からの除外を確認済みである。これは任意の実ユーザー環境や Desktop Alpha 全体の受け入れ完了を意味しない。packaged managed restore では same-origin error は再現しなかったが、WebView 内部 bridge / Network panel の直接確認や一般的な解消を示す証拠ではない。実 provider / package runtime、update apply、health / bundle switch / rollback / cleanup、DMG は未完了のまま残す。現行 MVP の `/backup` と `GET/POST /api/backups` は維持する。
+Desktop Alpha の Data and Backup（native file-dialog / typed bridge、手動 plaintext SQLite export、managed backup catalog、managed / external restore、pending restore と明示 resume、complete data deletion、Settings UI）は static / disposable test 済みとして扱う。外部 SQLite export はフォルダ選択＋自動命名の create-only / no-replace とし、選択時の名前衝突と publish race で既存ファイルを変更しない。managed restore については、exact normal artifact と disposable data に限定した packaged GUI PASS として、Notebook / Cue / Tag / CanvasDocumentV1 / searchText の再起動後 read-back、SQLite integrity、`recoveryOnly=true` safety backup の保持と通常一覧からの除外を確認済みである。これは任意の実ユーザー環境や Desktop Alpha 全体の受け入れ完了を意味しない。packaged managed restore では same-origin error は再現しなかったが、WebView 内部 bridge / Network panel の直接確認や一般的な解消を示す証拠ではない。実 provider / package runtime、update apply、health / bundle switch / rollback / cleanup、DMG は未完了のまま残す。現行 MVP の `/backup` と `GET/POST /api/backups` は維持する。
 
 既知の backup API error では安全な preflight を有限回だけ行い、GET は一回だけ再試行する。POST は重複作成を避けるため自動再送しない。Web bridge は `unsupported-web` を返し、raw path / exception を画面へ渡さない。これらは focused static / disposable test の PASS であり、packaged macOS GUI、sidecar 実 runtime、browser / DB read-back の acceptance ではない。
 
 - [ ] Data and Backup で、手動 SQLite export、app 管理 backup からの復元、外部 backup file からの復元を別操作として表示する
-- [ ] 手動 export はユーザーが保存先を選ぶ平文 SQLite で、app 管理 backup の retention policy を適用しない
+- [ ] 手動 export はユーザーが保存先フォルダを選び、アプリが安全な自動ファイル名を付ける平文 SQLite で、app 管理 backup の retention policy を適用しない
+- [ ] 自動ファイル名は ASCII の `cornell-method-backup-YYYYMMDD-HHmmss-<random>.sqlite` 形式で、選択時の名前衝突は有限回再生成する
+- [ ] 選択後の publish race でも既存ファイルを削除・上書きせず、race winner と temporary cleanup を維持する
 - [ ] 2 つの restore 入口が staging validation、明示確認、atomic switch、restart の同じ pipeline を使う
 - [ ] restore の開始前に現在の live DB を app 管理 safety backup として保存する
 - [ ] restore 前に作成する `restore-<operationId>.sqlite.bak` 等の safety backup は managed catalog metadata の `recoveryOnly=true` で内部 recovery / rollback 用に保持し、startup recovery と recovery availability から利用できる

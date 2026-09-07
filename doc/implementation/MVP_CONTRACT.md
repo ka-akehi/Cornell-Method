@@ -292,6 +292,8 @@ Settings の current implementation は、shared event bridge、Mac menu から�
 
 ### 9.4 Desktop Alpha の更新・migration・privacy 契約
 
+外部 SQLite export は保存先フォルダを選び、アプリが `cornell-method-backup-YYYYMMDD-HHmmss-<random>.sqlite` 形式で自動命名して create-only / no-replace で保存する。選択時の名前衝突は有限回再生成し、選択後の publish race でも既存ファイルを削除・上書きしない。`replaceExisting` / `allowReplaceExisting` permission と既存 destination への通常 rename publish は提供しない。
+
 managed backup catalog の metadata には `recoveryOnly` を保持する。restore 前に作成する `restore-<operationId>.sqlite.bak` などの safety backup は内部 recovery / rollback 用として物理ファイルと catalog entry を保持し、startup recovery などの内部経路で利用できる。Settings の通常復元一覧では `recoveryOnly=true` を除外し、残っている user backup の最新 1 件だけを表示・選択する。
 
 Settings の現行トップレベル区分は General と Data and Backup の2つで、更新確認は General 内のセクションである。UpdatesPanel から manual update check の typed bridge を呼ぶ UI 接続は実装済みである。ただし、実 provider、update apply、packaged app による runtime acceptance は別途未検証である。

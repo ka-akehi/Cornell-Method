@@ -98,6 +98,14 @@ test("desktop AppChrome は same-DOM sidebar と canonical route を共有する
     mobileBrand,
     /<Link[\s\S]*href="\/notes"[\s\S]*className="app-chrome-brand"[\s\S]*aria-label="Cornell Method Notebook ノート一覧へ"/,
   );
+  assert.match(
+    appChromeParts,
+    /<span className="app-chrome-brand-title">Cornell Method Notebook<\/span>/,
+  );
+  assert.doesNotMatch(
+    appChromeParts,
+    /app-chrome-brand-subtitle|ローカル学習ノート/,
+  );
 
   assert.match(
     appChromeParts,
@@ -535,6 +543,10 @@ test("desktop sidebar geometry と visual state は 256px / 56px rail 契約を�
   assert.match(brandCopyRule, /left:\s*3\.5rem;/);
   assert.match(brandCopyRule, /right:\s*calc\([\s\S]*0\.5rem\s*\);/);
   assert.match(brandCopyRule, /width:\s*auto;/);
+  assert.match(brandCopyRule, /top:\s*50%;/);
+  assert.match(brandCopyRule, /height:\s*auto;/);
+  assert.match(brandCopyRule, /transform:\s*translateY\(-50%\);/);
+  assert.doesNotMatch(appShell, /app-chrome-brand-subtitle/);
   assert.match(
     appShell,
     /.app-chrome-desktop-identity \.app-chrome-brand-title\s*\{[\s\S]*text-overflow:\s*ellipsis;/,

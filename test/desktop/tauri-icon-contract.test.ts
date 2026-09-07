@@ -15,14 +15,14 @@ function pngDimensions(buffer) {
   return { width: buffer.readUInt32BE(16), height: buffer.readUInt32BE(20), colorType: buffer[25] };
 }
 
-test('Tauri bundle uses the Cornell icon assets', () => {
+test('Tauri bundle uses the Cornell brand icon asset', () => {
   const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
   assert.deepEqual(config.bundle.icon, ['icons/icon.png']);
   assert.ok(fs.existsSync(iconPath));
   assert.ok(!config.bundle.icon.some((entry) => entry.includes('vercel') || entry.includes('next')));
 });
 
-test('Cornell icon has a square RGBA PNG and no Vercel/Next source mark', () => {
+test('brand icon has a square RGBA PNG and a serif C source mark', () => {
   const png = pngDimensions(fs.readFileSync(iconPath));
   assert.equal(png.width, 1024);
   assert.equal(png.height, 1024);
@@ -31,7 +31,10 @@ test('Cornell icon has a square RGBA PNG and no Vercel/Next source mark', () => 
   const source = fs.readFileSync(sourcePath, 'utf8');
   assert.match(source, /#173F35/i);
   assert.match(source, /#F5E7CF/i);
-  assert.match(source, /#C96A4A/i);
-  assert.match(source, /#D7A84A/i);
+  assert.match(source, /<rect\b[^>]*(?:fill="#173F35"[^>]*rx="|rx="[^>]*fill="#173F35")/i);
+  assert.match(source, /<text\b[^>]*fill="#F5E7CF"[^>]*font-family="Georgia, Times New Roman, serif"[^>]*font-size="720"[^>]*font-weight="700"[^>]*>C<\/text>/i);
+  assert.doesNotMatch(source, /<(?:line|polyline|polygon)\b/i);
+  assert.doesNotMatch(source, /<path\b/i);
+  assert.doesNotMatch(source, /paper|ruled|horizontal|vertical/i);
   assert.doesNotMatch(source, /vercel|next\.js|triangle/i);
 });
