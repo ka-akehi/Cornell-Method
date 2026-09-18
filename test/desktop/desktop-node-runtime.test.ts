@@ -11,6 +11,10 @@ import { test } from "node:test";
 
 const {
   PRISMA_SCHEMA_ENGINE_FILE,
+  PRISMA_DEV_PACKAGE_FILE,
+  PATHE_PACKAGE_FILE,
+  SQLITE_PRODUCTION_ADDON_PATH,
+  SQLITE_TEST_EXTENSION_PATH,
   UNSUPPORTED_TARGET_MESSAGE,
   copyPrismaSchemaEngine,
   desktopRuntimeDirectory,
@@ -19,6 +23,9 @@ const {
   prepareDesktopRuntime,
   prepareDesktopNodeRuntime,
   productionRuntimePackage,
+  inspectProductionRuntime,
+  installProductionRuntime,
+  removeNonTargetRuntimeFiles,
   validateBuildTarget,
 } = require("../../scripts/prepare-desktop-node-runtime.js");
 
@@ -31,6 +38,34 @@ const helperPath = path.join(
 
 function temporaryDirectory() {
   return fs.mkdtempSync(path.join(os.tmpdir(), "cornell-desktop-node-runtime-"));
+}
+
+function writeRuntimeFixture(
+  directory,
+  {
+    includeRequiredFiles = true,
+    includeRequiredProductionDependencies = true,
+  } = {},
+) {
+  const nodeModules = path.join(directory, "node_modules");
+  if (includeRequiredFiles) {
+    for (const relativePath of [
+      path.join("node_modules", "@prisma", "engines", PRISMA_SCHEMA_ENGINE_FILE),
+      SQLITE_PRODUCTION_ADDON_PATH,
+    ]) {
+      const filePath = path.join(directory, relativePath);
+      fs.mkdirSync(path.dirname(filePath), { recursive: true });
+      fs.writeFileSync(filePath, "native fixture\n");
+    }
+  }
+  if (includeRequiredProductionDependencies) {
+    for (const relativePath of [PRISMA_DEV_PACKAGE_FILE, PATHE_PACKAGE_FILE]) {
+      const filePath = path.join(directory, relativePath);
+      fs.mkdirSync(path.dirname(filePath), { recursive: true });
+      fs.writeFileSync(filePath, "{}\n");
+    }
+  }
+  return nodeModules;
 }
 
 function writeMinimalRuntimeProject(projectRoot) {
@@ -78,9 +113,24 @@ function writeMinimalRuntimeProject(projectRoot) {
   fs.writeFileSync(path.join(generatedClient, "client.js"), "module.exports = {};\n");
 }
 
-function writeSuccessfulNpmRunner(projectRoot) {
+function writeSuccessfulNpmRunner(
+  projectRoot,
+  { captureArgs = false, capturePackage = false } = {},
+) {
   const npmRunner = path.join(projectRoot, "fake-npm.cjs");
-  fs.writeFileSync(npmRunner, "process.exit(0);\n", "utf8");
+  fs.writeFileSync(
+    npmRunner,
+    [
+      captureArgs
+        ? `const fs = require("node:fs");\nfs.writeFileSync("install-args.json", JSON.stringify(process.argv.slice(2)));\n`
+        : "",
+      capturePackage
+        ? `const fs = require("node:fs");\nconst path = require("node:path");\nfs.writeFileSync(path.join(process.cwd(), "install-input.json"), fs.readFileSync("package.json"));\n`
+        : "",
+      "process.exit(0);\n",
+    ].join(""),
+    "utf8",
+  );
   return npmRunner;
 }
 
@@ -296,6 +346,183 @@ test("desktop runtime package contains production dependencies only", () => {
     desktopRuntimeDirectory(projectRoot),
     path.join(projectRoot, ".desktop-runtime"),
   );
+});
+
+test("production-only runtime manifest is the npm ci install input", () => {
+  const directory = temporaryDirectory();
+  const previousNpmExecPath = process.env.npm_execpath;
+  try {
+    writeMinimalRuntimeProject(directory);
+    const projectPackagePath = path.join(directory, "package.json");
+    const projectPackage = JSON.parse(fs.readFileSync(projectPackagePath, "utf8"));
+    projectPackage.devDependencies = { playwright: "1.61.0" };
+    projectPackage.dependencies = { next: "15.0.0" };
+    fs.writeFileSync(projectPackagePath, `${JSON.stringify(projectPackage, null, 2)}\n`);
+    process.env.npm_execpath = writeSuccessfulNpmRunner(directory, {
+      capturePackage: true,
+    });
+
+    const runtimeDirectory = path.join(directory, ".desktop-runtime");
+    fs.mkdirSync(runtimeDirectory, { recursive: true });
+    installProductionRuntime(directory, runtimeDirectory);
+
+    const installInput = JSON.parse(
+      fs.readFileSync(path.join(runtimeDirectory, "install-input.json"), "utf8"),
+    );
+    const runtimePackage = JSON.parse(
+      fs.readFileSync(path.join(runtimeDirectory, "package.json"), "utf8"),
+    );
+    assert.deepEqual(installInput, productionRuntimePackage(directory));
+    assert.deepEqual(runtimePackage, installInput);
+    assert.equal(installInput.devDependencies, undefined);
+    assert.deepEqual(installInput.dependencies, { next: "15.0.0" });
+  } finally {
+    if (previousNpmExecPath === undefined) {
+      delete process.env.npm_execpath;
+    } else {
+      process.env.npm_execpath = previousNpmExecPath;
+    }
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("production runtime install explicitly enables package install scripts", () => {
+  const directory = temporaryDirectory();
+  const previousNpmExecPath = process.env.npm_execpath;
+  const previousIgnoreScripts = process.env.npm_config_ignore_scripts;
+  try {
+    writeMinimalRuntimeProject(directory);
+    process.env.npm_execpath = writeSuccessfulNpmRunner(directory, {
+      captureArgs: true,
+    });
+    process.env.npm_config_ignore_scripts = "true";
+
+    const runtimeDirectory = path.join(directory, ".desktop-runtime");
+    fs.mkdirSync(runtimeDirectory, { recursive: true });
+    installProductionRuntime(directory, runtimeDirectory);
+
+    const installArgs = JSON.parse(
+      fs.readFileSync(path.join(runtimeDirectory, "install-args.json"), "utf8"),
+    );
+    assert.deepEqual(installArgs, [
+      "ci",
+      "--omit=dev",
+      "--no-audit",
+      "--no-fund",
+      "--ignore-scripts=false",
+    ]);
+  } finally {
+    if (previousNpmExecPath === undefined) {
+      delete process.env.npm_execpath;
+    } else {
+      process.env.npm_execpath = previousNpmExecPath;
+    }
+    if (previousIgnoreScripts === undefined) {
+      delete process.env.npm_config_ignore_scripts;
+    } else {
+      process.env.npm_config_ignore_scripts = previousIgnoreScripts;
+    }
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("production runtime pruning keeps required arm64 files and removes known non-target files", () => {
+  const directory = temporaryDirectory();
+  try {
+    const nodeModules = writeRuntimeFixture(directory);
+    const x64Prebuild = path.join(nodeModules, "bare-path", "prebuilds", "darwin-x64", "bare-path.bare");
+    const iosPrebuild = path.join(nodeModules, "bare-path", "prebuilds", "ios-arm64-simulator", "bare-path.bare");
+    const testExtension = path.join(directory, SQLITE_TEST_EXTENSION_PATH);
+    const x64PrismaEngine = path.join(nodeModules, "@prisma", "engines", "schema-engine-darwin");
+    for (const filePath of [x64Prebuild, iosPrebuild, testExtension, x64PrismaEngine]) {
+      fs.mkdirSync(path.dirname(filePath), { recursive: true });
+      fs.writeFileSync(filePath, "non-target fixture\n");
+    }
+
+    removeNonTargetRuntimeFiles(directory);
+    assert.equal(inspectProductionRuntime(directory), true);
+    assert.equal(fs.existsSync(x64Prebuild), false);
+    assert.equal(fs.existsSync(iosPrebuild), false);
+    assert.equal(fs.existsSync(testExtension), false);
+    assert.equal(fs.existsSync(x64PrismaEngine), false);
+    assert.equal(fs.existsSync(path.join(directory, SQLITE_PRODUCTION_ADDON_PATH)), true);
+    assert.equal(
+      fs.existsSync(path.join(directory, "node_modules", "@prisma", "engines", PRISMA_SCHEMA_ENGINE_FILE)),
+      true,
+    );
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("production runtime inspection fails closed for forbidden files and missing required files", () => {
+  const cases = [
+    {
+      name: "x64 prebuild",
+      files: [path.join("node_modules", "bare-fs", "prebuilds", "darwin-x64", "bare-fs.bare")],
+    },
+    {
+      name: "iOS simulator prebuild",
+      files: [path.join("node_modules", "bare-fs", "prebuilds", "ios-x64-simulator", "bare-fs.bare")],
+    },
+    { name: "test extension", files: [SQLITE_TEST_EXTENSION_PATH] },
+    {
+      name: "x64 Prisma engine",
+      files: [path.join("node_modules", "@prisma", "engines", "schema-engine-darwin")],
+    },
+    {
+      name: "missing arm64 Prisma engine",
+      files: [],
+      includeRequiredFiles: false,
+    },
+    {
+      name: "missing production SQLite addon",
+      files: [path.join("node_modules", "@prisma", "engines", PRISMA_SCHEMA_ENGINE_FILE)],
+      includeRequiredFiles: false,
+    },
+    {
+      name: "missing pathe production dependency",
+      files: [],
+      includeRequiredProductionDependencies: false,
+    },
+  ];
+
+  for (const fixture of cases) {
+    const directory = temporaryDirectory();
+    try {
+      writeRuntimeFixture(directory, {
+        includeRequiredFiles: fixture.includeRequiredFiles !== false,
+        includeRequiredProductionDependencies:
+          fixture.includeRequiredProductionDependencies !== false,
+      });
+      for (const relativePath of fixture.files) {
+        const filePath = path.join(directory, relativePath);
+        fs.mkdirSync(path.dirname(filePath), { recursive: true });
+        fs.writeFileSync(filePath, "invalid fixture\n");
+      }
+      assert.throws(
+        () => inspectProductionRuntime(directory),
+        (error) =>
+          error instanceof Error &&
+          error.message.startsWith("Desktop production runtime inspection failed:") &&
+          (fixture.name === "missing arm64 Prisma engine" ||
+            fixture.name === "missing pathe production dependency" ||
+            error.message.includes(
+              fixture.name === "test extension"
+                ? "test_extension.node"
+                : fixture.name === "x64 Prisma engine"
+                  ? "schema-engine-darwin"
+                  : fixture.name.includes("prebuild")
+                    ? "prebuilds"
+                    : "required production native file",
+            )) &&
+          (fixture.name !== "missing pathe production dependency" ||
+            error.message.includes(PATHE_PACKAGE_FILE)),
+      );
+    } finally {
+      fs.rmSync(directory, { recursive: true, force: true });
+    }
+  }
 });
 
 test("production runtime copies the darwin-arm64 Prisma schema engine", (t) => {

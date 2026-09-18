@@ -9,6 +9,28 @@ const DESKTOP_NODE_RUNTIME_DIRECTORY = ".desktop-runtime";
 const DESKTOP_NODE_RUNTIME_FILE = "node";
 const DESKTOP_RUNTIME_PACKAGE_FILE = "package.json";
 const PRISMA_SCHEMA_ENGINE_FILE = "schema-engine-darwin-arm64";
+const PRISMA_X64_SCHEMA_ENGINE_FILE = "schema-engine-darwin";
+const PRISMA_DEV_PACKAGE_FILE = path.join(
+  "node_modules",
+  "@prisma",
+  "dev",
+  "package.json",
+);
+const PATHE_PACKAGE_FILE = path.join("node_modules", "pathe", "package.json");
+const SQLITE_PRODUCTION_ADDON_PATH = path.join(
+  "node_modules",
+  "better-sqlite3",
+  "build",
+  "Release",
+  "better_sqlite3.node",
+);
+const SQLITE_TEST_EXTENSION_PATH = path.join(
+  "node_modules",
+  "better-sqlite3",
+  "build",
+  "Release",
+  "test_extension.node",
+);
 const UNSUPPORTED_TARGET_MESSAGE =
   "Desktop Node runtime supports only Apple Silicon macOS (darwin arm64)";
 
@@ -77,6 +99,113 @@ function removeGeneratedRuntimeFiles(runtimeDirectory) {
   }
 }
 
+function runtimeNodeModulesDirectory(runtimeDirectory) {
+  return path.join(runtimeDirectory, "node_modules");
+}
+
+function removeNonTargetRuntimeFiles(runtimeDirectory) {
+  const nodeModulesDirectory = runtimeNodeModulesDirectory(runtimeDirectory);
+  if (!fs.existsSync(nodeModulesDirectory)) {
+    return;
+  }
+
+  function visit(currentDirectory) {
+    for (const entry of fs.readdirSync(currentDirectory, { withFileTypes: true })) {
+      const entryPath = path.join(currentDirectory, entry.name);
+      if (entry.isDirectory()) {
+        if (path.basename(currentDirectory) === "prebuilds" &&
+          (entry.name === "darwin-x64" || entry.name.startsWith("ios-"))) {
+          fs.rmSync(entryPath, { recursive: true, force: true });
+          continue;
+        }
+        visit(entryPath);
+      }
+    }
+  }
+
+  visit(nodeModulesDirectory);
+  for (const relativePath of [
+    SQLITE_TEST_EXTENSION_PATH,
+    path.join("node_modules", "@prisma", "engines", PRISMA_X64_SCHEMA_ENGINE_FILE),
+  ]) {
+    fs.rmSync(path.join(runtimeDirectory, relativePath), {
+      force: true,
+    });
+  }
+}
+
+function inspectProductionRuntime(runtimeDirectory) {
+  const nodeModulesDirectory = runtimeNodeModulesDirectory(runtimeDirectory);
+  const violations = [];
+  const requiredFiles = [
+    path.join("node_modules", "@prisma", "engines", PRISMA_SCHEMA_ENGINE_FILE),
+    SQLITE_PRODUCTION_ADDON_PATH,
+  ];
+  const requiredProductionDependencyFiles = [
+    PRISMA_DEV_PACKAGE_FILE,
+    PATHE_PACKAGE_FILE,
+  ];
+
+  function visit(currentDirectory, relativeDirectory) {
+    if (!fs.existsSync(currentDirectory)) {
+      return;
+    }
+    for (const entry of fs.readdirSync(currentDirectory, { withFileTypes: true })) {
+      const relativePath = path.join(relativeDirectory, entry.name).split(path.sep).join("/");
+      const entryPath = path.join(currentDirectory, entry.name);
+      if (entry.isDirectory()) {
+        const parentDirectory = path.basename(path.dirname(entryPath));
+        if (
+          parentDirectory === "prebuilds" &&
+          (entry.name === "darwin-x64" || entry.name.startsWith("ios-"))
+        ) {
+          violations.push(`non-target native directory: ${relativePath}`);
+          continue;
+        }
+        visit(entryPath, relativePath);
+      } else if (entry.isFile()) {
+        if (
+          relativePath === SQLITE_TEST_EXTENSION_PATH.split(path.sep).join("/") ||
+          relativePath === path.join("node_modules", "@prisma", "engines", PRISMA_X64_SCHEMA_ENGINE_FILE).split(path.sep).join("/")
+        ) {
+          violations.push(`forbidden native file: ${relativePath}`);
+        }
+      }
+    }
+  }
+
+  visit(nodeModulesDirectory, "node_modules");
+  for (const relativePath of requiredFiles) {
+    const filePath = path.join(runtimeDirectory, relativePath);
+    let valid = false;
+    try {
+      valid = fs.statSync(filePath).isFile();
+    } catch {
+      valid = false;
+    }
+    if (!valid) {
+      violations.push(`required production native file is missing: ${relativePath}`);
+    }
+  }
+  for (const relativePath of requiredProductionDependencyFiles) {
+    const filePath = path.join(runtimeDirectory, relativePath);
+    let valid = false;
+    try {
+      valid = fs.statSync(filePath).isFile();
+    } catch {
+      valid = false;
+    }
+    if (!valid) {
+      violations.push(`required production dependency file is missing: ${relativePath}`);
+    }
+  }
+
+  if (violations.length > 0) {
+    throw new Error(`Desktop production runtime inspection failed:\n- ${violations.join("\n- ")}`);
+  }
+  return true;
+}
+
 function npmCommand() {
   const npmExecutable = process.env.npm_execpath?.trim();
   if (npmExecutable) {
@@ -99,13 +228,24 @@ function installProductionRuntime(projectRoot, runtimeDirectory) {
     throw new Error(`Desktop runtime package lock is unavailable: ${projectLockPath}`);
   }
 
-  fs.copyFileSync(projectPackagePath, runtimePackagePath);
+  fs.writeFileSync(
+    runtimePackagePath,
+    `${JSON.stringify(productionRuntimePackage(projectRoot), null, 2)}\n`,
+    "utf8",
+  );
   fs.copyFileSync(projectLockPath, runtimeLockPath);
 
   const npm = npmCommand();
   const result = spawnSync(
     npm.command,
-    [...npm.prefixArguments, "ci", "--omit=dev", "--no-audit", "--no-fund"],
+    [
+      ...npm.prefixArguments,
+      "ci",
+      "--omit=dev",
+      "--no-audit",
+      "--no-fund",
+      "--ignore-scripts=false",
+    ],
     {
       cwd: runtimeDirectory,
       env: { ...process.env, NODE_ENV: "production" },
@@ -120,11 +260,6 @@ function installProductionRuntime(projectRoot, runtimeDirectory) {
     throw new Error(`Desktop production runtime install failed with status ${result.status ?? "unknown"}`);
   }
 
-  fs.writeFileSync(
-    runtimePackagePath,
-    `${JSON.stringify(productionRuntimePackage(projectRoot), null, 2)}\n`,
-    "utf8",
-  );
 }
 
 function copyGeneratedSqliteClient(projectRoot, runtimeDirectory) {
@@ -232,9 +367,11 @@ function prepareDesktopRuntime({
   fs.mkdirSync(runtimeDirectory, { recursive: true });
 
   installProductionRuntime(projectRoot, runtimeDirectory);
+  removeNonTargetRuntimeFiles(runtimeDirectory);
   copyGeneratedSqliteClient(projectRoot, runtimeDirectory);
   copyPrismaSchemaEngine(projectRoot, runtimeDirectory);
   copyNodeExecutable(sourcePath, desktopNodeRuntimePath(projectRoot));
+  inspectProductionRuntime(runtimeDirectory);
 
   return runtimeDirectory;
 }
@@ -254,6 +391,11 @@ module.exports = {
   DESKTOP_NODE_RUNTIME_FILE,
   DESKTOP_RUNTIME_PACKAGE_FILE,
   PRISMA_SCHEMA_ENGINE_FILE,
+  PRISMA_X64_SCHEMA_ENGINE_FILE,
+  PRISMA_DEV_PACKAGE_FILE,
+  PATHE_PACKAGE_FILE,
+  SQLITE_PRODUCTION_ADDON_PATH,
+  SQLITE_TEST_EXTENSION_PATH,
   UNSUPPORTED_TARGET_MESSAGE,
   copyNodeExecutable,
   copyGeneratedSqliteClient,
@@ -266,5 +408,7 @@ module.exports = {
   prepareDesktopNodeRuntime,
   productionRuntimePackage,
   removeGeneratedRuntimeFiles,
+  removeNonTargetRuntimeFiles,
+  inspectProductionRuntime,
   validateBuildTarget,
 };

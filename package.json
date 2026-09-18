@@ -6,6 +6,7 @@
     "dev": "next dev",
     "build": "npm run prisma:generate && next build --webpack",
     "desktop:prepare-node-runtime": "node scripts/prepare-desktop-node-runtime.js",
+    "desktop:sign-release": "node scripts/sign-macos-release.js",
     "start": "next start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",

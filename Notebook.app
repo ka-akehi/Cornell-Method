@@ -1,1 +1,1 @@
-/private/tmp/cornell-method-normal-folder-picker-eK75Hz/tauri-target/aarch64-apple-darwin/release/bundle/macos/Cornell Method Notebook.app
+release/Cornell Method Notebook.app

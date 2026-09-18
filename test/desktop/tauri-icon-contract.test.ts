@@ -6,7 +6,7 @@ import path from "node:path";
 import test from "node:test";
 
 const root = path.resolve(__dirname, '../..');
-const iconPath = path.join(root, 'src-tauri/icons/icon.png');
+const iconPath = path.join(root, 'src-tauri/icons/icon@2x.png');
 const sourcePath = path.join(root, 'src-tauri/icons/icon.svg');
 const configPath = path.join(root, 'src-tauri/tauri.conf.json');
 
@@ -17,8 +17,9 @@ function pngDimensions(buffer) {
 
 test('Tauri bundle uses the Cornell brand icon asset', () => {
   const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-  assert.deepEqual(config.bundle.icon, ['icons/icon.png']);
+  assert.deepEqual(config.bundle.icon, ['icons/icon@2x.png']);
   assert.ok(fs.existsSync(iconPath));
+  assert.match(config.bundle.icon[0], /@2x\.png$/);
   assert.ok(!config.bundle.icon.some((entry) => entry.includes('vercel') || entry.includes('next')));
 });
 

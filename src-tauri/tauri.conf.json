@@ -21,7 +21,7 @@
     "category": "Productivity",
     "shortDescription": "Cornell Method Notebook desktop application",
     "longDescription": "A local-first Cornell Method notebook for macOS.",
-    "icon": ["icons/icon.png"],
+    "icon": ["icons/icon@2x.png"],
     "resources": {
       "../.desktop-runtime/node": "runtime/node",
       "../.desktop-runtime/package.json": "runtime/package.json",
