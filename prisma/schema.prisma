@@ -56,11 +56,13 @@ model Tag {
 model NotebookTag {
   notebookId String @map("notebook_id")
   tagId      String @map("tag_id")
+  order      Int    @default(0) @map("order")
 
   notebook Notebook @relation(fields: [notebookId], references: [id], onDelete: Cascade)
   tag      Tag      @relation(fields: [tagId], references: [id], onDelete: Cascade)
 
   @@id([notebookId, tagId])
+  @@index([notebookId, order])
   @@map("notebook_tags")
 }
 

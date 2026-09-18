@@ -8,13 +8,13 @@
 
 現行 MVP の正本は [`doc/implementation/MVP_CONTRACT.md`](../implementation/MVP_CONTRACT.md) です。特に MVP では、ノート本文は `CanvasDocumentV1` の自由配置 Canvas とし、既存 `bodyMode=markdown` の本文は互換表示のため保持します。復習はユーザーが手動管理する `nextReviewDate` の対象フィルタと、`/notes/[id]` の復習モードで扱います。専用タスク画面や自動復習間隔は Phase 2 以降です。
 
-この棚卸しは、現状実装の部品・データ・Action / Data と、後続 UI task が実装する目標 UI を分けて記録します。今回の目標は「紙面を中心にした学習ノート」です。紙面の見た目を変えても、route、API、Prisma / SQLite、Canvas JSON（および legacy Markdown body）、Cue リスト、明示保存、手動復習、確認後の物理削除は変更しません。視覚的な正本は [`mvp-paper-note-canvas-concept.png`](assets/mockups/mvp-paper-note-canvas-concept.png) です。
+この棚卸しでは、現状実装の部品・データ・Action / Data と、後続 UI task が実装する目標 UI を分けて記録します。目標 UI は「紙面を中心にした学習ノート」です。紙面の見た目を変えても、route、API、Prisma / SQLite、Canvas JSON（および legacy Markdown body）、Cue リスト、明示保存、手動復習、確認後の物理削除は変更しません。視覚的な正本は [`mvp-paper-note-canvas-concept.png`](assets/mockups/mvp-paper-note-canvas-concept.png) です。
 
 ## 紙面中心 UI の棚卸し基準
 
 ### As-Is と To-Be
 
-As-Is は既存実装・旧証跡を比較するための基準、To-Be は後続 Worker が実装する規範です。As-Is の記述とコードの一部が一致しなくなっても、それだけで To-Be 完了とは判定しません。完了判定は各 task の条件と runtime QA の証跡で行います。
+As-Is は既存実装・旧証跡の比較基準、To-Be は後続 Worker が実装する規範です。As-Is の記述とコードの一部が一致しなくなっても、To-Be 完了の根拠にはなりません。完了判定は各 task の条件と runtime QA の証跡で行います。
 
 | 対象 | 現状実装（As-Is） | 目標 UI（To-Be） |
 | --- | --- | --- |
@@ -59,7 +59,7 @@ As-Is は既存実装・旧証跡を比較するための基準、To-Be は後�
 
 ### 紙面中心 UI 静的モック（確認用）
 
-情報階層と紙面の見た目を先に確認するための概念 PNG と standalone HTML です。概念 PNG が視覚的な正本、HTML は状態差分を確認する補助資料です。どちらも runtime QA の証跡や現行実装の PASS 判定には使いません。
+概念 PNG を視覚的な正本とし、standalone HTML を状態差分の確認に使います。どちらも runtime QA の証跡や現行実装の PASS 判定には使いません。
 
 | 種別 | 成果物 |
 | --- | --- |
@@ -108,7 +108,7 @@ As-Is は既存実装・旧証跡を比較するための基準、To-Be は後�
 | 1440px 前後 | paper は `calc(100vw - 2 * fluid gutter)` を上限に広がり、inner padding も `clamp()`。Cornell は container 内 Cue 28〜32% / Canvas 本文 68〜72%、metadata は inline/flex、Summary/footer は全幅 | shell の固定 `1280px` cap が画像より狭い。create は 30/70 と Canvas editor があるが、detail は nested Section と footer 分離 |
 | 375px 前後 | paper は viewport 内、header / metadata / footer は wrap。横 scroll は Cornell wrapper だけに閉じ、内部の列比率を保つ。Canvas 用紙と legacy Markdown table の overflow は各領域内 | create は `min-w-[640px]` wrapper がある。detail は wrapper がなく `lg` 未満で一列化するため、同一 rule を適用できない |
 
-全体 `body` の overflow を増やさず、Cornell だけに `overflow-x: auto` と min-content の境界を持たせる。viewport の数値を直接 layout 値にするのではなく、outer gutter、paper padding、content の min-content、列比率、wrap の順に responsive を決める。
+`overflow-x: auto` と min-content の境界は Cornell だけに持たせ、全体 `body` の overflow は増やさない。responsive は outer gutter、paper padding、content の min-content、列比率、wrap の順に決め、viewport の数値を layout 値へ直接転用しない。
 
 ### 現行 MVP 契約と UI 実装境界
 
@@ -136,7 +136,7 @@ As-Is は既存実装・旧証跡を比較するための基準、To-Be は後�
 
 ### 後続 Worker task と依存順
 
-この棚卸しの正本 task は、設計書の「監査後の UI coding task（1 file 1 task）」と同じ `UI-PAPER-011`〜`UI-PAPER-015` です。従来の `UI-PAPER-001`〜`UI-PAPER-010` は先行改修の履歴 ID として扱い、現行の次 task として再投入しません。
+後続 task は、設計書の「監査後の UI coding task（1 file 1 task）」と同じ `UI-PAPER-011`〜`UI-PAPER-015` です。従来の `UI-PAPER-001`〜`UI-PAPER-010` は先行改修の履歴 ID として扱い、現行の次 task として再投入しません。
 
 | 順序 | task | 対象 | 依存 | 完了条件 |
 | --- | --- | --- | --- | --- |
@@ -151,7 +151,7 @@ As-Is は既存実装・旧証跡を比較するための基準、To-Be は後�
 
 ### 旧 screenshot / 受け入れ証跡の扱い
 
-現在 repository にある次の成果物は、今回定義する紙面中心 UI より前のレイアウトを記録したものです。削除せず、旧 layout の比較資料として保持します。
+repository にある次の成果物は、今回定義する紙面中心 UI より前のレイアウトを記録しています。削除せず、旧 layout の比較資料として保持します。
 
 | 対象 | 既存成果物 | 扱い |
 | --- | --- | --- |
@@ -345,37 +345,39 @@ MVP の削除は、確認 UI で確定した後に `DELETE /api/notes/:id` を�
 | 画面名 | Review |
 | 目的 | 共通の詳細画面シェルで Cue から本文を思い出し、本文を確認した後に Summary を開いて確認し、復習済みを記録する。 |
 | 利用者 | ローカル環境で利用する個人ユーザー |
-| 表示データ | タイトル、学習日、学習元、タグ、Cue リスト、Canvas 本文（初期非表示）、サマリー（初期非表示）、本文表示状態、次回復習日、最終復習日時 |
-| 入力データ | Canvas 本文の表示/非表示と Summary 開閉の UI 操作、復習済み操作時の任意の次回復習日 |
-| 主要アクション | 本文を表示、本文を隠す、Summary を開く、復習済みにする、閲覧モードへ戻る |
+| 表示データ | タイトル、学習日、学習元、タグ、Cue リスト、Canvas 本文（初期非表示）、サマリー（初期非表示）、本文表示状態、保存済み次回復習日（メタ情報に残す場合）、復習用の次回復習日、最終復習日時 |
+| 入力データ | Canvas 本文の表示/非表示と Summary 開閉の UI 操作、復習開始時点の `Asia/Tokyo` の現在日付 + 7日で初期化した次回復習日 |
+| 主要アクション | 本文を表示、本文を隠す、Summary を開く、次回復習日を変更またはクリア、復習済みにする、閲覧モードへ戻る |
 | 副作用のある操作 | 復習済みにする操作で `POST /api/notes/:id/review` を呼び出し、`reviewedAt` と `nextReviewDate` を更新する。本文表示/非表示は UI 状態のみで保存しない。 |
 | 遷移元 / 遷移先 | `/notes` の復習対象フィルタから `/notes/[id]` へ移動後、詳細画面内で復習モードへ切替。復習完了または戻る操作で詳細閲覧モードへ。 |
 | 利用 API | `GET /api/notes/:id`, `POST /api/notes/:id/review` |
 | エラー / 空状態 / ローディング | 詳細取得中、復習済み更新中、更新失敗、404 ノートなし、Cue なし、サマリーなし、本文なしまたは空文字。 |
-| MVP 範囲 | 共通シェル内の本文初期マスク、Summary 初期非表示、Cue → 本文確認 → Summary の順序、本文表示/非表示切替、復習済み更新、次回復習日の手動設定またはクリア。採点や正誤判定なし。 |
-| Phase 2 送り | `/tasks/review` 専用画面、1 日後 / 1 週間後の自動タスク、`review status`、未完了タスクバッジ、自動での次回復習日計算、`NotebookReviewProgress`、復習進捗履歴、本文表示状態の永続化。 |
+| MVP 範囲 | 共通シェル内の本文初期マスク、Summary 初期非表示、Cue → 本文確認 → Summary の順序、本文表示前の Summary 操作無効化、本文表示/非表示切替、復習用日付の固定初期値、次回復習日の変更またはクリア、復習済み更新と API 応答値の反映。採点や正誤判定なし。 |
+| Phase 2 送り | `/tasks/review` 専用画面、1 日後 / 1 週間後の自動タスク、`review status`、未完了タスクバッジ、復習履歴に基づく次回復習日の継続的な間隔計算、`NotebookReviewProgress`、復習進捗履歴、本文表示状態の永続化。 |
 
 #### SCR-004 Action / Data
 
 | 区分 | 内容 |
 | --- | --- |
-| Action | 復習対象ノートを開く、本文を表示、本文を隠す、復習済みにする、任意の次回復習日を保存、閲覧モードへ戻る |
+| Action | 復習対象ノートを開く、本文を表示、本文を隠す、本文確認後に Summary を開く、次回復習日を変更またはクリア、復習済みにする、閲覧モードへ戻る |
 | Data | `id`, `title`, `noteDate`, `tags`, `cues`, `bodyMode`, `body`, `canvas`, `summary`, `reviewedAt`, `nextReviewDate` |
 
 #### SCR-004 UI State / Conditions
 
 | 区分 | 内容 |
 | --- | --- |
-| 主な表示項目 | 共通 header の `復習中` 状態、紙面のタイトル・コンパクトなメタ情報帯、Cue、本文領域（初期マスク）、全幅 Summary（内容初期非表示）、本文非表示メッセージ、本文表示/非表示ボタン、Summary 開く操作、次回復習日、復習済みにする、閲覧へ戻る |
+| 主な表示項目 | 共通 header の `復習中` 状態、紙面のタイトル・コンパクトなメタ情報帯、Cue、本文領域（初期マスク）、全幅 Summary（内容初期非表示）、本文非表示メッセージ、本文表示/非表示ボタン、Summary 開く操作、復習用の次回復習日、復習済みにする、閲覧へ戻る |
 | レイアウト | 閲覧モードと同じタイトル帯、メタ情報帯、Cue／本文の Cornell 配置、全幅 Summary の位置を維持する。Cue は左 28〜32%、本文は右 68〜72%、境界は縦罫線。本文のマスクは列を縮めない。本文確認後に同じ Summary 領域を開き、復習操作・記録を Summary 後へ置く。 |
 | validation 表示 | `nextReviewDate` 不正時は API `message` を復習モード内の error alert に表示する。MVP では復習フォーム内の field 別表示は任意。 |
-| disabled | 復習済みにするボタンは更新中のみ disabled。本文表示/非表示、閲覧へ戻るは通常 disabled にしない。 |
+| disabled | Summary を開く操作は本文表示前に disabled とし、本文表示後に有効化する。復習済みにするボタンは更新中のみ disabled。本文表示/非表示、閲覧へ戻るは通常 disabled にしない。 |
 | loading | 復習済み更新中はボタンを `更新中...` に変更する。 |
 | error | 復習済み更新失敗は詳細ヘッダー下の赤系 alert に表示する。 |
 | empty | Cue なし、サマリーなし、本文なしを各セクションで明示する。本文と Summary 内容は初期状態では必ず非表示にする。 |
 | 想起順序 | Cue で想起し、本文を表示して確認した後に Summary を開く。 |
-| 成功時挙動 | `reviewedAt` と `nextReviewDate` を画面に反映し、本文表示を閉じ、閲覧モードへ戻る。 |
-| MVP 外 | `/tasks/review`、1 日後 / 1 週間後の自動タスク、`review status`、未完了タスクバッジ、自動次回復習日計算、採点、正誤判定。 |
+| 復習用の次回復習日 | 復習モードへ入った時点の `Asia/Tokyo` の現在日付 + 7日を初期表示し、保存済み `nextReviewDate` は再利用しない。復習完了前に変更またはクリアできる。 |
+| 保存済み次回復習日 | メタ情報として残す場合は「保存済み」と示し、復習用入力と区別する。 |
+| 成功時挙動 | API 応答の `reviewedAt` と `nextReviewDate` を画面に反映し、本文表示と Summary を閉じ、閲覧モードへ戻る。 |
+| MVP 外 | `/tasks/review`、1 日後 / 1 週間後の自動タスク、`review status`、未完了タスクバッジ、復習履歴に基づく次回復習日の継続的な間隔計算、採点、正誤判定。 |
 
 ### SCR-005 Backup
 
@@ -466,7 +468,7 @@ flowchart TD
 | ノート構造 | 本文は `CanvasDocumentV1` の自由配置 Canvas、Cue はリスト、Summary は Markdown。既存 Markdown body mode は互換保持 | NoteCard 分割、NoteCueLink、本文カード単位の非表示 |
 | 保存 | 明示的な作成・更新保存 | 自動保存、下書き、楽観ロック、409 競合 UI |
 | 削除 | 確認ダイアログ + 物理削除。削除後の Undo / 復元なし | ソフトデリート、5 秒 Undo Snackbar、Undo buffer（`SoftDeleteBuffer`）、`/api/undo`、期限切れ後の purge |
-| 復習 | 手動管理の `nextReviewDate` と `reviewedAt`、新規作成時の `noteDate + 7日` 初期値、詳細内復習モード、`POST /api/notes/:id/review` | `/tasks/review`、1 日後 / 1 週間後の自動タスク、`review status`、未完了タスクバッジ、自動間隔反復 |
+| 復習 | 手動管理の `nextReviewDate` と `reviewedAt`、新規作成時の `noteDate + 7日` 初期値、復習開始時の `Asia/Tokyo` の現在日付 + 7日の初期値、詳細内復習モード、`POST /api/notes/:id/review` | `/tasks/review`、1 日後 / 1 週間後の自動タスク、`review status`、未完了タスクバッジ、復習履歴に基づく自動間隔反復 |
 | タグ | ノート保存時の自動作成、候補一覧、一覧フィルタ | タグ管理 UI、名称変更、削除、右クリックメニュー |
 | Markdown | textarea + preview、表示時 sanitize | 高機能エディタ、ツールバー、ショートカット拡張 |
 | 一覧 | 検索、日付、タグ OR、復習対象 | PDF 出力、一括操作、ソート切替 |

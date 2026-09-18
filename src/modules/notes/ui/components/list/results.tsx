@@ -22,12 +22,12 @@ export function NotesListResults({
   const isEmpty = !notesLoading && notes?.data.length === 0;
 
   return (
-    <section className="rounded-lg border border-stone-200 bg-white shadow-sm">
-      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-stone-200 px-4 py-3">
-        <h2 className="text-sm font-semibold text-stone-900">
+    <section className="min-w-0 overflow-hidden rounded-[0.55rem] border border-[var(--app-line)] bg-[var(--app-surface)]">
+      <div className="flex min-w-0 flex-wrap items-center justify-between gap-2 border-b border-[var(--app-line)] px-4 py-3">
+        <h2 className="min-w-0 text-sm font-semibold text-[var(--app-ink)]">
           {isSearchActive ? "検索結果" : "保存済みノート"}
         </h2>
-        <p className="text-xs text-stone-500">
+        <p className="shrink-0 text-xs text-[var(--app-muted-ink)]">
           {notes ? `${notes.totalCount}件` : "未取得"}
         </p>
       </div>
@@ -37,7 +37,7 @@ export function NotesListResults({
       {isEmpty && <NotesListEmpty />}
 
       {!notesLoading && notes && notes.data.length > 0 && (
-        <div className="divide-y divide-stone-100">
+        <div className="divide-y divide-[var(--app-line)]">
           {notes.data.map((note) => (
             <NotesListCard key={note.id} note={note} />
           ))}

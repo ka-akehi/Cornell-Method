@@ -65,7 +65,6 @@ export async function updateNoteRecord(
       where: { id },
       data: {
         title: input.title,
-        noteDate: dateOnlyToUtcDate(input.noteDate),
         sourceType: input.sourceType ?? null,
         sourceTitle: input.sourceTitle,
         bodyMode: input.bodyMode,

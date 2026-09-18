@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useTheme } from "@/app/_components/theme/theme-provider";
 import {
   cloneCanvasDocument,
   createEmptyCanvasDocument,
@@ -27,6 +28,7 @@ function errorMessage(error: unknown) {
 }
 
 export function NoteCanvasViewer({ document }: NoteCanvasViewerProps) {
+  const { resolvedTheme } = useTheme();
   const documentRef = useRef<CanvasDocumentV1 | null | undefined>(undefined);
   if (documentRef.current === undefined) {
     if (!document) {
@@ -76,7 +78,10 @@ export function NoteCanvasViewer({ document }: NoteCanvasViewerProps) {
         });
         canvas = nextCanvas;
         canvasRef.current = nextCanvas;
-        nextCanvas.backgroundColor = "#fffdf8";
+        nextCanvas.backgroundColor = window
+          .getComputedStyle(surfaceRef.current ?? element)
+          .getPropertyValue("--app-paper-surface")
+          .trim() || "#fffdf8";
         nextCanvas.selection = false;
         nextCanvas.isDrawingMode = false;
         const validated = cloneCanvasDocument(validDocument);
@@ -109,6 +114,20 @@ export function NoteCanvasViewer({ document }: NoteCanvasViewerProps) {
       canvasRef.current = null;
     };
   }, [pageHeight, pageWidth, validDocument]);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    const surface = surfaceRef.current;
+    if (!canvas || !surface) {
+      return;
+    }
+
+    canvas.backgroundColor = window
+      .getComputedStyle(surface)
+      .getPropertyValue("--app-paper-surface")
+      .trim() || (resolvedTheme === "dark" ? "#2a302b" : "#fffdf8");
+    canvas.requestRenderAll?.();
+  }, [resolvedTheme]);
 
   useEffect(() => {
     const surface = surfaceRef.current;

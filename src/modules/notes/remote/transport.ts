@@ -1,4 +1,5 @@
 import { decodeApiErrorResponse } from "@/shared/http/client";
+import { requestDesktopStateChangingApi } from "@/shared/desktop/desktop-api-bridge";
 import { NotesRemoteError } from "./error";
 
 export function jsonHeaders() {
@@ -15,7 +16,8 @@ export async function requestJson<T>(
   init: RequestInit,
   fallbackMessage: string,
 ): Promise<T> {
-  const response = await fetch(input, init);
+  const desktopResponse = await requestDesktopStateChangingApi(input, init);
+  const response = desktopResponse ?? (await fetch(input, init));
 
   if (!response.ok) {
     const body = await decodeApiErrorResponse(response);

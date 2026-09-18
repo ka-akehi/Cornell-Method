@@ -4,7 +4,7 @@ import { emptyStringToNull } from "./schema-helpers";
 // MVP examples use Japanese tag names such as "読書", so Han characters are allowed
 // in addition to the original hiragana/katakana/alphanumeric/symbol set.
 export const tagNameRegex =
-  /^[\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Han}A-Za-z0-9!"#$%&'()0=~|\-^¥@\[\]`{;:+*},.\/<>?_\\]+$/u;
+  /^[\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Han}A-Za-z0-9０-９!"#$%&'()0=~|\-^¥@\[\]`{;:+*},.\/<>?_\\]+$/u;
 
 export const tagSchema = z.object({
   id: z.string().optional(),

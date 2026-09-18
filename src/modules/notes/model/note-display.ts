@@ -6,9 +6,12 @@ export type ReviewStatusDisplay = {
   className: string;
 };
 
+type ReviewHistoryNote = {
+  reviewedAt: string | null;
+};
+
 type ReviewStatusNote = {
   nextReviewDate: string | null;
-  reviewedAt: string | null;
 };
 
 const sourceTypes = ["book", "lecture", "video", "article", "other"] as const;
@@ -64,17 +67,26 @@ export function isDateRangeInvalid(from: string, to: string) {
   return Boolean(from && to && from > to);
 }
 
+export function getReviewHistoryStatus(
+  note: ReviewHistoryNote,
+): ReviewStatusDisplay {
+  if (note.reviewedAt === null) {
+    return {
+      label: "未復習",
+      className: "border-stone-200 bg-stone-50 text-stone-600",
+    };
+  }
+
+  return {
+    label: "復習済み",
+    className: "border-emerald-200 bg-emerald-50 text-emerald-700",
+  };
+}
+
 export function getReviewStatus(
   note: ReviewStatusNote,
   today = todayDateString(),
 ): ReviewStatusDisplay {
-  if (note.reviewedAt && !note.nextReviewDate) {
-    return {
-      label: "復習済み",
-      className: "border-emerald-200 bg-emerald-50 text-emerald-700",
-    };
-  }
-
   if (!note.nextReviewDate) {
     return {
       label: "復習予定なし",

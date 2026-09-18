@@ -1,6 +1,12 @@
 "use client";
 
-import { useId, useRef, useState, type KeyboardEvent } from "react";
+import {
+  useId,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type ReactNode,
+} from "react";
 import {
   CANVAS_MAX_PAGE_DIMENSION,
   CANVAS_MIN_PAGE_DIMENSION,
@@ -11,6 +17,7 @@ import { ToolbarIcon } from "./toolbar-icon";
 type CanvasPaperSizeControlsProps = {
   pageDimensions: CanvasPageDimensions;
   onPageDimensionsChange: (dimensions: CanvasPageDimensions) => void;
+  children: ReactNode;
 };
 
 type ValidationState = {
@@ -39,6 +46,7 @@ function validateDimension(rawValue: string, label: string) {
 export function CanvasPaperSizeControls({
   pageDimensions,
   onPageDimensionsChange,
+  children,
 }: CanvasPaperSizeControlsProps) {
   const idPrefix = useId();
   const widthInputRef = useRef<HTMLInputElement>(null);
@@ -105,6 +113,7 @@ export function CanvasPaperSizeControls({
         <span className="note-canvas-paper-size-summary-chevron" aria-hidden="true" />
       </summary>
       <div className="note-canvas-paper-size-content">
+        {children}
         <div className="note-canvas-paper-fields">
           <label className="note-canvas-size-field">
             <span className="note-canvas-size-field-label">幅</span>

@@ -3,6 +3,7 @@ import type { NextRequest } from "next/server";
 import {
   FORBIDDEN_API_ERROR_BODY,
   getBasicAuthDecision,
+  getRequestAuthorityOrigin,
   isSameOriginRequest,
   isStateChangingApiRequest,
   UNAUTHORIZED_API_ERROR_BODY,
@@ -42,7 +43,10 @@ export function proxy(request: NextRequest) {
         method: request.method,
       }) &&
       !isSameOriginRequest({
-        requestOrigin: request.nextUrl.origin,
+        requestOrigin: getRequestAuthorityOrigin({
+          host: request.headers.get("host"),
+          protocol: request.nextUrl.protocol,
+        }),
         origin: request.headers.get("origin"),
         referer: request.headers.get("referer"),
       })

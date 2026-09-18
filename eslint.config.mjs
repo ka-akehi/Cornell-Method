@@ -11,6 +11,17 @@ const eslintConfig = defineConfig([
       "@typescript-eslint/no-require-imports": "off",
     },
   },
+  {
+    files: [
+      "tools/desktop-poc/electron/**/*.cjs",
+      "tools/desktop-poc/tauri/**/*.cjs",
+      "src-tauri/**/*.cjs",
+      "test/desktop/**/*.cjs",
+    ],
+    rules: {
+      "@typescript-eslint/no-require-imports": "off",
+    },
+  },
   // Override default ignores of eslint-config-next.
   globalIgnores([
     // Default ignores of eslint-config-next:
@@ -19,6 +30,7 @@ const eslintConfig = defineConfig([
     "build/**",
     "src/generated/**",
     "next-env.d.ts",
+    "**/target/**",
   ]),
 ]);
 

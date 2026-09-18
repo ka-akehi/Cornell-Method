@@ -27,6 +27,10 @@ import {
   NotesRemoteError,
   updateNote,
 } from "@/modules/notes/remote";
+import {
+  shareInFlightNoteEditorSave,
+  useNoteEditorDirtyController,
+} from "@/modules/notes/ui/hooks/use-note-editor-dirty-controller";
 import { NoteEditorBodySection } from "./body";
 import { NoteEditorCueSection } from "./cues";
 import { findNoteEditorErrorTarget } from "./error-focus";
@@ -39,7 +43,6 @@ export type NoteEditorProps = {
   mode: "create" | "edit";
   initial?: NoteEditorInitial;
   draft?: unknown;
-  shell?: boolean;
   topActions?: ReactNode;
   showCancel?: boolean;
   onCancel?: () => void;
@@ -87,7 +90,6 @@ function preventMetadataInputImplicitSubmit(
 export function NoteEditor({
   initial,
   mode,
-  shell = true,
   topActions,
   showCancel = true,
   onCancel,
@@ -98,18 +100,34 @@ export function NoteEditor({
     const initialForm = createInitialNoteEditorForm(initial);
     return mode === "create" ? { ...initialForm, bodyMode: "canvas" } : initialForm;
   });
+  const latestFormRef = useRef(form);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<ApiFieldError[]>([]);
   const [canvasError, setCanvasError] = useState<string | null>(null);
   const formRef = useRef<HTMLFormElement>(null);
   const alertRef = useRef<HTMLDivElement>(null);
+  const saveInFlightRef = useRef<Promise<boolean> | null>(null);
+  const formRevisionRef = useRef(0);
+  const persistedNoteIdRef = useRef<string | undefined>(form.id);
   const errorFocusRequestIdRef = useRef(0);
   const handledErrorFocusRequestIdRef = useRef(0);
   const [errorFocusRequest, setErrorFocusRequest] =
     useState<ErrorFocusRequest | null>(null);
   const today = useMemo(() => todayDateString(), []);
   const initialCanvasTool = "select" as const;
+
+  const updateFormState = useCallback(
+    (
+      updater: (current: NoteEditorFormState) => NoteEditorFormState,
+    ) => {
+      const nextForm = updater(latestFormRef.current);
+      latestFormRef.current = nextForm;
+      formRevisionRef.current += 1;
+      setForm(nextForm);
+    },
+    [],
+  );
 
   const requestErrorFocus = useCallback((nextFieldErrors: ApiFieldError[]) => {
     const id = errorFocusRequestIdRef.current + 1;
@@ -142,15 +160,27 @@ export function NoteEditor({
     target.focus({ preventScroll: true });
   }, [errorFocusRequest]);
 
-  const handleCanvasDocumentChange = useCallback((canvas: NoteEditorFormState["canvas"]) => {
-    setForm((current) => ({ ...current, canvas }));
-  }, []);
+  const handleCanvasDocumentChange = useCallback(
+    (canvas: NoteEditorFormState["canvas"]) => {
+      updateFormState((current) => ({ ...current, canvas }));
+    },
+    [updateFormState],
+  );
 
   const handleCanvasError = useCallback((error: string | null) => {
     setCanvasError(error);
   }, []);
 
   function updateForm(next: Partial<NoteEditorFormState>) {
+    if (mode === "edit" && Object.prototype.hasOwnProperty.call(next, "noteDate")) {
+      const editableChanges = { ...next };
+      delete editableChanges.noteDate;
+      if (Object.keys(editableChanges).length === 0) {
+        return;
+      }
+      next = editableChanges;
+    }
+
     if (Object.prototype.hasOwnProperty.call(next, "tags")) {
       setFieldErrors((current) =>
         current.filter(
@@ -158,11 +188,11 @@ export function NoteEditor({
         ),
       );
     }
-    setForm((current) => ({ ...current, ...next }));
+    updateFormState((current) => ({ ...current, ...next }));
   }
 
   function addCue() {
-    setForm((current) => ({
+    updateFormState((current) => ({
       ...current,
       cues: [
         ...current.cues,
@@ -175,7 +205,7 @@ export function NoteEditor({
   }
 
   function updateCue(index: number, text: string) {
-    setForm((current) => ({
+    updateFormState((current) => ({
       ...current,
       cues: current.cues.map((cue, cueIndex) =>
         cueIndex === index ? { ...cue, text } : cue,
@@ -184,7 +214,7 @@ export function NoteEditor({
   }
 
   function removeCue(index: number) {
-    setForm((current) => ({
+    updateFormState((current) => ({
       ...current,
       cues: current.cues
         .filter((_, cueIndex) => cueIndex !== index)
@@ -192,12 +222,16 @@ export function NoteEditor({
     }));
   }
 
-  async function save() {
-    if (mode === "edit" && !form.id) {
+  async function performSave() {
+    const currentForm = latestFormRef.current;
+    if (mode === "edit" && !currentForm.id) {
       setMessage("更新対象のノートIDがありません。");
       requestErrorFocus([]);
-      return;
+      return false;
     }
+
+    let saveForm = currentForm;
+    let saveRevision = formRevisionRef.current;
 
     setSaving(true);
     setMessage(null);
@@ -206,41 +240,70 @@ export function NoteEditor({
     setErrorFocusRequest(null);
 
     try {
-      const data =
-        mode === "create"
-          ? await createNote(noteEditorFormToPayload(form))
-          : await updateExistingNote(form.id, noteEditorFormToPayload(form));
+      while (true) {
+        const input = noteEditorFormToPayload(saveForm);
+        const data =
+          mode === "create" && !persistedNoteIdRef.current
+            ? await createNote(input)
+            : await updateExistingNote(
+                persistedNoteIdRef.current ?? saveForm.id,
+                input,
+              );
 
-      if (mode === "edit" && typeof data.id === "string" && onSaved) {
-        onSaved(data);
-        router.refresh();
-        return;
-      }
+        if (typeof data.id === "string") {
+          persistedNoteIdRef.current = data.id;
+        }
 
-      const savedId = typeof data.id === "string" ? data.id : form.id;
-      if (savedId) {
-        router.push(`/notes/${savedId}`);
-        router.refresh();
+        if (formRevisionRef.current !== saveRevision) {
+          saveForm = latestFormRef.current;
+          saveRevision = formRevisionRef.current;
+          continue;
+        }
+
+        if (mode === "edit" && typeof data.id === "string" && onSaved) {
+          markSaved(saveForm);
+          onSaved(data);
+          router.refresh();
+          return true;
+        }
+
+        const savedId =
+          typeof data.id === "string"
+            ? data.id
+            : persistedNoteIdRef.current ?? saveForm.id;
+        if (savedId) {
+          markSaved(saveForm);
+          router.push(`/notes/${savedId}`);
+          router.refresh();
+        }
+        return true;
       }
     } catch (caught) {
       if (caught instanceof NotesRemoteError) {
         setMessage(caught.message);
         setFieldErrors(caught.fieldErrors);
         requestErrorFocus(caught.fieldErrors);
-        return;
+        return false;
       }
-      if (caught instanceof Error && form.bodyMode === "canvas") {
+      if (caught instanceof Error && saveForm.bodyMode === "canvas") {
         setCanvasError(caught.message);
         setMessage(caught.message);
         requestErrorFocus([]);
-        return;
+        return false;
       }
       setMessage("保存に失敗しました。通信状態またはAPIを確認してください。");
       requestErrorFocus([]);
+      return false;
     } finally {
       setSaving(false);
     }
   }
+
+  function save() {
+    return shareInFlightNoteEditorSave(saveInFlightRef, performSave);
+  }
+
+  const markSaved = useNoteEditorDirtyController({ mode, form, save });
 
   function handleCancel() {
     if (onCancel) {
@@ -253,9 +316,7 @@ export function NoteEditor({
   return (
     <form
       ref={formRef}
-      className={`note-paper-editor ${mode === "create" ? "note-paper-editor--create" : ""} min-w-0 space-y-0 ${
-        shell ? "note-paper-shell note-paper-content" : "note-paper-editor--embedded"
-      }`}
+      className="note-paper-editor note-paper-shell note-paper-content min-w-0 space-y-0"
       onKeyDown={preventMetadataInputImplicitSubmit}
       onSubmit={(event) => {
         event.preventDefault();
@@ -275,7 +336,7 @@ export function NoteEditor({
       )}
 
       <NoteEditorMetadataSection
-        shell={shell}
+        mode={mode}
         title={form.title}
         noteDate={form.noteDate}
         nextReviewDate={form.nextReviewDate}
@@ -286,9 +347,8 @@ export function NoteEditor({
         fieldErrors={fieldErrors}
         onChange={updateForm}
         onNextReviewDateChange={(nextReviewDate) => updateForm({ nextReviewDate })}
+        actions={topActions}
       />
-
-      {topActions}
 
       <section className="note-paper-section note-paper-cornell-section min-w-0 !space-y-0">
         <div

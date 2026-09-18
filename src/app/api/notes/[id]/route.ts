@@ -2,9 +2,11 @@ import { NextResponse } from "next/server";
 import {
   deleteNote,
   getNoteDetail,
+  NoteDateImmutableError,
   updateNote,
 } from "@/server/notes/application";
 import {
+  createApiError,
   createInvalidBodyError,
   createNotFoundError,
   createServerError,
@@ -50,6 +52,14 @@ export async function PATCH(request: Request, context: RouteContext) {
 
     return NextResponse.json(notebook);
   } catch (error) {
+    if (error instanceof NoteDateImmutableError) {
+      return apiErrorResponse(
+        createApiError("invalid_body", {
+          errors: [{ field: "noteDate", message: error.message }],
+        }),
+      );
+    }
+
     console.error(error);
     return apiErrorResponse(createServerError());
   }

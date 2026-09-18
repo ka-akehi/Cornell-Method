@@ -4,7 +4,8 @@ import {
   findToolDefinition,
   getToolGroup,
 } from "@/modules/notes/ui/canvas";
-import { CanvasHistoryActions, CanvasToolGroup } from "./toolbar-actions";
+import { CanvasToolGroup } from "./toolbar-actions";
+import { CanvasHistoryActions } from "./toolbar-history-actions";
 import { CanvasPaperSizeControls } from "./toolbar-paper-controls";
 import { CanvasStyleControls } from "./toolbar-style-controls";
 import type { NoteCanvasToolbarProps } from "@/modules/notes/ui/canvas";
@@ -42,53 +43,52 @@ export function NoteCanvasToolbar({
             group={getToolGroup("draw")}
             tool={tool}
             onToolChange={onToolChange}
-            showTooltip={false}
+            tooltipMode="floating"
           />
           <CanvasToolGroup
             group={getToolGroup("line")}
             tool={tool}
             onToolChange={onToolChange}
-            showTooltip={false}
+            tooltipMode="floating"
           />
           <CanvasToolGroup
             group={getToolGroup("shape")}
             tool={tool}
             onToolChange={onToolChange}
-            showTooltip={false}
+            tooltipMode="floating"
           />
           <CanvasToolGroup
             group={getToolGroup("text")}
             tool={tool}
             onToolChange={onToolChange}
-            showTooltip={false}
+            tooltipMode="floating"
+          />
+          <CanvasToolGroup
+            group={getToolGroup("erase")}
+            tool={tool}
+            onToolChange={onToolChange}
+            tooltipMode="floating"
+          />
+          <CanvasHistoryActions
+            canUndo={canUndo}
+            canRedo={canRedo}
+            onUndo={onUndo}
+            onRedo={onRedo}
           />
         </div>
       </div>
-
-      <CanvasStyleControls
-        styleTarget={styleTarget}
-        styleValues={styleValues}
-        onStyleChange={onStyleChange}
-      />
-
-      <CanvasToolGroup
-        group={getToolGroup("erase")}
-        tool={tool}
-        onToolChange={onToolChange}
-      />
-
-      <CanvasHistoryActions
-        canUndo={canUndo}
-        canRedo={canRedo}
-        onUndo={onUndo}
-        onRedo={onRedo}
-      />
 
       <CanvasPaperSizeControls
         key={pageKey}
         pageDimensions={pageDimensions}
         onPageDimensionsChange={onPageDimensionsChange}
-      />
+      >
+        <CanvasStyleControls
+          styleTarget={styleTarget}
+          styleValues={styleValues}
+          onStyleChange={onStyleChange}
+        />
+      </CanvasPaperSizeControls>
 
       <span
         className="note-canvas-toolbar-status"

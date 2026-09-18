@@ -1,5 +1,6 @@
 "use client";
 
+import type { ReactNode } from "react";
 import type { ApiFieldError } from "@/shared/http/client";
 import {
   fieldError,
@@ -12,7 +13,7 @@ import { NoteEditorTagInput } from "./tags";
 import { TextInput, TitleInput } from "./inputs";
 
 export function NoteEditorMetadataSection({
-  shell,
+  mode,
   title,
   noteDate,
   nextReviewDate,
@@ -23,8 +24,9 @@ export function NoteEditorMetadataSection({
   fieldErrors,
   onChange,
   onNextReviewDateChange,
+  actions,
 }: {
-  shell: boolean;
+  mode: "create" | "edit";
   title: string;
   noteDate: string;
   nextReviewDate: string;
@@ -35,35 +37,27 @@ export function NoteEditorMetadataSection({
   fieldErrors: ApiFieldError[];
   onChange: (next: Partial<NoteEditorFormState>) => void;
   onNextReviewDateChange: (nextReviewDate: string) => void;
+  actions?: ReactNode;
 }) {
+  const noteDateReadOnly = mode === "edit";
   const sourceTypeFieldError = fieldError(fieldErrors, "sourceType");
   const sourceTitleFieldError = fieldError(fieldErrors, "sourceTitle");
 
   return (
-    <section className="note-paper-section note-paper-metadata-section min-w-0 !space-y-0">
-      {shell ? (
-        <div className="note-paper-heading !border-b-0">
-          <div className="note-paper-heading-copy w-full">
-            <TitleInput
-              id="note-title"
-              label="タイトル"
-              value={title}
-              onChange={(nextTitle) => onChange({ title: nextTitle })}
-              error={fieldError(fieldErrors, "title")}
-              required
-            />
-          </div>
+    <section className="note-paper-section note-paper-metadata-section min-w-0 !space-y-0 !p-0">
+      <div className="note-paper-heading">
+        <div className="note-paper-heading-copy min-w-0 flex-1">
+          <TitleInput
+            id="note-title"
+            label="タイトル"
+            value={title}
+            onChange={(nextTitle) => onChange({ title: nextTitle })}
+            error={fieldError(fieldErrors, "title")}
+            required
+          />
         </div>
-      ) : (
-        <TextInput
-          id="note-title"
-          label="タイトル"
-          value={title}
-          onChange={(nextTitle) => onChange({ title: nextTitle })}
-          error={fieldError(fieldErrors, "title")}
-          required
-        />
-      )}
+        {actions}
+      </div>
 
       <div className="note-paper-meta-grid !grid-cols-[minmax(0,0.8fr)_minmax(0,1.8fr)_minmax(0,1.8fr)] max-[900px]:!grid-cols-2 max-[640px]:!grid-cols-1">
         <div className="note-paper-meta-item space-y-3">
@@ -73,7 +67,14 @@ export function NoteEditorMetadataSection({
             type="date"
             value={noteDate}
             max={today}
-            onChange={(nextNoteDate) => onChange({ noteDate: nextNoteDate })}
+            disabled={noteDateReadOnly}
+            readOnly={noteDateReadOnly}
+            onChange={(nextNoteDate) => {
+              if (noteDateReadOnly) {
+                return;
+              }
+              onChange({ noteDate: nextNoteDate });
+            }}
             error={fieldError(fieldErrors, "noteDate")}
             required
           />
@@ -106,7 +107,7 @@ export function NoteEditorMetadataSection({
                   }}
                   aria-invalid={Boolean(sourceTypeFieldError)}
                   aria-describedby={sourceTypeFieldError ? "source-type-error" : undefined}
-                  className="w-full min-w-0 rounded-lg border border-stone-200 bg-white px-3 py-2 text-sm text-stone-900 shadow-sm outline-none transition focus:border-amber-500 focus:ring-2 focus:ring-amber-100"
+                  className="h-10 w-full min-w-0 rounded-lg border border-stone-200 bg-white px-3 py-2 text-sm text-stone-900 shadow-sm outline-none transition focus:border-amber-500 focus:ring-2 focus:ring-amber-100"
                 >
                   <option value="">未選択</option>
                   {sourceTypeOptions.map((option) => (
@@ -133,7 +134,7 @@ export function NoteEditorMetadataSection({
                   onChange={(event) => onChange({ sourceTitle: event.target.value })}
                   aria-invalid={Boolean(sourceTitleFieldError)}
                   aria-describedby={sourceTitleFieldError ? "source-title-error" : undefined}
-                  className={`w-full min-w-0 rounded-lg border bg-white px-3 py-2 text-sm text-stone-900 shadow-sm outline-none transition placeholder:text-stone-400 ${
+                  className={`h-10 w-full min-w-0 rounded-lg border bg-white px-3 py-2 text-sm text-stone-900 shadow-sm outline-none transition placeholder:text-stone-400 ${
                     sourceTitleFieldError
                       ? "border-red-300 focus:border-red-500 focus:ring-2 focus:ring-red-100"
                       : "border-stone-200 focus:border-amber-500 focus:ring-2 focus:ring-amber-100"

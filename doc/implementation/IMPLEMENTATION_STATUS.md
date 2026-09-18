@@ -1,33 +1,48 @@
 # 実装状況サマリ
 
-更新日: 2026-07-31
+更新日: 2026-09-07
 
 ## 判定基準
 
-現行 MVP の実装・受け入れ判断は `doc/implementation/MVP_CONTRACT.md` を正本とする。`AGENTS.md` にあるドラフト、Undo、専用復習タスク、PDF、カード分割などの記述は製品ロードマップであり、この文書では現行 MVP と分けて扱う。
+現行 MVP の実装・受け入れ判断は `doc/implementation/MVP_CONTRACT.md` を正本とする。Desktop Alpha は全体として未完了であり、single-instance recovery / 既存 primary lifecycle / Settings shell・bridge・entrypoint の部分実装は完了（packaged Apple Silicon GUI は未検証）である。更新系には、GitHub Releases provider、provider-neutral manifest の parsing / normalization / strict validation、compatible selection、公開 direct HTTPS URL 境界、package download、署名・SHA-256 検証、archive / bundle validation、update state、pending update verification、verified artifact の明示 apply preparation、persisted `ApplyPreparation` を起点とする staged migration、rollback / recovery、candidate health、cleanup の実装と static / disposable test 証跡がある。Data and Backup には native file-dialog / typed bridge、手動 plaintext SQLite export、managed backup catalog、managed / external restore 共通 pipeline、pending restore と明示 resume、complete data deletion、Settings UI の実装と static / disposable test 証跡がある。final `RunEvent::Exit` の sidecar cleanup も static lifecycle contract 上は実装済みである。startup の DB bootstrap は初回かつ未初期化時だけ空 DB を作成し、既存初期化後の DB 不在・破損・読み取り不能・schema 不整合では空 DB を作成せず recovery-only とする。diagnostic export と local log の privacy 境界、既知 backup error の preflight と GET 一回再試行 / POST 自動再送禁止も static / disposable test で確認済みである。live SQLite の path・ファイル名・`DATABASE_URL`・schema / migration / integrity はユーザー設定にしない。これらはユーザーの明示操作による opt-in backend pipeline であり、自動 apply / 自動 restart は行わない。packaged `.app` / DMG、native GUI、loopback、browser / DB read-back、process timing は未検証で、実機 acceptance とは扱わない。更新契約自体は承認済みであり、未完了の packaged acceptance と混同しない。Canvas PNG、検索サジェスト、大規模一覧は採用済みの将来要件だが未実装であり、この文書では現行 MVP と分けて扱う。autosave、Undo、専用復習タスク、NoteCard / D&D 等は未採用候補、PDF export は未実装かつ現在未採用である。
 
 - **実装済み（静的確認）**: 現在の route、UI、Prisma schema、サービス、または確認可能な静的検証記録でコード上の実在を確認できるもの。ブラウザ実機 QA の完了を意味しない。
 - **部分実装**: 一部のコードは存在するが、MVP 契約の挙動または画面状態を満たしていないもの。
 - **未実装**: 現行 MVP の契約に含まれるが、必要なコードまたは route がないもの。
 - **未確認（runtime QA）**: 静的な実装は確認できるが、ブラウザでの pointer、wheel、touch、保存・再読込、responsive などの実機確認記録がないもの。
-- **Phase 2 / 仕様のみ**: 現行 MVP の対象外であり、仕様・ロードマップにだけ存在するもの。依存関係や型名だけでは実装済みと判定しない。
+- **将来契約 / 未実装**: 現行 MVP の対象外で、正本に採用済み要件として存在するが、対応コードや検証証跡がないもの。依存関係、fixture tooling、型名だけでは製品機能の実装済みと判定しない。
+- **未採用候補**: 実装も採用判断も完了していないもの。既存依存や過去文書だけでは採用済みと判定しない。
 
-静的検証の `PASS` は runtime の `PASS` に繰り上げない。ブラウザ実機 QA の証跡がない項目は、コードが存在していても「未確認（runtime QA）」として記録する。
+静的検証の `PASS` は runtime の `PASS` を意味しない。ブラウザ実機 QA の証跡がない項目は、コードが存在していても「未確認（runtime QA）」として記録する。
 
 ## 1. 現在の判定
 
-現在のコードは、`Notebook` に Canvas または既存 Markdown の本文モードを持たせ、`NotebookCanvas` に `CanvasDocumentV1` JSON を保存し、`Cue` リスト、タグ、一覧検索、詳細画面内の閲覧・編集・復習、手動バックアップを提供する小さな MVP である。
+外部 SQLite export は保存先フォルダを選び、`cornell-method-backup-YYYYMMDD-HHmmss-<random>.sqlite` 形式で自動命名する create-only / no-replace である。選択時の名前衝突は有限回再生成し、publish race では race winner を保持して既存ファイルを変更しない。`replaceExisting` / `allowReplaceExisting` permission と既存 destination への通常 rename publish は提供しない。
 
-現行 MVP と照合した重要な差分は次のとおり。
+managed backup catalog metadata の `recoveryOnly` により、restore 前に作成する `restore-<operationId>.sqlite.bak` 等の safety backup は物理ファイルと内部 catalog に保持し、startup recovery / rollback 用に利用できる。Settings の通常復元一覧では `recoveryOnly=true` を除外し、残っている user backup の最新 1 件だけを表示・選択する。
 
-- 新規作成時の `nextReviewDate = noteDate + 7日` は実装済み。新規フォームは学習日から 7 日後で始まり、保存前に変更または空欄化できる。既存ノートの未設定値は自動補完せず、学習日を変更しても明示された次回復習日は自動移動しない。
+Desktop Alpha の Data and Backup は、native file-dialog / typed bridge、手動 plaintext SQLite export、managed backup catalog、managed / external restore の共通 validation・safety backup・atomic switch、newer-schema pending restore と明示 resume、complete data deletion、Settings UI まで実装済みで、static / disposable test 済みである。初回未初期化時だけ空 DB を自動作成し、既存初期化後の DB 不在・破損・読み取り不能・schema 不整合は空 DB を作成せず recovery-only UI と明示確認後の restore に進む。diagnostic export / local log の privacy boundary と backup preflight（既知エラー時の有限 preflight、GET 一回再試行、POST 自動再送禁止）も static / disposable test 済みである。live SQLite path、ファイル名、`DATABASE_URL`、schema / migration / integrity はユーザー設定にしない。ただし packaged `.app` / DMG、native GUI、loopback、browser/DB read-back、process timing は未検証であり、static / disposable PASS を packaged acceptance と扱わない。
+
+現在のコードには、`Notebook` の Canvas または既存 Markdown の本文モード、`NotebookCanvas` への `CanvasDocumentV1` JSON 保存、`Cue` リスト、タグ、一覧検索、詳細画面内の閲覧・編集・復習、手動バックアップが実装されている。
+
+現行 MVP との照合結果は次のとおり。
+
+- 学習日の不変性は実装済み。作成画面では必須の今日以前の `noteDate` を入力でき、保存後の通常編集画面では現在値を `disabled` / `readOnly` の表示専用として扱う。`PATCH /api/notes/:id` は同値の `noteDate` を許可し、異なる値を 400 `invalid_body` の `noteDate` フィールドエラー（`保存後の学習日は編集できません`）で拒否する。更新 repository は `noteDate` を更新対象に含めず、`POST /api/notes` の作成時入力は保存する。
+- 新規ノートの `nextReviewDate = noteDate + 7日` は実装済み。新規フォームは `noteDate` から 7 日後の値で始まり、保存前に変更または空欄化できる。
+- 既存ノートの編集では、未設定の `nextReviewDate` を自動補完しない。`nextReviewDate` は学習日と独立して変更または空欄化でき、保存済みの値を学習日から自動再計算しない。保存後の通常編集画面の `noteDate` は表示専用である。
+- 既存ノートの復習画面では、画面を開いた時点の `Asia/Tokyo` 基準の現在日付 + 7日を初期表示する。保存済みの `nextReviewDate` は初期値に再利用しない。復習画面内の手動変更・空欄化と、復習成功後の API response による画面反映は維持している。
 - 復習モードの本文と Summary は初期非表示になる。本文を表示した後に Summary を開ける。
+- ノート内タグは、保存時の `tags` 配列 index を `NotebookTag.order` に 0 始まりで保存し、一覧・詳細の read repository は `order` 昇順で取得する。SQLite / Postgres の `20260809090000_add_notebook_tag_order` migration は既存行を Tag 名昇順（同名は `tagId` 昇順）で決定的に backfill する。`GET /api/tags` は候補を名前昇順で返し、ノート内タグの順序とは分けている。これは実装の静的確認であり、タグ順の保存・再読込を含む Browser runtime QA は未確認である。
+- 詳細画面の Summary は `MarkdownReadView` で task-list checkbox を表示し、view / review で toggle できる。toggle は対応する task marker の checked 状態だけを Summary draft に反映し、dirty 状態を表示する。明示保存は既存 `PATCH /api/notes/:id` を使い、成功 response で表示中ノートを更新して dirty 状態を解除する。破棄、モード離脱、復習完了では未保存 draft を保存せずに破棄し、保存失敗時は draft と dirty 状態を保持して error を表示する。編集画面の Markdown Preview checkbox は read-only のままで、自動保存は行わない。これは実装と contract test の静的確認であり、Browser runtime、実 DB read-back、E2E は未確認である。
 - 削除は確認後に物理削除する。`deletedAt` は schema に残る互換フィールドであり、Undo / soft delete の実装を意味しない。
-- 専用復習タスク、ドラフト自動保存、NoteCard、D&D、PDF export などの route・model・UI は存在しない。
+- Desktop Alpha は全体として未完了である。single-instance recovery と既存 primary lifecycle、Settings shell / bridge / entrypoint の部分実装に加え、GitHub Releases provider、provider-neutral manifest の parsing / normalization / strict validation、`releases[]` の compatible selection、公開 direct HTTPS URL 境界、package download、公開鍵署名・SHA-256 検証、archive / bundle validation、update state、pending update verification、`ApplyPreparation` を起点とする staged migration、rollback / recovery、candidate health、cleanup のコードと test 証跡を確認できる。`apply_verified_update`（引数なしの明示 command）は verified candidate を再検証し、`ApplyPreparation` の atomic state transition 後に explicit restart handoff へ渡す。handoff の atomic 永続化成功後にだけ exit allowance と restart request を実行し、永続化失敗時は restart と exit allowance を行わない。明示 handoff のない persisted `ApplyPreparation` は interruption として扱い、自動 apply / 自動 restart を行わない。apply 直前には署名済み archive と extracted candidate tree の全 entry を bytes、type、mode、size、追加・欠落、safe internal symlink target まで照合し、不一致を fail-closed にする。archive extraction と recovery は同じ safe internal relative symlink policy を使い、相対 target、bundle root 内、解決先の存在、cycle なし、`MAX_SYMLINK_HOPS` 内だけを許可する。これは実 provider / package runtime、実際の macOS packaged app、packaged GUI の受け入れ完了を意味しない。packaged Apple Silicon GUI は未検証である。Canvas PNG、検索対象 selector、語句サジェスト、無限スクロール、list windowing に対応する製品コードは存在しない。専用復習タスク、draft / autosave、NoteCard、D&D、PDF export の route・model・UI も存在しない。
+- 自動 check、startup check、download 完了、pending notification の経路は apply / restart を起動しない。migration claim は永続化され、failure / interruption 後に staged migration を自動再実行しない。staged migration の runner / read-back / switch failure は typed rollback checkpoint として保存され、同じ startup で recovery を実行する。recovery 成功時だけ bootstrap へ進み、recovery failure は fail-closed とする。DB / bundle rollback と restore が成功した場合は terminal rollback state の記録前に、managed root / safe-tree 検証付きで failed bundle marker を削除し、cleanup failure 時は `RollbackPending` と typed failure を保持する。candidate digest ごとの既存 safety backup は内容・file identity 検証後に再利用し、複数件は選択・削除せず fail-closed とする。Issue #169〜#175 の回帰を含む 2026-08-24 の staged migration suite は 22/22 PASS、Desktop update Node suite は `node --import tsx/esm --test test/desktop/desktop-update-*.test.ts` 77/77 PASS、desktop recovery suite は 14/14 PASS だった。lifecycle/runtime tests は 15 PASS、7 SKIP（loopback / packaged runtime 依存）だった。static / disposable test の PASS は provider / package の実 runtime、browser / DB read-back、packaged GUI の PASS ではない。
+- 同検証では、対象 ESLint、対象 Desktop test / launcher / runtime helper の `node --check`、`cargo fmt --manifest-path src-tauri/Cargo.toml -- --check`、`git diff --check` は PASS。Rust `cargo test --offline` は環境に `base64 0.22.1` crate がなく compile 前に実行不能だった。full build、実 provider / package runtime、実際の macOS packaged `.app` / DMG、Apple Silicon GUI による sidecar health、bundle switch、rollback / recovery、cleanup は未検証であり、packaged DMG の配信可否も完了扱いにしない。
 - Canvas は、`CanvasDocumentV1`（既定 page 1200x800、各 320〜4000px）の共有 validation、JSON 保存・復元、Canvas text 要素由来の `searchText`、幅・高さ数値入力と適用操作、保存済み `page` 寸法による editor / viewer の実寸描画、page 寸法だけを更新して要素 geometry を保持する処理、draw.io 風 toolbar、sticky tool、消しゴム（触れた要素を object 単位で消去する whole-object eraser）、client history、style controls、図形内文字、既存要素上の重ね描き、図形ドラッグ閾値、Fabric path metadata までコード上で実装されている。2026-07-21 に API の Canvas 保存・復元境界を確認し、2026-07-25 は Worker の Browser backend `[]` / app-server `Operation not permitted` を補う Manager 側の権限付き headless Playwright Chromium で、寸法、style、保存・再読込、eraser、history、toolbar / touch の確認済み範囲を追加した。厳密な 4px 等を残す `CANVAS-INTERACTION-001` / `CANVAS-GESTURE-001` と、全体未確認の `CANVAS-SHAPE-TEXT-001` は部分実施のままである。
 - 2026-07-25 の最新 Manager fallback QA で、既存ノートの desktop edit は 1280 / 1440px、`nextReviewDate` は新規初期値・手動値保持・未設定維持の確認済み範囲を追加した。review 成功 UI、375 / 768px の mobile edit、wheel / trackpad 固有入力は未確認のままである。根拠は `summary/20260725/2230-mandatory-qa-manager-fallback-20260725.md`。
 - 2026-07-31 の追加 QA では、Canvas の wheel / trackpad / touch scroll handoff と scroll 中の drawing 干渉、および 375 / 768px の note editor・viewer・review・overflow runtime は Browser backend / localhost route / server bind / headless Chromium の制約により `BLOCKED` だった。7/25 に別経路で確認済みの desktop / Canvas subset は履歴として保持し、今回の未測定範囲を runtime `PASS` へ繰り上げない。根拠は `summary/20260731/worker-canvas-scroll-wheel-touch-qa-20260731.md`、`summary/20260731/worker-mobile-note-runtime-20260731.md`。
-- 2026-07-31 の Postgres source reader evidence は、isolated frozen SQLite fixture と temporary failure injection による `better-sqlite3` require / constructor failure → `sqlite3` CLI fallback、read-only snapshot、row digest、Canvas validation、source hash / size / sidecar 不変を確認した限定 `PASS` である。実際の壊れた native binary、実 Postgres target の baseline / reconcile、production / hosted readiness は未確認である。根拠は `summary/20260731/worker-postgres-native-reader-fallback-20260731.md`、`summary/20260731/1804-recheck-postgres-native-reader-fallback-evidence-20260731-d5caeaf3-summary.md`。
+- `/notes` の一覧カードは、`reviewedAt === null` を `未復習`、`reviewedAt !== null` を `復習済み` とする復習履歴バッジと、`nextReviewDate` の未来・今日以前・未設定を分ける次回復習状態バッジを独立して表示する。タグがある場合はタグ名・色・折り返し・長い名前の省略表示を維持し、タグがない場合は一覧カードに `タグなし` を表示しない。詳細画面などの既存 `タグなし` 表示はこの変更の対象外である。これは専用復習タスクや未完了タスクバッジを意味しない。
+- 過去の検討履歴として、2026-07-31 の Postgres source reader evidence を保持する。この証跡は Postgres を採用しない方針の決定前に取得したもので、isolated frozen SQLite fixture と temporary failure injection による `better-sqlite3` require / constructor failure → `sqlite3` CLI fallback、read-only snapshot、row digest、Canvas validation、source hash / size / sidecar 不変を確認した限定 `PASS` である。壊れた native binary、実 Postgres target の baseline / reconcile、production / hosted readiness は未確認のまま保持する。現行 MVP の実装、受け入れ対象、製品ロードマップには含めない。根拠は `summary/20260731/worker-postgres-native-reader-fallback-20260731.md`、`summary/20260731/1804-recheck-postgres-native-reader-fallback-evidence-20260731-d5caeaf3-summary.md`。
 
 ## 2. 画面と route
 
@@ -54,9 +69,9 @@ route handler の export と一致する一覧は次のとおり。これ以外�
 | Method | URL | 実装状況 | 根拠 |
 | --- | --- | --- | --- |
 | `GET` | `/api/notes` | 一覧・検索・ページング（Canvas `searchText` を含む） | `src/app/api/notes/route.ts`, `src/server/notes/infrastructure/read.repository.ts` |
-| `POST` | `/api/notes` | ノート作成、Canvas JSON、Cue・タグ関連作成 | `src/app/api/notes/route.ts`, `src/server/notes/infrastructure/notebook.command.repository.ts` |
+| `POST` | `/api/notes` | 今日以前の `noteDate` を含むノート作成、Canvas JSON、Cue・タグ関連作成 | `src/app/api/notes/route.ts`, `src/server/notes/infrastructure/notebook.command.repository.ts` |
 | `GET` | `/api/notes/:id` | ノート詳細取得 | `src/app/api/notes/[id]/route.ts` |
-| `PATCH` | `/api/notes/:id` | ノート全体の明示更新、Canvas JSON、Cue・タグ関連の全置換 | `src/app/api/notes/[id]/route.ts`, `src/server/notes/infrastructure/notebook.command.repository.ts` |
+| `PATCH` | `/api/notes/:id` | ノート全体の明示更新、Canvas JSON、Cue・タグ関連の全置換。保存済み `noteDate` と異なる値は 400 `invalid_body` の `noteDate` フィールドエラー、同値は許可するが `noteDate` 自体は更新しない | `src/app/api/notes/[id]/route.ts`, `src/server/notes/infrastructure/notebook.command.repository.ts` |
 | `DELETE` | `/api/notes/:id` | 物理削除、成功時 `204` | `src/app/api/notes/[id]/route.ts`, `src/server/notes/infrastructure/notebook.command.repository.ts` |
 | `POST` | `/api/notes/:id/review` | `reviewedAt` と任意の `nextReviewDate` を更新 | `src/app/api/notes/[id]/review/route.ts`, `src/server/notes/infrastructure/review.command.repository.ts` |
 | `GET` | `/api/tags` | タグ候補を名前昇順で取得 | `src/app/api/tags/route.ts` |
@@ -78,7 +93,7 @@ route handler の export と一致する一覧は次のとおり。これ以外�
 | `Notebook` | `id`, `title`, `noteDate`, `sourceType`, `sourceTitle`, `body`, `bodyMode`, `summary`, `nextReviewDate`, `reviewedAt`, `createdAt`, `updatedAt`, `deletedAt`。`bodyMode` が `canvas` の場合、本文の正本は `NotebookCanvas`。 |
 | `NotebookCanvas` | `notebookId`, `schemaVersion`, `documentJson`, `searchText`, `createdAt`, `updatedAt`。`CanvasDocumentV1.page` に用紙サイズを保持する。 |
 | `Tag` | `id`, unique な `name`, `color`, `createdAt`。 |
-| `NotebookTag` | `notebookId` + `tagId` の複合主キーによる多対多関連。両方の削除は cascade。 |
+| `NotebookTag` | `notebookId` + `tagId` の複合主キーによる多対多関連。`order` にノート内表示順を保持し、`notebookId` + `order` index を持つ。両方の削除は cascade。 |
 | `Cue` | `id`, `notebookId`, `text`, `order`, `createdAt`, `updatedAt`。Notebook の Cue リスト。 |
 
 `Notebook.deletedAt` は schema と一覧・詳細取得の `where deletedAt: null` に存在するが、削除処理は `prisma.notebook.delete` を呼ぶ物理削除である。`SoftDeleteBuffer`、`NotebookDraftState`、`NotebookReviewProgress`、`BackupLog`、`NoteCard`、`CueCard`、`NoteCueLink` の Prisma model はない。現行の `src/modules/notes/model/note-editor-form.ts` と `src/modules/notes/ui/components/editor/editor.tsx` は Cue リストと Canvas 本文を扱い、`CueCard` / `NoteCard` の保存処理・UI・route には接続していない。
@@ -90,12 +105,14 @@ route handler の export と一致する一覧は次のとおり。これ以外�
 | 機能 | 実装内容 | 根拠 |
 | --- | --- | --- |
 | 明示保存 | 新規は `POST /api/notes` 成功後に `/notes/[id]` へ遷移、編集は `PATCH` 成功後に閲覧へ戻る。自動保存は行わない。 | `src/modules/notes/ui/components/editor/editor.tsx`, `src/modules/notes/remote/index.ts` |
-| ノート CRUD | タイトル、学習日、学習元、Canvas または legacy Markdown 本文、Summary、復習日を保存・取得・更新・削除。 | `src/app/api/notes/route.ts`, `src/app/api/notes/[id]/route.ts`, `src/server/notes/infrastructure/notebook.command.repository.ts`, `src/server/notes/infrastructure/review.command.repository.ts` |
+| 学習日の不変性 | 作成画面では `noteDate` を入力でき、保存後の通常編集画面では現在値を表示専用にする。PATCH は同値を許可し、異なる値を 400 `invalid_body` の `noteDate` フィールドエラーで拒否する。 | `src/modules/notes/ui/components/editor/metadata.tsx`, `src/modules/notes/ui/components/editor/inputs.tsx`, `src/app/api/notes/[id]/route.ts`, `src/server/notes/infrastructure/notebook.command.repository.ts`, `test/notes/note-date-immutability-contract.test.ts` |
+| ノート CRUD | 作成時の学習日、タイトル、学習元、Canvas または legacy Markdown 本文、Summary、復習日を保存・取得する。学習日以外の項目を更新・削除し、保存後の通常編集では学習日を表示専用とする。PATCH の異なる `noteDate` は拒否する。 | `src/app/api/notes/route.ts`, `src/app/api/notes/[id]/route.ts`, `src/server/notes/infrastructure/notebook.command.repository.ts`, `src/server/notes/infrastructure/review.command.repository.ts` |
 | Cue | Cue の追加・削除、`order` 保存、詳細表示、更新時の全置換。空 Cue はフォームから payload に含めない。 | `src/modules/notes/ui/components/editor/editor.tsx`, `src/modules/notes/model/note-editor-form.ts`, `src/server/notes/infrastructure/relations.repository.ts` |
-| タグ | 既存候補の取得、新規タグの保存時自動作成、1 ノート最大 12 件、同一ノート内の重複防止、一覧 OR フィルタ。 | `src/modules/notes/ui/components/editor/editor.tsx`, `src/app/api/tags/route.ts`, `src/modules/notes/contracts/note.schema.ts` |
-| 一覧ライブ検索 / header | 実装済み（静的確認）。タイトル・legacy Markdown 本文・Summary・Cue・Canvas `searchText` の部分一致、日付範囲、タグ、`reviewDue`、ページング、空状態・loading・error 表示に加え、query の 300ms debounce、Enter の即時適用、日付・タグ・review toggle の即時適用、pending debounce を取り消す Clear を持つ。visible な検索 button はなく、review filter は「復習対象のみ」だけを visible label とし、neutral / amber の押下 style と `aria-pressed` を持つ keyboard-operable toggle button である。visible な `ON` / `OFF` badge は置かず、desktop ではタグチップ増加時もタグ操作行の位置を保つ。header は冗長な補助文を表示せず、`h1` と新規作成導線を維持する。From > To は request 前に拒否し、日付 blur は validation のみを行う。 | `src/modules/notes/ui/components/list/list.tsx`, `src/modules/notes/ui/components/list/filters.tsx`, `src/modules/notes/ui/components/list/tags.tsx`, `src/server/notes/infrastructure/read.repository.ts`, `test/notes/list-filter-layout-contract.test.js`, `test/notes/list-filter-live-search-contract.test.js`, `test/notes/list-header-contract.test.js` |
+| タグ | 既存候補の名前昇順取得、新規タグの保存時自動作成、保存時の `tags` 配列 index による `NotebookTag.order`、一覧・詳細の順序保持、1 ノート最大 12 件、同一ノート内の重複防止、一覧 OR フィルタ。SQLite / Postgres migration で既存行を決定的に backfill する。 | `src/modules/notes/ui/components/editor/editor.tsx`, `src/server/notes/infrastructure/relations.repository.ts`, `src/server/notes/infrastructure/read.repository.ts`, `src/server/notes/infrastructure/tag.repository.ts`, `src/app/api/tags/route.ts`, `prisma/migrations/20260809090000_add_notebook_tag_order/migration.sql`, `prisma/migrations-postgres/20260809090000_add_notebook_tag_order/migration.sql` |
+| 一覧ライブ検索 / header | 実装済み（静的確認）。タイトル・legacy Markdown 本文・Summary・Cue・Canvas `searchText` の部分一致、日付範囲、タグ、`reviewDue`、ページング、空状態・loading・error 表示に加え、query の 300ms debounce、Enter の即時適用、日付・タグ・review toggle の即時適用、pending debounce を取り消す Clear を持つ。visible な検索 button はなく、review filter は「復習対象のみ」だけを visible label とし、neutral / amber の押下 style と `aria-pressed` を持つ keyboard-operable toggle button である。visible な `ON` / `OFF` badge は置かず、desktop ではタグチップ増加時もタグ操作行の位置を保つ。header は冗長な補助文を表示せず、`h1` と新規作成導線を維持する。From > To は request 前に拒否し、日付 blur は validation のみを行う。 | `src/modules/notes/ui/components/list/list.tsx`, `src/modules/notes/ui/components/list/filters.tsx`, `src/modules/notes/ui/components/list/tags.tsx`, `src/server/notes/infrastructure/read.repository.ts`, `test/notes/list-filter-layout-contract.test.ts`, `test/notes/list-filter-live-search-contract.test.ts`, `test/notes/list-header-contract.test.ts` |
+| ノート一覧カード表示 | 実装済み（静的確認）。`reviewedAt` に基づく復習履歴バッジと `nextReviewDate` に基づく次回復習状態バッジを独立表示し、タグが 0 件のときは一覧カードに `タグなし` を表示しない。 | `src/modules/notes/model/note-display.ts`, `src/modules/notes/ui/components/list/card.tsx`, `test/notes/list-visual-contract.test.ts`, `doc/implementation/MVP_CONTRACT.md` §4.4 |
 | 詳細モード | `/notes/[id]` 内で閲覧・編集・復習を切り替える。復習時は本文を隠す／表示する操作がある。 | `src/modules/notes/ui/components/detail/modes.tsx` |
-| Markdown 表示 | Cue / Summary の textarea と preview、GFM、sanitize、preview checkbox の表示専用化。legacy Markdown body mode は互換表示する。Canvas 本文は Canvas viewer/editor で表示する。 | `src/shared/markdown/markdown-field.tsx`, `package.json`, `src/modules/notes/ui/components/canvas/viewer.tsx` |
+| Markdown renderer / 編集 Preview / Summary 読み取り表示 | Cue / Summary の textarea と編集画面 Preview、GFM、sanitize、編集 Preview checkbox の表示専用化に加え、詳細画面 Summary の task-list checkbox toggle と Markdown read renderer を実装している。legacy Markdown body mode は互換表示し、Canvas 本文は Canvas viewer/editor で表示する。 | `src/shared/markdown/markdown-field.tsx`, `src/modules/notes/ui/components/detail/read-view.tsx`, `src/shared/markdown/markdown-task-list.js`, `src/modules/notes/ui/components/canvas/viewer.tsx`, `test/notes/detail-summary-checkbox-contract.test.ts`, `test/notes/markdown-task-list.test.ts` |
 | 確認後の削除 | 詳細画面で `window.confirm` を表示し、確定後に物理削除して `/notes` へ戻る。削除後の Undo / 個別復元は保証しない。 | `src/modules/notes/ui/components/detail/modes.tsx`, `src/app/api/notes/[id]/route.ts`, `prisma/schema.prisma` |
 | 手動バックアップ | `/backup` と `POST /api/backups`、`npm run backup:copy` で DB を `backup/` へコピーし、最新 3 世代を保持する。 | `src/app/backup/page.tsx`, `src/app/api/backups/route.ts`, `src/server/backup/infrastructure/local-sqlite-backup-provider.js`, `package.json` |
 | API validation / error | Zod による body/query validation と `{ code, message, errors? }` 形式の route response。 | `src/modules/notes/contracts/note.schema.ts`, `src/shared/http/api-error.ts`, `src/shared/http/route-response.ts` |
@@ -115,22 +132,25 @@ route handler の export と一致する一覧は次のとおり。これ以外�
 | 契約項目 | 実際の挙動 | 判定 | 根拠 |
 | --- | --- | --- | --- |
 | 復習モードの本文・Summary | 本文と Summary は復習開始時に非表示で、本文を表示した後に Summary を開ける。表示・再非表示の状態は保存しない。 | 実装済み（runtime QA は別途確認） | `src/modules/notes/ui/components/detail/modes.tsx` |
-| 新規 `nextReviewDate` 初期値 | 新規フォームは `noteDate` を基準に `addDaysToDateString(noteDate, 7)` で初期化され、空欄化して保存することもできる。既存ノートは未設定値を補完せず、`noteDate` 変更時も明示された次回復習日を自動移動しない。2026-07-25 に初期値・手動値保持・未設定維持の UI subset を確認した。 | 実装済み（runtime 確認済み範囲。review 成功 UI は未確認） | `src/modules/notes/model/note-editor-form.initial.ts:23-62`, `src/shared/date/date-only.ts:9-17`, `summary/20260725/2230-mandatory-qa-manager-fallback-20260725.md`, `doc/implementation/MVP_CONTRACT.md:59-60` |
-| 既存ノート desktop edit | 既存ノートの title、noteDate、source、tag、Cue、Canvas、Summary、`nextReviewDate` を 1280 / 1440px で復元し、保存後再読込、キャンセル、主要 field 到達性、viewport-wide 横 overflow 不在を確認した。375 / 768px の mobile edit は未確認。 | runtime 確認済み（desktop 1280 / 1440px の範囲） | `summary/20260725/2230-mandatory-qa-manager-fallback-20260725.md` |
-| 復習の次回日管理 | `POST /api/notes/:id/review` は存在し、`reviewedAt` とユーザー入力の `nextReviewDate` / `null` を更新する。日付の自動再計算はない。 | 実装済み | `src/app/api/notes/[id]/review/route.ts`, `src/server/notes/infrastructure/review.command.repository.ts:9-33` |
+| 詳細画面 Summary checkbox / 明示保存 | `MarkdownReadView` が view / review の Summary task-list checkbox を操作可能な読み取り領域として表示する。toggle は task marker の checked 状態だけを `summaryDraft` に反映し、dirty 状態を管理する。明示保存は既存 `PATCH /api/notes/:id` を使い、成功時は response で表示中ノートを更新して dirty 状態を解除する。破棄・モード離脱・復習完了では未保存 draft を保存せずに破棄し、保存失敗時は draft、dirty 状態、error を保持する。編集画面の Markdown Preview checkbox は read-only のままで、自動保存は行わない。 | 実装済み（静的確認。Browser runtime、実 DB read-back、E2E は未確認） | `src/modules/notes/ui/components/detail/read-view.tsx`, `src/modules/notes/ui/components/detail/modes.tsx`, `src/modules/notes/ui/components/detail/actions.tsx`, `src/shared/markdown/markdown-task-list.js`, `src/modules/notes/model/detail-summary-payload.ts`, `test/notes/detail-summary-checkbox-contract.test.ts`, `test/notes/markdown-task-list.test.ts`, `doc/implementation/MVP_CONTRACT.md` §6.3 |
+| 新規ノートの `nextReviewDate` 初期値 | 新規フォームは `noteDate` を基準に `addDaysToDateString(noteDate, 7)` で初期化され、空欄化して保存することもできる。2026-07-25 に初期表示と保存の UI subset を確認した。 | 実装済み（runtime 確認済み範囲） | `src/modules/notes/model/note-editor-form.initial.ts:23-62`, `src/shared/date/date-only.ts:9-17`, `summary/20260725/2230-mandatory-qa-manager-fallback-20260725.md`, `doc/implementation/MVP_CONTRACT.md:59-60` |
+| 既存ノート編集時の `nextReviewDate` | 未設定値を自動補完せず、学習日と独立して変更または空欄化できる。保存済みの値を学習日から自動再計算しない。2026-07-25 に手動値の保持と未設定維持の UI subset を確認した。 | 実装済み（runtime 確認済み範囲） | `src/modules/notes/model/note-editor-form.initial.ts:23-62`, `summary/20260725/2230-mandatory-qa-manager-fallback-20260725.md`, `doc/implementation/MVP_CONTRACT.md:61-62` |
+| 既存ノートの復習画面における `nextReviewDate` 初期値 | 画面を開いた時点の `todayDateString()`（`Asia/Tokyo`）の現在日付に 7 日を加えた値を初期表示し、保存済み `nextReviewDate` は初期値に再利用しない。復習画面内の手動変更・空欄化と、成功 response の `nextReviewDate` 反映を維持する。 | 実装済み（静的確認・focused contract test。review 成功 UI は未確認） | `src/modules/notes/ui/components/detail/modes.tsx`, `src/shared/date/date-only.ts:1-20`, `test/notes/detail-actions-layout-contract.test.ts` |
+| 既存ノート desktop edit | 既存ノートの title、学習日（現在値の表示）、source、tag、Cue、Canvas、Summary、`nextReviewDate` を 1280 / 1440px で復元し、保存後再読込、キャンセル、主要 field 到達性、viewport-wide 横 overflow 不在を確認した。保存後の通常編集画面では学習日を表示専用とする。375 / 768px の mobile edit は未確認。 | runtime 確認済み（desktop 1280 / 1440px の範囲） | `summary/20260725/2230-mandatory-qa-manager-fallback-20260725.md` |
+| 復習の次回日管理 | `POST /api/notes/:id/review` は存在し、`reviewedAt` とユーザー入力の `nextReviewDate` / `null` を更新する。API / DB の保存値を自動再計算することはなく、復習画面へ入る時の初期表示だけが現在日付 + 7日になる。 | 実装済み | `src/app/api/notes/[id]/review/route.ts`, `src/server/notes/infrastructure/review.command.repository.ts:9-33`, `src/modules/notes/ui/components/detail/modes.tsx` |
 | 依存ライブラリに対する高度 UI | `@dnd-kit/*`、`@uiw/react-md-editor`、`react-day-picker` は `package.json` にあるが、現行画面は native textarea / date input と手動 Cue 操作を使う。 | MVP の実装済みとは数えない | `package.json`, `src/modules/notes/ui/components/editor/editor.tsx`, `src/modules/notes/ui/components/list/list.tsx` |
 
 ### 5.3 Runtime 検証境界（API と Browser を分離）
 
-API runtime の実リクエスト結果と、ブラウザ実機での pointer / wheel / touch / 保存・再読込 / responsive QA は別の判定として記録する。静的実装の存在だけで Browser runtime を PASS にはしない。
+API runtime の実リクエスト結果と、ブラウザ実機での pointer / wheel / touch / 保存・再読込 / responsive QA は別に判定する。静的実装の存在だけで Browser runtime を PASS にはしない。
 
 #### 2026-07-21 Notes API runtime（API 境界のみ）
 
-権限昇格後に `127.0.0.1:3107` で server listen に成功し、既存 DB を壊さない一意な QA note を使った実リクエストは PASS。Canvas page の `640x480` → `1920x1080` 変更後も既存 element の geometry / `style` / `text` は不変で、Canvas text 検索、review、物理削除、削除後 404、QA title の `totalCount=0` を確認した。これは API runtime の証跡であり、下表の Browser QA を PASS へ繰り上げない。詳細は `doc/testing/TEST_SCENARIOS.md` の「Notes API runtime 検証記録（2026-07-21）」を参照する。
+権限昇格後に `127.0.0.1:3107` で server listen に成功し、既存 DB を壊さない一意な QA note で実リクエストを確認した結果は PASS だった。Canvas page の `640x480` → `1920x1080` 変更後も既存 element の geometry / `style` / `text` は不変で、Canvas text 検索、review、物理削除、削除後 404、QA title の `totalCount=0` を確認した。これは API runtime の証跡であり、下表の Browser QA を PASS へ繰り上げない。詳細は `doc/testing/TEST_SCENARIOS.md` の「Notes API runtime 検証記録（2026-07-21）」を参照する。
 
 #### Browser runtime 部分実施（2026-07-22）
 
-2026-07-22 に in-app Browser で `http://localhost:3000` を操作し、基準 Canvas fixture の作成、図形内文字、style の一部、1920x1080 への用紙変更、明示保存、詳細・編集での再読込、Canvas text 検索を確認した。7 シナリオの一部に runtime 証跡ができたが、重ね描きの全組合せ、preview / overlay 境界、消しゴム、Undo / Redo、全 style 境界値・色、375 / 768px、touch、全 keyboard 経路は未確認であるため、シナリオ全体は PASS にしない。詳細は `summary/20260722/canvas-browser-qa-partial-20260722.md` と `doc/testing/TEST_SCENARIOS.md` の「Canvas runtime QA 追補（2026-07-22）」を参照する。
+2026-07-22 に in-app Browser で `http://localhost:3000` を操作し、基準 Canvas fixture の作成、図形内文字、style の一部、1920x1080 への用紙変更、明示保存、詳細・編集での再読込、Canvas text 検索を確認した。runtime 証跡は 7 シナリオの一部に限られる。重ね描きの全組合せ、preview / overlay 境界、消しゴム、Undo / Redo、全 style 境界値・色、375 / 768px、touch、全 keyboard 経路は未確認であるため、シナリオ全体は PASS にしない。詳細は `summary/20260722/canvas-browser-qa-partial-20260722.md` と `doc/testing/TEST_SCENARIOS.md` の「Canvas runtime QA 追補（2026-07-22）」を参照する。
 
 #### Browser runtime follow-up（2026-07-24）
 
@@ -142,7 +162,7 @@ API runtime の実リクエスト結果と、ブラウザ実機での pointer / 
 
 #### Canvas metadata boundary hardening（2026-07-24）
 
-unknown target の実 pointer 操作は Browser backend 不在のため未確認のままだが、Worker の static review と既存検証コマンドで保存境界を再確認した。pen runtime は Fabric 7 の `mouse:down:before` で metadata 欠落・unknown・preview・shape text editor target の brush 開始を抑止し、異常な `path:created` を除去する。Fabric metadata reader / converter は malformed element を `CanvasElementV1` として扱わず、metadata 欠落、unknown type、element / style / points / geometry 不正を例外なしで skip する。正規要素の geometry / style / text 変換、空白・既知要素の pen target allowlist は維持した。`npm run lint`、`npx tsc --noEmit --pretty false`、`npm run build`、`git diff --check` は PASS。`CANVAS-INTERACTION-001` は実機の unknown target pointer と保存 JSON が未取得のため部分実施のままとする。詳細は `summary/20260724/fix-canvas-unknown-target-pen-gesture-20260724-summary.md`、`summary/20260724/2336-harden-canvas-malformed-metadata-converter-20260724-e7e74449-summary.md`、`summary/20260724/2339-fix-canvas-unknown-target-pen-gesture-20260724-c4a0eeee-summary.md` を参照する。
+Browser backend がなかったため、unknown target の実 pointer 操作は未確認である。Worker は static review と既存検証コマンドで保存境界を再確認した。pen runtime は Fabric 7 の `mouse:down:before` で metadata 欠落・unknown・preview・shape text editor target の brush 開始を抑止し、異常な `path:created` を除去する。Fabric metadata reader / converter は malformed element を `CanvasElementV1` として扱わず、metadata 欠落、unknown type、element / style / points / geometry 不正を例外なしで skip する。正規要素の geometry / style / text 変換、空白・既知要素の pen target allowlist は維持した。`npm run lint`、`npx tsc --noEmit --pretty false`、`npm run build`、`git diff --check` は PASS。`CANVAS-INTERACTION-001` は実機の unknown target pointer と保存 JSON が未取得のため部分実施のままとする。詳細は `summary/20260724/fix-canvas-unknown-target-pen-gesture-20260724-summary.md`、`summary/20260724/2336-harden-canvas-malformed-metadata-converter-20260724-e7e74449-summary.md`、`summary/20260724/2339-fix-canvas-unknown-target-pen-gesture-20260724-c4a0eeee-summary.md` を参照する。
 
 2026-07-25 の Worker 再試行では Browser backend が `[]`、local server が `listen EPERM`、standalone Chromium が MachPort permission error で未実施だった。その後、前回成功時と同じ Manager 側の権限付き headless Playwright Chromium で `/notes/new` を再実行し、metadata 欠落、unknown type、preview、shape text editor object 上の pen gesture を確認した。全ケースで対象 object 数は不変、`path` object は 0 件、pointercancel 後の stale path はなく、保存 request / GET response の Canvas `elements` は空配列、console / page error は 0 件だった。一時ノートは DELETE 204 後 GET 404 を確認した。unknown-target runtime subset は PASS だが、厳密な 4px 境界、別 tool 切り替え後の分離、touch scroll 干渉などが残るため `CANVAS-INTERACTION-001` 全体は部分実施のままとする。詳細は `summary/20260725/canvas-unknown-target-pen-browser-qa-runtime-20260725.md` を参照する。
 
@@ -170,8 +190,8 @@ Worker task は Browser backend `[]` と app-server `Operation not permitted` �
 
 | 領域 | 2026-07-25 の確認済み範囲 | 判定 |
 | --- | --- | --- |
-| 既存ノート desktop edit | title、noteDate、source、tag、Cue、Canvas、Summary、`nextReviewDate` の復元、保存後再読込、キャンセル、主要 field 到達性、body / document の viewport-wide 横幅不在、console / page error 0。確認用ノートは DELETE 204、GET 404、一覧 query の残留 `totalCount=0`。 | `PASS（desktop 1280 / 1440px の確認済み範囲）` |
-| `nextReviewDate` | 新規 `2026-07-25` → `2026-08-01` の初期表示・保存、手動 `2026-08-05` の `noteDate` 変更後保持、空欄の再読込・`noteDate` 変更後維持。 | `部分実施（確認済み範囲。review 成功 UI は未確認）` |
+| 既存ノート desktop edit | title、学習日（現在値の表示）、source、tag、Cue、Canvas、Summary、`nextReviewDate` の復元、保存後再読込、キャンセル、主要 field 到達性、body / document の viewport-wide 横幅不在、console / page error 0。保存後の通常編集画面では学習日を表示専用とする。確認用ノートは DELETE 204、GET 404、一覧 query の残留 `totalCount=0`。 | `PASS（desktop 1280 / 1440px の確認済み範囲）` |
+| `nextReviewDate` | 新規ノートでは `2026-07-25` → `2026-08-01` の初期表示・保存を確認した。既存ノートの編集では、手動設定した `2026-08-05` と空欄の再読込を確認し、次回復習日は学習日と独立して扱い、学習日から自動再計算しない。 | `部分実施（確認済み範囲。review 成功 UI は未確認）` |
 
 根拠: `summary/20260725/2230-mandatory-qa-manager-fallback-20260725.md`。
 
@@ -185,36 +205,92 @@ Worker task は Browser backend `[]` と app-server `Operation not permitted` �
 | Canvas wheel / trackpad / touch | 2026-07-25 に 375 touch の縦 swipe 4 回後 `scrollY=1779`・footer 到達、1280 touch の 1920x1080 paper `scrollLeft 0→1069`・page `scrollY` 不変、body / document overflow 不在を確認した。wheel / trackpad と全 pointer-scroll 干渉の組合せは未確認。 | 部分実施（touch 境界 subset は PASS） | `summary/20260725/canvas-runtime-qa-completion-20260725.md`、`summary/20260724/canvas-toolbar-browser-qa-runtime-20260724.md` |
 | Canvas toolbar keyboard / responsive / focus | 2026-07-24 の 375 / 768 / 1280 / 1440px に加え、2026-07-25 に rail `305 / 461`・`346 / 461`、全 tool の `aria-label` / `aria-pressed` / `data-active`、Tab / Shift+Tab、focus-visible solid 2px、640x480 / invalid 319、page / paper scroll、touch 境界を確認した。 | 実機確認済み（確認範囲） | `summary/20260725/canvas-runtime-qa-completion-20260725.md`、`summary/20260724/canvas-toolbar-browser-qa-runtime-20260724.md` |
 
-#### 2026-07-31 Browser / mobile follow-up と Postgres source reader evidence
+#### 2026-07-31 Browser / mobile follow-up
 
-今回の追補は、既存の 2026-07-25 Manager fallback による desktop / Canvas subset の判定を取り消すものではない。新たに試行した範囲だけを別判定として記録し、Browser runtime の未測定範囲を静的実装や過去の別 subset から `PASS` に推測しない。
+2026-07-25 Manager fallback による desktop / Canvas subset の判定は保持する。今回新たに試行した範囲だけを別判定として記録し、Browser runtime の未測定範囲を静的実装や過去の別 subset から `PASS` に推測しない。
 
 | 対象 | 判定 | 2026-07-31 の事実と未確認範囲 |
 | --- | --- | --- |
 | Canvas scroll / wheel / touch / drawing handoff | `BLOCKED` | Browser backend の `agent.browsers.list()` が `[]`。既存 localhost listener への route 到達は HTTP 000、新規 server bind は `listen EPERM` で、375 / 768 / 1280px の viewport、wheel / trackpad、touch / pointer scroll、scroll 中の pen / shape 誤作成、既存 element の geometry / points / style / text / `searchText` 不変性、`/notes/[id]` 保存・再読込を測定できなかった。静的な `pointercancel` / `touchcancel` 購読や scrollable wrapper の存在は runtime `PASS` の根拠にしない。7/25 の page / paper scroll を含む確認済み toolbar / touch subset は履歴として保持するが、今回の追加シナリオは `BLOCKED` のままとする。 |
 | Mobile note runtime | `BLOCKED` | 375 / 768px の `/notes/new` editor、既存ノート edit、`/notes/[id]` viewer / review、長い入力・validation error の overflow、console / page error は未確認。Browser backend は `[]`、専用 4173 server bind は `EPERM`、headless Chromium は既定 executable 不在・system Chrome 終了・利用可能な shell の MachPort permission error で起動できなかった。既存 3000 番 route の curl 200 は到達性の一部確認に留まり、visual / interaction runtime `PASS` へ繰り上げない。 |
-| Postgres source reader fallback | `PASS（isolated evidence の範囲）` | 現行 MVP schema の frozen SQLite fixture を read-only mode `0444` で用意し、temporary harness で `better-sqlite3` の require failure と constructor failure（いずれも `ERR_DLOPEN_FAILED`）を注入した。両経路で `/usr/bin/sqlite3` CLI fallback を呼び、normal native snapshot と row digest / table count / Canvas schema validation を比較し、source bytes / SHA-256 / WAL / SHM を前後不変と確認した。temporary fixture / harness / log は cleanup 済み。targetless reconcile は target configuration 不足で exit `1` のまま Postgres 接続へ進まなかった。実際の壊れた native binary / operator packaging、実 Postgres target の baseline / row reconcile、production / hosted readiness は未確認である。 |
 
-根拠: `summary/20260731/worker-canvas-scroll-wheel-touch-qa-20260731.md`、`summary/20260731/worker-mobile-note-runtime-20260731.md`、`summary/20260731/worker-postgres-native-reader-fallback-20260731.md`、`summary/20260731/1804-recheck-postgres-native-reader-fallback-evidence-20260731-d5caeaf3-summary.md`。
+根拠: `summary/20260731/worker-canvas-scroll-wheel-touch-qa-20260731.md`、`summary/20260731/worker-mobile-note-runtime-20260731.md`。
 
-### 5.4 Phase 2 / 仕様のみ
+#### 過去の Postgres source reader 検証履歴（2026-07-31）
 
-以下は仕様上の将来機能であり、現行コードに対応する route・Prisma model・保存処理・UI はない。
+下表は、Postgres を採用しない方針の決定前に作成した移行用 script の検証履歴である。現行の製品経路や将来の移行計画ではない。既存の `PASS（isolated evidence の範囲）` と未確認範囲、根拠は変更せず保存する。
 
-| 領域 | 未実装の機能 | 確認結果・根拠 |
+| 対象 | 判定 | 2026-07-31 の事実と未確認範囲 |
 | --- | --- | --- |
-| Draft / autosave | `NotebookDraftState`、3 秒 autosave、差分保存、version、楽観ロック、409 UI、再試行バナー | `src/app/api/**`、`prisma/schema.prisma`、`src/modules/notes/ui/components/editor/editor.tsx` に対応実装なし。`draft` prop は未使用の props に留まる。仕様は `doc/implementation/MVP_CONTRACT.md` §2・§9。 |
-| Undo / soft delete | `SoftDeleteBuffer`、5 秒 Snackbar、`POST /api/undo`、期限切れ purge、削除後復元 | `src/app/api` に Undo route なし。削除は `src/server/notes/infrastructure/notebook.command.repository.ts` の `prisma.notebook.delete`。仕様は `doc/implementation/MVP_CONTRACT.md` §4.2・§9。 |
-| 専用復習タスク | `/tasks/review`、`/api/review-tasks`、1 日後 / 1 週間後タスク、review status、未完了バッジ、自動予定 | `src/app` と `prisma/schema.prisma` に対応 page / route / model なし。現行 MVP は `GET /api/notes?reviewDue=true` と詳細画面内復習のみ。 |
-| Card / D&D | NoteCard、CueCard の永続化、複数本文カード、`NoteCueLink`、hidden flag、D&D 並び替え | `prisma/schema.prisma` に model なし。現行の `src/modules/notes/model/note-editor-form.ts` と `src/modules/notes/ui/components/editor/editor.tsx` は Cue リストと Canvas 本文を扱い、D&D import / 実装はない。 |
-| PDF / HTML export | 期間 export、`GET /api/notes/export`、Playwright PDF、1 ノート 1 ページ | export route と PDF 生成コードなし。`playwright` は `scripts/render-mermaid-diagrams.js` で図の SVG 生成に使われるだけで、PDF export の証拠ではない。根拠は `src/app/api/**`、`scripts/render-mermaid-diagrams.js`、`package.json`。 |
-| タグ管理 | `POST /api/tags`、名称変更、削除、右クリック管理 UI | `src/app/api/tags/route.ts` は `GET` のみ。Tag の作成はノート保存時の upsert に限る。 |
-| バックアップ高度機能 | 起動時自動コピー、`BackupLog`、`POST /api/backups/retry`、ログ UI、自動復元 | `prisma/schema.prisma` にログ model なし、`src/app/api/backups/route.ts` は GET/POST のみ。現行は手動作成・一覧のみ。 |
-| 高度なキーボード操作 / A11y | Cmd/Ctrl+N、Undo/Redo、D&D のキーボード操作、モーダル focus trap、詳細な ARIA 制御 | `src/modules/notes/ui` に該当 keydown / D&D / focus trap 実装なし。Cue 追加等の通常ボタン操作と一部の入力 ARIA は実装済み。 |
+| Postgres source reader fallback（過去の検討履歴） | `PASS（isolated evidence の範囲）` | 現行 MVP schema の frozen SQLite fixture を read-only mode `0444` で用意し、temporary harness で `better-sqlite3` の require failure と constructor failure（いずれも `ERR_DLOPEN_FAILED`）を注入した。両経路で `/usr/bin/sqlite3` CLI fallback を呼び、normal native snapshot と row digest / table count / Canvas schema validation を比較し、source bytes / SHA-256 / WAL / SHM を前後不変と確認した。temporary fixture / harness / log は cleanup 済み。targetless reconcile は target configuration 不足で exit `1` のまま Postgres 接続へ進まなかった。実際の壊れた native binary / operator packaging、実 Postgres target の baseline / row reconcile、production / hosted readiness は未確認である。 |
+
+根拠: `summary/20260731/worker-postgres-native-reader-fallback-20260731.md`、`summary/20260731/1804-recheck-postgres-native-reader-fallback-evidence-20260731-d5caeaf3-summary.md`。
+
+### 5.4 将来契約と未採用候補
+
+Settings の現行トップレベル区分は General と Data and Backup の2つで、更新確認は General 内のセクションである。General のテーマ設定と UpdatesPanel から manual update check の typed bridge を呼ぶ UI 接続、Data and Backup の native file-dialog / typed bridge、export / restore / 完全削除は実装済みで static / disposable test 済みである。実 provider、update apply、packaged Apple Silicon GUI、native GUI は未検証である。
+
+Desktop Alpha は全体として未完了である。single-instance recovery と既存 primary lifecycle、Settings shell / bridge / entrypoint の部分実装、更新確認・取得・検証・state・pending verification、verified artifact の明示 apply preparation、persisted `ApplyPreparation` を起点とする staged migration、rollback / recovery、candidate health、cleanup の backend 実装は確認できるが、実際の macOS packaged app による更新結合 QA は未検証である。Data and Backup と完全なデータ削除は実装済みで static / disposable test 済みだが、packaged runtime は未検証である。Settings の実 provider / update apply 接続と診断は未完了または未実装である。次表は正本上の採用状態と、現在のコードで確認できる事実を分けて示す。
+
+PR #159 の Code Review Issue #164〜#175 に対する現在の実装状況は次のとおりである。Issue の自動 close 用文言は PR 本文の責務とする。
+
+| Issue | 実装状況 |
+| --- | --- |
+| #164 | candidate digest ごとに safety backup を管理し、既存の同一候補 backup は内容・file identity 検証後にだけ再利用する。複数件は選択・削除せず fail-closed とする。 |
+| #165 | DB / bundle rollback と restore の成功後、terminal rollback state の記録前に、managed root / safe-tree 検証付きで対象 failed bundle marker を削除する。cleanup failure 時は `RollbackPending` と typed failure を保持する。 |
+| #166 | explicit restart handoff の atomic 永続化成功後にだけ exit allowance と restart request を行う。永続化失敗時は restart しない。 |
+| #167 | staged migration の runner / read-back / switch failure を typed rollback checkpoint として保存し、同じ startup で recovery を実行する。recovery 成功時だけ bootstrap へ進み、recovery failure は fail-closed とする。 |
+| #168 | SQLite の全既存 application table を動的に read-back 比較し、`sqlite_*` system table と `_prisma_migrations` だけを除外する。既存 table、column、row の消失・変更を switch 前に検出する。 |
+| #169 | restart 後、staged migration と candidate health / switch の前に、署名済み archive と staging tree 全体を再検証する。改変・欠落・追加・metadata / symlink 不一致時は fail-closed とし、migration claim / health / switch へ進まない。 |
+| #170 | candidate artifact の partial cleanup retry は、managed root と既存 component を no-follow 検証した上で missing leaf を idempotent success として扱う。root escape、parent / leaf symlink、非対応 file type は従来どおり fail-closed とする。 |
+| #171 | rollback restore が作成した exact temporary path を追跡し、成功・検証失敗・retry 時に cleanup する。rollback terminal completion 前には managed live directory 内の stale temp も安全に整理し、token / digest mismatch で別 temp を削除しない。 |
+| #172 | live DB restore は実切替を `Some(true)` で明示的に証明した場合だけ許可する。`Some(false)` と旧・中断 checkpoint の `None` は restore を拒否し、switch proof を state transition で失わない。 |
+| #173 | partial `switch_temp` は candidate と完全一致する検証済み tree の場合だけ再利用し、それ以外は no-follow cleanup 後に完全な candidate source から再構築する。copy / recovery retry で partial tree を candidate として昇格しない。 |
+| #174 | pending migration がない場合でも candidate Prisma schema と live / staged SQLite schema の compatibility を `NO_PENDING` 前に検証する。不一致時は backup、switch、cleanup へ進まず fail-closed とする。 |
+| #175 | staged DB rename 後に live directory を sync し、post-rename sync failure を typed switch failure として fail-closed に扱う。rename 済みでも durable な切替完了を証明できない場合は成功扱いにしない。 |
+
+| 領域 | 採用状態 / 実装状態 | 確認結果・根拠 |
+| --- | --- | --- |
+| Desktop PoC | Tauri + Node.js sidecar の shell 選定完了（2026-08-17）。retry24 の native lifecycle / package は PASS、renderer UI automation は BLOCKED | Electron と Tauri + Node.js sidecar を、同じ現行 MVP、deterministic な 10,000 note fixture、Apple Silicon Mac、shell の main / core、renderer / WebView、local runtime、Node.js sidecar、framework helper、関連子 process の合計メモリを含む測定軸で比較する。Tauri retry24 の `.app` / DMG package は確認済みだが、comparable な cold start / RSS と Electron の同形式追加 evidence は未確認である。製品実装は PoC と分離した `src-tauri/` にある。PDF / Playwright / Chromium は PoC の blocker や必須条件ではない。 |
+| Desktop lifecycle / Settings | 採用済みの将来契約、lifecycle / Settings shell 実装済み、Data and Backup は static / disposable test 済み（packaged runtime 未検証） | `settings/.instance.lock` を rename / unlink しない stable advisory lock とし、Unix/macOS の `flock(LOCK_EX | LOCK_NB)` を取得する。owner 情報は別の `settings/.instance.owner` に全量書き込み・`sync_all`・同一 directory 内の `rename` で atomic replace する。secondary は focus socket を bounded retry し、`focused` または `AlreadyRunningNotReady` で終了して Tauri window / sidecar を作らない。lock を取得した primary だけが focus listener を bind し、接続不能で stale と確認できた Unix socket だけを再利用する。active / unknown protocol / permission endpoint は削除せず fail-safe で停止する。primary の ready 後の window 作成、最後の primary window close 時の app-owned sidecar / child process cleanup、guard の自分の owner marker / socket だけの cleanup も実装済みである。Settings は Mac menu と Web gear / mobile trigger の shared bridge、既存 primary WebView 内の General と Data and Backup の2つのトップレベル区分による modal shell（更新確認は General 内のセクション）、focus / keyboard 制御までで、Data and Backup の native file-dialog / typed bridge、export / restore、完全削除、Settings UI も実装済みである。Settings の更新操作接続、packaged Apple Silicon GUI、native GUI は未検証で、現行 `/backup` は代替受け入れまで維持する。根拠は `src-tauri/src/main.rs`、`src-tauri/src/window_state.rs`、`src-tauri/src/menu.rs`、`src/app/_components/settings/`、`src/shared/desktop/`、Rust / Node contract test。 |
+| 更新 / migration / rollback | 採用済みの将来契約、backend 実装済み（static / disposable test PASS）、packaged runtime 未検証 | 初期 provider は GitHub Releases で、取得側は provider-neutral な manifest interface とする。現行コードには `releases[]` の strict parsing / normalization、channel / version / architecture / macOS compatibility の compatible selection、公開 direct HTTPS URL と redirect の境界、package download、公開鍵署名と SHA-256、archive / bundle validation、atomic な `settings/update-state.json`、pending update verification / staging revalidation がある。`apply_verified_update` は引数なしの明示 command で verified candidate を再検証し、`ApplyPreparation` の atomic state transition 後に explicit restart handoff へ渡す。handoff の atomic 永続化成功後にだけ exit allowance と restart request を行い、永続化失敗時は restart と exit allowance を行わない。明示 handoff のない persisted `ApplyPreparation` は interruption として扱い、自動 apply / restart を起動しない。restart 後も staged migration / candidate health 前に signed archive と staging tree 全体を再検証し、不一致なら claim / health / switch を起動しない。apply 直前に署名済み archive と extracted candidate tree の全 entry（bytes、type、mode、size、追加・欠落、safe internal symlink target）を照合し、不一致を fail-closed にする。persisted `ApplyPreparation` を起点に、pending migration がある場合だけ safety backup、DB staging copy 上の migration / reopen を行う。同じ candidate digest の既存 safety backup は内容・file identity 検証後にだけ再利用し、複数件は選択・削除せず fail-closed とする。pending migration がない場合も candidate Prisma schema と live / staged SQLite schema の compatibility を `NO_PENDING` 前に検証し、不一致なら backup / switch / cleanup へ進まない。read-back では SQLite の全既存 application table を動的に比較し、`sqlite_*` system table と `_prisma_migrations` だけを除外して、既存 table、column、row の消失・変更、Notebook / Canvas / legacy Markdown の不整合を検出してから atomic switch する。runner / read-back / switch failure は typed rollback checkpoint として保存し、同じ startup で recovery を実行する。recovery 成功時だけ bootstrap へ進み、recovery failure は fail-closed とする。failure / interruption 後は staged migration を自動再実行しない。live DB restore は実切替 proof が `Some(true)` の場合だけ許可し、restore temp の exact path tracking / stale cleanup、partial `switch_temp` の source rebuild、partial cleanup retry の idempotence、staged DB rename 後の live directory sync と post-rename fail-closed を維持する。rollback / restore 成功時は failed bundle marker を terminal rollback state の記録前に managed root / safe-tree 検証付きで削除してから `Available + failure + pending candidate` へ遷移し、cleanup failure または rollback / restore 失敗時は `RollbackPending` と typed failure を保持する。candidate health には `Contents/Resources/runtime` を渡し、safe internal symlink のみを許可して成功前は current app / live DB / backup を保持、成功後だけ cleanup する。staged migration suite は 22/22 PASS、`node --import tsx/esm --test test/desktop/desktop-update-*.test.ts` は 77/77 PASS、desktop recovery suite は 14/14 PASS だった。実 provider / package runtime、実際の macOS packaged `.app` / DMG、packaged Apple Silicon GUI、実 health / switch / rollback は未検証である。自動 check、startup check、download 完了、pending notification は apply / restart を起動しない。Intel、Developer ID、notarization は Public Mac Release の判断範囲である。 |
+| Backup / restore / 完全なデータ削除 | 採用済みの将来契約、static / disposable test 済み。managed restore は exact normal artifact と disposable data に限定した packaged GUI PASS | 手動 SQLite export は保存先フォルダを選び、自動ファイル名で create-only / no-replace とする。選択時の名前衝突と publish race で既存ファイルを変更しない。managed backup catalog、app 管理 backup と外部 file の別 restore、restore 前 safety backup、schema / integrity / semantic validation、pending restore、live DB・app 管理 backup・設定だけを対象とする完全削除を実装済み。managed restore は Notebook / Cue / Tag / CanvasDocumentV1 / searchText の再起動後 read-back、SQLite integrity、`recoveryOnly=true` safety backup の保持と通常一覧からの除外まで確認済みだが、任意の実ユーザー環境や Desktop Alpha 全体の受け入れ完了を意味しない。証跡: `HANDOFF_2026-09-07.md` と 2026-09-07 の Manager summary。通常のアンインストールでは live DB を削除せず、外部 SQLite export は完全なデータ削除の対象にしない。現行 `/backup` と `GET/POST /api/backups` は維持する。実 provider / package runtime、update apply、health / bundle switch / rollback / cleanup、DMG は未完了のまま残す。 |
+| Startup / diagnostics / privacy | 採用済みの将来契約、static / disposable test 済み（packaged runtime 未検証） | 初回未初期化時だけの DB 作成、既存初期化後の欠落・破損・schema 不整合に対する recovery-only 境界、user data を含まない local log / diagnostic export、typed error と privacy 境界を実装済み。packaged GUI / 実機 startup failure は未検証。local log の保持期間・容量・世代整理は未承認の細則を固定しない。外部 telemetry や app 独自 DB encryption を Desktop Alpha の要件にはしない。 |
+| Canvas PNG | Desktop Alpha 後の最初の外部出力として採用済み、未実装 | Canvas の保存済み page 全体を同寸法で出力し、paper 背景を含め、UI / Cue / Summary / legacy Markdown を除外し、page 外を切り取り、`[タイトル]_[学習日].png` を初期名にする契約である。PNG export UI、route、provider、保存処理はない。使用不可文字、同名 file、保存先、失敗時 UI、色管理は未決定。 |
+| 検索サジェスト | Desktop Alpha 後の採用済み要件、未実装 | 単一の検索対象 selector、既定タイトル、タイトル / 学習元 / 本文 / Cue / すべて、local data の語句候補、1 文字目から最大 5 件、前方一致優先に対応する UI / contract / query はない。現行の tag 専用 filter は実装済みで、将来 selector に含めない。 |
+| 大規模一覧 | Desktop Alpha 後の採用済み要件、未実装 | 5,000 件の長期利用目標、10,000 件の性能確認、追加読み込み型の無限スクロール、virtualization / windowing は製品 UI に未実装。現行一覧は 1 ページ 50 件のページングである。現行 query の 300ms debounce は、将来サジェストの debounce 採用を意味しない。 |
+| 10,000 note fixture tooling | 比較・性能検証の補助 tooling は存在。製品機能の実装証拠ではない | `package.json` に `fixture:generate` と `dev:fixture` があり、`scripts/generate-sqlite-fixture.js` と `scripts/dev-sqlite-fixture.js` は既定 10,000 件、固定 seed `cornell-method-fixture-v1` を使う。generator は既存 migration を適用し、Canvas と relation を read-back 検証する。この文書同期では生成・性能測定を実行していない。 |
+| PDF export | 未実装かつ現在未採用。再検討するかも未決定 | export route と PDF 生成コードはない。Playwright は `npm run test:e2e`、過去の MVP QA、`scripts/render-mermaid-diagrams.js` の図生成に使われているが、PDF export または Desktop PoC 必須条件の証拠ではない。 |
+| Draft / autosave / version・競合 | 未採用、未実装 | `NotebookDraftState` model、autosave route / persistence、version、409 UI はない。`draft` prop や依存の存在を採用・実装済みと数えない。 |
+| Undo / soft delete | 未採用、未実装 | `SoftDeleteBuffer` と Undo route はない。削除は `prisma.notebook.delete` による物理削除である。 |
+| 専用復習タスク | 未採用、未実装 | `/tasks/review`、`/api/review-tasks`、進捗 model はない。現行 MVP は `reviewDue` と詳細画面内復習を使う。 |
+| NoteCard / D&D | 未採用、未実装 | `NoteCard`、`CueCard`、`NoteCueLink` model と永続化 UI はない。`@dnd-kit/*` の依存だけでは実装済みと判定しない。 |
+| タグ管理 mutation / 定期 backup 等 | 未採用、未実装 | `POST /api/tags`、rename / delete UI、定期 backup、`BackupLog`、`POST /api/backups/retry` はない。Tag 作成は現行ノート保存時の upsert、backup は手動作成・一覧に限る。 |
+
+#### 5.4.1 承認済み manifest 境界と update pipeline の実装・未検証状態
+
+更新 manifest の論理 field allowlist と validation boundary は承認済みである。GitHub Releases の provider response を正規化する adapter、strict manifest validation、compatible selection、公開 URL 境界、download、signature verification、archive / bundle validation、update state、pending verification、verified artifact の apply preparation、staged migration、rollback / recovery、candidate health、cleanup はコードと static / disposable test で確認できる。`apply_verified_update` は引数なしの明示 command で、再検証後に `ApplyPreparation` と explicit restart handoff へ渡す。明示 handoff のない persisted `ApplyPreparation` は interruption として扱い、自動 apply / restart を行わない。apply 直前には署名済み archive と extracted candidate tree の全 entry を bytes、type、mode、size、追加・欠落、safe internal symlink target まで照合する。rollback / restore 成功時は `Available + failure + pending candidate`、失敗時は `RollbackPending` と typed failure を保持する。一方、実 provider / package runtime、実際の macOS packaged `.app` / DMG による health / switch / rollback、packaged GUI の runtime 確認は未検証である。archive extraction と recovery の safe internal relative symlink policy は、absolute path、backslash、control byte、空 component、`.`、外部・traversal、dangling、cycle、hop 超過、special file を fail closed にし、switch / rollback copy は link 自体を再作成し、cleanup は link 自体を unlink する。自動 check、startup check、download 完了、pending notification だけでは apply / restart しない。
+
+| object | 許可する field | validation boundary |
+| --- | --- | --- |
+| root | `productId`, `schemaVersion`, `releases` | `productId` は `com.cornellmethod.notebook` と一致し、root `schemaVersion` は必須の `1`。未知 schema version は fail closed。`releases[]` は空配列を有効な「更新なし」とする。 |
+| release | `channel`, `version`, `architecture`, `minVersion`, `maxVersionExclusive`, `artifact`, `signature` | `stable` 固定、SemVer version、必須の macOS `minVersion`、任意の排他的 `maxVersionExclusive`。macOS version は数値 component で比較する。 |
+| artifact | `artifactId`, `format`, `url`, `sizeBytes`, `sha256` | opaque immutable `artifactId`、`app-archive`、公開 direct HTTPS、正の整数 byte 数、64 文字 lowercase hexadecimal。 |
+| signature | `keyId`, `proof` | `keyId` と opaque proof。package digest と release metadata をまとめて署名する。署名アルゴリズム名、encoding、canonicalization、鍵値は未固定。 |
+
+実際の最低対応 macOS version と deployment target は、Apple Silicon の packaged PoC 後に決める。`minVersion` / `maxVersionExclusive` の validation boundary は承認済みだが、最低対応 version の数値は未確定である。
+
+root、release、artifact、signature の未知 field、product ID 不一致、未知 root schema version、必須 field・型・SemVer・macOS range・artifact metadata・URL・proof の不備、同じ channel・version・architecture・macOS target の重複（duplicate）は manifest 全体を拒否する。`stable` 以外の channel、未知 architecture、未知 format はその release だけを対象外とし、他の有効な候補を評価する。Desktop Alpha の architecture は `aarch64-apple-darwin` である。
+
+候補選択は SemVer precedence だけで行い、provider の並び順や文字列順を使わない。prerelease は対象外、build metadata は大小判定の対象外とする。現行 version より新しく、stable、Apple Silicon、`app-archive`、macOS range に適合する候補のうち最大の version を選ぶ。HTTPS から HTTPS への redirect だけを許可し、HTTP downgrade、credential、token、ユーザー固有 query は拒否する。空配列または非対象 release だけなら「更新なし」である。
+
+manifest root の `schemaVersion: 1` と local `settings/update-state.json` の schema version は別管理とする。update state に保存するのは version、channel、architecture、`artifactId`、`sizeBytes`、`sha256`、`keyId`、verification state、app 管理 staging からの relative package path、時刻、recovery checkpoint、typed failure であり、URL、provider response 全体、token、DB、user path は保存しない。現在の state persistence、pending verification、apply preparation、explicit restart handoff、staged migration の claim / failure、apply 後の DB / app 切替、rollback / recovery、candidate health、cleanup は static / disposable test で確認できるが、これを実際の packaged runtime の実装済み証拠とは扱わない。
+
+2026-08-24 の検証証跡は、staged migration suite 22/22 PASS、Desktop update Node suite 77/77 PASS、desktop recovery suite 14/14 PASS、lifecycle/runtime tests 15 PASS・7 SKIP（loopback / packaged runtime 依存）である。対象 ESLint、対象 Desktop test / launcher / runtime helper の `node --check`、`cargo fmt --manifest-path src-tauri/Cargo.toml -- --check`、`git diff --check` も PASS。Rust `cargo test --offline` は環境に `base64 0.22.1` crate がなく compile 前に実行不能だった。full build、実 provider / package runtime、browser / DB read-back、実際の macOS packaged `.app` / DMG の sidecar health / bundle switch / rollback / cleanup、packaged Apple Silicon GUI は未検証である。packaged DMG の配信可否も完了扱いにしない。これらの結果は既存の MVP Gate 0 判定や過去の QA 記録を遡及して変更しない。
 
 ### 5.5 Canvas 実装・検証境界（後続確認入口）
 
-用紙サイズと Canvas の保存・描画を後続確認するときは、現行 MVP 契約 §6.1 と次の責務分担を正本として読む。コード上の実装確認とブラウザ実機 QA の残りを分ける。
+用紙サイズと Canvas の保存・描画は、現行 MVP 契約 §6.1 と次の責務分担を正本として後続確認する。コード上の実装確認と、残るブラウザ実機 QA は分けて判定する。
 
 | 参照ファイル | 静的に確認できる責務 | 残る runtime / 後続確認 |
 | --- | --- | --- |
@@ -231,7 +307,7 @@ Worker task は Browser backend `[]` と app-server `Operation not permitted` �
 
 ## 6. セットアップ・運用コマンド
 
-`package.json` と `README.md` で確認できるコマンドだけを掲載する。seed script はなく、`README.md` も seed 不要としている。
+`package.json` と実在する script で確認できるコマンドだけを掲載する。製品 DB を初期化する seed は使わない。性能比較用の isolated fixture generator は製品 seed と分けて扱う。
 
 | コマンド | 用途 |
 | --- | --- |
@@ -242,15 +318,17 @@ Worker task は Browser backend `[]` と app-server `Operation not permitted` �
 | `npm run build` | webpack を使った本番 build |
 | `npm run lint` | ESLint |
 | `npm run backup:copy` | SQLite DB の手動バックアップ |
+| `npm run fixture:generate -- [options]` | 既存 file と live DB を上書きせず、既定 10,000 件の deterministic な SQLite fixture を生成して read-back 検証する |
+| `npm run dev:fixture -- [options]` | OS の一時 directory に既定 10,000 件の fixture を作り、その DB 専用の Next.js 開発 server を起動する。終了時は生成した一時 file だけを削除する |
 | `npm run diagrams:build` | Mermaid 図の抽出・SVG 生成 |
 
-`npm run seed`、PDF 生成用の npm script、`npm run backups:retry` は存在しない。根拠は `package.json`、`README.md`。
+`npm run seed`、PDF / Canvas PNG 生成用の npm script、`npm run backups:retry` は存在しない。fixture command の存在は Desktop PoC、Canvas PNG、検索サジェスト、無限スクロールの実装・性能検証済みを意味しない。根拠は `package.json`、`scripts/generate-sqlite-fixture.js`、`scripts/dev-sqlite-fixture.js`。
 
 ## 7. 検証証跡
 
-以下はリポジトリに残る確認記録であり、仕様上のチェック項目を実装済みの証拠として扱う範囲を限定する。
+次表は、リポジトリに残る確認記録と、それを実装済みの証拠として扱える範囲を示す。
 
-注記: 2026-07-16 の記録は UI-PAPER-015 適用前の静的照合結果です。復習時 Summary の現在状態は本書 §5.2 と現行コードを正とし、過去の判定は履歴として保持します。Canvas については、静的実装確認とブラウザ実機 QA を別の判定として記録します。
+注記: 2026-07-16 の記録は UI-PAPER-015 適用前の静的照合結果です。復習時 Summary の現在状態は本書 §5.2 と現行コードを正とし、過去の判定は履歴として保持します。Canvas については、静的実装確認とブラウザ実機 QA を別の判定として記録します。2026-07-31 の Postgres source reader 証跡も、不採用方針決定前の履歴として判定値と根拠を保持し、現行 MVP やロードマップの実装証跡には使用しません。
 
 | 日付 | 確認範囲 | 結果 | 証跡 |
 | --- | --- | --- | --- |
@@ -271,11 +349,11 @@ Worker task は Browser backend `[]` と app-server `Operation not permitted` �
 | 2026-07-25 | 既存ノート desktop edit と `nextReviewDate` UI: 1280 / 1440px、初期値・手動値保持・未設定維持 | desktop edit は確認済み範囲 PASS。`nextReviewDate` は review 成功 UI 未確認のため確認済み範囲の部分実施 | `summary/20260725/2230-mandatory-qa-manager-fallback-20260725.md` |
 | 2026-07-31 | Canvas scroll / wheel / touch handoff と scroll 中の drawing 干渉の追加 runtime QA | `BLOCKED`。Browser backend `[]`、localhost route 到達不可、新規 server bind `EPERM` のため scroll metrics、input event、Canvas JSON 比較なし。7/25 の確認済み desktop / Canvas subset は履歴として保持し、追加範囲を PASS にしない | `summary/20260731/worker-canvas-scroll-wheel-touch-qa-20260731.md` |
 | 2026-07-31 | 375 / 768px の note editor、viewer、review、overflow runtime | `BLOCKED`。Browser backend `[]` と dedicated server / headless Chromium 起動制約により、visual / interaction / console 証跡なし。curl の route 200 は runtime PASS ではない | `summary/20260731/worker-mobile-note-runtime-20260731.md` |
-| 2026-07-31 | Postgres source reader: native failure fallback、read-only snapshot、Canvas / row integrity、targetless reconcile | `PASS（isolated frozen SQLite fixture の evidence に限定）`。実 native binary failure、実 Postgres target の baseline / reconcile、production / hosted readiness は未確認 | `summary/20260731/worker-postgres-native-reader-fallback-20260731.md`、`summary/20260731/1804-recheck-postgres-native-reader-fallback-evidence-20260731-d5caeaf3-summary.md` |
+| 2026-07-31 | Postgres source reader（不採用方針決定前の履歴）: native failure fallback、read-only snapshot、Canvas / row integrity、targetless reconcile | `PASS（isolated frozen SQLite fixture の evidence に限定）`。実 native binary failure、実 Postgres target の baseline / reconcile、production / hosted readiness は未確認 | `summary/20260731/worker-postgres-native-reader-fallback-20260731.md`、`summary/20260731/1804-recheck-postgres-native-reader-fallback-evidence-20260731-d5caeaf3-summary.md` |
 
 ### 7.1 2026-07-19 の静的検証結果と 2026-07-22 の再確認
 
-2026-07-19 に記録された次の結果は、コード・型・build・差分の静的確認として履歴を保持する。2026-07-22 の strict 移行後は、`summary/20260722/strict-architecture-final-review-after-ui-migration-20260722.md` の構造監査と `summary/20260722/fresh-build-verification-20260722.md` の最新 working tree に対する同じ検証結果で再確認されている。いずれもブラウザ実機 QA の PASS ではない。
+2026-07-19 の結果は、コード・型・build・差分の静的確認として履歴に残す。2026-07-22 の strict 移行後、`summary/20260722/strict-architecture-final-review-after-ui-migration-20260722.md` の構造監査と `summary/20260722/fresh-build-verification-20260722.md` の最新 working tree で同じ結果を再確認した。いずれもブラウザ実機 QA の PASS ではない。
 
 | コマンド | 結果 | 判定の意味 | 証跡 |
 | --- | --- | --- | --- |
@@ -286,15 +364,31 @@ Worker task は Browser backend `[]` と app-server `Operation not permitted` �
 
 ### 7.2 2026-07-31 ノート一覧ライブ検索 UI の静的検証
 
-現行 working tree のノート一覧 UI decision に対する検証結果を、静的確認と Browser runtime に分ける。
+次表は、現行 working tree のノート一覧 UI decision に対する検証結果を、静的確認と Browser runtime に分けて記録する。
 
 | 確認 | 結果 | 判定の意味 |
 | --- | --- | --- |
-| `node --test test/notes/list-filter-layout-contract.test.js test/notes/list-filter-live-search-contract.test.js test/notes/list-header-contract.test.js` | PASS、5 tests | 300ms debounce、Enter / 非 query 条件 / Clear の即時適用、visible Search button 不在、review toggle の属性・neutral / pressed style・visible `ON` / `OFF` 不在・desktop alignment、header の `h1` / 新規作成導線を source contract として確認 |
+| `node --import tsx/esm --test test/notes/list-filter-layout-contract.test.ts test/notes/list-filter-live-search-contract.test.ts test/notes/list-header-contract.test.ts` | PASS、5 tests | 300ms debounce、Enter / 非 query 条件 / Clear の即時適用、visible Search button 不在、review toggle の属性・neutral / pressed style・visible `ON` / `OFF` 不在・desktop alignment、header の `h1` / 新規作成導線を source contract として確認 |
 | `npm run lint` | PASS | ESLint の静的検査に成功 |
 | `npx tsc --noEmit --pretty false` | PASS | TypeScript 型検査に成功 |
 | `npm run build` | PASS | Prisma Client 生成を含む Next.js production build に成功 |
 | `git diff --check` | PASS | 文書同期後の whitespace error なし |
 | Browser visual / interaction runtime | 未確認 | live timing の実時間計測、Enter / toggle の実ブラウザ操作、loading 遷移、responsive alignment、header 視覚状態はこの docs-only task では確認していない。上記 source-contract test の PASS を Browser runtime PASS へ読み替えない |
 
-この文書はコード、設定、schema、DB、UI、API、テスト、画像、生成物を変更せず、実装状況と検証証跡を記録する。更新時は作業前後の `git status --short` と `git diff --check` を確認する。
+### 7.3 2026-08-09 ノート一覧カード表示契約の静的検証
+
+| 確認 | 結果 | 判定の意味 |
+| --- | --- | --- |
+| `node --import tsx/esm --test test/notes/list-visual-contract.test.ts` | PASS（静的契約、5 tests） | `reviewedAt` と `nextReviewDate` の独立判定、6 通りの組み合わせ、タグ表示、空タグ時の `タグなし` 非表示を source contract として確認した |
+| Browser runtime | 未確認 / NOT RUN | Browser backend が利用できないため実施していない。静的契約テストの結果を Browser runtime の PASS へ読み替えない |
+
+### 7.4 2026-08-09 詳細 Summary checkbox 契約の判定境界
+
+| 確認 | 結果 | 判定の意味 |
+| --- | --- | --- |
+| Static contract | PASS（実装・contract test の静的確認） | 詳細 Summary の checkbox toggle、task marker だけを変更する draft 更新、dirty、既存 PATCH を使う明示保存、成功時の state 更新、破棄、保存失敗時の保持、review completion との分離を source と focused contract test で確認した。編集画面 Preview の read-only 契約も確認範囲に含む。 |
+| Browser runtime | 未確認 / NOT RUN | Browser backend が利用できないため view / review の toggle、API write timing、明示保存・再読込、破棄、保存失敗表示、実 DB read-back、E2E は実施していない。静的確認を Browser runtime の PASS に読み替えない |
+
+今回の確認では safe fixture の作成、DB write、Browser runtime の代替操作を行わない。
+
+更新対象は実装状況と検証証跡に限り、コード、設定、schema、DB、UI、API、テスト、画像、生成物は変更しない。作業前後に `git status --short` と `git diff --check` を確認する。

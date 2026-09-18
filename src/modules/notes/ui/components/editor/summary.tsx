@@ -28,6 +28,7 @@ export function NoteEditorSummarySection({
         onChange={onSummaryChange}
         rows={6}
         preview="visible"
+        showPreviewHeading={false}
         error={fieldError(fieldErrors, "summary")}
         placeholder="要点や次のアクションを Markdown で入力"
         previewEmptyLabel="サマリーのプレビューはまだありません。"

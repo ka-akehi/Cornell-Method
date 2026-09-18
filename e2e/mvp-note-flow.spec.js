@@ -2,7 +2,7 @@ const { test, expect } = require("@playwright/test");
 
 test.describe.configure({ mode: "serial" });
 
-const E2E_BASE_URL = "http://127.0.0.1:4173";
+const E2E_BASE_URL = "http://localhost:4173";
 
 function todayDateString() {
   const parts = new Intl.DateTimeFormat("en-US", {
@@ -161,6 +161,77 @@ test("ノートを作成して編集保存し、一覧の query 検索で確認�
     await expect(
       page.getByRole("heading", { name: updatedTitle, level: 3 }),
     ).toBeVisible();
+  } finally {
+    await cleanupNote(request, noteId);
+  }
+});
+
+test("編集モードのURLをリロード後も保持し、キャンセルと保存で解除する", async ({
+  page,
+  request,
+}) => {
+  const initialTitle = `E2E 編集モード ${Date.now()}`;
+  const updatedTitle = `${initialTitle} 更新`;
+  const initialCue = "E2E 編集モードの保存済み Cue";
+  const updatedCue = "E2E 編集モードで更新した Cue";
+  let noteId;
+
+  try {
+    const savedNote = await createNote(page, {
+      title: initialTitle,
+      cue: initialCue,
+      summary: "E2E 編集モードの Summary",
+    });
+    noteId = savedNote.id;
+
+    await page.getByRole("button", { name: "編集", exact: true }).click();
+    await expect(page).toHaveURL(
+      new RegExp(`/notes/${noteId}\\?mode=edit$`),
+    );
+    await expect(page.locator("#note-title")).toBeVisible();
+    await expect(page.locator("#note-title")).toHaveValue(initialTitle);
+    await expect(page.locator("#cue-0")).toBeVisible();
+    await expect(page.locator("#cue-0")).toHaveValue(initialCue);
+
+    await page.reload();
+    await expect(page).toHaveURL(
+      new RegExp(`/notes/${noteId}\\?mode=edit$`),
+    );
+    await expect(page.locator("#note-title")).toBeVisible();
+    await expect(page.locator("#note-title")).toHaveValue(initialTitle);
+    await expect(page.locator("#cue-0")).toBeVisible();
+    await expect(page.locator("#cue-0")).toHaveValue(initialCue);
+
+    await page.getByRole("button", { name: "キャンセル", exact: true }).click();
+    await expect(page).toHaveURL(new RegExp(`/notes/${noteId}$`));
+    await expect(
+      page.getByRole("heading", { name: initialTitle, level: 1 }),
+    ).toBeVisible();
+    await expect(page.locator("#note-title")).toHaveCount(0);
+
+    await page.getByRole("button", { name: "編集", exact: true }).click();
+    await expect(page).toHaveURL(
+      new RegExp(`/notes/${noteId}\\?mode=edit$`),
+    );
+    await page.locator("#note-title").fill(updatedTitle);
+    await page.locator("#cue-0").fill(updatedCue);
+
+    const updateResponsePromise = page.waitForResponse((response) => {
+      return (
+        response.url().endsWith(`/api/notes/${noteId}`) &&
+        response.request().method() === "PATCH"
+      );
+    });
+    await page.getByRole("button", { name: "保存", exact: true }).click();
+    const updateResponse = await updateResponsePromise;
+    expect(updateResponse.status()).toBe(200);
+
+    await expect(page).toHaveURL(new RegExp(`/notes/${noteId}$`));
+    await expect(
+      page.getByRole("heading", { name: updatedTitle, level: 1 }),
+    ).toBeVisible();
+    await expect(page.getByText(updatedCue, { exact: true })).toBeVisible();
+    await expect(page.locator("#note-title")).toHaveCount(0);
   } finally {
     await cleanupNote(request, noteId);
   }

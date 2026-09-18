@@ -120,7 +120,14 @@ export function NoteEditorTagInput({
 
   return (
     <div className="min-w-0 space-y-1">
-      <span className="block text-sm font-medium text-stone-700">タグ</span>
+      <span
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+        className="block min-w-0 max-w-full whitespace-nowrap text-sm font-medium text-stone-700"
+      >
+        タグ {tags.length}/12
+      </span>
       {tags.length > 0 && (
         <div className="flex min-w-0 flex-wrap gap-1">
           {tags.map((tag, index) => (
@@ -156,7 +163,7 @@ export function NoteEditorTagInput({
             value=""
             disabled={loadingCandidates || availableCandidates.length === 0}
             onChange={(event) => addCandidate(event.target.value)}
-            className="w-full min-w-0 rounded-lg border border-stone-200 bg-white px-2.5 py-1.5 text-sm text-stone-900 shadow-sm outline-none transition focus:border-amber-500 focus:ring-2 focus:ring-amber-100 disabled:cursor-not-allowed disabled:bg-stone-50 disabled:text-stone-400"
+            className="h-10 w-full min-w-0 rounded-lg border border-[var(--app-line)] bg-[var(--app-paper-surface)] px-2.5 py-1.5 text-sm text-[var(--app-ink)] shadow-sm outline-none transition focus:border-[var(--app-focus)] focus:ring-2 focus:ring-[var(--app-accent-soft)] disabled:cursor-not-allowed disabled:border-[var(--app-line-strong)] disabled:bg-[var(--muted)] disabled:text-[var(--app-muted-ink)] disabled:opacity-100 disabled:shadow-none disabled:focus:border-[var(--app-line-strong)] disabled:focus:ring-0"
           >
             <option value="">
               {loadingCandidates
@@ -200,7 +207,7 @@ export function NoteEditorTagInput({
               }}
               aria-invalid={hasTagError}
               aria-describedby={describedBy || undefined}
-              className="min-w-0 flex-1 rounded-lg border border-stone-200 bg-white px-2.5 py-1.5 text-sm text-stone-900 shadow-sm outline-none transition placeholder:text-stone-400 focus:border-amber-500 focus:ring-2 focus:ring-amber-100"
+              className="h-10 min-w-0 flex-1 rounded-lg border border-stone-200 bg-white px-2.5 py-1.5 text-sm text-stone-900 shadow-sm outline-none transition placeholder:text-stone-400 focus:border-amber-500 focus:ring-2 focus:ring-amber-100"
               placeholder="タグ名を入力"
             />
             <button
@@ -213,7 +220,6 @@ export function NoteEditorTagInput({
           </div>
         </div>
       </div>
-      <p className="text-[0.6875rem] leading-5 text-stone-500">最大12件</p>
       {visibleError && (
         <p id={visibleErrorId} className="break-words text-xs leading-5 text-red-600">
           {visibleError}

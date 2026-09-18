@@ -1,0 +1,63 @@
+.desktop-close-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: grid;
+  place-items: center;
+  padding: 1.5rem;
+  background: var(--app-overlay);
+}
+
+.desktop-close-dialog {
+  width: min(100%, 32rem);
+  padding: 1.5rem;
+  border: 1px solid var(--app-line);
+  border-radius: 0.75rem;
+  background: var(--app-paper-surface);
+  box-shadow: 0 1.25rem 3rem rgb(23 24 26 / 22%);
+  color: var(--app-ink);
+}
+
+.desktop-close-dialog h2 {
+  margin: 0;
+  font-size: 1.125rem;
+  font-weight: 700;
+}
+
+.desktop-close-dialog p {
+  margin: 0.75rem 0 0;
+  line-height: 1.6;
+}
+
+.desktop-close-dialog-error {
+  color: var(--app-danger);
+}
+
+.desktop-close-dialog-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-top: 1.25rem;
+}
+
+.desktop-close-dialog-actions button {
+  min-height: 2.5rem;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--app-line-strong);
+  border-radius: 0.5rem;
+  background: var(--app-surface);
+  color: inherit;
+  cursor: pointer;
+}
+
+.desktop-close-dialog-actions button:first-child {
+  border-color: var(--app-accent-deep);
+  background: var(--app-accent-deep);
+  color: var(--app-accent-contrast);
+}
+
+.desktop-close-dialog-actions button:disabled {
+  cursor: wait;
+  opacity: 0.55;
+}

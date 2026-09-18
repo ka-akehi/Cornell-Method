@@ -214,6 +214,52 @@ function parseOriginHeader(origin) {
   }
 }
 
+function getRequestAuthorityOrigin({ host, protocol }) {
+  if (
+    !isNonEmptyString(host) ||
+    host !== host.trim() ||
+    !isNonEmptyString(protocol) ||
+    protocol !== protocol.trim()
+  ) {
+    return null;
+  }
+
+  const normalizedProtocol = protocol.toLowerCase();
+
+  if (normalizedProtocol !== "http:" && normalizedProtocol !== "https:") {
+    return null;
+  }
+
+  const authorityPattern = host.startsWith("[")
+    ? /^\[[^\]]+\](?::[0-9]+)?$/
+    : /^[^:]+(?::[0-9]+)?$/;
+
+  if (!authorityPattern.test(host)) {
+    return null;
+  }
+
+  try {
+    const parsed = new URL(`${normalizedProtocol}//${host}`);
+
+    // Host is an authority, not a URL. Reject any authority that the URL
+    // parser interpreted as credentials or as a path/query/fragment.
+    if (
+      parsed.origin === "null" ||
+      parsed.username ||
+      parsed.password ||
+      parsed.pathname !== "/" ||
+      parsed.search ||
+      parsed.hash
+    ) {
+      return null;
+    }
+
+    return parsed.origin;
+  } catch {
+    return null;
+  }
+}
+
 function isSameOriginRequest({ requestOrigin, origin, referer }) {
   if (!isNonEmptyString(requestOrigin)) {
     return false;
@@ -296,6 +342,7 @@ module.exports = {
   isBasicAuthAuthorized,
   isHostedAuthEnvironment,
   isPublicPath,
+  getRequestAuthorityOrigin,
   isSameOriginRequest,
   isStateChangingApiRequest,
   parseBasicAuthorization,

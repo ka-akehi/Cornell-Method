@@ -1,4 +1,12 @@
-export class BackupError extends Error {}
+export type BackupErrorCode =
+  | "database_unavailable"
+  | "storage_failure"
+  | "configuration_invalid";
+
+export class BackupError extends Error {
+  constructor(code: BackupErrorCode, message: string);
+  code: BackupErrorCode;
+}
 
 export type BackupEntry = {
   file: string;
@@ -11,16 +19,27 @@ export type CreatedBackup = {
   path: string;
 };
 
+export type BackupDirectoryOptions = {
+  projectRoot?: string;
+  databaseUrl?: string;
+  backupsDirectory?: string;
+};
+
 export function resolveDatabasePath(options?: {
   projectRoot?: string;
   databaseUrl?: string;
 }): string;
 
-export function listBackups(options?: { projectRoot?: string }): BackupEntry[];
+export function resolveBackupDirectory(
+  options?: BackupDirectoryOptions,
+): string;
 
-export function pruneBackups(options?: { projectRoot?: string }): BackupEntry[];
+export function listBackups(options?: BackupDirectoryOptions): BackupEntry[];
+
+export function pruneBackups(options?: BackupDirectoryOptions): BackupEntry[];
 
 export function createBackup(options?: {
   projectRoot?: string;
   databaseUrl?: string;
+  backupsDirectory?: string;
 }): CreatedBackup;

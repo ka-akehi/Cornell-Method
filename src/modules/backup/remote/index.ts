@@ -3,8 +3,8 @@ import type {
   CreateBackupResponseDto,
   ListBackupsResponseDto,
 } from "@/modules/backup/contracts";
-import type { ApiErrorBody } from "@/shared/http";
-import { decodeApiErrorResponse } from "@/shared/http";
+import { requestDesktopStateChangingApi } from "@/shared/desktop/desktop-api-bridge";
+import { decodeApiErrorResponse, type ApiErrorBody } from "@/shared/http";
 
 export class BackupRemoteError extends Error {
   readonly status: number;
@@ -25,7 +25,8 @@ async function requestBackupJson<T>(
   init: RequestInit,
   fallbackMessage = "バックアップ処理に失敗しました。",
 ): Promise<T> {
-  const response = await fetch("/api/backups", init);
+  const desktopResponse = await requestDesktopStateChangingApi("/api/backups", init);
+  const response = desktopResponse ?? (await fetch("/api/backups", init));
 
   if (!response.ok) {
     const body = await decodeApiErrorResponse(response);

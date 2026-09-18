@@ -1,0 +1,61 @@
+# The app ACL becomes active as soon as an app permission is declared. Keep
+# the commands that were already available to the trusted local app explicit
+# so adding the remote capability does not silently break Settings, recovery,
+# or update bridges. The remote capability uses separate, fixed allowlists by
+# feature area; it must not reuse this full local command surface.
+[[permission]]
+identifier = "local-app-commands"
+description = "Preserves the existing app command surface for the local primary WebView."
+commands.allow = [
+  "manual_update_check",
+  "read_update_state",
+  "verify_pending_update",
+  "apply_verified_update",
+  "choose_diagnostic_export_destination_command",
+  "export_desktop_diagnostics",
+  "request_desktop_state_changing_api",
+  "choose_data_backup_save_destination_command",
+  "choose_data_backup_external_source_command",
+  "run_desktop_data_backup_operation",
+  "attempt_desktop_backup_recovery",
+  "read_desktop_managed_backup_catalog",
+  "read_desktop_pending_restore_status",
+  "read_desktop_database_recovery_snapshot",
+  "resume_desktop_pending_restore",
+]
+
+[[permission]]
+identifier = "allow-request-desktop-state-changing-api"
+description = "Enables the state-changing API bridge for the validated desktop sidecar."
+commands.allow = ["request_desktop_state_changing_api"]
+
+[[permission]]
+identifier = "allow-remote-desktop-update"
+description = "Enables the update status and verification commands for the primary sidecar WebView."
+commands.allow = [
+  "manual_update_check",
+  "read_update_state",
+  "verify_pending_update",
+]
+
+[[permission]]
+identifier = "allow-remote-desktop-data-backup"
+description = "Enables the explicit data backup and recovery commands for the primary sidecar WebView."
+commands.allow = [
+  "choose_data_backup_save_destination_command",
+  "choose_data_backup_external_source_command",
+  "run_desktop_data_backup_operation",
+  "read_desktop_managed_backup_catalog",
+  "read_desktop_database_recovery_snapshot",
+  "read_desktop_pending_restore_status",
+  "resume_desktop_pending_restore",
+  "attempt_desktop_backup_recovery",
+]
+
+[[permission]]
+identifier = "allow-remote-desktop-diagnostics"
+description = "Enables the explicit diagnostic export commands for the primary sidecar WebView."
+commands.allow = [
+  "choose_diagnostic_export_destination_command",
+  "export_desktop_diagnostics",
+]

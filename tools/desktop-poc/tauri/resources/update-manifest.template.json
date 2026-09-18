@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "candidate": "tauri-node-sidecar",
+  "channel": "poc-only",
+  "distribution": {
+    "format": "DMG",
+    "developerId": false,
+    "notarized": false,
+    "publicDistribution": false
+  },
+  "check": {
+    "frequency": "future-desktop-alpha-boundary",
+    "backgroundDownload": "future-boundary-only",
+    "signatureVerification": "future-boundary-only"
+  },
+  "apply": {
+    "mode": "explicit-restart",
+    "requiresUserAction": true,
+    "preserveCurrentVersionOnFailure": true
+  },
+  "artifacts": []
+}

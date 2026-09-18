@@ -1,6 +1,7 @@
 import type { NoteBodyMode } from "@/modules/notes/contracts";
 
 type TagRelation = {
+  order: number;
   tag: {
     id: string;
     name: string;
@@ -30,6 +31,5 @@ export function formatTags(tags: readonly TagRelation[]) {
       id: tag.id,
       name: tag.name,
       color: tag.color,
-    }))
-    .sort((a, b) => a.name.localeCompare(b.name));
+    }));
 }

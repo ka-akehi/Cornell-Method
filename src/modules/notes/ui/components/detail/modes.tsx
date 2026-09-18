@@ -1,7 +1,7 @@
 "use client";
 
-import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useEffect, useRef, useState } from "react";
 import type { NoteDetailResponse } from "@/modules/notes/contracts";
 import {
   completeReview,
@@ -9,6 +9,9 @@ import {
   NotesRemoteError,
 } from "@/modules/notes/remote";
 import { normalizeSourceType } from "@/modules/notes/model";
+import { addDaysToDateString, todayDateString } from "@/shared/date";
+import { registerDesktopDirtyController } from "@/shared/desktop/desktop-close-bridge";
+import { useNoteDetailSummaryDraft } from "@/modules/notes/ui/hooks/use-note-detail-summary-draft";
 import {
   NoteDetailEditActions,
   NoteDetailReviewActions,
@@ -20,70 +23,300 @@ import { NoteEditor } from "../editor/editor";
 import { NoteDetailReadView } from "./read-view";
 
 type Mode = "view" | "edit" | "review";
+type UrlMode = Exclude<Mode, "review">;
+type ReviewSuccessFeedback = {
+  nextReviewDate: string | null;
+};
 
 export type NoteDetailModesProps = {
   initialNote: NoteDetailResponse;
+  initialMode?: UrlMode;
 };
 
-export function NoteDetailModes({ initialNote }: NoteDetailModesProps) {
+type InFlightReviewCompletionRef = {
+  current: Promise<boolean> | null;
+};
+
+function shareInFlightReviewCompletion(
+  inFlightCompletionRef: InFlightReviewCompletionRef,
+  complete: () => Promise<boolean>,
+): Promise<boolean> {
+  if (inFlightCompletionRef.current) {
+    return inFlightCompletionRef.current;
+  }
+
+  const nextCompletion = complete();
+  inFlightCompletionRef.current = nextCompletion;
+  const clearInFlightCompletion = () => {
+    if (inFlightCompletionRef.current === nextCompletion) {
+      inFlightCompletionRef.current = null;
+    }
+  };
+  void nextCompletion.then(clearInFlightCompletion, clearInFlightCompletion);
+  return nextCompletion;
+}
+
+export function NoteDetailModes({
+  initialNote,
+  initialMode = "view",
+}: NoteDetailModesProps) {
   const router = useRouter();
-  const [mode, setMode] = useState<Mode>("view");
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const [mode, setMode] = useState<Mode>(initialMode);
   const [note, setNote] = useState(initialNote);
+  const {
+    summaryDraft,
+    summaryDirty,
+    summarySaving,
+    summaryError,
+    handleSummaryTaskToggle,
+    saveSummary,
+    discardSummaryDraft,
+    isSummarySaving,
+    acceptSavedNote,
+  } = useNoteDetailSummaryDraft({
+    mode,
+    note,
+    onSavedNote: (savedNote) =>
+      setNote((current) =>
+        mode === "edit"
+          ? savedNote
+          : {
+              ...savedNote,
+              reviewedAt: current.reviewedAt,
+              nextReviewDate: current.nextReviewDate,
+            },
+      ),
+  });
   const [showBody, setShowBody] = useState(false);
   const [showSummary, setShowSummary] = useState(false);
+  const [bodyConfirmed, setBodyConfirmed] = useState(false);
+  const [summaryConfirmed, setSummaryConfirmed] = useState(false);
   const [reviewNextDate, setReviewNextDate] = useState(initialNote.nextReviewDate ?? "");
   const [reviewing, setReviewing] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [deleteConfirmationOpen, setDeleteConfirmationOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [reviewSuccess, setReviewSuccess] =
+    useState<ReviewSuccessFeedback | null>(null);
+  const reviewNextDateRef = useRef(initialNote.nextReviewDate ?? "");
+  const reviewBaselineRef = useRef("");
+  const reviewDateDirtyRef = useRef(false);
+  const reviewCompletionInFlightRef = useRef<Promise<boolean> | null>(null);
+  const deletingRef = useRef(false);
+  const reviewSaveRef = useRef<() => Promise<boolean>>(() =>
+    Promise.resolve(false),
+  );
+  const reviewDiscardRef = useRef<() => boolean>(() => false);
+  const reviewingRef = useRef(false);
+  const bodyConfirmedRef = useRef(false);
+  const summaryConfirmedRef = useRef(false);
 
-  async function submitReview() {
+  function replaceModeUrl(nextMode: UrlMode) {
+    const nextSearchParams = new URLSearchParams(searchParams.toString());
+
+    if (nextMode === "edit") {
+      nextSearchParams.set("mode", "edit");
+    } else {
+      nextSearchParams.delete("mode");
+    }
+
+    const query = nextSearchParams.toString();
+    router.replace(query ? `${pathname}?${query}` : pathname);
+  }
+
+  function enterEditMode() {
+    if (isSummarySaving()) {
+      return;
+    }
+
+    discardSummaryDraft();
+    setReviewSuccess(null);
+    replaceModeUrl("edit");
+    setMode("edit");
+  }
+
+  function leaveEditMode(nextSummary = note.summary ?? "") {
+    if (isSummarySaving()) {
+      return;
+    }
+
+    discardSummaryDraft(nextSummary);
+    replaceModeUrl("view");
+    setMode("view");
+  }
+
+  async function performReviewCompletion(
+    submittedNextReviewDate: string | null,
+  ): Promise<boolean> {
+    if (!bodyConfirmedRef.current || !summaryConfirmedRef.current) {
+      return false;
+    }
+
+    reviewingRef.current = true;
     setReviewing(true);
     setError(null);
+    setReviewSuccess(null);
 
     try {
       const data = await completeReview(note.id, {
-        nextReviewDate: reviewNextDate || null,
+        nextReviewDate: submittedNextReviewDate,
       });
+      const confirmedNextReviewDate =
+        data.nextReviewDate !== undefined
+          ? data.nextReviewDate
+          : submittedNextReviewDate;
 
       setNote((current) => ({
         ...current,
         reviewedAt: data?.reviewedAt ?? current.reviewedAt,
-        nextReviewDate: data?.nextReviewDate ?? null,
+        nextReviewDate: confirmedNextReviewDate,
       }));
-      setReviewNextDate(data?.nextReviewDate ?? "");
+      reviewBaselineRef.current = confirmedNextReviewDate ?? "";
+      reviewNextDateRef.current = confirmedNextReviewDate ?? "";
+      reviewDateDirtyRef.current = false;
+      setReviewNextDate(confirmedNextReviewDate ?? "");
+      discardSummaryDraft();
       setShowBody(false);
       setShowSummary(false);
+      setBodyConfirmed(false);
+      setSummaryConfirmed(false);
+      bodyConfirmedRef.current = false;
+      summaryConfirmedRef.current = false;
+      setReviewSuccess({ nextReviewDate: confirmedNextReviewDate });
       setMode("view");
       router.refresh();
+      return true;
     } catch (caught) {
       if (caught instanceof NotesRemoteError) {
         setError(caught.message);
-        return;
+        return false;
       }
       setError("復習済み更新に失敗しました。通信状態またはAPIを確認してください。");
+      return false;
     } finally {
+      reviewingRef.current = false;
       setReviewing(false);
     }
   }
 
-  async function deleteNote() {
-    const confirmed = window.confirm("このノートを削除します。よろしいですか？");
-    if (!confirmed) return;
+  async function saveReviewDateForClose(): Promise<boolean> {
+    if (reviewCompletionInFlightRef.current) {
+      return reviewCompletionInFlightRef.current;
+    }
+    if (!reviewDateDirtyRef.current) {
+      return true;
+    }
+    if (!bodyConfirmedRef.current || !summaryConfirmedRef.current) {
+      return false;
+    }
 
+    return shareInFlightReviewCompletion(
+      reviewCompletionInFlightRef,
+      () => performReviewCompletion(reviewNextDateRef.current || null),
+    );
+  }
+
+  function discardReviewDateDraft(): boolean {
+    if (reviewCompletionInFlightRef.current || reviewingRef.current) {
+      return false;
+    }
+
+    const baseline = reviewBaselineRef.current;
+    reviewNextDateRef.current = baseline;
+    reviewDateDirtyRef.current = false;
+    setReviewNextDate(baseline);
+    return true;
+  }
+
+  useEffect(() => {
+    reviewSaveRef.current = saveReviewDateForClose;
+    reviewDiscardRef.current = discardReviewDateDraft;
+  });
+
+  useEffect(() => {
+    if (mode !== "review") {
+      return;
+    }
+
+    return registerDesktopDirtyController({
+      isDirty: () => reviewDateDirtyRef.current,
+      save: () =>
+        reviewCompletionInFlightRef.current ?? reviewSaveRef.current(),
+      discard: () => reviewDiscardRef.current(),
+    });
+  }, [mode]);
+
+  async function submitReview() {
+    if (
+      isSummarySaving() ||
+      reviewing ||
+      reviewingRef.current ||
+      !bodyConfirmed ||
+      !summaryConfirmed
+    ) {
+      return;
+    }
+
+    const submittedNextReviewDate = reviewNextDate || null;
+
+    return shareInFlightReviewCompletion(
+      reviewCompletionInFlightRef,
+      () => performReviewCompletion(submittedNextReviewDate),
+    );
+  }
+
+  function openDeleteConfirmation() {
+    if (deleting || deletingRef.current) {
+      return;
+    }
+
+    setDeleteConfirmationOpen(true);
+  }
+
+  function cancelDeleteConfirmation() {
+    if (deletingRef.current) {
+      return;
+    }
+
+    setDeleteConfirmationOpen(false);
+  }
+
+  async function deleteNote() {
+    if (!deleteConfirmationOpen) {
+      return;
+    }
+    if (deleting || deletingRef.current) {
+      return;
+    }
+
+    deletingRef.current = true;
     setDeleting(true);
     setError(null);
 
     try {
-      await deleteRemoteNote(note.id);
-      router.push("/notes");
-      router.refresh();
-    } catch (caught) {
-      if (caught instanceof NotesRemoteError) {
-        setError(caught.message);
+      try {
+        await deleteRemoteNote(note.id);
+      } catch (caught) {
+        setDeleteConfirmationOpen(false);
+        if (caught instanceof NotesRemoteError) {
+          setError(caught.message);
+          return;
+        }
+        setError("削除に失敗しました。通信状態またはAPIを確認してください。");
         return;
       }
-      setError("削除に失敗しました。通信状態またはAPIを確認してください。");
+
+      setDeleteConfirmationOpen(false);
+      try {
+        router.push("/notes");
+        router.refresh();
+      } catch {
+        // The DELETE already succeeded; do not show a deletion failure message.
+      }
     } finally {
+      deletingRef.current = false;
       setDeleting(false);
     }
   }
@@ -104,20 +337,21 @@ export function NoteDetailModes({ initialNote }: NoteDetailModesProps) {
     return (
       <NoteEditor
         mode="edit"
-        shell={true}
         initial={editorInitial}
         topActions={
-          <NoteDetailEditActions onCancel={() => setMode("view")} />
+          <NoteDetailEditActions onCancel={() => leaveEditMode()} />
         }
         showCancel={false}
-        onCancel={() => setMode("view")}
+        onCancel={() => leaveEditMode()}
         onSaved={(savedNote) => {
-          setNote(savedNote);
+          acceptSavedNote(savedNote);
+          reviewNextDateRef.current = savedNote.nextReviewDate ?? "";
+          reviewDateDirtyRef.current = false;
           setReviewNextDate(savedNote.nextReviewDate ?? "");
           setShowBody(false);
           setShowSummary(false);
           setError(null);
-          setMode("view");
+          leaveEditMode(savedNote.summary ?? "");
         }}
       />
     );
@@ -128,32 +362,87 @@ export function NoteDetailModes({ initialNote }: NoteDetailModesProps) {
       note={note}
       mode={mode}
       error={error}
+      summaryDraft={summaryDraft}
+      summaryDirty={summaryDirty}
+      summarySaving={summarySaving}
+      summaryError={summaryError}
+      reviewSuccess={reviewSuccess}
       showBody={showBody}
       showSummary={showSummary}
-      onShowBody={() => setShowBody(true)}
+      bodyConfirmed={bodyConfirmed}
+      onShowBody={() => {
+        if (isSummarySaving()) {
+          return;
+        }
+        bodyConfirmedRef.current = true;
+        setBodyConfirmed(true);
+        setShowBody(true);
+      }}
       onHideBody={() => {
+        if (isSummarySaving()) {
+          return;
+        }
         setShowBody(false);
         setShowSummary(false);
       }}
-      onShowSummary={() => setShowSummary(true)}
-      onHideSummary={() => setShowSummary(false)}
+      onShowSummary={() => {
+        if (isSummarySaving() || !bodyConfirmed) {
+          return;
+        }
+        summaryConfirmedRef.current = true;
+        setSummaryConfirmed(true);
+        setShowSummary(true);
+      }}
+      onHideSummary={() => {
+        if (isSummarySaving()) {
+          return;
+        }
+        setShowSummary(false);
+      }}
+      onSummaryTaskToggle={handleSummaryTaskToggle}
+      onSaveSummary={() => void saveSummary()}
+      onDiscardSummary={() => discardSummaryDraft()}
       modeActions={
         mode === "review" ? (
           <NoteDetailReviewModeActions
+            disabled={summarySaving}
             onBackToView={() => {
+              if (isSummarySaving()) {
+                return;
+              }
+              discardSummaryDraft();
               setError(null);
               setShowBody(false);
               setShowSummary(false);
+              setBodyConfirmed(false);
+              setSummaryConfirmed(false);
+              bodyConfirmedRef.current = false;
+              summaryConfirmedRef.current = false;
+              reviewDateDirtyRef.current = false;
               setMode("view");
             }}
           />
         ) : (
           <NoteDetailViewActions
-            onEdit={() => setMode("edit")}
+            disabled={summarySaving}
+            onEdit={enterEditMode}
             onReview={() => {
+              if (isSummarySaving()) {
+                return;
+              }
+              discardSummaryDraft();
+              setReviewSuccess(null);
               setShowBody(false);
               setShowSummary(false);
-              setReviewNextDate(note.nextReviewDate ?? "");
+              setBodyConfirmed(false);
+              setSummaryConfirmed(false);
+              bodyConfirmedRef.current = false;
+              summaryConfirmedRef.current = false;
+              const reviewBaseline = addDaysToDateString(todayDateString(), 7);
+              reviewBaselineRef.current = reviewBaseline;
+              reviewNextDateRef.current = reviewBaseline;
+              reviewDateDirtyRef.current = false;
+              setReviewNextDate(reviewBaseline);
               setMode("review");
             }}
           />
@@ -164,13 +453,23 @@ export function NoteDetailModes({ initialNote }: NoteDetailModesProps) {
         <NoteDetailReviewActions
           reviewNextDate={reviewNextDate}
           reviewing={reviewing}
-          onReviewNextDateChange={setReviewNextDate}
+          disabled={summarySaving}
+          reviewConfirmationComplete={bodyConfirmed && summaryConfirmed}
+          onReviewNextDateChange={(value) => {
+            reviewNextDateRef.current = value;
+            reviewDateDirtyRef.current =
+              value !== reviewBaselineRef.current;
+            setReviewNextDate(value);
+          }}
           onSubmitReview={() => void submitReview()}
         />
       ) : (
         <NoteDetailViewFooterActions
           deleting={deleting}
-          onDelete={() => void deleteNote()}
+          deleteConfirmationOpen={deleteConfirmationOpen}
+          onDeleteIntent={openDeleteConfirmation}
+          onDeleteConfirm={() => void deleteNote()}
+          onDeleteCancel={cancelDeleteConfirmation}
         />
       )}
     </NoteDetailReadView>

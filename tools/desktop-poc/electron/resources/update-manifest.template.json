@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "candidate": "electron",
+  "version": "0.1.0",
+  "architecture": "arm64",
+  "channel": "local-poc",
+  "artifacts": [],
+  "apply": {
+    "mode": "explicit-restart",
+    "backgroundDownload": "future-boundary-only",
+    "signatureVerification": "future-boundary-only",
+    "currentVersionPreservedOnFailure": true
+  },
+  "distribution": {
+    "provider": "static-local-manifest",
+    "publicHosting": false,
+    "developerId": false,
+    "notarized": false
+  }
+}

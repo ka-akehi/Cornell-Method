@@ -1,0 +1,92 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "cornell-method-tauri-desktop-poc-evidence-v1",
+  "title": "Cornell Method Tauri + Node.js sidecar Desktop PoC evidence",
+  "type": "object",
+  "required": ["schemaVersion", "candidate", "status", "baseline", "conditions", "measurements"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "candidate": { "const": "tauri-node-sidecar" },
+    "status": { "enum": ["PASS", "FAIL", "BLOCKED", "UNVERIFIED"] },
+    "baseline": { "type": "object" },
+    "conditions": { "type": "object" },
+    "measurements": {
+      "type": "object",
+      "description": "Comparison measurements keep GUI smoke, production runtime HTTP, and native shell lifecycle axes separate.",
+      "properties": {
+        "coldStart": {
+          "type": "object",
+          "description": "Primary window usability and runtime readiness are separate provenance-bearing measurements.",
+          "properties": {
+            "processLaunchToRuntimeReadyMs": { "type": ["integer", "null"] },
+            "processLaunchToPrimaryWindowUsableMs": { "type": ["integer", "null"] },
+            "primaryWindowUsable": {
+              "type": "object",
+              "properties": {
+                "status": { "enum": ["PASS", "FAIL", "BLOCKED", "UNVERIFIED"] },
+                "durationMs": { "type": ["integer", "null"] }
+              },
+              "additionalProperties": true
+            },
+            "runtimeReadiness": {
+              "type": "object",
+              "properties": {
+                "status": { "enum": ["PASS", "FAIL", "BLOCKED", "UNVERIFIED"] },
+                "readinessMs": { "type": ["integer", "null"] }
+              },
+              "additionalProperties": true
+            }
+          },
+          "additionalProperties": true
+        },
+        "primaryWindow": {
+          "type": "object",
+          "description": "Window count/creation is separate from WebView /notes usability. usableStatus PASS requires usableObservationComplete and PageLoadEvent::Finished evidence.",
+          "properties": {
+            "count": { "type": ["integer", "null"] },
+            "created": { "type": "boolean" },
+            "usableStatus": { "enum": ["PASS", "FAIL", "BLOCKED", "UNVERIFIED"] },
+            "usableObservationComplete": { "type": "boolean" },
+            "usablePageLoadEvent": { "anyOf": [{ "const": "Finished" }, { "type": "null" }] },
+            "usableAt": { "type": ["string", "null"] },
+            "usableUrl": { "type": ["string", "null"] }
+          },
+          "additionalProperties": true
+        },
+        "operationResponse": {
+          "type": "object",
+          "description": "Uses smoke operations when measured; otherwise a runtime-http operation result may be selected with source/provenance."
+        },
+        "cleanup": {
+          "type": "object",
+          "description": "Native shell cleanup only; runtime HTTP sidecar cleanup remains under productionRuntimeHttp.cleanup."
+        },
+        "uiSmoke": {
+          "type": "object",
+          "description": "Renderer/WebView UI smoke status; runtime HTTP/API results are not UI smoke."
+        },
+        "instanceRecovery": {
+          "type": ["object", "null"],
+          "description": "Supplementary Rust shell evidence for verified stale-lock recovery. PASS requires the stale lock to be atomically quarantined, the replacement lock to be reserved by the recovering owner, and the stale socket to be safely quarantined and cleaned; it does not change PASS/BLOCKED/UNVERIFIED measurement semantics.",
+          "properties": {
+            "status": { "enum": ["PASS", "BLOCKED", "UNVERIFIED"] },
+            "state": {
+              "enum": ["stale-recovered", "active-owner-focused", "startup-refused"]
+            },
+            "reason": { "type": ["string", "null"] }
+          },
+          "additionalProperties": false
+        },
+        "productionRuntimeHttp": {
+          "type": "object",
+          "description": "Production runtime HTTP/API evidence, including sidecar-only cleanup."
+        }
+      },
+      "additionalProperties": true
+    },
+    "persistence": { "type": "object" },
+    "artifacts": { "type": "object" },
+    "updateOutlook": { "type": "object" }
+  },
+  "additionalProperties": true
+}

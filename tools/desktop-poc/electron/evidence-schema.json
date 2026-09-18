@@ -1,0 +1,119 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Cornell Method Electron Desktop PoC evidence",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "candidate",
+    "baseline",
+    "toolchain",
+    "conditions",
+    "measurements",
+    "lifecycle",
+    "persistence",
+    "artifacts",
+    "updateOutlook",
+    "status",
+    "risks"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "candidate": { "const": "electron" },
+    "baseline": { "type": "object" },
+    "toolchain": { "type": "object" },
+    "conditions": { "type": "object" },
+    "measurements": { "type": "object" },
+    "lifecycle": {
+      "type": "object",
+      "properties": {
+        "shutdown": {
+          "type": "object",
+          "properties": {
+            "appOwnedCleanup": { "$ref": "#/$defs/shutdownEvidence" },
+            "processTreeBeforeShutdown": { "$ref": "#/$defs/processTreeBefore" },
+            "processTreeAfterShutdown": { "$ref": "#/$defs/processTreeAfter" },
+            "signalSelection": { "$ref": "#/$defs/signalSelection" },
+            "forcedSignalSelection": { "$ref": "#/$defs/signalSelection" }
+          }
+        }
+      }
+    },
+    "persistence": { "type": "object" },
+    "artifacts": { "type": "object" },
+    "updateOutlook": { "type": "object" },
+    "status": { "enum": ["PASS", "FAIL", "UNVERIFIED", "BLOCKED"] },
+    "risks": { "type": "array" }
+  },
+  "$defs": {
+    "processRecord": {
+      "type": "object",
+      "required": ["pid", "parentPid", "processGroupId", "commandName"],
+      "properties": {
+        "pid": { "type": "integer", "exclusiveMinimum": 0 },
+        "parentPid": { "type": "integer", "minimum": 0 },
+        "processGroupId": { "type": ["integer", "null"], "minimum": 0 },
+        "rssKb": { "type": ["integer", "null"], "minimum": 0 },
+        "state": { "type": ["string", "null"] },
+        "commandName": { "type": "string" },
+        "commandLine": { "type": ["string", "null"] },
+        "depth": { "type": "integer", "minimum": 0 },
+        "relation": { "type": "string" }
+      }
+    },
+    "processTreeBefore": {
+      "type": "object",
+      "required": ["observationStatus", "rootPid", "rootObserved", "processTree", "pids", "observedAt"],
+      "properties": {
+        "observationStatus": { "enum": ["PASS", "UNVERIFIED"] },
+        "rootPid": { "type": "integer", "exclusiveMinimum": 0 },
+        "rootObserved": { "type": "boolean" },
+        "processTree": { "type": "array", "items": { "$ref": "#/$defs/processRecord" } },
+        "pids": { "type": ["array", "null"], "items": { "type": "integer", "exclusiveMinimum": 0 } },
+        "observedAt": { "type": "string" }
+      }
+    },
+    "processTreeAfter": {
+      "type": "object",
+      "required": ["observationStatus", "rootPid", "processTree", "remainingPids", "observedAt"],
+      "properties": {
+        "observationStatus": { "enum": ["PASS", "UNVERIFIED"] },
+        "rootPid": { "type": "integer", "exclusiveMinimum": 0 },
+        "rootObserved": { "type": "boolean" },
+        "processTree": { "type": "array", "items": { "$ref": "#/$defs/processRecord" } },
+        "remainingPids": { "type": ["array", "null"], "items": { "type": "integer", "exclusiveMinimum": 0 } },
+        "observedAt": { "type": "string" }
+      }
+    },
+    "shutdownEvidence": {
+      "type": "object",
+      "required": ["status", "runtimeRootPid", "processTreeBeforeShutdown", "sigterm", "sigkill", "processTreeAfterShutdown", "forcedTermination", "timeoutMs"],
+      "properties": {
+        "status": { "enum": ["PASS", "FAIL", "UNVERIFIED"] },
+        "runtimeRootPid": { "type": ["integer", "null"], "exclusiveMinimum": 0 },
+        "signalMethod": { "type": "string" },
+        "processTreeBeforeShutdown": { "$ref": "#/$defs/processTreeBefore" },
+        "sigterm": { "type": "object" },
+        "gracefulWait": { "type": "object" },
+        "sigkill": { "type": "object" },
+        "processTreeAfterShutdown": { "$ref": "#/$defs/processTreeAfter" },
+        "remainingPids": { "type": ["array", "null"], "items": { "type": "integer", "exclusiveMinimum": 0 } },
+        "forcedTermination": { "type": "boolean" },
+        "timeoutMs": { "type": "object" },
+        "runtimeExited": { "type": "boolean" }
+      }
+    },
+    "signalSelection": {
+      "type": "object",
+      "properties": {
+        "signal": { "type": "string" },
+        "groupSignalEligible": { "type": "boolean" },
+        "selectedMethod": { "type": ["string", "null"] },
+        "fallbackReason": { "type": ["string", "null"] },
+        "expectedProcessGroupId": { "type": ["integer", "null"], "minimum": 0 },
+        "processGroupValidated": { "type": "boolean" },
+        "preShutdownScope": { "type": "object" },
+        "scopeObservation": { "type": ["object", "null"] }
+      }
+    }
+  }
+}

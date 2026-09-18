@@ -87,7 +87,7 @@
 .canvas-spike-contract,
 .canvas-spike-observations,
 .canvas-spike-notes {
-  border: 1px solid rgb(112 113 104 / 24%);
+  border: 1px solid var(--paper-line);
   border-radius: 0.75rem;
   background: var(--paper);
   box-shadow: var(--paper-shadow);
@@ -163,7 +163,7 @@
 .canvas-spike-engine-panel {
   min-width: 0;
   overflow: hidden;
-  border: 1px solid rgb(112 113 104 / 24%);
+  border: 1px solid var(--paper-line);
   border-radius: 0.75rem;
   background: var(--paper);
   box-shadow: var(--paper-shadow);
@@ -204,9 +204,9 @@
 }
 
 .canvas-spike-ready[data-ready="true"] {
-  border-color: rgb(47 85 68 / 38%);
-  background: #e8f0e7;
-  color: #2f5544;
+  border-color: color-mix(in srgb, var(--app-success) 42%, transparent);
+  background: var(--app-success-soft);
+  color: var(--app-success);
 }
 
 .canvas-spike-toolbar {
@@ -243,7 +243,7 @@
 .canvas-spike-toolbar button:hover:not(:disabled),
 .canvas-spike-toolbar button[data-active="true"] {
   border-color: var(--paper-accent);
-  background: #fff2df;
+  background: var(--app-accent-soft);
   color: var(--paper-accent-deep);
 }
 
@@ -285,7 +285,7 @@
   max-width: 100%;
   overflow: auto;
   overscroll-behavior: contain;
-  background: #e4e2da;
+  background: var(--paper-soft);
   padding: 0.75rem;
   scrollbar-width: thin;
 }
@@ -294,7 +294,7 @@
   position: relative;
   flex: 0 0 auto;
   overflow: hidden;
-  border: 1px solid rgb(112 113 104 / 28%);
+  border: 1px solid var(--paper-line);
   background: var(--paper);
   box-shadow: 0 5px 16px rgb(47 54 49 / 10%);
 }
