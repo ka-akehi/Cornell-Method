@@ -1,0 +1,99 @@
+name: Resolve Codex review threads for operational records
+
+on:
+  pull_request_review:
+    types: [submitted]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  resolve-excluded-threads:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/github-script@v9
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          retries: 3
+          script: |
+            const { owner, repo } = context.repo;
+            const pullRequestNumber = context.payload.pull_request?.number;
+            const reviewAuthor = String(context.payload.review?.user?.login ?? "")
+              .replace(/\[bot\]$/i, "")
+              .toLowerCase();
+
+            if (
+              !Number.isInteger(pullRequestNumber) ||
+              reviewAuthor !== "chatgpt-codex-connector"
+            ) {
+              core.info("Ignoring a non-Codex review.");
+              return;
+            }
+
+            const isReviewExcludedPath = (path) => {
+              const normalized = String(path ?? "")
+                .replace(/\\/g, "/")
+                .replace(/^\.\/+/, "");
+              if (!normalized) return false;
+              if (
+                !normalized.includes("/") &&
+                /^HANDOFF(?:_[^/]+)?\.md$/i.test(normalized)
+              ) {
+                return true;
+              }
+              return (
+                normalized.startsWith("summary/") ||
+                /^codex-queue\/(?:.+\/)?summar(?:y|ies)\//i.test(normalized)
+              );
+            };
+
+            const result = await github.graphql(
+              `query($owner:String!,$repo:String!,$number:Int!){
+                repository(owner:$owner,name:$repo){
+                  pullRequest(number:$number){
+                    reviewThreads(first:100){nodes{
+                      id
+                      isResolved
+                      isOutdated
+                      comments(first:100){nodes{
+                        path
+                        author{login}
+                      }}
+                    }}
+                  }
+                }
+              }`,
+              { owner, repo, number: pullRequestNumber },
+            );
+
+            const threads =
+              result.repository?.pullRequest?.reviewThreads?.nodes ?? [];
+            const targets = threads.filter((thread) => {
+              if (thread.isResolved || thread.isOutdated) return false;
+              return (thread.comments?.nodes ?? []).some((comment) => {
+                const author = String(comment.author?.login ?? "")
+                  .replace(/\[bot\]$/i, "")
+                  .toLowerCase();
+                return (
+                  author === "chatgpt-codex-connector" &&
+                  isReviewExcludedPath(comment.path)
+                );
+              });
+            });
+
+            for (const thread of targets) {
+              await github.graphql(
+                `mutation($threadId:ID!){
+                  resolveReviewThread(input:{threadId:$threadId}){
+                    thread{id isResolved}
+                  }
+                }`,
+                { threadId: thread.id },
+              );
+            }
+
+            core.info(
+              `PR #${pullRequestNumber}: resolved ${targets.length} Codex thread(s) for review-excluded operational records.`,
+            );
